@@ -95,8 +95,11 @@ class TestResolveEmptyInput:
 
         assert plays == []
         assert metrics["accepted_plays"] == 0
-        assert metrics["error_count"] == 0
         assert metrics["new_tracks_count"] == 0
+        # The plays were dropped, not absent: they must still be counted and
+        # reported as failures, or the import summary hides the loss.
+        assert metrics["raw_plays"] == len(plays_in)
+        assert metrics["error_count"] == len(plays_in)
         inward.resolve_to_canonical_tracks.assert_not_awaited()
 
 

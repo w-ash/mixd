@@ -1,4 +1,4 @@
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConnectorPlaylistBrowseSchema } from "#/api/generated/model";
@@ -91,6 +91,44 @@ describe("ConnectorPlaylistPickerDialog", () => {
         (el.textContent === "Not imported" || el.textContent === "Imported"),
     );
     expect(pills.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps the refresh button pending until the new list has landed", async () => {
+    // The spinner is the only signal that a force-refresh is in flight; if the
+    // mutation resolves before the refetch, it stops over the stale list.
+    let call = 0;
+    server.use(
+      http.get("*/api/v1/connectors/spotify/playlists", async () => {
+        call += 1;
+        // Only the post-refresh refetch is delayed, so a spinner that stopped
+        // early is observable while the second response is still in the air.
+        if (call > 2) await delay(150);
+        return HttpResponse.json({
+          data: call > 2 ? [CHILL, WORKOUT] : [CHILL],
+          from_cache: call <= 1,
+          fetched_at: new Date().toISOString(),
+        });
+      }),
+    );
+    setup();
+
+    await screen.findByText("Chill Vibes");
+    await userEvent.click(screen.getByLabelText("Refresh from Spotify"));
+
+    let stoppedOverTheStaleList = false;
+    await waitFor(
+      () => {
+        const button = screen.getByLabelText(
+          "Refresh from Spotify",
+        ) as HTMLButtonElement;
+        if (!button.disabled && screen.queryByText("Workout Mix") === null) {
+          stoppedOverTheStaleList = true;
+        }
+        expect(screen.getByText("Workout Mix")).toBeInTheDocument();
+      },
+      { interval: 10 },
+    );
+    expect(stoppedOverTheStaleList).toBe(false);
   });
 
   it("filters by search (client-side, case-insensitive substring)", async () => {

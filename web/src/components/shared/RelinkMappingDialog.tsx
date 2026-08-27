@@ -1,13 +1,9 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type {
   ConnectorMappingSchema,
   LibraryTrackSchema,
 } from "#/api/generated/model";
-import {
-  getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
-  useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatch,
-} from "#/api/generated/tracks/tracks";
+import { useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatch } from "#/api/generated/tracks/tracks";
 import { CommandSearchList } from "#/components/shared/CommandSearchList";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { MappingInfoCard } from "#/components/shared/MappingInfoCard";
@@ -37,21 +33,10 @@ export function RelinkMappingDialog({
   const [selectedTarget, setSelectedTarget] =
     useState<LibraryTrackSchema | null>(null);
 
-  const queryClient = useQueryClient();
   const relinkMutation =
     useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatch({
       mutation: {
         onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(trackId),
-          });
-          if (selectedTarget) {
-            queryClient.invalidateQueries({
-              queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(
-                selectedTarget.id,
-              ),
-            });
-          }
           toasts.success("Mapping relinked", {
             description: `Moved to "${selectedTarget?.title}".`,
           });

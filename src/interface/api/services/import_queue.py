@@ -59,6 +59,9 @@ from src.interface.api.services.sse_operations import (
     safe_start_operation,
 )
 
+# The drain and each per-file run name the same work, spelled once.
+_OPERATION_TYPE = "import_spotify_history"
+
 logger = get_logger(__name__).bind(service="import_queue")
 
 # Queue temp directories are created with this prefix so a startup sweep can
@@ -439,7 +442,7 @@ async def _drain_entries(queue: ImportQueue) -> None:
         try:
             started = await launch_sse_operation(
                 user_id=queue.user_id,
-                operation_type="import_spotify_history",
+                operation_type=_OPERATION_TYPE,
                 coro_factory=_spotify_file_import(queue.user_id, entry.path),
                 occupies_slot=False,
                 parent_operation_id=queue.operation_id,
@@ -486,6 +489,11 @@ async def _push_drain_terminal(queue: ImportQueue, status: OperationStatus) -> N
             else WorkflowConstants.SSE_EVENT_COMPLETE,
             queue.operation_id,
             "failed" if status == "error" else "completed",
+            # The drain owns no OperationRun row of its own, but it ran the same
+            # import its children did — so it names the same operation type, and
+            # a client attached to the export gets one invalidation at the end
+            # rather than one per file.
+            operation_type=_OPERATION_TYPE,
             # Same ``counts`` slot a single run's terminal uses, so a client
             # reads an export's outcome through the code path it already has.
             counts=tally,

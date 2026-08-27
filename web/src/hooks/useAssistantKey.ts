@@ -1,7 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
-
 import {
-  getGetAssistantStatusApiV1AssistantStatusGetQueryKey,
   useDeleteAssistantKeyApiV1AssistantKeyDelete,
   useProbeAssistantKeyApiV1AssistantKeyTestPost,
   usePutAssistantKeyApiV1AssistantKeyPut,
@@ -18,17 +15,9 @@ import { toasts } from "#/lib/toasts";
  * toast — the settings form is the place to fix them.
  */
 export function useAssistantKey() {
-  const queryClient = useQueryClient();
-  const statusKey = getGetAssistantStatusApiV1AssistantStatusGetQueryKey();
-  const invalidateStatus = () =>
-    queryClient.invalidateQueries({ queryKey: statusKey });
-
   const connectMutation = usePutAssistantKeyApiV1AssistantKeyPut({
     mutation: {
-      onSuccess: () => {
-        invalidateStatus();
-        toasts.success("AI assistant connected");
-      },
+      onSuccess: () => toasts.success("AI assistant connected"),
       // Inline error on the form; suppress the global error toast.
       meta: { suppressErrorToast: true },
     },
@@ -36,10 +25,7 @@ export function useAssistantKey() {
 
   const removeMutation = useDeleteAssistantKeyApiV1AssistantKeyDelete({
     mutation: {
-      onSuccess: () => {
-        invalidateStatus();
-        toasts.success("AI assistant disconnected");
-      },
+      onSuccess: () => toasts.success("AI assistant disconnected"),
       meta: { errorLabel: "Failed to remove the API key" },
     },
   });

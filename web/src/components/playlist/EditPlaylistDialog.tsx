@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
-  getListPlaylistsApiV1PlaylistsGetQueryKey,
   useUpdatePlaylistApiV1PlaylistsPlaylistIdPatch,
 } from "#/api/generated/playlists/playlists";
 import { Button } from "#/components/ui/button";
@@ -59,13 +58,6 @@ export function EditPlaylistDialog({
         toasts.error("Failed to update playlist", error);
       },
       meta: { suppressErrorToast: true },
-      onSettled: () => {
-        // Always refetch authoritative data after mutation settles
-        queryClient.invalidateQueries({ queryKey: detailQueryKey });
-        queryClient.invalidateQueries({
-          queryKey: getListPlaylistsApiV1PlaylistsGetQueryKey(),
-        });
-      },
     },
   });
 

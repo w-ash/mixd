@@ -14,6 +14,8 @@ import type {
 } from "#/api/generated/model";
 import { connectorBrand } from "#/lib/connector-brand";
 
+import { expiredAt, statusStateFor } from "./status-matrix";
+
 export function makeConnectorPlaylistBrowse(
   overrides: Partial<ConnectorPlaylistBrowseSchema> = {},
 ): ConnectorPlaylistBrowseSchema {
@@ -94,25 +96,15 @@ export function makeConnectorMetadata(
   };
   const display_name = connectorBrand[overrides.name]?.label ?? overrides.name;
   const connected = overrides.connected ?? false;
-  // Mirrors derive_status_state() in the backend so tests that omit
-  // ``status`` still pass through the right RowAction branch. ``auth_error``
-  // wins over the static auth_method lookup (matching backend ordering).
-  // scope_missing / reauth_required are states, not failures — they map to
-  // needs_reauth; any other auth_error maps to error.
-  const defaultStatus: ConnectorMetadataSchema["status"] =
-    overrides.auth_error === "scope_missing" ||
-    overrides.auth_error === "reauth_required"
-      ? "needs_reauth"
-      : overrides.auth_error
-        ? "error"
-        : ({
-            coming_soon: "coming_soon",
-            none: "public_api",
-            oauth: connected ? "connected" : "disconnected",
-            browser_bridge: connected ? "connected" : "disconnected",
-            token: connected ? "connected" : "disconnected",
-            device_code: connected ? "connected" : "disconnected",
-          }[d.auth_method] as ConnectorMetadataSchema["status"]);
+  // Read, not re-implemented: a test that omits ``status`` still has to land in
+  // the right RowAction branch, and a hand-written copy of the backend rule
+  // drifts green — the factory keeps passing while the real UI goes wrong.
+  const defaultStatus = statusStateFor({
+    auth_method: d.auth_method,
+    auth_error: overrides.auth_error ?? null,
+    connected,
+    expired: expiredAt(overrides.token_expires_at ?? null),
+  });
   return {
     display_name,
     category: d.category,

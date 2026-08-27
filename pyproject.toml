@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.11.3.2"
+version = "0.11.4"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -54,6 +54,7 @@ dependencies = [
 mixd = "src.interface.cli.app:main"
 mixd-api = "src.interface.api.app:run_server"
 export-openapi = "scripts.export_openapi:main"
+export-status-matrix = "scripts.export_status_matrix:main"
 
 [project.urls]
 Homepage = "https://github.com/w-ash/mixd"

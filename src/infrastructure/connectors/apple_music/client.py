@@ -37,7 +37,6 @@ from src.infrastructure.connectors._shared.http_client import (
     parse_json_response,
 )
 from src.infrastructure.connectors._shared.retry_policies import (
-    RetryConfig,
     RetryPolicyFactory,
 )
 from src.infrastructure.connectors._shared.token_storage import TokenStorage
@@ -131,14 +130,10 @@ class AppleMusicAPIClient(BaseAPIClient):
         self._user_id = get_current_user_id_from_context()
         self._token_provider = DeveloperTokenProvider()
 
-        self._retry_policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name="apple_music",
-                classifier=AppleMusicErrorClassifier(),
-                max_attempts=settings.api.apple_music.retry_count,
-                wait_multiplier=settings.api.apple_music.retry_base_delay,
-                wait_max=settings.api.apple_music.retry_max_delay,
-            )
+        self._retry_policy = RetryPolicyFactory.for_service(
+            "apple_music",
+            AppleMusicErrorClassifier(),
+            settings.api.apple_music,
         )
         self._client = make_apple_music_client(
             AppleMusicDeveloperAuth(self._token_provider)

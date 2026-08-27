@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -34,6 +34,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -239,7 +240,7 @@ export const renameTagApiV1TagsTagPatch = async (tag: string,
 
 
 
-export const getRenameTagApiV1TagsTagPatchMutationOptions = <TError = HTTPValidationError,
+export const useRenameTagApiV1TagsTagPatchMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, TError,{tag: string;data: RenameTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, TError,{tag: string;data: RenameTagRequest}, TContext> => {
 
@@ -261,10 +262,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tags/{tag}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type RenameTagApiV1TagsTagPatchMutationResult = NonNullable<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>>
     export type RenameTagApiV1TagsTagPatchMutationBody = RenameTagRequest
@@ -281,7 +282,7 @@ export const useRenameTagApiV1TagsTagPatch = <TError = HTTPValidationError,
         {tag: string;data: RenameTagRequest},
         TContext
       > => {
-      return useMutation(getRenameTagApiV1TagsTagPatchMutationOptions(options), queryClient);
+      return useMutation(useRenameTagApiV1TagsTagPatchMutationOptions(options), queryClient);
     }
     export type deleteTagApiV1TagsTagDeleteResponse200 = {
   data: TagOperationResult
@@ -333,7 +334,7 @@ export const deleteTagApiV1TagsTagDelete = async (tag: string, options?: Paramet
 
 
 
-export const getDeleteTagApiV1TagsTagDeleteMutationOptions = <TError = HTTPValidationError,
+export const useDeleteTagApiV1TagsTagDeleteMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, TError,{tag: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, TError,{tag: string}, TContext> => {
 
@@ -355,10 +356,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tags/{tag}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type DeleteTagApiV1TagsTagDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>>
 
@@ -375,7 +376,7 @@ export const useDeleteTagApiV1TagsTagDelete = <TError = HTTPValidationError,
         {tag: string},
         TContext
       > => {
-      return useMutation(getDeleteTagApiV1TagsTagDeleteMutationOptions(options), queryClient);
+      return useMutation(useDeleteTagApiV1TagsTagDeleteMutationOptions(options), queryClient);
     }
     export type mergeTagsApiV1TagsMergePostResponse200 = {
   data: TagOperationResult
@@ -428,7 +429,7 @@ export const mergeTagsApiV1TagsMergePost = async (mergeTagsRequest: MergeTagsReq
 
 
 
-export const getMergeTagsApiV1TagsMergePostMutationOptions = <TError = HTTPValidationError,
+export const useMergeTagsApiV1TagsMergePostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, TError,{data: MergeTagsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, TError,{data: MergeTagsRequest}, TContext> => {
 
@@ -450,10 +451,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tags/merge` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type MergeTagsApiV1TagsMergePostMutationResult = NonNullable<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>>
     export type MergeTagsApiV1TagsMergePostMutationBody = MergeTagsRequest
@@ -470,5 +471,5 @@ export const useMergeTagsApiV1TagsMergePost = <TError = HTTPValidationError,
         {data: MergeTagsRequest},
         TContext
       > => {
-      return useMutation(getMergeTagsApiV1TagsMergePostMutationOptions(options), queryClient);
+      return useMutation(useMergeTagsApiV1TagsMergePostMutationOptions(options), queryClient);
     }

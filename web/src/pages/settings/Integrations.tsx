@@ -1,8 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { HelpCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
+import { invalidateTags } from "#/api/cache-tags";
+import {
+  getGetConnectorsApiV1ConnectorsGetQueryOptions,
+  useGetConnectorsApiV1ConnectorsGet,
+} from "#/api/generated/connectors/connectors";
 import type { ConnectorMetadataSchema } from "#/api/generated/model";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
@@ -12,9 +16,34 @@ import { QueryStates } from "#/components/shared/QueryStates";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Skeleton } from "#/components/ui/skeleton";
 import { getConnectorLabel } from "#/lib/connector-brand";
-import { settleConnectorsRefetch } from "#/lib/connector-queries";
 import { humanizeAuthError } from "#/lib/connectors";
 import { toasts } from "#/lib/toasts";
+
+/**
+ * Refresh the connectors query and resolve once the screen is true.
+ *
+ * Two cases. Where the query EXISTS — including mid-initial-fetch, the usual
+ * shape on an OAuth redirect — `invalidateTags` owns it: it settles the
+ * in-flight fetch first, because query-core erases an invalidation issued
+ * during one, and only then invalidates for real.
+ *
+ * Where no query exists yet, `invalidateQueries` matches nothing and resolves in
+ * a microtask, so the caller's toast would fire over a card that never
+ * refetched. `fetchQuery` forces a real request to exist. The test is the query
+ * OBJECT, not its data: a fetch-status check would send this branch onto a
+ * `fetchQuery` that just dedupes back onto the pre-connect request.
+ */
+async function settleConnectors(queryClient: QueryClient): Promise<void> {
+  const options = getGetConnectorsApiV1ConnectorsGetQueryOptions();
+  const existing = queryClient
+    .getQueryCache()
+    .find({ queryKey: options.queryKey });
+  if (existing === undefined) {
+    await queryClient.fetchQuery(options);
+    return;
+  }
+  await invalidateTags(queryClient, ["connectors"]);
+}
 
 /** Display copy + ordering for connector categories.
  *
@@ -181,12 +210,11 @@ export function Integrations() {
     const label = getConnectorLabel(service);
 
     if (status === "success") {
-      // This page mounts fresh off the OAuth redirect, so the connectors
-      // query's *initial* fetch (fired on mount, alongside this effect) is
-      // often still in flight right here — the settle helper guards that
-      // race. Toast only after the refetch settles, so "connected" is never
-      // announced over a card that still reads disconnected.
-      void settleConnectorsRefetch(queryClient).then(() =>
+      // This page mounts fresh off the OAuth redirect, so the connectors query
+      // is often mid-flight — or has not been created at all — right here.
+      // `settleConnectors` owns both halves of that race. Toast only once the
+      // card is actually showing post-connect state.
+      void settleConnectors(queryClient).then(() =>
         toasts.success(`${label} connected`),
       );
     } else {

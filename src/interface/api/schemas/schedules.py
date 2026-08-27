@@ -7,7 +7,7 @@ validator enforces the two stay consistent before the command is built.
 """
 
 from datetime import datetime
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -15,6 +15,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 from src.application.use_cases._shared.schedule_validators import (
     validate_iana_timezone,
 )
+from src.application.use_cases._shared.sync_targets import SYNC_TARGETS, SyncTarget
 
 # Every cadence a schedule can HAVE. "interval" is read-only over the API: it
 # belongs to self-managed targets that rewrite their own cadence, so it appears
@@ -128,3 +129,38 @@ class ScheduleListResponse(BaseModel):
     """All of a user's schedules (workflow + sync) for the schedules view."""
 
     data: list[ScheduleListItem]
+
+
+class SyncTargetSchema(BaseModel):
+    """One dispatchable sync target: its id, label, and who owns its cadence.
+
+    ``id`` reuses the application's ``SyncTarget`` alias rather than a wire copy,
+    which would reintroduce inside the backend the mirror this endpoint deletes
+    from the frontend.
+    """
+
+    id: SyncTarget
+    label: str
+    # True for targets whose cadence the server manages (the adaptive play
+    # poller — see the sync_targets module docstring). The web renders these
+    # with a read-only cadence line and a toggle, not the daily/weekly picker.
+    self_managed: bool
+
+
+class SyncTargetListResponse(BaseModel):
+    data: list[SyncTargetSchema]
+
+    @classmethod
+    def from_registry(cls) -> Self:
+        """Project the dispatch table into wire rows."""
+        return cls(
+            data=[
+                SyncTargetSchema(
+                    # Pinned by ``test_cache_tags``: literal and registry match.
+                    id=cast(SyncTarget, target),
+                    label=spec.label,
+                    self_managed=not spec.user_schedulable,
+                )
+                for target, spec in sorted(SYNC_TARGETS.items())
+            ]
+        )

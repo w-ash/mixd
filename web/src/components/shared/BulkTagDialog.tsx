@@ -1,11 +1,6 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { getListTagsApiV1TagsGetQueryKey } from "#/api/generated/tags/tags";
-import {
-  getListTracksApiV1TracksGetQueryKey,
-  useBatchTagTracksApiV1TracksTagsBatchPost,
-} from "#/api/generated/tracks/tracks";
+import { useBatchTagTracksApiV1TracksTagsBatchPost } from "#/api/generated/tracks/tracks";
 import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 
@@ -28,18 +23,11 @@ export function BulkTagDialog({
   onTagged,
 }: BulkTagDialogProps) {
   const [draftTag, setDraftTag] = useState<string | null>(null);
-  const queryClient = useQueryClient();
 
   const batchTag = useBatchTagTracksApiV1TracksTagsBatchPost({
     mutation: {
       onSuccess: (response) => {
         if (response.status !== 200) return;
-        queryClient.invalidateQueries({
-          queryKey: getListTracksApiV1TracksGetQueryKey(),
-        });
-        queryClient.invalidateQueries({
-          queryKey: getListTagsApiV1TagsGetQueryKey(),
-        });
         onTagged?.();
         onOpenChange(false);
         setDraftTag(null);

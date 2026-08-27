@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   faker
@@ -18,13 +18,13 @@ import type {
 
 export const getListOperationRunsApiV1OperationRunsGetResponseMock = (overrideResponse: Partial<Extract<OperationRunListResponse, object>> = {}): OperationRunListResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), operation_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ended_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), status: faker.helpers.arrayElement(['running','complete','partial','error','cancelled'] as const), counts: {
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
-      }, issue_count: faker.number.int(), retryable: faker.datatype.boolean(), initiated_by: faker.string.alpha({length: {min: 10, max: 20}}), trigger_detail: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})), limit: faker.number.int(), next_cursor: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ...overrideResponse})
+      }, retryable: faker.datatype.boolean(), initiated_by: faker.string.alpha({length: {min: 10, max: 20}}), trigger_detail: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), issue_count: faker.number.int(), touched: faker.helpers.arrayElements(['assistant','checkpoints','connector-playlists','connectors','import-queue','operation-runs','playlist-assignments','playlists','plays','reviews','schedules','settings','stats','tags','tracks','workflow-catalog','workflow-runs','workflows'] as const)})), limit: faker.number.int(), next_cursor: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ...overrideResponse})
 
 export const getGetOperationRunApiV1OperationRunsRunIdGetResponseMock = (overrideResponse: Partial<Extract<OperationRunDetailSchema, object>> = {}): OperationRunDetailSchema => ({id: faker.string.uuid(), operation_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ended_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), status: faker.helpers.arrayElement(['running','complete','partial','error','cancelled'] as const), counts: {
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
-      }, issues: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({
+      }, retryable: faker.datatype.boolean(), initiated_by: faker.string.alpha({length: {min: 10, max: 20}}), trigger_detail: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), issues: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
-      })), retryable: faker.datatype.boolean(), initiated_by: faker.string.alpha({length: {min: 10, max: 20}}), trigger_detail: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
+      })), touched: faker.helpers.arrayElements(['assistant','checkpoints','connector-playlists','connectors','import-queue','operation-runs','playlist-assignments','playlists','plays','reviews','schedules','settings','stats','tags','tracks','workflow-catalog','workflow-runs','workflows'] as const), ...overrideResponse})
 
 export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 

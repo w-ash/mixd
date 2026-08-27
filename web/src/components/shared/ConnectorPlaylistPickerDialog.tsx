@@ -1,9 +1,8 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Loader2, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
-  getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey,
   listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet,
   useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet,
 } from "#/api/generated/connectors/connectors";
@@ -130,7 +129,6 @@ export function ConnectorPlaylistPickerDialog({
   mode = "import",
 }: ConnectorPlaylistPickerDialogProps) {
   const isSelect = mode === "select";
-  const queryClient = useQueryClient();
   const { search, setSearch, deferredSearch, isSearching } = useTrackSearch();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -144,14 +142,6 @@ export function ConnectorPlaylistPickerDialog({
   const connectorName = connector.name;
   const connectorLabel = connector.display_name;
 
-  const invalidatePlaylists = () =>
-    queryClient.invalidateQueries({
-      queryKey:
-        getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey(
-          connectorName,
-        ),
-    });
-
   const { data, isLoading, isError, error } =
     useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet(
       connectorName,
@@ -164,10 +154,12 @@ export function ConnectorPlaylistPickerDialog({
       listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet(connectorName, {
         force_refresh: true,
       }),
-    onSuccess: async () => {
-      await invalidatePlaylists();
+    // The spinner covers the round trip, so the list must be current first.
+    meta: {
+      errorLabel: `Failed to refresh ${connectorLabel} playlists`,
+      invalidates: ["connector-playlists"],
+      awaitInvalidation: true,
     },
-    meta: { errorLabel: `Failed to refresh ${connectorLabel} playlists` },
   });
 
   const reApply = useMutation({
@@ -181,8 +173,7 @@ export function ConnectorPlaylistPickerDialog({
       );
       return { playlist, results };
     },
-    onSuccess: async ({ playlist, results }) => {
-      await invalidatePlaylists();
+    onSuccess: ({ playlist, results }) => {
       const tags = results.reduce(
         (sum, r) => sum + (r.status === 200 ? r.data.tags_applied : 0),
         0,
@@ -198,14 +189,16 @@ export function ConnectorPlaylistPickerDialog({
             : `${tags} tags · ${prefs} ratings refreshed.`,
       });
     },
-    meta: { errorLabel: "Re-apply failed" },
+    // The toast reports what changed, so the list must be current first.
+    meta: {
+      errorLabel: "Re-apply failed",
+      invalidates: ["connector-playlists"],
+      awaitInvalidation: true,
+    },
   });
 
   const undoRemove = useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost({
     mutation: {
-      onSuccess: async () => {
-        await invalidatePlaylists();
-      },
       meta: { errorLabel: "Undo failed" },
     },
   });
@@ -223,8 +216,7 @@ export function ConnectorPlaylistPickerDialog({
       );
       return { playlist, assignment };
     },
-    onSuccess: async ({ playlist, assignment }) => {
-      await invalidatePlaylists();
+    onSuccess: ({ playlist, assignment }) => {
       const isTag = assignment.action_type === "add_tag";
       const label = isTag
         ? `${assignment.action_value} removed from '${playlist.name}'`
@@ -245,7 +237,12 @@ export function ConnectorPlaylistPickerDialog({
         },
       });
     },
-    meta: { errorLabel: "Failed to remove assignment" },
+    // The undo toast names the assignment, so the list must be current first.
+    meta: {
+      errorLabel: "Failed to remove assignment",
+      invalidates: ["connector-playlists"],
+      awaitInvalidation: true,
+    },
   });
 
   const response = data?.status === 200 ? data.data : undefined;

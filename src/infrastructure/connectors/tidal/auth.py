@@ -95,10 +95,15 @@ async def build_auth_url(
     code_verifier = secrets.token_urlsafe(64)
     code_challenge = compute_pkce_challenge(code_verifier)
     state = await create_state(user_id, "tidal", code_verifier=code_verifier)
+    return authorize_url(settings.credentials.tidal_redirect_uri, state, code_challenge)
+
+
+def authorize_url(redirect_uri: str, state: str, code_challenge: str) -> str:
+    """Tidal's authorize URL. One spelling for the web and CLI flows alike."""
     params = {
         "client_id": settings.credentials.tidal_client_id,
         "response_type": "code",
-        "redirect_uri": settings.credentials.tidal_redirect_uri,
+        "redirect_uri": redirect_uri,
         "scope": " ".join(TIDAL_SCOPES),
         "state": state,
         "code_challenge_method": "S256",

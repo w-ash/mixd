@@ -16,6 +16,11 @@ vi.mock("#/api/sse-client", () => ({
 }));
 
 import { connectToSSE } from "#/api/sse-client";
+import {
+  createTestQueryClient,
+  seedQuery,
+  wasInvalidated,
+} from "#/test/query-utils";
 import { mockSSEOpenStream, mockSSEWithEvents } from "#/test/sse-test-utils";
 
 /** Mock connectToSSE to reject with an error. */
@@ -55,6 +60,7 @@ function makeRunRow(
     issue_count: 0,
     retryable: false,
     initiated_by: "user",
+    touched: [],
     ...overrides,
   };
 }
@@ -310,31 +316,28 @@ describe("useOperationProgress", () => {
     expect(result.current.progress?.status).not.toBe("failed");
   });
 
-  it("invalidates custom query keys on complete", async () => {
+  it("invalidates what the server says the run touched, on complete", async () => {
     mockSSEWithEvents([
       {
         event: "complete",
-        data: JSON.stringify({ final_status: "completed" }),
+        data: JSON.stringify({
+          final_status: "completed",
+          touched: ["checkpoints"],
+        }),
       },
     ]);
 
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 } },
-    });
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const queryClient = createTestQueryClient();
+    seedQuery(queryClient, ["/api/v1/imports/checkpoints"]);
 
-    renderHook(
-      () =>
-        useOperationProgress("op-123", {
-          invalidateKeys: [["/api/v1/imports/checkpoints"]],
-        }),
-      { wrapper: createWrapper(queryClient) },
-    );
+    renderHook(() => useOperationProgress("op-123"), {
+      wrapper: createWrapper(queryClient),
+    });
 
     await waitFor(() => {
-      expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ["/api/v1/imports/checkpoints"],
-      });
+      expect(wasInvalidated(queryClient, ["/api/v1/imports/checkpoints"])).toBe(
+        true,
+      );
     });
   });
 
@@ -452,31 +455,28 @@ describe("useOperationProgress", () => {
     expect(result.current.error).toBeNull();
   });
 
-  it("invalidates query keys on error event", async () => {
+  it("invalidates on error too — a failed run may have written", async () => {
     mockSSEWithEvents([
       {
         event: "error",
-        data: JSON.stringify({ message: "Rate limit exceeded" }),
+        data: JSON.stringify({
+          message: "Rate limit exceeded",
+          touched: ["checkpoints"],
+        }),
       },
     ]);
 
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 } },
-    });
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const queryClient = createTestQueryClient();
+    seedQuery(queryClient, ["/api/v1/imports/checkpoints"]);
 
-    renderHook(
-      () =>
-        useOperationProgress("op-123", {
-          invalidateKeys: [["/api/v1/imports/checkpoints"]],
-        }),
-      { wrapper: createWrapper(queryClient) },
-    );
+    renderHook(() => useOperationProgress("op-123"), {
+      wrapper: createWrapper(queryClient),
+    });
 
     await waitFor(() => {
-      expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ["/api/v1/imports/checkpoints"],
-      });
+      expect(wasInvalidated(queryClient, ["/api/v1/imports/checkpoints"])).toBe(
+        true,
+      );
     });
   });
 
@@ -885,28 +885,23 @@ describe("useOperationProgress", () => {
       });
     });
 
-    it("invalidates the caller's query keys when recovery resolves the run", async () => {
+    it("invalidates the run row's tags when recovery resolves the run", async () => {
+      // The dropped-stream path must invalidate identically to a live frame —
+      // it is the case most likely to strand a stale screen.
       mockStreamLostThenQueueGone();
-      mockRunRows(makeRunRow({ status: "complete" }));
+      mockRunRows(makeRunRow({ status: "complete", touched: ["checkpoints"] }));
 
-      const queryClient = new QueryClient({
-        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+      const queryClient = createTestQueryClient();
+      seedQuery(queryClient, ["/api/v1/imports/checkpoints"]);
+
+      renderHook(() => useOperationProgress("op-123", FAST_RECOVERY), {
+        wrapper: createWrapper(queryClient),
       });
-      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-
-      renderHook(
-        () =>
-          useOperationProgress("op-123", {
-            ...FAST_RECOVERY,
-            invalidateKeys: [["/api/v1/imports/checkpoints"]],
-          }),
-        { wrapper: createWrapper(queryClient) },
-      );
 
       await waitFor(() => {
-        expect(invalidateSpy).toHaveBeenCalledWith({
-          queryKey: ["/api/v1/imports/checkpoints"],
-        });
+        expect(
+          wasInvalidated(queryClient, ["/api/v1/imports/checkpoints"]),
+        ).toBe(true);
       });
     });
 

@@ -57,6 +57,15 @@ def _op_id() -> str:
     return f"op-{uuid4()}"
 
 
+def _run_op(
+    *args: object, operation_type: str = "import_lastfm_history", **kwargs: object
+):
+    """Run the real operation runner with an operation type these tests ignore."""
+    return sse_operations.run_sse_operation(
+        *args, operation_type=operation_type, **kwargs
+    )
+
+
 class TestRunSseOperationAuditOutcome:
     """run_sse_operation threads ``audit_outcome`` into the audit row.
 
@@ -71,9 +80,7 @@ class TestRunSseOperationAuditOutcome:
         async def coro() -> OperationResult:
             return result
 
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
+        await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
 
         captured_finalize.assert_awaited_once()
         kwargs = captured_finalize.await_args.kwargs
@@ -93,9 +100,7 @@ class TestRunSseOperationAuditOutcome:
         async def coro() -> OperationResult:
             return result
 
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
+        await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
 
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["status"] == "error"
@@ -120,9 +125,7 @@ class TestRunSseOperationAuditOutcome:
         async def coro() -> OperationResult:
             return result
 
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
+        await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
 
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["status"] == "partial"
@@ -134,7 +137,7 @@ class TestRunSseOperationAuditOutcome:
             return OperationResult(operation_name="x")
 
         # No run_id/user_id pair → the seam doesn't touch the audit log.
-        await sse_operations.run_sse_operation(_op_id(), coro())
+        await _run_op(_op_id(), coro())
 
         captured_finalize.assert_not_awaited()
 
@@ -152,9 +155,7 @@ class TestRunSseOperationUncaughtException:
         async def coro() -> None:
             raise RuntimeError("boom")
 
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
+        await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
 
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["status"] == "error"
@@ -166,9 +167,7 @@ class TestRunSseOperationUncaughtException:
         async def coro() -> None:
             raise KeyError
 
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
+        await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
 
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["issues"] == [{"message": "KeyError"}]
@@ -196,8 +195,12 @@ class TestRunSseOperationTerminalEvent:
             async def coro() -> OperationResult:
                 return result
 
-            await sse_operations.run_sse_operation(
-                op_id, coro(), run_id=uuid4(), user_id="u1"
+            await _run_op(
+                op_id,
+                coro(),
+                run_id=uuid4(),
+                user_id="u1",
+                operation_type="import_lastfm_history",
             )
 
             terminal = [
@@ -207,6 +210,7 @@ class TestRunSseOperationTerminalEvent:
             assert terminal[0]["event"] == "complete"
             assert terminal[0]["data"]["final_status"] == "completed"
             assert terminal[0]["data"]["counts"] == {"track_plays": 7}
+            assert "plays" in terminal[0]["data"]["touched"]
         finally:
             await registry.unregister(op_id)
 
@@ -222,8 +226,12 @@ class TestRunSseOperationTerminalEvent:
             async def coro() -> OperationResult:
                 return result
 
-            await sse_operations.run_sse_operation(
-                op_id, coro(), run_id=uuid4(), user_id="u1"
+            await _run_op(
+                op_id,
+                coro(),
+                run_id=uuid4(),
+                user_id="u1",
+                operation_type="import_lastfm_history",
             )
 
             terminal = [
@@ -233,6 +241,9 @@ class TestRunSseOperationTerminalEvent:
             assert terminal[0]["event"] == "error"
             assert terminal[0]["data"]["final_status"] == "failed"
             assert terminal[0]["data"]["counts"]["errors"] == 1
+            # A failed run may have written before it failed, so the client must
+            # still be told what to refresh.
+            assert "plays" in terminal[0]["data"]["touched"]
         finally:
             await registry.unregister(op_id)
 
@@ -245,8 +256,12 @@ class TestRunSseOperationTerminalEvent:
             async def coro() -> None:
                 raise RuntimeError("boom")
 
-            await sse_operations.run_sse_operation(
-                op_id, coro(), run_id=uuid4(), user_id="u1"
+            await _run_op(
+                op_id,
+                coro(),
+                run_id=uuid4(),
+                user_id="u1",
+                operation_type="import_lastfm_history",
             )
 
             terminal = [
@@ -255,8 +270,62 @@ class TestRunSseOperationTerminalEvent:
             assert len(terminal) == 1
             assert terminal[0]["event"] == "error"
             assert "error_message" in terminal[0]["data"]["counts"]
+            assert "plays" in terminal[0]["data"]["touched"]
         finally:
             await registry.unregister(op_id)
+
+    def test_no_operation_type_omits_touched(self):
+        """Absent, not empty — an empty list would read as "refresh nothing".
+
+        Callers that name no operation type say nothing about what staled; the
+        ancestor frame is the opposite case, naming a deliberately narrow set.
+        """
+        event = sse_operations.build_terminal_event(
+            "evt-1", "complete", _op_id(), "completed"
+        )
+        assert "touched" not in event["data"]
+
+    async def test_sub_operation_frame_carries_only_per_item_touches(
+        self, captured_finalize
+    ):
+        """The parent's stream gets the queue manifest, not a full round per child.
+
+        A thirteen-file GDPR export must not fire thirteen identical plays /
+        tracks / stats rounds — but the manifest chips do have to advance as each
+        file lands, so the narrow per-item set rides along.
+        """
+        registry = get_operation_registry()
+        parent_id, child_id = _op_id(), _op_id()
+        parent_queue = await registry.register(parent_id)
+        child_queue = await registry.register(child_id)
+        try:
+            await registry.record_parent(child_id, parent_id)
+
+            async def coro() -> OperationResult:
+                return OperationResult(operation_name="Import")
+
+            await _run_op(
+                child_id,
+                coro(),
+                run_id=uuid4(),
+                user_id="u1",
+                operation_type="import_spotify_history",
+            )
+
+            sub = [
+                e
+                for e in _drain(parent_queue)
+                if e.get("event") == "sub_operation_completed"
+            ]
+            assert sub, "expected the ancestor to receive a sub_operation frame"
+            assert all(e["data"]["touched"] == ["import-queue"] for e in sub)
+            # The child's own stream still carries the full set.
+            own = [e for e in _drain(child_queue) if e.get("event") == "complete"]
+            assert "plays" in own[0]["data"]["touched"]
+            assert "import-queue" in own[0]["data"]["touched"]
+        finally:
+            await registry.unregister(child_id)
+            await registry.unregister(parent_id)
 
 
 class TestRunSseOperationCancellation:
@@ -278,9 +347,7 @@ class TestRunSseOperationCancellation:
             await asyncio.Event().wait()  # never resolves; only cancellation ends it
 
         task = asyncio.create_task(
-            sse_operations.run_sse_operation(
-                _op_id(), coro(), run_id=uuid4(), user_id="u1"
-            )
+            _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
         )
         await entered.wait()
         task.cancel()
@@ -309,9 +376,7 @@ class TestRunSseOperationCancellation:
                 await asyncio.Event().wait()
 
             task = asyncio.create_task(
-                sse_operations.run_sse_operation(
-                    op_id, coro(), run_id=uuid4(), user_id="u1"
-                )
+                _run_op(op_id, coro(), run_id=uuid4(), user_id="u1")
             )
             await entered.wait()
             task.cancel()
@@ -343,9 +408,7 @@ class TestRunSseOperationCancellation:
             sse_operations, "finalize_sse_operation", new=AsyncMock()
         ) as finalize_sse:
             task = asyncio.create_task(
-                sse_operations.run_sse_operation(
-                    _op_id(), coro(), run_id=uuid4(), user_id="u1"
-                )
+                _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
             )
             await entered.wait()
             task.cancel()
@@ -361,9 +424,7 @@ class TestRunSseOperationCancellation:
         with patch.object(
             sse_operations, "finalize_sse_operation", new=AsyncMock()
         ) as finalize_sse:
-            await sse_operations.run_sse_operation(
-                _op_id(), coro(), run_id=uuid4(), user_id="u1"
-            )
+            await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
 
         assert finalize_sse.await_args.kwargs["grace_period_seconds"] is None
 
@@ -396,9 +457,7 @@ class TestRunSseOperationCancellation:
             patch.object(sse_operations, "finalize_sse_operation", new=AsyncMock()),
         ):
             task = asyncio.create_task(
-                sse_operations.run_sse_operation(
-                    _op_id(), coro(), run_id=uuid4(), user_id="u1"
-                )
+                _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1")
             )
             await entered.wait()
             task.cancel()
@@ -424,9 +483,7 @@ class TestRunSseOperationCancellation:
                 await asyncio.Event().wait()
 
             task = asyncio.create_task(
-                sse_operations.run_sse_operation(
-                    op_id, coro(), run_id=uuid4(), user_id="u1"
-                )
+                _run_op(op_id, coro(), run_id=uuid4(), user_id="u1")
             )
             await entered.wait()
             task.cancel()
@@ -469,9 +526,7 @@ class TestOnTerminalCallback:
         async def coro() -> OperationResult:
             return OperationResult(operation_name="Import")
 
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
-        )
+        await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen)
 
         assert seen.statuses == ["complete"]
 
@@ -484,9 +539,7 @@ class TestOnTerminalCallback:
         async def coro() -> OperationResult:
             return result
 
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
-        )
+        await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen)
 
         assert seen.statuses == ["error"]
         # The counts ride along, not just the verdict.
@@ -498,9 +551,7 @@ class TestOnTerminalCallback:
         async def coro() -> None:
             raise RuntimeError("boom")
 
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
-        )
+        await _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen)
 
         assert seen.statuses == ["error"]
         assert (seen.calls[0][1] or {}).get("error_message") == "boom"
@@ -516,9 +567,7 @@ class TestOnTerminalCallback:
             await asyncio.Event().wait()
 
         task = asyncio.create_task(
-            sse_operations.run_sse_operation(
-                _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
-            )
+            _run_op(_op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen)
         )
         await entered.wait()
         task.cancel()
@@ -546,7 +595,7 @@ class TestOnTerminalCallback:
                 sse_operations, "finalize_sse_operation", new=fake_finalize_sse
             ),
         ):
-            await sse_operations.run_sse_operation(
+            await _run_op(
                 _op_id(),
                 coro(),
                 run_id=uuid4(),
@@ -564,7 +613,7 @@ class TestOnTerminalCallback:
             return OperationResult(operation_name="Import")
 
         # Must not raise: the callback is an observer, not a lifecycle owner.
-        await sse_operations.run_sse_operation(
+        await _run_op(
             _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=explode
         )
 
@@ -581,9 +630,7 @@ class TestOccupiesSlot:
             sampled.append(op_id in sse_operations._active_operations)
             return OperationResult(operation_name="Import")
 
-        await sse_operations.run_sse_operation(
-            op_id, coro(), run_id=uuid4(), user_id="u1", occupies_slot=False
-        )
+        await _run_op(op_id, coro(), run_id=uuid4(), user_id="u1", occupies_slot=False)
 
         assert sampled == [False]
         assert op_id not in sse_operations._active_operations
@@ -598,9 +645,7 @@ class TestOccupiesSlot:
             sampled.append(op_id in sse_operations._active_operations)
             return OperationResult(operation_name="Import")
 
-        await sse_operations.run_sse_operation(
-            op_id, coro(), run_id=uuid4(), user_id="u1"
-        )
+        await _run_op(op_id, coro(), run_id=uuid4(), user_id="u1")
 
         assert sampled == [True]
         assert op_id not in sse_operations._active_operations
@@ -684,7 +729,7 @@ class TestLaunchSseOperationThreadsResult:
             *,
             run_id: UUID | None = None,
             user_id: str | None = None,
-            description: str = "Operation",
+            operation_type: str | None = None,
             occupies_slot: bool = True,
             parent_operation_id: str | None = None,
             on_terminal: object = None,

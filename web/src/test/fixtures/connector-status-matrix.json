@@ -1,0 +1,674 @@
+[
+  {
+    "auth_method": "oauth",
+    "auth_error": null,
+    "connected": false,
+    "expired": false,
+    "status": "disconnected"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": null,
+    "connected": false,
+    "expired": true,
+    "status": "disconnected"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": null,
+    "connected": true,
+    "expired": false,
+    "status": "connected"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": null,
+    "connected": true,
+    "expired": true,
+    "status": "expired"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": false,
+    "status": "error"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": true,
+    "status": "error"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": false,
+    "status": "error"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": true,
+    "status": "error"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "oauth",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": null,
+    "connected": false,
+    "expired": false,
+    "status": "disconnected"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": null,
+    "connected": false,
+    "expired": true,
+    "status": "disconnected"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": null,
+    "connected": true,
+    "expired": false,
+    "status": "connected"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": null,
+    "connected": true,
+    "expired": true,
+    "status": "expired"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": false,
+    "status": "error"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": true,
+    "status": "error"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": false,
+    "status": "error"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": true,
+    "status": "error"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "browser_bridge",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": null,
+    "connected": false,
+    "expired": false,
+    "status": "disconnected"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": null,
+    "connected": false,
+    "expired": true,
+    "status": "disconnected"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": null,
+    "connected": true,
+    "expired": false,
+    "status": "connected"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": null,
+    "connected": true,
+    "expired": true,
+    "status": "expired"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": false,
+    "status": "error"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": true,
+    "status": "error"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": false,
+    "status": "error"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": true,
+    "status": "error"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "token",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": null,
+    "connected": false,
+    "expired": false,
+    "status": "disconnected"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": null,
+    "connected": false,
+    "expired": true,
+    "status": "disconnected"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": null,
+    "connected": true,
+    "expired": false,
+    "status": "connected"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": null,
+    "connected": true,
+    "expired": true,
+    "status": "expired"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": false,
+    "status": "error"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": true,
+    "status": "error"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": false,
+    "status": "error"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": true,
+    "status": "error"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": false,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "device_code",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": true,
+    "status": "needs_reauth"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": null,
+    "connected": false,
+    "expired": false,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": null,
+    "connected": false,
+    "expired": true,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": null,
+    "connected": true,
+    "expired": false,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": null,
+    "connected": true,
+    "expired": true,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": false,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": true,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": false,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": true,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": false,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": true,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": false,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": true,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": false,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": true,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": false,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "none",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": true,
+    "status": "public_api"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": null,
+    "connected": false,
+    "expired": false,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": null,
+    "connected": false,
+    "expired": true,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": null,
+    "connected": true,
+    "expired": false,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": null,
+    "connected": true,
+    "expired": true,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": false,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "refresh_failed",
+    "connected": false,
+    "expired": true,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": false,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "refresh_failed",
+    "connected": true,
+    "expired": true,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": false,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "scope_missing",
+    "connected": false,
+    "expired": true,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": false,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "scope_missing",
+    "connected": true,
+    "expired": true,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": false,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "reauth_required",
+    "connected": false,
+    "expired": true,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": false,
+    "status": "coming_soon"
+  },
+  {
+    "auth_method": "coming_soon",
+    "auth_error": "reauth_required",
+    "connected": true,
+    "expired": true,
+    "status": "coming_soon"
+  }
+]

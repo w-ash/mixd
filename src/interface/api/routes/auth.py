@@ -11,6 +11,7 @@ Flow:
 4. Callback exchanges code/token, stores credentials, redirects to /settings/integrations
 """
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 import secrets
 from typing import cast
@@ -175,6 +176,48 @@ async def get_connector_auth_url(
 # OAUTH CALLBACKS (browser redirects)
 # ---------------------------------------------------------------------------
 
+_INTEGRATIONS = "/settings/integrations"
+
+
+def _callback_redirect(
+    service: str, status: str, reason: str | None = None
+) -> RedirectResponse:
+    """The one place the SPA's callback-landing contract is spelled."""
+    url = f"{_INTEGRATIONS}?auth={service}&status={status}"
+    if reason:
+        url += f"&reason={urllib.parse.quote(reason)}"
+    return RedirectResponse(url)
+
+
+async def _run_callback(
+    service: str,
+    complete: Callable[[str, str | None, str], Awaitable[RedirectResponse]],
+    *,
+    code: str,
+    state: str,
+    error: str = "",
+    require_verifier: bool = False,
+) -> RedirectResponse:
+    """Guard sequence every OAuth callback shares: denial, CSRF state, exchange.
+
+    ``require_verifier`` is for clients where PKCE is mandatory — a state row
+    without a verifier cannot complete the exchange, so it fails like a bad state.
+    """
+    if error or not code:
+        logger.warning(f"{service} auth denied or failed: {error}")
+        return _callback_redirect(service, "error", error)
+
+    valid, code_verifier, user_id = await validate_state(state, service)
+    if not valid or not user_id or (require_verifier and not code_verifier):
+        logger.warning(f"{service} auth callback with invalid CSRF state")
+        return _callback_redirect(service, "error", "invalid_state")
+
+    try:
+        return await complete(code, code_verifier, user_id)
+    except Exception:
+        logger.error(f"{service} auth callback failed", exc_info=True)
+        return _callback_redirect(service, "error", "exchange_failed")
+
 
 @router.get("/auth/spotify/callback")
 async def spotify_callback(
@@ -185,26 +228,9 @@ async def spotify_callback(
     On success, redirects to /settings/integrations?auth=spotify&status=success.
     On failure, redirects to /settings/integrations?auth=spotify&status=error.
     """
-    if error or not code:
-        logger.warning(f"Spotify auth denied or failed: {error}")
-        return RedirectResponse(
-            f"/settings/integrations?auth=spotify&status=error&reason={urllib.parse.quote(error)}"
-        )
-
-    valid, code_verifier, user_id = await validate_state(state, "spotify")
-    if not valid or not user_id:
-        logger.warning("Spotify auth callback with invalid CSRF state")
-        return RedirectResponse(
-            "/settings/integrations?auth=spotify&status=error&reason=invalid_state"
-        )
-
-    try:
-        return await _complete_spotify_auth(code, code_verifier, user_id)
-    except Exception:
-        logger.error("Spotify auth callback failed", exc_info=True)
-        return RedirectResponse(
-            "/settings/integrations?auth=spotify&status=error&reason=exchange_failed"
-        )
+    return await _run_callback(
+        "spotify", _complete_spotify_auth, code=code, state=state, error=error
+    )
 
 
 async def _complete_spotify_auth(
@@ -231,7 +257,7 @@ async def _complete_spotify_auth(
     await sync_play_polling_after_auth(user_id, token_info.get("scope"))
 
     logger.info("Spotify web auth completed successfully", user_id=user_id)
-    return RedirectResponse("/settings/integrations?auth=spotify&status=success")
+    return _callback_redirect("spotify", "success")
 
 
 @router.get("/auth/tidal/callback")
@@ -243,41 +269,29 @@ async def tidal_callback(
     On success, redirects to /settings/integrations?auth=tidal&status=success.
     On failure, redirects to /settings/integrations?auth=tidal&status=error.
     """
-    if error or not code:
-        logger.warning(f"Tidal auth denied or failed: {error}")
-        return RedirectResponse(
-            f"/settings/integrations?auth=tidal&status=error&reason={urllib.parse.quote(error)}"
-        )
-
-    valid, code_verifier, user_id = await validate_state(state, "tidal")
-    # PKCE is mandatory for every Tidal client — a state row without a
-    # verifier can't complete the exchange, so it fails like a bad state.
-    if not valid or not user_id or not code_verifier:
-        logger.warning("Tidal auth callback with invalid CSRF state")
-        return RedirectResponse(
-            "/settings/integrations?auth=tidal&status=error&reason=invalid_state"
-        )
-
-    try:
-        return await _complete_tidal_auth(code, code_verifier, user_id)
-    except Exception:
-        logger.error("Tidal auth callback failed", exc_info=True)
-        return RedirectResponse(
-            "/settings/integrations?auth=tidal&status=error&reason=exchange_failed"
-        )
+    return await _run_callback(
+        "tidal",
+        _complete_tidal_auth,
+        code=code,
+        state=state,
+        error=error,
+        require_verifier=True,
+    )
 
 
 async def _complete_tidal_auth(
-    code: str, code_verifier: str, user_id: str
+    code: str, code_verifier: str | None, user_id: str
 ) -> RedirectResponse:
     """Exchange the Tidal code, persist the token pair, and redirect to success."""
+    if code_verifier is None:  # unreachable: the guard requires a verifier
+        raise ValueError("Tidal exchange needs a PKCE verifier")
     token_info = await tidal_exchange_code(code, code_verifier)
     # No account_name yet: wiring a Tidal userinfo fetch (if a cheap endpoint
     # exists) is deferred to T7 — the connector card renders without a name.
     await get_token_storage().save_token("tidal", user_id, token_info)
 
     logger.info("Tidal web auth completed successfully", user_id=user_id)
-    return RedirectResponse("/settings/integrations?auth=tidal&status=success")
+    return _callback_redirect("tidal", "success")
 
 
 @router.get("/auth/lastfm/callback")
@@ -292,34 +306,20 @@ async def lastfm_callback(token: str = "", _state: str = "") -> RedirectResponse
     """
     if not token:
         logger.warning("Last.fm auth callback with no token")
-        return RedirectResponse(
-            "/settings/integrations?auth=lastfm&status=error&reason=no_token"
-        )
+        return _callback_redirect("lastfm", "error", "no_token")
 
-    # Validate state to recover user_id
-    valid, _, user_id = await validate_state(_state, "lastfm")
-    if not valid or not user_id:
-        logger.warning("Last.fm auth callback with invalid state")
-        return RedirectResponse(
-            "/settings/integrations?auth=lastfm&status=error&reason=invalid_state"
-        )
-
-    api_key = settings.credentials.lastfm_key
     api_secret = settings.credentials.lastfm_secret.get_secret_value()
-
-    if not api_key or not api_secret:
+    if not settings.credentials.lastfm_key or not api_secret:
         logger.error("Last.fm API key/secret not configured")
-        return RedirectResponse(
-            "/settings/integrations?auth=lastfm&status=error&reason=not_configured"
-        )
+        return _callback_redirect("lastfm", "error", "not_configured")
 
-    try:
-        return await _complete_lastfm_auth(token, user_id)
-    except Exception:
-        logger.error("Last.fm auth callback failed", exc_info=True)
-        return RedirectResponse(
-            "/settings/integrations?auth=lastfm&status=error&reason=exchange_failed"
-        )
+    # Last.fm names its one-shot credential `token`, not `code`.
+    return await _run_callback(
+        "lastfm",
+        lambda tok, _verifier, user_id: _complete_lastfm_auth(tok, user_id),
+        code=token,
+        state=_state,
+    )
 
 
 async def _complete_lastfm_auth(token: str, user_id: str) -> RedirectResponse:
@@ -342,4 +342,4 @@ async def _complete_lastfm_auth(token: str, user_id: str) -> RedirectResponse:
     )
 
     logger.info(f"Last.fm web auth completed for user {username}", user_id=user_id)
-    return RedirectResponse("/settings/integrations?auth=lastfm&status=success")
+    return _callback_redirect("lastfm", "success")

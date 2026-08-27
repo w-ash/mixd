@@ -25,6 +25,7 @@ function makeSummary(
     issue_count: 0,
     retryable: false,
     initiated_by: "manual",
+    touched: [],
     ...overrides,
   };
 }
@@ -119,6 +120,7 @@ describe("ImportHistoryPage", () => {
     setupDetailMock({
       id: targetId,
       operation_id: null,
+      touched: [],
       operation_type: "import_spotify_history",
       started_at: "2026-04-26T10:00:00Z",
       ended_at: "2026-04-26T10:01:00Z",
@@ -188,6 +190,7 @@ describe("ImportHistoryPage", () => {
     setupDetailMock({
       id: targetId,
       operation_id: null,
+      touched: [],
       operation_type: "import_lastfm_history",
       started_at: "2026-04-26T10:00:00Z",
       ended_at: "2026-04-26T10:01:00Z",

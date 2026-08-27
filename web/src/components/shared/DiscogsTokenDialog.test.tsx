@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { getGetConnectorsApiV1ConnectorsGetQueryKey } from "#/api/generated/connectors/connectors";
 import { toasts } from "#/lib/toasts";
+import { seedQuery, wasInvalidated } from "#/test/query-utils";
 import { server } from "#/test/setup";
 import {
   createTestQueryClient,
@@ -11,7 +12,6 @@ import {
   userEvent,
   waitFor,
 } from "#/test/test-utils";
-
 import { DiscogsTokenDialog } from "./DiscogsTokenDialog";
 
 describe("DiscogsTokenDialog", () => {
@@ -28,7 +28,7 @@ describe("DiscogsTokenDialog", () => {
   it("invalidates the connectors query and closes on success", async () => {
     const user = userEvent.setup();
     const queryClient = createTestQueryClient();
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    seedQuery(queryClient, getGetConnectorsApiV1ConnectorsGetQueryKey());
     const onOpenChange = vi.fn();
 
     renderWithProviders(
@@ -45,10 +45,9 @@ describe("DiscogsTokenDialog", () => {
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: getGetConnectorsApiV1ConnectorsGetQueryKey(),
-      refetchType: "active",
-    });
+    expect(
+      wasInvalidated(queryClient, getGetConnectorsApiV1ConnectorsGetQueryKey()),
+    ).toBe(true);
   });
 
   it("surfaces a 400 inline without a global error toast", async () => {

@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { Link2, ListMusic, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
@@ -25,7 +24,6 @@ import {
 import { getConnectorLabel } from "#/lib/connector-brand";
 import type { SyncDirection } from "#/lib/sync-direction";
 import { toasts } from "#/lib/toasts";
-import { invalidateLinkQueries } from "./link-queries";
 
 export function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
   const [open, setOpen] = useState(false);
@@ -35,7 +33,6 @@ export function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
   const [pickedName, setPickedName] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [direction, setDirection] = useState<SyncDirection>("push");
-  const queryClient = useQueryClient();
 
   const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet({
     query: { staleTime: STALE.STATIC },
@@ -73,7 +70,6 @@ export function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
   const createLink = useCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPost({
     mutation: {
       onSuccess: () => {
-        invalidateLinkQueries(queryClient, playlistId);
         setOpen(false);
         setPlaylistInput("");
         toasts.success("Playlist linked");

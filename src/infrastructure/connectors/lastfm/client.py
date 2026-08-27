@@ -26,7 +26,6 @@ from src.config.constants import LastFMConstants
 from src.domain.entities.shared import JsonValue
 from src.infrastructure.connectors._shared.http_client import parse_json_response
 from src.infrastructure.connectors._shared.retry_policies import (
-    RetryConfig,
     RetryPolicyFactory,
 )
 from src.infrastructure.connectors._shared.token_storage import TokenStorage
@@ -152,16 +151,12 @@ class LastFMAPIClient(BaseAPIClient):
         )
 
         self._storage = get_token_storage()
-        self._retry_policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name="lastfm",
-                classifier=LastFMErrorClassifier(),
-                max_attempts=settings.api.lastfm.retry_count,
-                wait_multiplier=settings.api.lastfm.retry_base_delay,
-                wait_max=settings.api.lastfm.retry_max_delay,
-                max_delay=settings.api.lastfm.retry_max_delay,
-                service_error_types=(LastFMAPIError,),
-            )
+        self._retry_policy = RetryPolicyFactory.for_service(
+            "lastfm",
+            LastFMErrorClassifier(),
+            settings.api.lastfm,
+            max_delay=settings.api.lastfm.retry_max_delay,
+            service_error_types=(LastFMAPIError,),
         )
         from src.infrastructure.connectors._shared.http_client import make_lastfm_client
 

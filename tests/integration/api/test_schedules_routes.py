@@ -9,6 +9,7 @@ list, and the status-code contract (201 vs 200 on PUT, 404 on absent/cross-targe
 import httpx2
 import pytest
 
+from src.application.use_cases._shared.sync_targets import SYNC_TARGETS
 from tests.fixtures.factories import nonexistent_id
 from tests.integration.api.conftest import create_workflow as _create_workflow
 
@@ -133,3 +134,43 @@ class TestListSchedules:
         labels = {row["target_type"]: row["target_label"] for row in data}
         assert labels["workflow"] == "Test Workflow"
         assert labels["sync"] == "Last.fm plays"
+
+
+class TestSyncTargetsList:
+    """``GET /sync/targets`` is server truth for the Sync page's cards.
+
+    The point of the endpoint is that adding a connector lights up the UI with
+    no frontend edit, so every assertion reads the registry rather than
+    restating it — a hardcoded expectation here would be the same mirror the
+    endpoint exists to delete.
+    """
+
+    async def test_returns_every_dispatchable_target(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        resp = await client.get("/api/v1/sync/targets")
+
+        assert resp.status_code == 200
+        rows = resp.json()["data"]
+        assert {r["id"] for r in rows} == set(SYNC_TARGETS)
+
+    async def test_labels_come_from_the_registry(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        rows = (await client.get("/api/v1/sync/targets")).json()["data"]
+
+        assert {r["id"]: r["label"] for r in rows} == {
+            target: spec.label for target, spec in SYNC_TARGETS.items()
+        }
+
+    async def test_self_managed_marks_only_the_adaptive_poller(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # spotify:plays rewrites its own cadence, so the web must render it with
+        # a toggle rather than the daily/weekly picker that would switch the
+        # adaptivity off.
+        rows = (await client.get("/api/v1/sync/targets")).json()["data"]
+
+        assert {r["id"] for r in rows if r["self_managed"]} == {
+            target for target, spec in SYNC_TARGETS.items() if not spec.user_schedulable
+        }

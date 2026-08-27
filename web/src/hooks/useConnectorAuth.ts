@@ -1,11 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet } from "#/api/generated/auth/auth";
-import {
-  getGetConnectorsApiV1ConnectorsGetQueryKey,
-  useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete,
-} from "#/api/generated/connectors/connectors";
+import { useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete } from "#/api/generated/connectors/connectors";
 import { getConnectorLabel } from "#/lib/connector-brand";
 import { toasts } from "#/lib/toasts";
 
@@ -18,17 +14,12 @@ import { toasts } from "#/lib/toasts";
  */
 export function useConnectorAuth(service: string, displayName?: string) {
   const [isConnecting, setIsConnecting] = useState(false);
-  const queryClient = useQueryClient();
   const label = displayName ?? getConnectorLabel(service);
-  const connectorsQueryKey = getGetConnectorsApiV1ConnectorsGetQueryKey();
 
   const disconnectMutation =
     useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete({
       mutation: {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: connectorsQueryKey });
-          toasts.success(`${label} disconnected`);
-        },
+        onSuccess: () => toasts.success(`${label} disconnected`),
         meta: { errorLabel: `Failed to disconnect ${label}` },
       },
     });

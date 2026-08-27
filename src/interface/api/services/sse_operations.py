@@ -49,6 +49,10 @@ from src.domain.entities.progress import (
     ProgressOperation,
 )
 from src.domain.entities.shared import JsonDict
+from src.interface.api.schemas.cache_tags import (
+    per_item_touches_for,
+    touches_for,
+)
 from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.services.background import (
     finalize_sse_operation,
@@ -58,6 +62,7 @@ from src.interface.api.services.progress import (
     OperationBoundEmitter,
     get_operation_registry,
 )
+from src.interface.text import humanize_identifier
 
 logger = get_logger(__name__).bind(service="sse_operations")
 
@@ -181,7 +186,7 @@ async def run_sse_operation(
     *,
     run_id: UUID | None = None,
     user_id: str | None = None,
-    description: str = "Operation",
+    operation_type: str,
     occupies_slot: bool = True,
     parent_operation_id: str | None = None,
     on_terminal: Callable[[OperationStatus, JsonDict | None], None] | None = None,
@@ -234,6 +239,10 @@ async def run_sse_operation(
     # to, so the `started` event fires before the use case runs and the use case's
     # own operations route as its children (sub_* events). Best-effort — progress
     # tracking must never break the operation it observes.
+    #
+    # The one string that names an operation carries both its human label and its
+    # cache tags, so the label is derived here rather than by the caller.
+    description = humanize_identifier(operation_type)
     await safe_start_operation(operation_id, description, parent_operation_id)
     status: OperationStatus = "complete"
     counts: JsonDict | None = None
@@ -274,7 +283,7 @@ async def run_sse_operation(
                 counts=counts,
                 issues=issues,
             )
-        await _push_terminal_event(operation_id, status, counts, run_id)
+        await _push_terminal_event(operation_id, status, counts, run_id, operation_type)
         await safe_complete_operation(operation_id, status)
         if occupies_slot:
             release_operation_slot(operation_id)
@@ -405,6 +414,7 @@ async def _push_terminal_event(
     status: OperationStatus,
     counts: JsonDict | None,
     run_id: UUID | None,
+    operation_type: str,
 ) -> None:
     """Push the live terminal SSE event with the run's final status + counts.
 
@@ -421,6 +431,12 @@ async def _push_terminal_event(
     The same terminal also reaches every registered ancestor as
     ``sub_operation_completed`` with the counts attached: by then the parent is
     usually the only reader left, and it is the surface still showing that item.
+    It carries only the *per-item* tags (``per_item_touches_for``) rather than the
+    operation's full set: the only parented runs are the import queue's per-file
+    imports, and a thirteen-file export firing thirteen full invalidation rounds
+    on the drain's stream is the cost that narrowing avoids — while the queue
+    manifest still advances as each file lands. The drain's own terminal carries
+    the full set once, and each file's own stream carries its own.
     """
     registry = get_operation_registry()
     event_type = (
@@ -439,6 +455,7 @@ async def _push_terminal_event(
                 operation_id,
                 final_status,
                 run_id=run_id,
+                operation_type=operation_type,
                 counts=counts or {},
             )
         )
@@ -455,6 +472,7 @@ async def _push_terminal_event(
                 final_status,
                 run_id=run_id,
                 counts=counts or {},
+                touched=list(per_item_touches_for(operation_type)),
                 parent_operation_id=target.stream_operation_id,
                 item_operation_id=target.item_operation_id,
             )
@@ -504,9 +522,6 @@ async def launch_sse_operation(
         initiated_by=initiated_by,
         occupies_slot=occupies_slot,
     )
-    # Human-readable parent-op description (e.g. "import_lastfm_history" →
-    # "Import Lastfm History") for the top-level `started` event.
-    description = operation_type.replace("_", " ").title()
     # Create the coroutine inside the lambda so a stubbed/no-op
     # ``launch_background`` (e.g., in tests) doesn't leave an unawaited
     # coroutine warning when the factory is never invoked.
@@ -517,7 +532,7 @@ async def launch_sse_operation(
             coro_factory(emitter),
             run_id=run_id,
             user_id=user_id,
-            description=description,
+            operation_type=operation_type,
             occupies_slot=occupies_slot,
             parent_operation_id=parent_operation_id,
             on_terminal=on_terminal,
@@ -533,12 +548,18 @@ def build_terminal_event(
     status: str,
     *,
     run_id: UUID | None = None,
+    operation_type: str | None = None,
     **extra: object,
 ) -> dict[str, object]:
     """Build a terminal SSE event dict with shared structure.
 
     Used by playlist sync (complete/error), workflow runs, and workflow
     previews to construct the final event pushed to the SSE queue.
+
+    ``operation_type`` names what ran; the envelope turns it into ``touched`` —
+    the cache-invalidation tags the client applies mechanically, so no caller has
+    to know (or guess) which query keys its operation staled. The lookup lives
+    here because this is the one place every terminal frame is built.
     """
     data: dict[str, object] = {
         "operation_id": operation_id,
@@ -547,6 +568,8 @@ def build_terminal_event(
     }
     if run_id is not None:
         data["run_id"] = run_id
+    if operation_type is not None:
+        data["touched"] = list(touches_for(operation_type))
     return {
         "id": event_id,
         "event": event_type,

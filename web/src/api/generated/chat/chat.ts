@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation
@@ -23,6 +23,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -74,7 +75,7 @@ export const postChatFeedbackApiV1ChatFeedbackPost = async (chatFeedbackRequest:
 
 
 
-export const getPostChatFeedbackApiV1ChatFeedbackPostMutationOptions = <TError = HTTPValidationError,
+export const usePostChatFeedbackApiV1ChatFeedbackPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, TError,{data: ChatFeedbackRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, TError,{data: ChatFeedbackRequest}, TContext> => {
 
@@ -96,10 +97,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/chat/feedback` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type PostChatFeedbackApiV1ChatFeedbackPostMutationResult = NonNullable<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>>
     export type PostChatFeedbackApiV1ChatFeedbackPostMutationBody = ChatFeedbackRequest
@@ -116,7 +117,7 @@ export const usePostChatFeedbackApiV1ChatFeedbackPost = <TError = HTTPValidation
         {data: ChatFeedbackRequest},
         TContext
       > => {
-      return useMutation(getPostChatFeedbackApiV1ChatFeedbackPostMutationOptions(options), queryClient);
+      return useMutation(usePostChatFeedbackApiV1ChatFeedbackPostMutationOptions(options), queryClient);
     }
     export type postChatApiV1ChatPostResponse200 = {
   data: unknown
@@ -163,7 +164,7 @@ export const postChatApiV1ChatPost = async (chatRequest: ChatRequest, options?: 
 
 
 
-export const getPostChatApiV1ChatPostMutationOptions = <TError = HTTPValidationError,
+export const usePostChatApiV1ChatPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, TError,{data: ChatRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, TError,{data: ChatRequest}, TContext> => {
 
@@ -185,10 +186,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/chat` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type PostChatApiV1ChatPostMutationResult = NonNullable<Awaited<ReturnType<typeof postChatApiV1ChatPost>>>
     export type PostChatApiV1ChatPostMutationBody = ChatRequest
@@ -205,5 +206,5 @@ export const usePostChatApiV1ChatPost = <TError = HTTPValidationError,
         {data: ChatRequest},
         TContext
       > => {
-      return useMutation(getPostChatApiV1ChatPostMutationOptions(options), queryClient);
+      return useMutation(usePostChatApiV1ChatPostMutationOptions(options), queryClient);
     }

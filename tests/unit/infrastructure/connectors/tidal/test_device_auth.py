@@ -14,7 +14,7 @@ device_authorization POST raises ``DeviceCodeUnsupportedError`` so the CLI
 can auto-fall back. Sleeps are injected and recorded — no wall-clock.
 
 Browser fallback: the one-shot HTTPServer capture is patched at the
-``_capture_redirect`` seam (Spotify's ``run_browser_auth`` has no
+``capture_loopback_redirect`` seam (Spotify's ``run_browser_auth`` has no
 real-server test either — the server interaction is mocked everywhere);
 the state check, PKCE verifier round-trip, exchange, and save are asserted
 directly, and the pure port/state helpers are unit-tested.
@@ -290,7 +290,9 @@ class TestRunBrowserAuth:
         captured_urls: list[str] = []
         captured_ports: list[int] = []
 
-        def fake_capture(auth_url: str, port: int) -> dict[str, str]:
+        def fake_capture(
+            auth_url: str, port: int, *, service_label: str
+        ) -> dict[str, str]:
             # Echo back the state the flow embedded in its authorize URL —
             # what Tidal's redirect would do.
             captured_urls.append(auth_url)
@@ -301,7 +303,7 @@ class TestRunBrowserAuth:
         exchange = AsyncMock(return_value=_stored())
 
         with (
-            patch(f"{_AUTH_MOD}._capture_redirect", fake_capture),
+            patch(f"{_AUTH_MOD}.capture_loopback_redirect", fake_capture),
             patch(f"{_AUTH_MOD}.exchange_code", exchange),
         ):
             token = await run_browser_auth(mock_storage, _UID)
@@ -349,7 +351,9 @@ class TestRunBrowserAuth:
         captured_ports: list[int] = []
         captured_urls: list[str] = []
 
-        def fake_capture(auth_url: str, port: int) -> dict[str, str]:
+        def fake_capture(
+            auth_url: str, port: int, *, service_label: str
+        ) -> dict[str, str]:
             captured_urls.append(auth_url)
             captured_ports.append(port)
             params = urllib.parse.parse_qs(urllib.parse.urlparse(auth_url).query)
@@ -359,7 +363,7 @@ class TestRunBrowserAuth:
 
         with (
             patch.object(settings, "credentials", creds),
-            patch(f"{_AUTH_MOD}._capture_redirect", fake_capture),
+            patch(f"{_AUTH_MOD}.capture_loopback_redirect", fake_capture),
             patch(f"{_AUTH_MOD}.exchange_code", exchange),
         ):
             _ = await run_browser_auth(mock_storage, _UID)
@@ -377,13 +381,15 @@ class TestRunBrowserAuth:
     async def test_state_mismatch_rejected_without_exchange(
         self, tidal_creds, mock_storage: AsyncMock
     ) -> None:
-        def fake_capture(auth_url: str, port: int) -> dict[str, str]:
+        def fake_capture(
+            auth_url: str, port: int, *, service_label: str
+        ) -> dict[str, str]:
             return {"code": "auth-code-1", "state": "not-the-minted-state"}
 
         exchange = AsyncMock()
 
         with (
-            patch(f"{_AUTH_MOD}._capture_redirect", fake_capture),
+            patch(f"{_AUTH_MOD}.capture_loopback_redirect", fake_capture),
             patch(f"{_AUTH_MOD}.exchange_code", exchange),
         ):
             with pytest.raises(RuntimeError, match="state"):
@@ -395,10 +401,12 @@ class TestRunBrowserAuth:
     async def test_missing_code_rejected(
         self, tidal_creds, mock_storage: AsyncMock
     ) -> None:
-        def fake_capture(auth_url: str, port: int) -> dict[str, str]:
+        def fake_capture(
+            auth_url: str, port: int, *, service_label: str
+        ) -> dict[str, str]:
             return {"code": "", "state": ""}
 
-        with patch(f"{_AUTH_MOD}._capture_redirect", fake_capture):
+        with patch(f"{_AUTH_MOD}.capture_loopback_redirect", fake_capture):
             with pytest.raises(RuntimeError, match="code"):
                 await run_browser_auth(mock_storage, _UID)
 

@@ -1,9 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { HelpCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "#/api/client";
 import {
-  getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useAddTrackTagApiV1TracksTrackIdTagsPost,
   useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete,
   useDeleteTrackTagApiV1TracksTrackIdTagsTagDelete,
@@ -80,18 +78,14 @@ function Section({
 export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
   const trackId = id ?? "";
-  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error } =
     useGetTrackDetailApiV1TracksTrackIdGet(trackId, {
       query: { staleTime: 2 * 60_000 },
     });
 
-  const queryKey = getGetTrackDetailApiV1TracksTrackIdGetQueryKey(trackId);
-
   const setPref = useSetTrackPreferenceApiV1TracksTrackIdPreferencePut({
     mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey }),
       meta: { errorLabel: "Failed to set preference" },
     },
   });
@@ -99,7 +93,6 @@ export function TrackDetail() {
   const deletePref = useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete(
     {
       mutation: {
-        onSuccess: () => queryClient.invalidateQueries({ queryKey }),
         meta: { errorLabel: "Failed to clear preference" },
       },
     },
@@ -117,14 +110,12 @@ export function TrackDetail() {
 
   const addTag = useAddTrackTagApiV1TracksTrackIdTagsPost({
     mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey }),
       meta: { errorLabel: "Failed to add tag" },
     },
   });
 
   const deleteTag = useDeleteTrackTagApiV1TracksTrackIdTagsTagDelete({
     mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey }),
       meta: { errorLabel: "Failed to remove tag" },
     },
   });

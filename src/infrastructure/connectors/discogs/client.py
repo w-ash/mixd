@@ -28,18 +28,17 @@ from typing import ClassVar, Final, override
 
 from attrs import define, field
 import httpx2
-from pydantic import ValidationError
 from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.domain.entities.shared import JsonDict
-from src.domain.exceptions import ConnectorSyncError, DiscogsAuthRequiredError
+from src.domain.exceptions import DiscogsAuthRequiredError
+from src.infrastructure.connectors._shared.boundary import validated
 from src.infrastructure.connectors._shared.http_client import (
     make_discogs_client,
     parse_json_response,
 )
 from src.infrastructure.connectors._shared.retry_policies import (
-    RetryConfig,
     RetryPolicyFactory,
 )
 from src.infrastructure.connectors._shared.token_storage import TokenStorage
@@ -108,14 +107,10 @@ class DiscogsAPIClient(BaseAPIClient):
         self._storage = get_token_storage()
         self._user_id = get_current_user_id_from_context()
 
-        self._retry_policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name=DISCOGS_SERVICE,
-                classifier=DiscogsErrorClassifier(),
-                max_attempts=settings.api.discogs.retry_count,
-                wait_multiplier=settings.api.discogs.retry_base_delay,
-                wait_max=settings.api.discogs.retry_max_delay,
-            )
+        self._retry_policy = RetryPolicyFactory.for_service(
+            DISCOGS_SERVICE,
+            DiscogsErrorClassifier(),
+            settings.api.discogs,
         )
         self._client = make_discogs_client(self._auth)
 
@@ -234,7 +229,11 @@ class DiscogsAPIClient(BaseAPIClient):
         data = await self._locked_api_call(
             "get_discogs_identity", self._get_identity_impl
         )
-        return DiscogsIdentity.model_validate(data) if data else None
+        return (
+            validated(DiscogsIdentity, data, service="discogs", subject="an identity")
+            if data
+            else None
+        )
 
     async def _get_identity_impl(self) -> JsonDict:
         """Pure implementation without retry logic."""
@@ -268,15 +267,9 @@ class DiscogsAPIClient(BaseAPIClient):
         )
         if not data:
             return None
-        try:
-            return DiscogsCollectionPage.model_validate(data)
-        except ValidationError:
-            logger.error("Discogs collection page failed validation", exc_info=True)
-            raise ConnectorSyncError(
-                "discogs",
-                "Discogs returned a collection page in an unexpected shape — "
-                "try again in a moment",
-            ) from None
+        return validated(
+            DiscogsCollectionPage, data, service="discogs", subject="a collection page"
+        )
 
     async def get_all_collection_releases(
         self, username: str, per_page: int = COLLECTION_PAGE_SIZE
@@ -302,7 +295,12 @@ class DiscogsAPIClient(BaseAPIClient):
             )
             if data is None:  # unreachable with suppress=(); satisfies typing
                 break
-            parsed = DiscogsCollectionPage.model_validate(data)
+            parsed = validated(
+                DiscogsCollectionPage,
+                data,
+                service="discogs",
+                subject="a collection page",
+            )
             releases.extend(parsed.releases)
             pages = parsed.pagination.pages
             page += 1
@@ -328,7 +326,11 @@ class DiscogsAPIClient(BaseAPIClient):
         data = await self._locked_api_call(
             "get_discogs_release", self._get_release_impl, release_id
         )
-        return DiscogsRelease.model_validate(data) if data else None
+        return (
+            validated(DiscogsRelease, data, service="discogs", subject="a release")
+            if data
+            else None
+        )
 
     async def _get_release_impl(self, release_id: int) -> JsonDict:
         """Pure implementation without retry logic."""
@@ -339,7 +341,11 @@ class DiscogsAPIClient(BaseAPIClient):
         data = await self._locked_api_call(
             "get_discogs_master", self._get_master_impl, master_id
         )
-        return DiscogsMaster.model_validate(data) if data else None
+        return (
+            validated(DiscogsMaster, data, service="discogs", subject="a master")
+            if data
+            else None
+        )
 
     async def _get_master_impl(self, master_id: int) -> JsonDict:
         """Pure implementation without retry logic."""

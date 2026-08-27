@@ -111,39 +111,18 @@ class AppleMusicMatchingProvider(BaseMatchingProvider):
             if isrc and isrc not in song_by_isrc:
                 song_by_isrc[isrc] = song
 
-        matches: dict[UUID, RawProviderMatch] = {}
-        failures: list[MatchFailure] = []
-        for track in tracks:
-            if not track.id:
-                continue
-            track_isrc = isrc_by_track.get(track.id, "")
-            song = song_by_isrc.get(track_isrc)
-            if song is None:
-                if track_isrc in failed_isrcs:
-                    failures.append(
-                        create_and_log_failure(
-                            track_id=track.id,
-                            reason=MatchFailureReason.API_ERROR,
-                            service=self.service_name,
-                            method="isrc",
-                            details="Apple Music catalog lookup failed for "
-                            f"the chunk holding ISRC: {track.isrc}",
-                        )
-                    )
-                else:
-                    failures.append(
-                        create_and_log_failure(
-                            track_id=track.id,
-                            reason=MatchFailureReason.NO_RESULTS,
-                            service=self.service_name,
-                            method="isrc",
-                            details=f"No Apple Music results for ISRC: {track.isrc}",
-                        )
-                    )
-                continue
-            matches[track.id] = self._create_raw_match(song)
-
-        return matches, failures
+        return self._correlate_by_code(
+            tracks,
+            code_of=isrc_by_track,
+            candidates_by_code=song_by_isrc,
+            failed_codes=failed_isrcs,
+            make_match=lambda _track, song: self._create_raw_match(song),
+            service_label="Apple Music",
+            method="isrc",
+            code_label="ISRC",
+            # One request carries a chunk of ISRCs, so its failure is theirs all.
+            batched=True,
+        )
 
     def _create_raw_match(self, song: AppleMusicSong) -> RawProviderMatch:
         """Raw match data from an Apple Music song — no business logic.

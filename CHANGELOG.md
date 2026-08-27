@@ -6,6 +6,19 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.4] — 2026-08-27
+
+**Whatever you just did, the screen showing it is already true.** Connect a service, finish an import, save a workflow, remove a track, run a schedule — every surface displaying the result refreshes itself, without a reload and without the wrong one refreshing instead. What an action changed is now declared once, in one vocabulary shared by the server and the browser, rather than guessed at each of ~40 call sites where a forgotten query key shipped as a stale page.
+
+- **One vocabulary, derived not registered.** Cache tags name resource families (`playlists`, `checkpoints`, `connectors`, …) and are derived from the request path by an ordered rule table, so a new endpoint under an existing family needs no bookkeeping and a new path family fails a parity test until a rule exists. Read-side dependency declarations (a tag list depends on tracks) removed the need for a separate write-fanout map.
+- **One mechanism, two triggers.** A global mutation handler invalidates from the tags a write carries, and long-operation terminal events carry tags the *server* names — so a button click and a finished import stale the cache through identical code. The per-page key lists each trigger used to guess are gone.
+- **The race is handled in one place.** TanStack Query erases an invalidation issued during a query's initial fetch (upstream, closed as not planned) — the workaround that used to live on the Integrations page is now inside the shared helper, so it applies everywhere instead of recurring as a bug on each new screen.
+- **The server owns its own lists.** `GET /api/v1/sync/targets` publishes the schedulable sync targets with their labels, and the Sync page reads it — including whether a target manages its own cadence, which decides which control the card renders. The hand-maintained frontend copy is deleted.
+- **The last hand-written mirror is pinned.** The connector status rule is exported as a fixture the test factory reads instead of re-implementing; drift is now a failing test on whichever side moved. Exporting it surfaced a real gap the old copy had papered over: a connected-but-expired connector read as connected.
+- Import-queue chips advance as each file lands rather than waiting for the whole drain, and a force-refresh spinner now covers the round trip it claims to.
+
+→ [details](docs/backlog/v0.11.x.md#v0114-web-cache-consistency)
+
 ## [0.11.3.2] — 2026-08-23
 
 **Connecting a service shows connected immediately, and Apple Music connects without leaving the page.** The staleness saga had one root cause beneath the earlier fixes: connector status was served with a 5-minute browser-cache header, so the UI's refetches were answered by the disk cache. And the Apple flow no longer opens mixd itself in a bare window — MusicKit now runs inside the Integrations page, so the only popup you see is Apple's own sign-in sheet, launched from your click and prewarmed so it opens instantly.

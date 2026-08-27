@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -34,6 +34,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -212,7 +213,7 @@ export const putAssistantKeyApiV1AssistantKeyPut = async (connectKeyRequest: Con
 
 
 
-export const getPutAssistantKeyApiV1AssistantKeyPutMutationOptions = <TError = HTTPValidationError,
+export const usePutAssistantKeyApiV1AssistantKeyPutMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putAssistantKeyApiV1AssistantKeyPut>>, TError,{data: ConnectKeyRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof putAssistantKeyApiV1AssistantKeyPut>>, TError,{data: ConnectKeyRequest}, TContext> => {
 
@@ -234,10 +235,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/assistant/key` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type PutAssistantKeyApiV1AssistantKeyPutMutationResult = NonNullable<Awaited<ReturnType<typeof putAssistantKeyApiV1AssistantKeyPut>>>
     export type PutAssistantKeyApiV1AssistantKeyPutMutationBody = ConnectKeyRequest
@@ -254,7 +255,7 @@ export const usePutAssistantKeyApiV1AssistantKeyPut = <TError = HTTPValidationEr
         {data: ConnectKeyRequest},
         TContext
       > => {
-      return useMutation(getPutAssistantKeyApiV1AssistantKeyPutMutationOptions(options), queryClient);
+      return useMutation(usePutAssistantKeyApiV1AssistantKeyPutMutationOptions(options), queryClient);
     }
     export type deleteAssistantKeyApiV1AssistantKeyDeleteResponse204 = {
   data: void
@@ -294,7 +295,7 @@ export const deleteAssistantKeyApiV1AssistantKeyDelete = async ( options?: Param
 
 
 
-export const getDeleteAssistantKeyApiV1AssistantKeyDeleteMutationOptions = <TError = unknown,
+export const useDeleteAssistantKeyApiV1AssistantKeyDeleteMutationOptions = <TError = unknown,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAssistantKeyApiV1AssistantKeyDelete>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteAssistantKeyApiV1AssistantKeyDelete>>, TError,void, TContext> => {
 
@@ -316,10 +317,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/assistant/key` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type DeleteAssistantKeyApiV1AssistantKeyDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAssistantKeyApiV1AssistantKeyDelete>>>
 
@@ -336,7 +337,7 @@ export const useDeleteAssistantKeyApiV1AssistantKeyDelete = <TError = unknown,
         void,
         TContext
       > => {
-      return useMutation(getDeleteAssistantKeyApiV1AssistantKeyDeleteMutationOptions(options), queryClient);
+      return useMutation(useDeleteAssistantKeyApiV1AssistantKeyDeleteMutationOptions(options), queryClient);
     }
     export type probeAssistantKeyApiV1AssistantKeyTestPostResponse200 = {
   data: TestKeyResponse
@@ -383,7 +384,7 @@ export const probeAssistantKeyApiV1AssistantKeyTestPost = async (testKeyRequest:
 
 
 
-export const getProbeAssistantKeyApiV1AssistantKeyTestPostMutationOptions = <TError = HTTPValidationError,
+export const useProbeAssistantKeyApiV1AssistantKeyTestPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof probeAssistantKeyApiV1AssistantKeyTestPost>>, TError,{data: TestKeyRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof probeAssistantKeyApiV1AssistantKeyTestPost>>, TError,{data: TestKeyRequest}, TContext> => {
 
@@ -405,10 +406,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/assistant/key/test` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ProbeAssistantKeyApiV1AssistantKeyTestPostMutationResult = NonNullable<Awaited<ReturnType<typeof probeAssistantKeyApiV1AssistantKeyTestPost>>>
     export type ProbeAssistantKeyApiV1AssistantKeyTestPostMutationBody = TestKeyRequest
@@ -425,5 +426,5 @@ export const useProbeAssistantKeyApiV1AssistantKeyTestPost = <TError = HTTPValid
         {data: TestKeyRequest},
         TContext
       > => {
-      return useMutation(getProbeAssistantKeyApiV1AssistantKeyTestPostMutationOptions(options), queryClient);
+      return useMutation(useProbeAssistantKeyApiV1AssistantKeyTestPostMutationOptions(options), queryClient);
     }

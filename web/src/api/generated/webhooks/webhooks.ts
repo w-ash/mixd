@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation
@@ -16,6 +16,7 @@ import type {
 } from '@tanstack/react-query';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -61,7 +62,7 @@ export const neonAuthWebhookWebhooksNeonAuthPost = async ( options?: Parameters<
 
 
 
-export const getNeonAuthWebhookWebhooksNeonAuthPostMutationOptions = <TError = unknown,
+export const useNeonAuthWebhookWebhooksNeonAuthPostMutationOptions = <TError = unknown,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof neonAuthWebhookWebhooksNeonAuthPost>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof neonAuthWebhookWebhooksNeonAuthPost>>, TError,void, TContext> => {
 
@@ -83,10 +84,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/webhooks/neon-auth` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type NeonAuthWebhookWebhooksNeonAuthPostMutationResult = NonNullable<Awaited<ReturnType<typeof neonAuthWebhookWebhooksNeonAuthPost>>>
 
@@ -103,5 +104,5 @@ export const useNeonAuthWebhookWebhooksNeonAuthPost = <TError = unknown,
         void,
         TContext
       > => {
-      return useMutation(getNeonAuthWebhookWebhooksNeonAuthPostMutationOptions(options), queryClient);
+      return useMutation(useNeonAuthWebhookWebhooksNeonAuthPostMutationOptions(options), queryClient);
     }

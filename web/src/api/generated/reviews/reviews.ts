@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -33,6 +33,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -228,7 +229,7 @@ export const resolveReviewApiV1ReviewsReviewIdResolvePost = async (reviewId: str
 
 
 
-export const getResolveReviewApiV1ReviewsReviewIdResolvePostMutationOptions = <TError = HTTPValidationError,
+export const useResolveReviewApiV1ReviewsReviewIdResolvePostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, TError,{reviewId: string;data: ResolveReviewRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, TError,{reviewId: string;data: ResolveReviewRequest}, TContext> => {
 
@@ -250,10 +251,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/reviews/{reviewId}/resolve` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ResolveReviewApiV1ReviewsReviewIdResolvePostMutationResult = NonNullable<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>>
     export type ResolveReviewApiV1ReviewsReviewIdResolvePostMutationBody = ResolveReviewRequest
@@ -270,5 +271,5 @@ export const useResolveReviewApiV1ReviewsReviewIdResolvePost = <TError = HTTPVal
         {reviewId: string;data: ResolveReviewRequest},
         TContext
       > => {
-      return useMutation(getResolveReviewApiV1ReviewsReviewIdResolvePostMutationOptions(options), queryClient);
+      return useMutation(useResolveReviewApiV1ReviewsReviewIdResolvePostMutationOptions(options), queryClient);
     }

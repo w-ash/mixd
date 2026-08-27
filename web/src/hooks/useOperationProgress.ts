@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-
+import { invalidateTags } from "#/api/cache-tags";
 import type { OperationRunSummarySchema } from "#/api/generated/model";
 import {
   isTerminalRunRow,
@@ -74,8 +74,6 @@ export interface OperationProgress {
 }
 
 export interface UseOperationProgressOptions {
-  /** Query keys to invalidate when the operation completes or fails. */
-  invalidateKeys?: readonly (readonly unknown[])[];
   /** Durable-state poll cadence during recovery. Test seam. */
   recoveryPollIntervalMs?: number;
   /** SSE resume backoff. Test seam. */
@@ -235,19 +233,23 @@ export function useOperationProgress(
   const [progress, setProgress] = useState<OperationProgress | null>(null);
   const queryClient = useQueryClient();
 
-  // Stabilize invalidateKeys via ref to prevent infinite effect loops
-  // when callers pass inline arrays (new reference each render).
-  const invalidateKeysRef = useRef(options?.invalidateKeys);
-  invalidateKeysRef.current = options?.invalidateKeys;
-
-  const invalidateQueries = useCallback(() => {
-    const keys = invalidateKeysRef.current;
-    if (keys) {
-      for (const key of keys) {
-        queryClient.invalidateQueries({ queryKey: key as unknown[] });
-      }
-    }
-  }, [queryClient]);
+  /**
+   * Invalidate what the *server* says the operation staled.
+   *
+   * The producer is the only party that knows what it wrote, so the tags ride
+   * the terminal frame (and the durable run row, for the recovery path) rather
+   * than being guessed as a key list at each trigger callsite.
+   */
+  const applyTouched = useCallback(
+    (touched: unknown) => {
+      if (!Array.isArray(touched)) return;
+      void invalidateTags(
+        queryClient,
+        touched.filter((t): t is string => typeof t === "string"),
+      );
+    },
+    [queryClient],
+  );
 
   const core = useOperationSSE({
     resumeDelayMs: options?.resumeDelayMs,
@@ -299,7 +301,7 @@ export function useOperationProgress(
               // "Complete" badge.
               subOperation: null,
             }));
-            invalidateQueries();
+            applyTouched(d.touched);
           }
           break;
 
@@ -315,7 +317,7 @@ export function useOperationProgress(
                 (d.counts as Record<string, unknown>) ?? prev?.counts ?? null,
               subOperation: null,
             }));
-            invalidateQueries();
+            applyTouched(d.touched);
           }
           break;
 
@@ -533,7 +535,7 @@ export function useOperationProgress(
     if (runRowData && isTerminalRunRow(runRowData)) {
       if (reportTerminal()) {
         setProgress(progressFromRunRow(runRowData));
-        invalidateQueries();
+        applyTouched(runRowData.touched);
       }
       return;
     }
@@ -554,7 +556,7 @@ export function useOperationProgress(
     runRowUpdatedAt,
     runRowUnreachable,
     reportTerminal,
-    invalidateQueries,
+    applyTouched,
   ]);
 
   const { start: coreStart, reset: coreReset } = core;

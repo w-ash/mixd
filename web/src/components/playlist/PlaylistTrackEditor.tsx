@@ -21,9 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import type { PlaylistEntrySchema } from "#/api/generated/model";
 import {
-  getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
   getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey,
-  getListPlaylistsApiV1PlaylistsGetQueryKey,
   useRemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete,
   useReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch,
 } from "#/api/generated/playlists/playlists";
@@ -286,9 +284,6 @@ export function PlaylistTrackEditor({
           }
           toasts.message("Couldn't save the new order — order restored.");
         },
-        onSettled: () => {
-          queryClient.invalidateQueries({ queryKey: tracksKey });
-        },
         meta: { suppressErrorToast: true },
       },
     });
@@ -297,20 +292,6 @@ export function PlaylistTrackEditor({
     useRemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete({
       mutation: {
         meta: { suppressErrorToast: true },
-        // Invalidation lives at the useMutation level (not the mutate() call
-        // site) so it fires even when the DELETE is committed after the
-        // component unmounts — a `mutate()`-level onSettled is skipped once the
-        // caller has unmounted, which would leave the count caches stale.
-        onSettled: () => {
-          queryClient.invalidateQueries({ queryKey: tracksKey });
-          queryClient.invalidateQueries({
-            queryKey:
-              getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey(playlistId),
-          });
-          queryClient.invalidateQueries({
-            queryKey: getListPlaylistsApiV1PlaylistsGetQueryKey(),
-          });
-        },
       },
     });
 
@@ -326,7 +307,8 @@ export function PlaylistTrackEditor({
   // Returns the in-flight DELETE so callers (drag-reorder) can await it before
   // sending a dependent request. Rollback lives in our own try/catch rather than
   // a mutate()-level onError so it still runs if the commit fires after unmount;
-  // invalidation is handled by removeMutation's useMutation-level onSettled.
+  // invalidation comes from the global MutationCache handler, off the route's
+  // own write tag.
   async function commitPendingRemoval() {
     const pending = pendingRef.current;
     if (!pending) return;

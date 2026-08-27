@@ -23,7 +23,6 @@ from src.infrastructure.connectors._shared.http_client import (
     parse_json_response,
 )
 from src.infrastructure.connectors._shared.retry_policies import (
-    RetryConfig,
     RetryPolicyFactory,
 )
 from src.infrastructure.connectors.base import BaseAPIClient
@@ -57,15 +56,11 @@ class MusicBrainzAPIClient(BaseAPIClient):
         )
 
         self._client = make_musicbrainz_client()
-        self._retry_policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name="musicbrainz",
-                classifier=MusicBrainzErrorClassifier(),
-                max_attempts=settings.api.musicbrainz.retry_count,
-                wait_multiplier=settings.api.musicbrainz.retry_base_delay,
-                wait_max=settings.api.musicbrainz.retry_max_delay,
-                include_httpx_errors=True,
-            )
+        self._retry_policy = RetryPolicyFactory.for_service(
+            "musicbrainz",
+            MusicBrainzErrorClassifier(),
+            settings.api.musicbrainz,
+            include_httpx_errors=True,
         )
 
     @property

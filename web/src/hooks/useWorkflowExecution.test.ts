@@ -2,11 +2,10 @@ import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import { WorkflowExecutionProvider } from "#/contexts/WorkflowExecutionContext";
+import { seedQuery, wasInvalidated } from "#/test/query-utils";
 import { mockSSEOpenStream, mockSSEWithEvents } from "#/test/sse-test-utils";
 import { createTestQueryClient } from "#/test/test-utils";
-
 import { useWorkflowExecution } from "./useWorkflowExecution";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
@@ -167,12 +166,12 @@ describe("useWorkflowExecution", () => {
   describe("cache reconciliation", () => {
     const WORKFLOW_ID = "019d0000-0000-7000-8000-000000000001";
 
-    /** Every queryKey passed to invalidateQueries, flattened to its URL head. */
-    function invalidatedUrls(spy: { mock: { calls: unknown[][] } }): string[] {
-      return spy.mock.calls.flatMap((call) => {
-        const key = (call[0] as { queryKey?: unknown[] } | undefined)?.queryKey;
-        return typeof key?.[0] === "string" ? [key[0]] : [];
-      });
+    /**
+     * Seed each URL as a cached query so invalidation is observable as state
+     * rather than as call arguments — the matching is a predicate now.
+     */
+    function seed(client: QueryClient, urls: string[]) {
+      for (const url of urls) seedQuery(client, [url]);
     }
 
     it("invalidates the app-global run sources on run START", async () => {
@@ -181,7 +180,7 @@ describe("useWorkflowExecution", () => {
       mockSSEOpenStream([]);
 
       const queryClient = createTestQueryClient();
-      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+      seed(queryClient, ["/api/v1/workflows/active-runs", "/api/v1/workflows"]);
 
       const { result } = renderHook(() => useWorkflowExecution(WORKFLOW_ID), {
         wrapper: createWrapper(queryClient),
@@ -192,11 +191,11 @@ describe("useWorkflowExecution", () => {
       });
 
       await waitFor(() => {
-        expect(invalidatedUrls(invalidateSpy)).toContain(
-          "/api/v1/workflows/active-runs",
-        );
+        expect(
+          wasInvalidated(queryClient, ["/api/v1/workflows/active-runs"]),
+        ).toBe(true);
       });
-      expect(invalidatedUrls(invalidateSpy)).toContain("/api/v1/workflows");
+      expect(wasInvalidated(queryClient, ["/api/v1/workflows"])).toBe(true);
     });
 
     it("invalidates the run detail query on terminal", async () => {
@@ -205,7 +204,14 @@ describe("useWorkflowExecution", () => {
       mockSSEWithEvents([{ event: "complete", data: JSON.stringify({}) }]);
 
       const queryClient = createTestQueryClient();
-      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+      const urls = [
+        `/api/v1/workflows/${WORKFLOW_ID}/runs/run-1`,
+        `/api/v1/workflows/${WORKFLOW_ID}`,
+        `/api/v1/workflows/${WORKFLOW_ID}/runs`,
+        "/api/v1/workflows",
+        "/api/v1/workflows/active-runs",
+      ];
+      seed(queryClient, urls);
 
       const { result } = renderHook(() => useWorkflowExecution(WORKFLOW_ID), {
         wrapper: createWrapper(queryClient),
@@ -219,16 +225,9 @@ describe("useWorkflowExecution", () => {
         expect(result.current.isExecuting).toBe(false);
       });
 
-      const urls = invalidatedUrls(invalidateSpy);
-      expect(
-        urls.some((u) =>
-          new RegExp(`^/api/v1/workflows/${WORKFLOW_ID}/runs/.+`).test(u),
-        ),
-      ).toBe(true);
-      expect(urls).toContain(`/api/v1/workflows/${WORKFLOW_ID}`);
-      expect(urls).toContain(`/api/v1/workflows/${WORKFLOW_ID}/runs`);
-      expect(urls).toContain("/api/v1/workflows");
-      expect(urls).toContain("/api/v1/workflows/active-runs");
+      for (const url of urls) {
+        expect(wasInvalidated(queryClient, [url]), url).toBe(true);
+      }
     });
   });
 

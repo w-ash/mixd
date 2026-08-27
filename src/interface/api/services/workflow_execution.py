@@ -41,6 +41,11 @@ from src.interface.api.services.sse_operations import (
     release_operation_slot,
 )
 
+# Constants, not repeated literals, so the cache-tag coverage guard can resolve
+# them — an untagged operation type must fail that test, not go quietly untagged.
+_OPERATION_TYPE_WORKFLOW_RUN = "workflow_run"
+_OPERATION_TYPE_WORKFLOW_PREVIEW = "workflow_preview"
+
 logger = get_logger(__name__).bind(service="workflows_api")
 
 
@@ -134,6 +139,7 @@ async def _run_workflow_and_push_terminal(
                 operation_id,
                 WorkflowConstants.RUN_STATUS_COMPLETED,
                 run_id=run_id,
+                operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
                 output_track_count=run_result.output_track_count,
                 duration_ms=run_result.duration_ms,
             )
@@ -146,6 +152,7 @@ async def _run_workflow_and_push_terminal(
                 operation_id,
                 run_result.status,
                 run_id=run_id,
+                operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
                 error_message=truncate_error_message(
                     run_result.error_message or "Unknown error",
                     WorkflowConstants.SSE_ERROR_MAX_LENGTH,
@@ -195,6 +202,7 @@ async def execute_workflow_background(
                     operation_id,
                     WorkflowConstants.RUN_STATUS_CRASHED,
                     run_id=run_id,
+                    operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
                     error_message=WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE,
                 )
             )
@@ -239,6 +247,7 @@ async def execute_preview_background(
                 WorkflowConstants.SSE_EVENT_PREVIEW_COMPLETE,
                 operation_id,
                 WorkflowConstants.RUN_STATUS_COMPLETED,
+                operation_type=_OPERATION_TYPE_WORKFLOW_PREVIEW,
                 output_tracks=preview_result.output_tracks,
                 total_track_count=preview_result.total_track_count,
                 metric_columns=preview_result.metric_columns,
@@ -272,6 +281,9 @@ async def execute_preview_background(
                     WorkflowConstants.SSE_EVENT_ERROR,
                     operation_id,
                     WorkflowConstants.RUN_STATUS_FAILED,
+                    # A preview that failed part-way may already have committed
+                    # source rows — skipping destinations is all dry_run skips.
+                    operation_type=_OPERATION_TYPE_WORKFLOW_PREVIEW,
                     error_message=error_msg,
                 )
             )

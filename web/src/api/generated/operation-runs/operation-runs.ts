@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -33,6 +33,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -363,7 +364,7 @@ export const retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost = async 
 
 
 
-export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions = <TError = HTTPValidationError,
+export const useRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,{runId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,{runId: string}, TContext> => {
 
@@ -385,10 +386,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/operation-runs/{runId}/retry-failed` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationResult = NonNullable<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>>
 
@@ -405,5 +406,5 @@ export const useRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPost = <TE
         {runId: string},
         TContext
       > => {
-      return useMutation(getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions(options), queryClient);
+      return useMutation(useRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions(options), queryClient);
     }

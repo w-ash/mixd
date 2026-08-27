@@ -1,15 +1,10 @@
-import {
-  MutationCache,
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type RenderOptions, render } from "@testing-library/react";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { MemoryRouter, type MemoryRouterProps } from "react-router";
 
 import { ThemeProvider } from "#/contexts/ThemeContext";
 import { WorkflowExecutionProvider } from "#/contexts/WorkflowExecutionContext";
-import { createMutationErrorHandler } from "#/lib/toasts";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -18,23 +13,11 @@ interface ProvidersProps {
   queryClient?: QueryClient;
 }
 
-export function createTestQueryClient() {
-  return new QueryClient({
-    // Mirror production so tests exercise the global error-toast handler.
-    mutationCache: new MutationCache({
-      onError: createMutationErrorHandler(),
-    }),
-    defaultOptions: {
-      queries: {
-        retry: false,
-        gcTime: 0,
-      },
-      mutations: {
-        retry: false,
-      },
-    },
-  });
-}
+// `wasInvalidated` is deliberately not re-exported: it is an invalidation
+// probe, not a rendering helper, so it is imported from `query-utils` directly.
+export { createTestQueryClient } from "./query-utils";
+
+import { createTestQueryClient } from "./query-utils";
 
 function Providers({
   children,

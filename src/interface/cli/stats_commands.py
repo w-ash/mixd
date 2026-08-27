@@ -9,6 +9,7 @@ from src.config.constants import MatchMethod
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.console import get_console
+from src.interface.text import humanize_identifier
 
 console = get_console()
 
@@ -123,7 +124,7 @@ def _run_health_check() -> None:
 
         for check in result.checks:
             table.add_row(
-                check.name.replace("_", " ").title(),
+                humanize_identifier(check.name),
                 STATUS_STYLE.get(check.status, check.status),
                 str(check.count),
             )

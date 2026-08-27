@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -40,6 +40,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -371,7 +372,7 @@ export const mergeTrackApiV1TracksTrackIdMergePost = async (trackId: string,
 
 
 
-export const getMergeTrackApiV1TracksTrackIdMergePostMutationOptions = <TError = HTTPValidationError,
+export const useMergeTrackApiV1TracksTrackIdMergePostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>, TError,{trackId: string;data: MergeTrackRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>, TError,{trackId: string;data: MergeTrackRequest}, TContext> => {
 
@@ -393,10 +394,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/{trackId}/merge` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type MergeTrackApiV1TracksTrackIdMergePostMutationResult = NonNullable<Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>>
     export type MergeTrackApiV1TracksTrackIdMergePostMutationBody = MergeTrackRequest
@@ -413,7 +414,7 @@ export const useMergeTrackApiV1TracksTrackIdMergePost = <TError = HTTPValidation
         {trackId: string;data: MergeTrackRequest},
         TContext
       > => {
-      return useMutation(getMergeTrackApiV1TracksTrackIdMergePostMutationOptions(options), queryClient);
+      return useMutation(useMergeTrackApiV1TracksTrackIdMergePostMutationOptions(options), queryClient);
     }
     export type relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponse200 = {
   data: TrackDetailSchema
@@ -464,7 +465,7 @@ export const relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch = async (trac
 
 
 
-export const getRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationOptions = <TError = HTTPValidationError,
+export const useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>, TError,{trackId: string;mappingId: string;data: RelinkMappingRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>, TError,{trackId: string;mappingId: string;data: RelinkMappingRequest}, TContext> => {
 
@@ -486,10 +487,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/{trackId}/mappings/{mappingId}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type RelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>>
     export type RelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationBody = RelinkMappingRequest
@@ -506,7 +507,7 @@ export const useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatch = <TError 
         {trackId: string;mappingId: string;data: RelinkMappingRequest},
         TContext
       > => {
-      return useMutation(getRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationOptions(options), queryClient);
+      return useMutation(useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationOptions(options), queryClient);
     }
     export type unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponse200 = {
   data: UnlinkMappingResponse
@@ -556,7 +557,7 @@ export const unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete = async (tra
 
 
 
-export const getUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationOptions = <TError = HTTPValidationError,
+export const useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>, TError,{trackId: string;mappingId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>, TError,{trackId: string;mappingId: string}, TContext> => {
 
@@ -578,10 +579,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/{trackId}/mappings/{mappingId}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type UnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>>
 
@@ -598,7 +599,7 @@ export const useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete = <TError
         {trackId: string;mappingId: string},
         TContext
       > => {
-      return useMutation(getUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationOptions(options), queryClient);
+      return useMutation(useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationOptions(options), queryClient);
     }
     export type setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponse200 = {
   data: TrackDetailSchema
@@ -648,7 +649,7 @@ export const setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch = 
 
 
 
-export const getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationOptions = <TError = HTTPValidationError,
+export const useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>, TError,{trackId: string;mappingId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>, TError,{trackId: string;mappingId: string}, TContext> => {
 
@@ -670,10 +671,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/{trackId}/mappings/{mappingId}/primary` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type SetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationResult = NonNullable<Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>>
 
@@ -690,7 +691,7 @@ export const useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch
         {trackId: string;mappingId: string},
         TContext
       > => {
-      return useMutation(getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationOptions(options), queryClient);
+      return useMutation(useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationOptions(options), queryClient);
     }
     export type setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse200 = {
   data: SetPreferenceRequest
@@ -739,7 +740,7 @@ export const setTrackPreferenceApiV1TracksTrackIdPreferencePut = async (trackId:
 
 
 
-export const getSetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationOptions = <TError = HTTPValidationError,
+export const useSetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>, TError,{trackId: string;data: SetPreferenceRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>, TError,{trackId: string;data: SetPreferenceRequest}, TContext> => {
 
@@ -761,10 +762,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/{trackId}/preference` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type SetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationResult = NonNullable<Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>>
     export type SetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationBody = SetPreferenceRequest
@@ -781,7 +782,7 @@ export const useSetTrackPreferenceApiV1TracksTrackIdPreferencePut = <TError = HT
         {trackId: string;data: SetPreferenceRequest},
         TContext
       > => {
-      return useMutation(getSetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationOptions(options), queryClient);
+      return useMutation(useSetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationOptions(options), queryClient);
     }
     export type deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponse204 = {
   data: void
@@ -829,7 +830,7 @@ export const deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete = async (tr
 
 
 
-export const getDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationOptions = <TError = HTTPValidationError,
+export const useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>, TError,{trackId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>, TError,{trackId: string}, TContext> => {
 
@@ -851,10 +852,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/{trackId}/preference` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type DeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>>
 
@@ -871,7 +872,7 @@ export const useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete = <TErro
         {trackId: string},
         TContext
       > => {
-      return useMutation(getDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationOptions(options), queryClient);
+      return useMutation(useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationOptions(options), queryClient);
     }
     export type addTrackTagApiV1TracksTrackIdTagsPostResponse201 = {
   data: AddTagResponse
@@ -923,7 +924,7 @@ export const addTrackTagApiV1TracksTrackIdTagsPost = async (trackId: string,
 
 
 
-export const getAddTrackTagApiV1TracksTrackIdTagsPostMutationOptions = <TError = HTTPValidationError,
+export const useAddTrackTagApiV1TracksTrackIdTagsPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>, TError,{trackId: string;data: AddTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>, TError,{trackId: string;data: AddTagRequest}, TContext> => {
 
@@ -945,10 +946,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/{trackId}/tags` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type AddTrackTagApiV1TracksTrackIdTagsPostMutationResult = NonNullable<Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>>
     export type AddTrackTagApiV1TracksTrackIdTagsPostMutationBody = AddTagRequest
@@ -965,7 +966,7 @@ export const useAddTrackTagApiV1TracksTrackIdTagsPost = <TError = HTTPValidation
         {trackId: string;data: AddTagRequest},
         TContext
       > => {
-      return useMutation(getAddTrackTagApiV1TracksTrackIdTagsPostMutationOptions(options), queryClient);
+      return useMutation(useAddTrackTagApiV1TracksTrackIdTagsPostMutationOptions(options), queryClient);
     }
     export type deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponse204 = {
   data: void
@@ -1019,7 +1020,7 @@ export const deleteTrackTagApiV1TracksTrackIdTagsTagDelete = async (trackId: str
 
 
 
-export const getDeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationOptions = <TError = HTTPValidationError,
+export const useDeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>, TError,{trackId: string;tag: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>, TError,{trackId: string;tag: string}, TContext> => {
 
@@ -1041,10 +1042,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/{trackId}/tags/{tag}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type DeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>>
 
@@ -1061,7 +1062,7 @@ export const useDeleteTrackTagApiV1TracksTrackIdTagsTagDelete = <TError = HTTPVa
         {trackId: string;tag: string},
         TContext
       > => {
-      return useMutation(getDeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationOptions(options), queryClient);
+      return useMutation(useDeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationOptions(options), queryClient);
     }
     export type batchTagTracksApiV1TracksTagsBatchPostResponse200 = {
   data: BatchTagResponse
@@ -1115,7 +1116,7 @@ export const batchTagTracksApiV1TracksTagsBatchPost = async (batchTagRequest: Ba
 
 
 
-export const getBatchTagTracksApiV1TracksTagsBatchPostMutationOptions = <TError = HTTPValidationError,
+export const useBatchTagTracksApiV1TracksTagsBatchPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>, TError,{data: BatchTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>, TError,{data: BatchTagRequest}, TContext> => {
 
@@ -1137,10 +1138,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/tracks/tags/batch` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type BatchTagTracksApiV1TracksTagsBatchPostMutationResult = NonNullable<Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>>
     export type BatchTagTracksApiV1TracksTagsBatchPostMutationBody = BatchTagRequest
@@ -1157,5 +1158,5 @@ export const useBatchTagTracksApiV1TracksTagsBatchPost = <TError = HTTPValidatio
         {data: BatchTagRequest},
         TContext
       > => {
-      return useMutation(getBatchTagTracksApiV1TracksTagsBatchPostMutationOptions(options), queryClient);
+      return useMutation(useBatchTagTracksApiV1TracksTagsBatchPostMutationOptions(options), queryClient);
     }

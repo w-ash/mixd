@@ -9,6 +9,7 @@ from rich.table import Table
 from src.domain.entities import OperationResult
 from src.domain.entities.summary_metrics import SummaryMetricFormat
 from src.interface.cli.console import GOLD, get_console, print_brand_title
+from src.interface.text import humanize_identifier
 
 console = get_console()
 
@@ -139,7 +140,7 @@ def _render_track_details_table(result: OperationResult) -> Table:
     # Add metric columns - sorted for consistent display
     metric_columns = sorted(result.metrics.keys()) if result.metrics else []
     for metric_name in metric_columns:
-        display_name = metric_name.replace("_", " ").title()
+        display_name = humanize_identifier(metric_name)
         details_table.add_column(display_name, style="yellow", justify="right")
 
     # Get fresh metric IDs from tracklist metadata (for cached vs fresh styling)

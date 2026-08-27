@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 
 export * from './activeAssignmentSchema.ts';
@@ -113,9 +113,11 @@ export * from './musicKitConfigResponse.ts';
 export * from './nodeTypeInfoSchema.ts';
 export * from './operationRunDetailSchema.ts';
 export * from './operationRunDetailSchemaStatus.ts';
+export * from './operationRunDetailSchemaTouchedItem.ts';
 export * from './operationRunListResponse.ts';
 export * from './operationRunSummarySchema.ts';
 export * from './operationRunSummarySchemaStatus.ts';
+export * from './operationRunSummarySchemaTouchedItem.ts';
 export * from './operationSnapshotResponse.ts';
 export * from './operationSnapshotResponseStatus.ts';
 export * from './operationStartedResponse.ts';
@@ -165,6 +167,9 @@ export * from './setPreferenceRequest.ts';
 export * from './spotifyCallbackAuthSpotifyCallbackGetParams.ts';
 export * from './syncLinkRequest.ts';
 export * from './syncPreviewResponse.ts';
+export * from './syncTargetListResponse.ts';
+export * from './syncTargetSchema.ts';
+export * from './syncTargetSchemaId.ts';
 export * from './tagOperationResult.ts';
 export * from './tagSummarySchema.ts';
 export * from './testKeyRequest.ts';

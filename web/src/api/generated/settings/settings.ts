@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -31,6 +31,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -211,7 +212,7 @@ export const patchSettingsApiV1SettingsPatch = async (userSettingsPatch: UserSet
 
 
 
-export const getPatchSettingsApiV1SettingsPatchMutationOptions = <TError = HTTPValidationError,
+export const usePatchSettingsApiV1SettingsPatchMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, TError,{data: UserSettingsPatch}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, TError,{data: UserSettingsPatch}, TContext> => {
 
@@ -233,10 +234,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/settings` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type PatchSettingsApiV1SettingsPatchMutationResult = NonNullable<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>>
     export type PatchSettingsApiV1SettingsPatchMutationBody = UserSettingsPatch
@@ -253,5 +254,5 @@ export const usePatchSettingsApiV1SettingsPatch = <TError = HTTPValidationError,
         {data: UserSettingsPatch},
         TContext
       > => {
-      return useMutation(getPatchSettingsApiV1SettingsPatchMutationOptions(options), queryClient);
+      return useMutation(usePatchSettingsApiV1SettingsPatchMutationOptions(options), queryClient);
     }

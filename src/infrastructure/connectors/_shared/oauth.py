@@ -12,11 +12,17 @@ import base64
 import collections.abc
 import hashlib
 from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Protocol, override
+import urllib.parse
+import webbrowser
 
 import httpx2
 
+from src.config import get_logger
 from src.infrastructure.connectors._shared.http_client import parse_json_body
+
+logger = get_logger(__name__).bind(service="connector_oauth")
 
 
 def compute_pkce_challenge(code_verifier: str) -> str:
@@ -73,3 +79,39 @@ class BearerAuth(httpx2.Auth):
             new_token = await self._token_manager.force_refresh()
             request.headers["Authorization"] = f"Bearer {new_token}"
             yield request
+
+
+def capture_loopback_redirect(
+    auth_url: str, port: int, *, service_label: str
+) -> dict[str, str]:
+    """Open the browser and capture one OAuth redirect on 127.0.0.1:port.
+
+    A blocking one-shot ``HTTPServer`` that answers exactly one request (the
+    callback) and returns the captured ``code`` and ``state``. The state check
+    belongs to the caller, which knows what it sent.
+    """
+    captured: dict[str, str] = {}
+
+    class _CallbackHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urllib.parse.urlparse(self.path)
+            qs = urllib.parse.parse_qs(parsed.query)
+            captured["code"] = qs.get("code", [""])[0]
+            captured["state"] = qs.get("state", [""])[0]
+            self.send_response(HTTPStatus.OK)
+            self.end_headers()
+            _ = self.wfile.write(
+                f"{service_label} authorization successful. "
+                "You may close this tab.".encode()
+            )
+
+        @override
+        def log_message(self, format: str, *args: object) -> None:
+            pass  # Suppress HTTP server access logs
+
+    server = HTTPServer(("127.0.0.1", port), _CallbackHandler)
+    logger.info(f"Opening {service_label} authorization in browser...")
+    _ = webbrowser.open(auth_url)
+    server.handle_request()  # Block until exactly one request (the callback)
+    server.server_close()
+    return captured

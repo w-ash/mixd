@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation
@@ -24,6 +24,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -80,7 +81,7 @@ export const createAndApplyAssignmentApiV1PlaylistAssignmentsPost = async (creat
 
 
 
-export const getCreateAndApplyAssignmentApiV1PlaylistAssignmentsPostMutationOptions = <TError = HTTPValidationError,
+export const useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAndApplyAssignmentApiV1PlaylistAssignmentsPost>>, TError,{data: CreateAssignmentRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createAndApplyAssignmentApiV1PlaylistAssignmentsPost>>, TError,{data: CreateAssignmentRequest}, TContext> => {
 
@@ -102,10 +103,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/playlist-assignments` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type CreateAndApplyAssignmentApiV1PlaylistAssignmentsPostMutationResult = NonNullable<Awaited<ReturnType<typeof createAndApplyAssignmentApiV1PlaylistAssignmentsPost>>>
     export type CreateAndApplyAssignmentApiV1PlaylistAssignmentsPostMutationBody = CreateAssignmentRequest
@@ -122,7 +123,7 @@ export const useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost = <TError =
         {data: CreateAssignmentRequest},
         TContext
       > => {
-      return useMutation(getCreateAndApplyAssignmentApiV1PlaylistAssignmentsPostMutationOptions(options), queryClient);
+      return useMutation(useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPostMutationOptions(options), queryClient);
     }
     export type applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostResponse200 = {
   data: ApplyResultSchema
@@ -170,7 +171,7 @@ export const applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost = asyn
 
 
 
-export const getApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostMutationOptions = <TError = HTTPValidationError,
+export const useApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost>>, TError,{assignmentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost>>, TError,{assignmentId: string}, TContext> => {
 
@@ -192,10 +193,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/playlist-assignments/{assignmentId}/apply` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostMutationResult = NonNullable<Awaited<ReturnType<typeof applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost>>>
 
@@ -212,7 +213,7 @@ export const useApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost = <
         {assignmentId: string},
         TContext
       > => {
-      return useMutation(getApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostMutationOptions(options), queryClient);
+      return useMutation(useApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostMutationOptions(options), queryClient);
     }
     export type applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponse202 = {
   data: OperationStartedResponse
@@ -259,7 +260,7 @@ export const applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost = async (
 
 
 
-export const getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationOptions = <TError = unknown,
+export const useApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationOptions = <TError = unknown,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>, TError,void, TContext> => {
 
@@ -281,10 +282,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/playlist-assignments/apply-bulk` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationResult = NonNullable<Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>>
 
@@ -301,7 +302,7 @@ export const useApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost = <TEr
         void,
         TContext
       > => {
-      return useMutation(getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationOptions(options), queryClient);
+      return useMutation(useApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationOptions(options), queryClient);
     }
     export type deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteResponse204 = {
   data: void
@@ -349,7 +350,7 @@ export const deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete = async 
 
 
 
-export const getDeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteMutationOptions = <TError = HTTPValidationError,
+export const useDeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete>>, TError,{assignmentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete>>, TError,{assignmentId: string}, TContext> => {
 
@@ -371,10 +372,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/playlist-assignments/{assignmentId}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type DeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete>>>
 
@@ -391,5 +392,5 @@ export const useDeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete = <TE
         {assignmentId: string},
         TContext
       > => {
-      return useMutation(getDeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteMutationOptions(options), queryClient);
+      return useMutation(useDeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteMutationOptions(options), queryClient);
     }

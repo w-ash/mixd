@@ -1,6 +1,7 @@
 import { delay, HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import { toasts } from "#/lib/toasts";
 import { makeConnectorMetadata } from "#/test/factories";
 import { mockMusicKit } from "#/test/musickit";
@@ -16,6 +17,17 @@ import {
 import { ConnectorCard } from "./ConnectorCard";
 
 const makeConnector = makeConnectorMetadata;
+
+/**
+ * Mounts the connectors list the way Integrations.tsx does.
+ *
+ * Invalidation refetches *active* queries, so without an observer there is
+ * nothing to refetch and the card alone cannot show the ordering.
+ */
+function ConnectorsProbe() {
+  useGetConnectorsApiV1ConnectorsGet();
+  return null;
+}
 
 describe("ConnectorCard", () => {
   describe("disconnected state", () => {
@@ -420,8 +432,14 @@ describe("ConnectorCard", () => {
       );
 
       renderWithProviders(
-        <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
+        <>
+          <ConnectorsProbe />
+          <ConnectorCard connector={makeConnector({ name: "apple_music" })} />
+        </>,
       );
+      // The mount fetch is not the one under test.
+      await waitFor(() => expect(connectorsRefetched).toBe(true));
+      connectorsRefetched = false;
 
       await user.click(screen.getByText("Connect Apple Music"));
 

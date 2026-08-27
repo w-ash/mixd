@@ -29,11 +29,7 @@ import {
 
 import { type SubProgressUpdate, useWorkflowSSE } from "#/hooks/useWorkflowSSE";
 import type { NodeStatus, SSEState } from "#/lib/sse-types";
-import {
-  afterRunStateChanged,
-  invalidateActiveRuns,
-  invalidateWorkflowList,
-} from "#/lib/workflow-queries";
+import { afterRunStateChanged } from "#/lib/workflow-queries";
 
 export interface WorkflowExecutionState {
   workflowId: string | null;
@@ -88,17 +84,12 @@ export function WorkflowExecutionProvider({
   const runIdRef = useRef(runId);
   runIdRef.current = runId;
 
-  const invalidateWorkflowQueries = useCallback(() => {
-    const wfId = workflowIdRef.current;
-    if (wfId !== null) {
-      afterRunStateChanged(queryClient, wfId, runIdRef.current);
-      return;
-    }
-    // No workflow attached (shouldn't happen — both start paths set it first),
-    // but still refresh the app-global sources so nothing is left stuck.
-    invalidateWorkflowList(queryClient);
-    invalidateActiveRuns(queryClient);
-  }, [queryClient]);
+  // Family tags cover both cases: the run rows and the workflow surfaces refresh
+  // whether or not a workflow id was ever attached to this execution.
+  const invalidateWorkflowQueries = useCallback(
+    () => afterRunStateChanged(queryClient),
+    [queryClient],
+  );
 
   const sse = useWorkflowSSE({
     errorFallbackMessage: "Workflow failed",

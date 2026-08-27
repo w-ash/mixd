@@ -1,9 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import {
-  getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey,
-  useRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost,
-} from "#/api/generated/playlists/playlists";
+import { useRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost } from "#/api/generated/playlists/playlists";
 import { Button } from "#/components/ui/button";
 import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
@@ -16,7 +12,6 @@ export function RepairUnresolvedBar({
   playlistId: string;
   count: number;
 }) {
-  const queryClient = useQueryClient();
   const repairMut =
     useRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost({
       mutation: {
@@ -32,12 +27,6 @@ export function RepairUnresolvedBar({
               `Repaired ${repaired} · ${still_unresolved} still unresolved`,
             );
           }
-          queryClient.invalidateQueries({
-            queryKey:
-              getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey(
-                playlistId,
-              ),
-          });
         },
         meta: { errorLabel: "Repair failed" },
       },

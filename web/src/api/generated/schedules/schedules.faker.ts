@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   faker
@@ -11,9 +11,12 @@ import {
 
 import type {
   ScheduleListResponse,
-  ScheduleResponse
+  ScheduleResponse,
+  SyncTargetListResponse
 } from '../model';
 
+
+export const getListSyncTargetsApiV1SyncTargetsGetResponseMock = (overrideResponse: Partial<Extract<SyncTargetListResponse, object>> = {}): SyncTargetListResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.helpers.arrayElement(['apple:plays','lastfm:likes','lastfm:plays','spotify:likes','spotify:plays'] as const), label: faker.string.alpha({length: {min: 10, max: 20}}), self_managed: faker.datatype.boolean()})), ...overrideResponse})
 
 export const getListSchedulesApiV1SchedulesGetResponseMock = (overrideResponse: Partial<Extract<ScheduleListResponse, object>> = {}): ScheduleListResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), target_type: faker.helpers.arrayElement(['workflow','sync'] as const), workflow_id: faker.helpers.arrayElement([faker.string.uuid(),null,]), sync_target: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), schedule_type: faker.helpers.arrayElement(['daily','weekly','interval'] as const), hour: faker.number.int(), minute: faker.number.int(), day_of_week: faker.helpers.arrayElement([faker.number.int(),null,]), interval_minutes: faker.helpers.arrayElement([faker.number.int(),null,]), timezone: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.helpers.arrayElement(['enabled','disabled'] as const), next_run_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), last_run_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), last_run_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), last_error: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), consecutive_failures: faker.number.int(), run_count: faker.number.int(), target_label: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 

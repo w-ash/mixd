@@ -1,12 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeftRight, Loader2, RefreshCw, Unlink } from "lucide-react";
 import { useEffect, useState } from "react";
+import { invalidateTags } from "#/api/cache-tags";
 import type { PlaylistLinkSchema } from "#/api/generated/model";
 import {
-  getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
-  getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey,
-  getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryKey,
-  getListPlaylistsApiV1PlaylistsGetQueryKey,
   useDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete,
   useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet,
   useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch,
@@ -28,7 +25,6 @@ import { formatRelativeTime } from "#/lib/format";
 import { formatSyncResults, getSyncStatusConfig } from "#/lib/sync-status";
 import { toasts } from "#/lib/toasts";
 import { LinkPlaylistDialog } from "./LinkPlaylistDialog";
-import { invalidateLinkQueries } from "./link-queries";
 
 export function LinkedServicesSection({ playlistId }: { playlistId: string }) {
   const queryClient = useQueryClient();
@@ -36,21 +32,8 @@ export function LinkedServicesSection({ playlistId }: { playlistId: string }) {
   const [syncDialogLink, setSyncDialogLink] =
     useState<PlaylistLinkSchema | null>(null);
 
-  const { progress: syncProgress, isActive: isSyncing } = useOperationProgress(
-    syncOperationId,
-    {
-      invalidateKeys: [
-        getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey(
-          playlistId,
-        ),
-        getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryKey(
-          playlistId,
-        ),
-        getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey(playlistId),
-        getListPlaylistsApiV1PlaylistsGetQueryKey(),
-      ],
-    },
-  );
+  const { progress: syncProgress, isActive: isSyncing } =
+    useOperationProgress(syncOperationId);
 
   // Clear stale operation ID once the operation finishes
   useEffect(() => {
@@ -71,22 +54,14 @@ export function LinkedServicesSection({ playlistId }: { playlistId: string }) {
   const deleteLinkMutation =
     useDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete({
       mutation: {
-        onSuccess: () => {
-          invalidateLinkQueries(queryClient, playlistId);
-          toasts.success("Playlist unlinked");
-        },
+        onSuccess: () => toasts.success("Playlist unlinked"),
         meta: { errorLabel: "Failed to unlink" },
       },
     });
 
   const updateLinkMutation =
     useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch({
-      mutation: {
-        onSuccess: () => {
-          invalidateLinkQueries(queryClient, playlistId);
-        },
-        meta: { errorLabel: "Failed to update direction" },
-      },
+      mutation: { meta: { errorLabel: "Failed to update direction" } },
     });
 
   if (isLoading) {
@@ -236,7 +211,9 @@ export function LinkedServicesSection({ playlistId }: { playlistId: string }) {
           currentDirection={syncDialogLink.sync_direction}
           onStarted={(operationId) => {
             setSyncOperationId(operationId);
-            invalidateLinkQueries(queryClient, playlistId);
+            // The start route is deliberately untagged; this reflects the
+            // link's new "syncing" state until the terminal frame lands.
+            void invalidateTags(queryClient, ["playlists"]);
             setSyncDialogLink(null);
           }}
         />

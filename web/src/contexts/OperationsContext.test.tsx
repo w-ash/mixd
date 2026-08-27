@@ -51,6 +51,7 @@ function runningRow(
     issue_count: 0,
     retryable: false,
     initiated_by: "manual",
+    touched: [],
   };
 }
 

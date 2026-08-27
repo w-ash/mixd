@@ -3,17 +3,14 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import type { JsonDict } from './jsonDict.ts';
 import type { OperationRunSummarySchemaStatus } from './operationRunSummarySchemaStatus.ts';
+import type { OperationRunSummarySchemaTouchedItem } from './operationRunSummarySchemaTouchedItem.ts';
 
 /**
- * Lightweight row for the list view (no full ``issues`` payload).
- *
- * The list endpoint returns this shape; full ``issues`` come back from
- * the per-run detail endpoint so a 100-issue run doesn't bloat the
- * list response.
+ * List row: issue count only, so a 100-issue run doesn't bloat the page.
  */
 export interface OperationRunSummarySchema {
   id: string;
@@ -23,8 +20,15 @@ export interface OperationRunSummarySchema {
   ended_at: string | null;
   status: OperationRunSummarySchemaStatus;
   counts: JsonDict;
-  issue_count: number;
   retryable: boolean;
   initiated_by: string;
   trigger_detail?: string | null;
+  issue_count: number;
+  /**
+     * Cache tags for the poll-recovery path, when the SSE stream dropped.
+     *
+     * Derived rather than stored, so correcting a tag fixes historic rows too
+     * and the live and recovered paths cannot disagree.
+     */
+  readonly touched: readonly OperationRunSummarySchemaTouchedItem[];
 }

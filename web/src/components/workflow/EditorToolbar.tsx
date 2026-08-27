@@ -38,7 +38,7 @@ import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 import { downloadWorkflowDef } from "#/lib/workflow-file";
 import { layoutWorkflow } from "#/lib/workflow-layout";
-import { afterWorkflowSaved } from "#/lib/workflow-queries";
+import { writeWorkflowDetail } from "#/lib/workflow-queries";
 import { useEditorStore } from "#/stores/editor-store";
 
 export function EditorToolbar() {
@@ -90,12 +90,17 @@ export function EditorToolbar() {
       createWorkflow(
         { data: { definition: def } },
         {
-          onSuccess: (res) => {
+          onSuccess: async (res) => {
             if (res.status === 201) {
               const newId = res.data.id;
               // Seed the cache before navigating so the destination renders the
               // workflow we just saved rather than fetching it back.
-              afterWorkflowSaved(queryClient, newId, res.data, res.headers);
+              await writeWorkflowDetail(
+                queryClient,
+                newId,
+                res.data,
+                res.headers,
+              );
               resetDirty();
               toasts.success("Workflow created");
               navigate(`/workflows/${newId}/edit`, { replace: true });
@@ -107,9 +112,9 @@ export function EditorToolbar() {
       updateWorkflow(
         { workflowId, data: { definition: def } },
         {
-          onSuccess: (res) => {
+          onSuccess: async (res) => {
             if (res.status === 200) {
-              afterWorkflowSaved(
+              await writeWorkflowDetail(
                 queryClient,
                 workflowId,
                 res.data,

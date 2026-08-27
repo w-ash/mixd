@@ -1,21 +1,17 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import {
-  getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey,
-  useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost,
-} from "#/api/generated/connectors/connectors";
+import { invalidateTags } from "#/api/cache-tags";
+import { useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost } from "#/api/generated/connectors/connectors";
 import type {
   ConnectorMetadataSchema,
   OperationStartedResponse,
 } from "#/api/generated/model";
-import { getListPlaylistsApiV1PlaylistsGetQueryKey } from "#/api/generated/playlists/playlists";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { claimRunToast } from "#/lib/operation-toast-ledger";
 import { pluralize } from "#/lib/pluralize";
 import type { SyncDirection } from "#/lib/sync-direction";
 import { toasts } from "#/lib/toasts";
-
 import { ConfirmationDialog } from "./ConfirmationDialog";
 import type { PickedPlaylist } from "./ConnectorPlaylistPickerDialog";
 import { DirectionChooser } from "./DirectionChooser";
@@ -75,14 +71,7 @@ export function ImportPlaylistsConfirmDialog({
       },
     });
 
-  const { progress } = useOperationProgress(operationId, {
-    invalidateKeys: [
-      getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey(
-        connector.name,
-      ),
-      getListPlaylistsApiV1PlaylistsGetQueryKey(),
-    ],
-  });
+  const { progress } = useOperationProgress(operationId);
 
   const isTerminal =
     progress !== null &&
@@ -165,13 +154,8 @@ export function ImportPlaylistsConfirmDialog({
     if (!nextOpen) {
       setOperationId(null);
       setRunId(null);
-      // Invalidate so the picker reflects the new link state on reopen.
-      queryClient.invalidateQueries({
-        queryKey:
-          getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey(
-            connector.name,
-          ),
-      });
+      // So the picker reflects the new link state on reopen.
+      void invalidateTags(queryClient, ["connector-playlists"]);
     }
   };
 

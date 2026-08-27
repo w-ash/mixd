@@ -1,13 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { Check, Plus } from "lucide-react";
 import { useState } from "react";
 import type { LibraryTrackSchema } from "#/api/generated/model";
-import {
-  getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
-  getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey,
-  getListPlaylistsApiV1PlaylistsGetQueryKey,
-  useAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost,
-} from "#/api/generated/playlists/playlists";
+import { useAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost } from "#/api/generated/playlists/playlists";
 import { CommandSearchList } from "#/components/shared/CommandSearchList";
 import { Button } from "#/components/ui/button";
 import {
@@ -40,26 +34,12 @@ export function AddTracksDialog({
   const [selected, setSelected] = useState<Map<string, LibraryTrackSchema>>(
     new Map(),
   );
-  const queryClient = useQueryClient();
 
   const addMutation = useAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost({
     mutation: {
       onSuccess: (_res, { data: body }) => {
         const n = body.track_ids.length;
         toasts.success(`${pluralize(n, "track")} added`);
-        queryClient.invalidateQueries({
-          queryKey:
-            getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey(
-              playlistId,
-            ),
-        });
-        queryClient.invalidateQueries({
-          queryKey:
-            getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey(playlistId),
-        });
-        queryClient.invalidateQueries({
-          queryKey: getListPlaylistsApiV1PlaylistsGetQueryKey(),
-        });
         reset();
         setOpen(false);
       },

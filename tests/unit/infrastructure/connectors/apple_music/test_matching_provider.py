@@ -175,6 +175,11 @@ class TestIsrcMatching:
         assert {f.track_id for f in by_reason[MatchFailureReason.API_ERROR]} == {
             t.id for t in failed_tracks
         }
+        # 25 failures from ONE failed request: the message must say so, and name
+        # the code it was actually looking up.
+        chunk_failure = by_reason[MatchFailureReason.API_ERROR][0]
+        assert "the chunk holding ISRC" in chunk_failure.details
+        assert "USUM72309800" in chunk_failure.details
         # The absent ISRC sat in a SUCCESSFUL chunk: genuinely no results.
         assert [f.track_id for f in by_reason[MatchFailureReason.NO_RESULTS]] == [
             absent_track.id

@@ -83,6 +83,7 @@ function mockRunRow(overrides: Partial<OperationRunSummarySchema> = {}) {
     issue_count: 0,
     retryable: false,
     initiated_by: "user",
+    touched: [],
     ...overrides,
   };
   server.use(

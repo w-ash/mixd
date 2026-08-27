@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   HttpResponse,
@@ -15,18 +15,32 @@ import type {
 
 import type {
   ScheduleListResponse,
-  ScheduleResponse
+  ScheduleResponse,
+  SyncTargetListResponse
 } from '../model';
 
 import {
   getGetSyncScheduleApiV1SyncSchedulesTargetIdGetResponseMock,
   getListSchedulesApiV1SchedulesGetResponseMock,
+  getListSyncTargetsApiV1SyncTargetsGetResponseMock,
   getToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchResponseMock,
   getUpsertSyncScheduleApiV1SyncSchedulesTargetIdPutResponseMock
 } from './schedules.faker.ts';
 
-export { getListSchedulesApiV1SchedulesGetResponseMock, getUpsertSyncScheduleApiV1SyncSchedulesTargetIdPutResponseMock, getGetSyncScheduleApiV1SyncSchedulesTargetIdGetResponseMock, getToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchResponseMock } from './schedules.faker.ts';
+export { getListSyncTargetsApiV1SyncTargetsGetResponseMock, getListSchedulesApiV1SchedulesGetResponseMock, getUpsertSyncScheduleApiV1SyncSchedulesTargetIdPutResponseMock, getGetSyncScheduleApiV1SyncSchedulesTargetIdGetResponseMock, getToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchResponseMock } from './schedules.faker.ts';
 
+
+export const getListSyncTargetsApiV1SyncTargetsGetMockHandler = (overrideResponse?: SyncTargetListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SyncTargetListResponse> | SyncTargetListResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/sync/targets', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getListSyncTargetsApiV1SyncTargetsGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
 
 export const getListSchedulesApiV1SchedulesGetMockHandler = (overrideResponse?: ScheduleListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ScheduleListResponse> | ScheduleListResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/schedules', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
@@ -86,6 +100,7 @@ export const getDeleteSyncScheduleApiV1SyncSchedulesTargetIdDeleteMockHandler = 
   }, options)
 }
 export const getSchedulesMock = () => [
+  getListSyncTargetsApiV1SyncTargetsGetMockHandler(),
   getListSchedulesApiV1SchedulesGetMockHandler(),
   getUpsertSyncScheduleApiV1SyncSchedulesTargetIdPutMockHandler(),
   getGetSyncScheduleApiV1SyncSchedulesTargetIdGetMockHandler(),

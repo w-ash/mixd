@@ -30,22 +30,20 @@ import urllib.parse
 
 from attrs import define, field
 import httpx2
-from pydantic import ValidationError
 from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.domain.entities.shared import JsonDict
 from src.domain.exceptions import (
-    ConnectorSyncError,
     TidalAuthRequiredError,
     TokenRefreshContendedError,
 )
+from src.infrastructure.connectors._shared.boundary import validated
 from src.infrastructure.connectors._shared.http_client import (
     make_tidal_client,
     parse_json_response,
 )
 from src.infrastructure.connectors._shared.retry_policies import (
-    RetryConfig,
     RetryPolicyFactory,
 )
 from src.infrastructure.connectors._shared.token_storage import TokenStorage
@@ -97,20 +95,8 @@ _ISRC_FILTER_PARAM: Final = "filter[isrc]"
 
 
 def _validated[ModelT: TidalOasModel](model: type[ModelT], data: JsonDict) -> ModelT:
-    """Boundary-validate a response body, or raise the connector-flavored error.
-
-    A body Tidal actually served but we cannot read is an upstream-contract
-    failure, not an internal one — surfacing it as ``ConnectorSyncError``
-    keeps a malformed page from becoming a 500.
-    """
-    try:
-        return model.model_validate(data)
-    except ValidationError:
-        logger.error("Tidal response failed boundary validation", exc_info=True)
-        raise ConnectorSyncError(
-            TIDAL_SERVICE,
-            "Tidal returned a response in an unexpected shape — try again in a moment",
-        ) from None
+    """Boundary-validate a response body, or raise the connector-flavored error."""
+    return validated(model, data, service=TIDAL_SERVICE, subject="a response")
 
 
 def _cursor_from_links(links: CursorLinks | None) -> str | None:
@@ -179,18 +165,14 @@ class TidalAPIClient(BaseAPIClient):
             storage=self._storage, user_id=self._user_id
         )
 
-        self._retry_policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name=TIDAL_SERVICE,
-                classifier=TidalErrorClassifier(),
-                max_attempts=settings.api.tidal.retry_count,
-                wait_multiplier=settings.api.tidal.retry_base_delay,
-                wait_max=settings.api.tidal.retry_max_delay,
-                # A refresh-lock timeout inside the bearer auth flow is
-                # transient (another process's refresh was mid-POST) — let
-                # the policy retry it like a network blip.
-                service_error_types=(TokenRefreshContendedError,),
-            )
+        self._retry_policy = RetryPolicyFactory.for_service(
+            TIDAL_SERVICE,
+            TidalErrorClassifier(),
+            settings.api.tidal,
+            # A refresh-lock timeout inside the bearer auth flow is
+            # transient (another process's refresh was mid-POST) — let
+            # the policy retry it like a network blip.
+            service_error_types=(TokenRefreshContendedError,),
         )
         self._client = make_tidal_client(TidalBearerAuth(self._token_manager))
 

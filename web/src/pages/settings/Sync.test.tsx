@@ -94,6 +94,62 @@ function setupCheckpointsMock() {
   );
 }
 
+function setupSyncTargetsMock() {
+  server.use(
+    http.get("*/api/v1/sync/targets", () =>
+      HttpResponse.json({
+        data: [
+          { id: "lastfm:plays", label: "Last.fm plays", self_managed: false },
+          {
+            id: "spotify:plays",
+            label: "Spotify recent plays",
+            self_managed: true,
+          },
+        ],
+      }),
+    ),
+    http.get("*/api/v1/connectors/spotify/play-polling", () =>
+      HttpResponse.json({
+        service: "spotify",
+        enabled: true,
+        interval_minutes: 30,
+      }),
+    ),
+  );
+}
+
+describe("automatic-sync controls follow the server's target list", () => {
+  it("gives a self-managed target the read-only cadence, not the picker", async () => {
+    // The server owns this split: one schedule row per (user, target), and a
+    // self-managed target's interval is rewritten by the poller — the picker
+    // would overwrite it and switch the backoff off.
+    setupCheckpointsMock();
+    setupSyncTargetsMock();
+    renderWithProviders(<Sync />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Every 30 minutes")).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Automatic play polling")).toBeInTheDocument();
+  });
+
+  it("renders no automatic-sync control for a target the server omits", async () => {
+    // apple:plays is absent from the list above — an unknown target must not
+    // guess itself a scheduler.
+    setupCheckpointsMock();
+    setupSyncTargetsMock();
+    renderWithProviders(<Sync />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Apple Music Recent Plays")).toBeInTheDocument();
+    });
+    const card = screen
+      .getByText("Apple Music Recent Plays")
+      .closest("div.rounded-xl") as HTMLElement;
+    expect(within(card).queryByText("Automatic sync")).not.toBeInTheDocument();
+  });
+});
+
 describe("Sync page", () => {
   it("renders page header", () => {
     setupCheckpointsMock();

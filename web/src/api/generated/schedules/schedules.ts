@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -29,10 +29,12 @@ import type {
   ScheduleListResponse,
   ScheduleResponse,
   ScheduleToggleRequest,
-  ScheduleUpsertRequest
+  ScheduleUpsertRequest,
+  SyncTargetListResponse
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -53,6 +55,124 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export type listSyncTargetsApiV1SyncTargetsGetResponse200 = {
+  data: SyncTargetListResponse
+  status: 200
+}
+
+export type listSyncTargetsApiV1SyncTargetsGetResponseSuccess = (listSyncTargetsApiV1SyncTargetsGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type listSyncTargetsApiV1SyncTargetsGetResponse = (listSyncTargetsApiV1SyncTargetsGetResponseSuccess)
+
+export const getListSyncTargetsApiV1SyncTargetsGetUrl = () => {
+
+
+
+
+  return `/api/v1/sync/targets`
+}
+
+/**
+ * The sync targets this server can dispatch, with their display labels.
+ *
+ * Server truth for the Sync page's scheduler cards: the list, the labels, and
+ * which cadences a user may edit. The set is identical for every user — the
+ * auth dependency is router consistency, not scoping. No use case, because
+ * reading a module-level mapping is not data access.
+ * @summary List Sync Targets
+ */
+export const listSyncTargetsApiV1SyncTargetsGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<listSyncTargetsApiV1SyncTargetsGetResponse> => {
+
+  return customFetch<listSyncTargetsApiV1SyncTargetsGetResponse>(getListSyncTargetsApiV1SyncTargetsGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSyncTargetsApiV1SyncTargetsGetQueryKey = () => {
+    return [
+    `/api/v1/sync/targets`
+    ] as const;
+    }
+
+
+export const getListSyncTargetsApiV1SyncTargetsGetQueryOptions = <TData = Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSyncTargetsApiV1SyncTargetsGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>> = ({ signal }) => listSyncTargetsApiV1SyncTargetsGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListSyncTargetsApiV1SyncTargetsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>>
+export type ListSyncTargetsApiV1SyncTargetsGetQueryError = unknown
+
+
+export function useListSyncTargetsApiV1SyncTargetsGet<TData = Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListSyncTargetsApiV1SyncTargetsGet<TData = Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListSyncTargetsApiV1SyncTargetsGet<TData = Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Sync Targets
+ */
+
+export function useListSyncTargetsApiV1SyncTargetsGet<TData = Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSyncTargetsApiV1SyncTargetsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListSyncTargetsApiV1SyncTargetsGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
 
 export type listSchedulesApiV1SchedulesGetResponse200 = {
   data: ScheduleListResponse
@@ -217,7 +337,7 @@ export const upsertSyncScheduleApiV1SyncSchedulesTargetIdPut = async (targetId: 
 
 
 
-export const getUpsertSyncScheduleApiV1SyncSchedulesTargetIdPutMutationOptions = <TError = HTTPValidationError,
+export const useUpsertSyncScheduleApiV1SyncSchedulesTargetIdPutMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertSyncScheduleApiV1SyncSchedulesTargetIdPut>>, TError,{targetId: string;data: ScheduleUpsertRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof upsertSyncScheduleApiV1SyncSchedulesTargetIdPut>>, TError,{targetId: string;data: ScheduleUpsertRequest}, TContext> => {
 
@@ -239,10 +359,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/sync/schedules/{targetId}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type UpsertSyncScheduleApiV1SyncSchedulesTargetIdPutMutationResult = NonNullable<Awaited<ReturnType<typeof upsertSyncScheduleApiV1SyncSchedulesTargetIdPut>>>
     export type UpsertSyncScheduleApiV1SyncSchedulesTargetIdPutMutationBody = ScheduleUpsertRequest
@@ -259,7 +379,7 @@ export const useUpsertSyncScheduleApiV1SyncSchedulesTargetIdPut = <TError = HTTP
         {targetId: string;data: ScheduleUpsertRequest},
         TContext
       > => {
-      return useMutation(getUpsertSyncScheduleApiV1SyncSchedulesTargetIdPutMutationOptions(options), queryClient);
+      return useMutation(useUpsertSyncScheduleApiV1SyncSchedulesTargetIdPutMutationOptions(options), queryClient);
     }
     export type getSyncScheduleApiV1SyncSchedulesTargetIdGetResponse200 = {
   data: ScheduleResponse
@@ -428,7 +548,7 @@ export const toggleSyncScheduleApiV1SyncSchedulesTargetIdPatch = async (targetId
 
 
 
-export const getToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchMutationOptions = <TError = HTTPValidationError,
+export const useToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleSyncScheduleApiV1SyncSchedulesTargetIdPatch>>, TError,{targetId: string;data: ScheduleToggleRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof toggleSyncScheduleApiV1SyncSchedulesTargetIdPatch>>, TError,{targetId: string;data: ScheduleToggleRequest}, TContext> => {
 
@@ -450,10 +570,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/sync/schedules/{targetId}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof toggleSyncScheduleApiV1SyncSchedulesTargetIdPatch>>>
     export type ToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchMutationBody = ScheduleToggleRequest
@@ -470,7 +590,7 @@ export const useToggleSyncScheduleApiV1SyncSchedulesTargetIdPatch = <TError = HT
         {targetId: string;data: ScheduleToggleRequest},
         TContext
       > => {
-      return useMutation(getToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchMutationOptions(options), queryClient);
+      return useMutation(useToggleSyncScheduleApiV1SyncSchedulesTargetIdPatchMutationOptions(options), queryClient);
     }
     export type deleteSyncScheduleApiV1SyncSchedulesTargetIdDeleteResponse204 = {
   data: void
@@ -518,7 +638,7 @@ export const deleteSyncScheduleApiV1SyncSchedulesTargetIdDelete = async (targetI
 
 
 
-export const getDeleteSyncScheduleApiV1SyncSchedulesTargetIdDeleteMutationOptions = <TError = HTTPValidationError,
+export const useDeleteSyncScheduleApiV1SyncSchedulesTargetIdDeleteMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSyncScheduleApiV1SyncSchedulesTargetIdDelete>>, TError,{targetId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteSyncScheduleApiV1SyncSchedulesTargetIdDelete>>, TError,{targetId: string}, TContext> => {
 
@@ -540,10 +660,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/sync/schedules/{targetId}` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type DeleteSyncScheduleApiV1SyncSchedulesTargetIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSyncScheduleApiV1SyncSchedulesTargetIdDelete>>>
 
@@ -560,5 +680,5 @@ export const useDeleteSyncScheduleApiV1SyncSchedulesTargetIdDelete = <TError = H
         {targetId: string},
         TContext
       > => {
-      return useMutation(getDeleteSyncScheduleApiV1SyncSchedulesTargetIdDeleteMutationOptions(options), queryClient);
+      return useMutation(useDeleteSyncScheduleApiV1SyncSchedulesTargetIdDeleteMutationOptions(options), queryClient);
     }

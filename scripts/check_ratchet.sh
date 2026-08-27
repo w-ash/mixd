@@ -55,7 +55,15 @@ cd "$(dirname "$0")/.."
 # with Apple Music's), reset_discogs_queue (test-only isolation), and
 # get_song_equivalents (Apple ISRC-equivalence, test-covered). The same change
 # deleted HTTP_STATUS_MIN outright — the one genuinely dead name vulture found.
-BASE_WHITELIST=99
+# 99 → 104 at v0.11.4, reconciling a bound that had gone stale. v0.11.3 grew the
+# file to 114 for Tidal's boundary and client surface — written ahead of its
+# consumers — without moving the baseline, so this check has been failing since
+# that ship and guarding nothing. v0.11.4 wired those consumers up, which retired
+# 12 of those entries outright (the T5 client/conversion block in full, plus the
+# OAS document/resource shapes and three older attrs/vocabulary parks), and added
+# 2: `resolved_track` and `self_managed`. Net 114 → 104, and the bound is real
+# again. Shrink it, don't raise it, when a name earns a callsite.
+BASE_WHITELIST=104
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

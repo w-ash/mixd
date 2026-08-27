@@ -1,11 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Link2Off, Repeat, Star } from "lucide-react";
 import { useState } from "react";
 import type { ConnectorMappingSchema } from "#/api/generated/model";
-import {
-  getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
-  useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch,
-} from "#/api/generated/tracks/tracks";
+import { useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch } from "#/api/generated/tracks/tracks";
 import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
 import { RelinkMappingDialog } from "#/components/shared/RelinkMappingDialog";
 import {
@@ -52,16 +48,10 @@ export function MappingList({
   const [unlinkMapping, setUnlinkMapping] =
     useState<ConnectorMappingSchema | null>(null);
 
-  const queryClient = useQueryClient();
   const setPrimaryMutation =
     useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch({
       mutation: {
-        onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(trackId),
-          });
-          toasts.success("Primary mapping updated");
-        },
+        onSuccess: () => toasts.success("Primary mapping updated"),
         meta: { errorLabel: "Failed to set primary" },
       },
     });

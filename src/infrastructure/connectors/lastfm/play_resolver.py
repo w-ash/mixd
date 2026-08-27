@@ -8,20 +8,19 @@ build ``TrackPlay`` objects with preserved metadata.
 """
 
 from collections.abc import Callable
-from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities import (
     ConnectorTrackPlay,
-    PlayExclusionReason,
     Track,
-    TrackPlay,
 )
-from src.domain.entities.shared import JsonValue
-from src.domain.matching.play_projection import build_play_context
 from src.domain.matching.protocols import CrossDiscoveryProvider
-from src.domain.repositories.play import PlayResolutionOutcome, ResolutionMetrics
+from src.domain.repositories.play import PlayResolutionOutcome
 from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.infrastructure.connectors._shared.connector_play_resolver import (
+    build_play_outcome,
+    empty_play_metrics,
+)
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     TrackResolutionMetrics,
 )
@@ -70,7 +69,7 @@ class LastfmConnectorPlayResolver:
         if not connector_plays:
             return PlayResolutionOutcome(
                 track_plays=[],
-                metrics=self._create_empty_metrics(),
+                metrics=empty_play_metrics({"spotify_enhanced_count": 0}),
                 resolutions=(),
             )
 
@@ -82,73 +81,16 @@ class LastfmConnectorPlayResolver:
             connector_plays, uow, user_id=user_id, progress_callback=progress_callback
         )
 
-        # Step 2: Create TrackPlay objects with Last.fm metadata preservation
-        track_plays: list[TrackPlay] = []
-        resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
         # Last.fm carries no ms_played and no private-session flag, so its only
         # exclusion is a genuine failure to identify the track.
-        exclusions: list[tuple[ConnectorTrackPlay, PlayExclusionReason]] = []
-        filtering_stats: ResolutionMetrics = {
-            "raw_plays": len(connector_plays),
-            "accepted_plays": 0,
-            "error_count": 0,
-            "resolution_failures": [],
-        }
-
-        for connector_play, resolved_track in zip(
-            connector_plays, resolved_tracks, strict=False
-        ):
-            if resolved_track is None:
-                filtering_stats["error_count"] += 1
-                filtering_stats["resolution_failures"].append({
-                    "track": f"{connector_play.artist_name} - {connector_play.track_name}",
-                    "reason": "track_resolution_failed",
-                })
-                logger.warning(
-                    f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
-                )
-                exclusions.append((connector_play, "unresolved"))
-                continue
-
-            filtering_stats["accepted_plays"] += 1
-            resolutions.append((connector_play, resolved_track.id))
-            track_plays.append(
-                TrackPlay(
-                    track_id=resolved_track.id,
-                    service="lastfm",
-                    played_at=connector_play.played_at,
-                    user_id=user_id,
-                    ms_played=connector_play.ms_played,  # Will be None for Last.fm
-                    context=self._build_context(connector_play),
-                    import_timestamp=connector_play.import_timestamp,
-                    import_source=connector_play.import_source or "lastfm_api",
-                    import_batch_id=connector_play.import_batch_id,
-                )
-            )
-
-        # Combine filtering stats with resolution metrics
-        lastfm_metrics: ResolutionMetrics = {
-            **filtering_stats,
-            "new_tracks_count": resolution_metrics.created,
-            "updated_tracks_count": resolution_metrics.existing,
-            "spotify_enhanced_count": 0,  # Tracked internally by inward resolver
-        }
-
-        logger.info(
-            "Processed Last.fm connector plays with metadata preservation",
-            total_plays=len(connector_plays),
-            accepted_plays=filtering_stats["accepted_plays"],
-            error_count=filtering_stats["error_count"],
-            new_tracks=lastfm_metrics["new_tracks_count"],
-            updated_tracks=lastfm_metrics["updated_tracks_count"],
-            spotify_enhanced=lastfm_metrics["spotify_enhanced_count"],
-        )
-
-        return PlayResolutionOutcome(
-            track_plays=track_plays,
-            metrics=lastfm_metrics,
-            resolutions=tuple(resolutions),
-            exclusions=tuple(exclusions),
+        return build_play_outcome(
+            list(zip(connector_plays, resolved_tracks, strict=True)),
+            service="lastfm",
+            user_id=user_id,
+            default_import_source="lastfm_api",
+            resolution_metrics=resolution_metrics,
+            # Tracked internally by the inward resolver.
+            extra_metrics={"spotify_enhanced_count": 0},
         )
 
     async def _resolve_plays_to_canonical_tracks(
@@ -172,7 +114,10 @@ class LastfmConnectorPlayResolver:
         unique_identifiers = self._extract_unique_lastfm_identifiers(connector_plays)
         if not unique_identifiers:
             logger.warning("No valid Last.fm track identifiers found in play records")
-            return [], TrackResolutionMetrics()
+            # One slot per play, not an empty list: the caller pairs the two
+            # strictly, and ``raw_plays`` counts pairs — a short list would
+            # report the dropped plays out of existence.
+            return [None] * len(connector_plays), TrackResolutionMetrics()
 
         if progress_callback:
             progress_callback(
@@ -241,25 +186,3 @@ class LastfmConnectorPlayResolver:
         )
 
         return unique_identifiers
-
-    def _build_context(
-        self, connector_play: ConnectorTrackPlay
-    ) -> dict[str, JsonValue]:
-        """Build the persisted play context.
-
-        Delegates to the domain builder — the single implementation the
-        projection also uses, so imported and rebuilt plays cannot drift.
-        """
-        return build_play_context(connector_play)
-
-    def _create_empty_metrics(self) -> ResolutionMetrics:
-        """Create empty metrics dictionary."""
-        return {
-            "raw_plays": 0,
-            "accepted_plays": 0,
-            "error_count": 0,
-            "resolution_failures": [],
-            "new_tracks_count": 0,
-            "updated_tracks_count": 0,
-            "spotify_enhanced_count": 0,
-        }

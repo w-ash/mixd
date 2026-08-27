@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.entities.track import Artist, Track
+from src.interface.text import humanize_identifier
 
 
 def direction_label(sync_direction: str, connector_name: str) -> str:
@@ -22,7 +23,7 @@ def direction_label(sync_direction: str, connector_name: str) -> str:
     (the v0.8.7 direction-vocabulary unification). ``pull`` = the connector is the
     source of truth and Mixd is replaced; ``push`` = Mixd is the source of truth.
     """
-    connector = connector_name.replace("_", " ").title()
+    connector = humanize_identifier(connector_name)
     if sync_direction == SyncDirection.PUSH.value:
         return f"Mixd → {connector} (replaces {connector})"
     return f"{connector} → Mixd (replaces Mixd)"

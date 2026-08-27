@@ -19,7 +19,7 @@ it fully dispatchable by the scheduler.
 
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Final, Literal
 
 from attrs import define
 
@@ -87,6 +87,9 @@ class SyncTargetSpec:
     # API list read-model and the CLI schedule table.
     label: str
     run: SyncRunner
+    # Names the same work a user-launched import does, so a scheduled run and a
+    # hand-triggered one resolve to one entry in every operation-type-keyed table.
+    operation_type: str
     # False for targets whose cadence is managed for the user (see module docs).
     user_schedulable: bool = True
     # Supplied as a pair, or not at all. A target with no hooks always runs.
@@ -116,6 +119,19 @@ async def _finish_play_poll(outcome: PollOutcome) -> None:
     await finish(outcome)
 
 
+# The dispatchable ids as a wire type, so the OpenAPI enum has one source. It
+# does NOT key ``SYNC_TARGETS``: runtime lookups arrive as unvalidated strings (a
+# stored row may name a retired target and still has to render), so keying by the
+# literal would only buy a second str-keyed copy. ``test_cache_tags`` pins the
+# two together instead. A plain alias, not PEP 695 — it annotates a Pydantic field.
+SyncTarget = Literal[
+    "apple:plays",
+    "lastfm:likes",
+    "lastfm:plays",
+    "spotify:likes",
+    "spotify:plays",
+]
+
 # target → how it runs. The keys ARE the dispatchable targets. A scheduled
 # ``lastfm:plays`` always runs an *incremental* import — full/file imports are
 # user-initiated, never scheduled.
@@ -123,10 +139,12 @@ SYNC_TARGETS: Final[Mapping[str, SyncTargetSpec]] = {
     "lastfm:plays": SyncTargetSpec(
         label="Last.fm plays",
         run=lambda user_id: run_import(user_id, "lastfm", "incremental"),
+        operation_type="import_lastfm_history",
     ),
     "apple:plays": SyncTargetSpec(
         label="Apple Music plays",
         run=lambda user_id: run_import(user_id, "apple", "incremental"),
+        operation_type="import_apple_recent",
         # Plain schedulable, deliberately unlike spotify:plays: the adaptive
         # poll policy hardcodes spotify/lastfm, so this target has no poll
         # hooks and an ordinary user-managed cadence. Revisit when the policy
@@ -135,14 +153,17 @@ SYNC_TARGETS: Final[Mapping[str, SyncTargetSpec]] = {
     "spotify:likes": SyncTargetSpec(
         label="Spotify likes",
         run=run_spotify_likes_import,
+        operation_type="import_spotify_likes",
     ),
     "lastfm:likes": SyncTargetSpec(
         label="Last.fm loves",
         run=run_lastfm_likes_export,
+        operation_type="export_lastfm_likes",
     ),
     "spotify:plays": SyncTargetSpec(
         label="Spotify recent plays",
         run=lambda user_id: run_import(user_id, "spotify", "incremental"),
+        operation_type="import_spotify_recent",
         # Cadence is adaptive and self-managed — see the module docstring.
         user_schedulable=False,
         try_begin_poll=_begin_play_poll,

@@ -1,11 +1,9 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet,
   useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost,
 } from "#/api/generated/auth/auth";
-import { settleConnectorsRefetch } from "#/lib/connector-queries";
 import { toasts } from "#/lib/toasts";
 
 /** The subset of a configured MusicKit instance the connect flow touches. */
@@ -150,10 +148,11 @@ export function useAppleMusicConnect({
   loadMusicKitImpl = loadMusicKit,
 }: UseAppleMusicConnectOptions = {}) {
   const [isConnecting, setIsConnecting] = useState(false);
-  const queryClient = useQueryClient();
   const storeToken = useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost({
     // The single catch below owns error surfacing — no global toast on top.
-    mutation: { meta: { suppressErrorToast: true } },
+    // `awaitInvalidation` holds the mutation open until the connectors refetch
+    // lands, so the success toast never precedes the card it describes.
+    mutation: { meta: { suppressErrorToast: true, awaitInvalidation: true } },
   });
   const setupRef = useRef<Promise<MusicKitInstance> | null>(null);
 
@@ -213,7 +212,6 @@ export function useAppleMusicConnect({
       await storeToken.mutateAsync({
         data: { music_user_token: musicUserToken },
       });
-      await settleConnectorsRefetch(queryClient);
       toasts.success("Apple Music connected");
     } catch (err) {
       toasts.error("Failed to connect Apple Music", err);

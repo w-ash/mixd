@@ -10,19 +10,18 @@ the track; unresolved rows keep ``resolved_track_id = NULL`` in the ledger.
 """
 
 from collections.abc import Callable
-from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities import (
     ConnectorTrackPlay,
-    PlayExclusionReason,
     Track,
-    TrackPlay,
 )
-from src.domain.entities.shared import JsonValue
-from src.domain.matching.play_projection import build_play_context
-from src.domain.repositories.play import PlayResolutionOutcome, ResolutionMetrics
+from src.domain.repositories.play import PlayResolutionOutcome
 from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.infrastructure.connectors._shared.connector_play_resolver import (
+    build_play_outcome,
+    empty_play_metrics,
+)
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     TrackResolutionMetrics,
 )
@@ -91,7 +90,7 @@ class AppleMusicConnectorPlayResolver:
         if not connector_plays:
             return PlayResolutionOutcome(
                 track_plays=[],
-                metrics=self._create_empty_metrics(),
+                metrics=empty_play_metrics(),
                 resolutions=(),
             )
 
@@ -113,85 +112,14 @@ class AppleMusicConnectorPlayResolver:
                 unique_ids, uow, user_id=user_id
             )
 
-        track_plays: list[TrackPlay] = []
-        resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
-        exclusions: list[tuple[ConnectorTrackPlay, PlayExclusionReason]] = []
-        filtering_stats: ResolutionMetrics = {
-            "raw_plays": len(connector_plays),
-            "accepted_plays": 0,
-            "error_count": 0,
-            "resolution_failures": [],
-        }
-
-        for connector_play in connector_plays:
-            song_id = _extract_song_id(connector_play)
-            resolved_track = canonical_tracks_map.get(song_id) if song_id else None
-
-            if resolved_track is None:
-                filtering_stats["error_count"] += 1
-                filtering_stats["resolution_failures"].append({
-                    "track": f"{connector_play.artist_name} - {connector_play.track_name}",
-                    "apple_id": song_id or "",
-                    "reason": "track_resolution_failed",
-                })
-                logger.warning(
-                    f"Track not resolved: {connector_play.artist_name} - "
-                    f"{connector_play.track_name}"
-                )
-                exclusions.append((connector_play, "unresolved"))
-                continue
-
-            filtering_stats["accepted_plays"] += 1
-            resolutions.append((connector_play, resolved_track.id))
-            track_plays.append(
-                TrackPlay(
-                    track_id=resolved_track.id,
-                    service="apple",
-                    played_at=connector_play.played_at,
-                    user_id=user_id,
-                    ms_played=connector_play.ms_played,  # None for Apple Music
-                    context=self._build_context(connector_play),
-                    import_timestamp=connector_play.import_timestamp,
-                    import_source=connector_play.import_source or "apple_api",
-                    import_batch_id=connector_play.import_batch_id,
-                )
-            )
-
-        apple_metrics: ResolutionMetrics = {
-            **filtering_stats,
-            "new_tracks_count": resolution_metrics.created,
-            "updated_tracks_count": resolution_metrics.existing,
-        }
-
-        logger.info(
-            "Processed Apple Music connector plays",
-            total_plays=len(connector_plays),
-            accepted_plays=filtering_stats["accepted_plays"],
-            error_count=filtering_stats["error_count"],
-            new_tracks=apple_metrics["new_tracks_count"],
-            updated_tracks=apple_metrics["updated_tracks_count"],
+        return build_play_outcome(
+            [
+                (play, canonical_tracks_map.get(_extract_song_id(play) or ""))
+                for play in connector_plays
+            ],
+            service="apple",
+            user_id=user_id,
+            default_import_source="apple_api",
+            resolution_metrics=resolution_metrics,
+            failure_detail=lambda play: {"apple_id": _extract_song_id(play) or ""},
         )
-
-        return PlayResolutionOutcome(
-            track_plays=track_plays,
-            metrics=apple_metrics,
-            resolutions=tuple(resolutions),
-            exclusions=tuple(exclusions),
-        )
-
-    def _build_context(
-        self, connector_play: ConnectorTrackPlay
-    ) -> dict[str, JsonValue]:
-        """Persisted play context via the domain builder (single source)."""
-        return build_play_context(connector_play)
-
-    def _create_empty_metrics(self) -> ResolutionMetrics:
-        """Create empty metrics dictionary."""
-        return {
-            "raw_plays": 0,
-            "accepted_plays": 0,
-            "error_count": 0,
-            "resolution_failures": [],
-            "new_tracks_count": 0,
-            "updated_tracks_count": 0,
-        }

@@ -46,11 +46,16 @@ vi.mock("#/hooks/useWorkflowExecution", () => ({
   }),
 }));
 
+import { QueryObserver } from "@tanstack/react-query";
 import { fireEvent } from "@testing-library/react";
-import { HttpResponse, http } from "msw";
-import { getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey } from "#/api/generated/workflows/workflows";
+import { delay, HttpResponse, http } from "msw";
+import {
+  getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey,
+  getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryOptions,
+} from "#/api/generated/workflows/workflows";
 import { toasts } from "#/lib/toasts";
 import { useEditorStore } from "#/stores/editor-store";
+import { seedQuery, wasInvalidated } from "#/test/query-utils";
 import { server } from "#/test/setup";
 import {
   createTestQueryClient,
@@ -58,7 +63,6 @@ import {
   screen,
   waitFor,
 } from "#/test/test-utils";
-
 import { EditorToolbar } from "./EditorToolbar";
 
 /** A node shaped enough for hasNodes / toWorkflowDef. */
@@ -277,6 +281,62 @@ describe("EditorToolbar", () => {
       });
     });
 
+    it("keeps the seeded detail over the refetch the save's own tag triggers", async () => {
+      // The save's route tag is the `workflows` family, which the MOUNTED
+      // detail query depends on too — so the global MutationCache handler
+      // refetches it, and query-core runs that handler BEFORE the mutation's
+      // own onSuccess. Without cancelling first, the in-flight GET's stale
+      // response lands on top of the response we just saved.
+      server.use(
+        http.patch(`*/api/v1/workflows/${SAVED_ID}`, () =>
+          HttpResponse.json(savedWorkflow()),
+        ),
+        http.get(`*/api/v1/workflows/${SAVED_ID}`, async () => {
+          await delay(50);
+          return HttpResponse.json(savedWorkflow({ name: "Pre-edit Flow" }));
+        }),
+      );
+
+      const queryClient = createTestQueryClient();
+      const detailKey =
+        getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey(SAVED_ID);
+      // An observer is what makes the query "active", and only active queries
+      // are refetched — an observer-less probe would never see the race.
+      const observer = new QueryObserver(queryClient, {
+        ...getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryOptions(SAVED_ID),
+        gcTime: Infinity,
+      });
+      const unsubscribe = observer.subscribe(() => undefined);
+      try {
+        await waitFor(() => {
+          expect(queryClient.getQueryData(detailKey)).toBeDefined();
+        });
+
+        useEditorStore.setState({
+          workflowId: SAVED_ID,
+          nodes: [seedNode()],
+          isDirty: true,
+        });
+        renderWithProviders(<EditorToolbar />, { queryClient });
+
+        fireEvent.click(screen.getByText("Save"));
+
+        await waitFor(() => {
+          expect(queryClient.getQueryData(detailKey)).toMatchObject({
+            data: { name: "Renamed Flow" },
+          });
+        });
+        // ...and it is still the saved value once the racing GET would have
+        // resolved.
+        await delay(80);
+        expect(queryClient.getQueryData(detailKey)).toMatchObject({
+          data: { name: "Renamed Flow" },
+        });
+      } finally {
+        unsubscribe();
+      }
+    });
+
     it("invalidates the workflow list after a save", async () => {
       server.use(
         http.patch(`*/api/v1/workflows/${SAVED_ID}`, () =>
@@ -285,7 +345,12 @@ describe("EditorToolbar", () => {
       );
 
       const queryClient = createTestQueryClient();
-      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+      for (const url of [
+        "/api/v1/workflows",
+        `/api/v1/workflows/${SAVED_ID}/versions`,
+      ]) {
+        seedQuery(queryClient, [url]);
+      }
       useEditorStore.setState({
         workflowId: SAVED_ID,
         nodes: [seedNode()],
@@ -296,14 +361,11 @@ describe("EditorToolbar", () => {
       fireEvent.click(screen.getByText("Save"));
 
       await waitFor(() => {
-        const urls = invalidateSpy.mock.calls.flatMap((call) => {
-          const key = (call[0] as { queryKey?: unknown[] } | undefined)
-            ?.queryKey;
-          return typeof key?.[0] === "string" ? [key[0]] : [];
-        });
-        expect(urls).toContain("/api/v1/workflows");
-        expect(urls).toContain(`/api/v1/workflows/${SAVED_ID}/versions`);
+        expect(wasInvalidated(queryClient, ["/api/v1/workflows"])).toBe(true);
       });
+      expect(
+        wasInvalidated(queryClient, [`/api/v1/workflows/${SAVED_ID}/versions`]),
+      ).toBe(true);
     });
   });
 

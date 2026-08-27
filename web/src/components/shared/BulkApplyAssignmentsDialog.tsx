@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost } from "#/api/generated/playlist-assignments/playlist-assignments";
-import { getListTagsApiV1TagsGetQueryKey } from "#/api/generated/tags/tags";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { claimRunToast } from "#/lib/operation-toast-ledger";
 import { issueCountFromCounts, toasts } from "#/lib/toasts";
@@ -48,9 +47,7 @@ export function BulkApplyAssignmentsDialog({
     },
   );
 
-  const { progress } = useOperationProgress(operationId, {
-    invalidateKeys: [getListTagsApiV1TagsGetQueryKey()],
-  });
+  const { progress } = useOperationProgress(operationId);
 
   const isTerminal =
     progress !== null &&

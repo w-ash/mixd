@@ -24,7 +24,7 @@ import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { formatNextRun } from "#/lib/schedule";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
-import { afterWorkflowSaved } from "#/lib/workflow-queries";
+import { writeWorkflowDetail } from "#/lib/workflow-queries";
 
 function DetailSkeleton() {
   return (
@@ -49,9 +49,14 @@ export function WorkflowDetail() {
 
   const duplicate = useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost({
     mutation: {
-      onSuccess: (res) => {
+      onSuccess: async (res) => {
         if (res.status === 201) {
-          afterWorkflowSaved(queryClient, res.data.id, res.data, res.headers);
+          await writeWorkflowDetail(
+            queryClient,
+            res.data.id,
+            res.data,
+            res.headers,
+          );
           toasts.success("Workflow duplicated");
           navigate(`/workflows/${res.data.id}/edit`);
         }

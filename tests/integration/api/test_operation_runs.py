@@ -13,6 +13,7 @@ import httpx2
 
 from src.application.runner import execute_use_case
 from src.domain.entities.operation_run import OperationRun
+from src.interface.api.schemas.cache_tags import touches_for
 from tests.fixtures import make_operation_run
 
 
@@ -342,3 +343,33 @@ class TestRetryFailed:
             "plA",
             "plC",
         ]
+
+
+class TestCacheTagsOnRunRows:
+    """The run row answers "what should I refresh?" when the SSE stream dropped.
+
+    That recovery path is the one most likely to strand a stale screen, so the
+    durable row has to carry the same tags the live terminal frame did.
+    """
+
+    async def test_row_carries_tags_derived_from_its_operation_type(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        run = await _seed_run(operation_type="import_lastfm_history")
+
+        rows = (await client.get("/api/v1/operation-runs?type=all")).json()["data"]
+        row = next(r for r in rows if r["id"] == str(run.id))
+
+        assert set(row["touched"]) == set(touches_for("import_lastfm_history"))
+        assert "plays" in row["touched"]
+
+    async def test_unrecognised_operation_type_serialises_empty(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # A row written by an older build must not 500 the list it appears in.
+        run = await _seed_run(operation_type="some_retired_operation")
+
+        rows = (await client.get("/api/v1/operation-runs?type=all")).json()["data"]
+        row = next(r for r in rows if r["id"] == str(run.id))
+
+        assert row["touched"] == []

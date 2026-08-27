@@ -10,7 +10,10 @@ and backoff suppression inherited from the base class.
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from src.config.constants import MatchMethod
+from src.domain.exceptions import TidalAuthRequiredError
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.connectors._shared.successor_resolution import SuccessorHook
 from src.infrastructure.connectors.tidal.client import TIDAL_COUNTRY_CODE
@@ -201,6 +204,28 @@ class TestUnresolvable:
         recorder.remember_no_match.assert_awaited_once()
         sides = recorder.remember_no_match.await_args.args[0]
         assert [s.identifier for s in sides] == ["gone404"]
+
+
+class TestAuthFailure:
+    async def test_dead_grant_propagates_bare_not_as_an_exception_group(self):
+        """The fan-out must not hide the typed error inside an ExceptionGroup.
+
+        The 409 handler and the CLI's reconnect prompt are both keyed on the
+        exception type, so a grouped error reads as an unhandled 500.
+        """
+        client = AsyncMock()
+
+        async def _get_track(track_id: str, country_code: str):
+            raise TidalAuthRequiredError("reconnect Tidal")
+
+        client.get_track.side_effect = _get_track
+        resolver = TidalInwardResolver(client=client)
+        uow, _, _, _ = _make_uow()
+
+        with pytest.raises(TidalAuthRequiredError):
+            _ = await resolver.resolve_to_canonical_tracks(
+                ["101", "102", "103"], uow, user_id="test-user"
+            )
 
 
 class TestReplacementSuccessor:

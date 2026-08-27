@@ -19,7 +19,7 @@ import {
   summarizeFilters,
 } from "#/lib/filters-to-workflow";
 import { toasts } from "#/lib/toasts";
-import { afterWorkflowSaved } from "#/lib/workflow-queries";
+import { writeWorkflowDetail } from "#/lib/workflow-queries";
 
 interface SaveFiltersAsWorkflowDialogProps {
   open: boolean;
@@ -77,9 +77,9 @@ export function SaveFiltersAsWorkflowDialog({
     mutation.mutate(
       { data: { definition } },
       {
-        onSuccess: (response) => {
+        onSuccess: async (response) => {
           if (response.status === 201) {
-            afterWorkflowSaved(
+            await writeWorkflowDetail(
               queryClient,
               response.data.id,
               response.data,

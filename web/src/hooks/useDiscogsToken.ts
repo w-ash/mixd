@@ -1,7 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
-
 import { usePutDiscogsTokenApiV1ConnectorsDiscogsTokenPut } from "#/api/generated/connectors/connectors";
-import { settleConnectorsRefetch } from "#/lib/connector-queries";
 import { toasts } from "#/lib/toasts";
 
 /**
@@ -12,27 +9,21 @@ import { toasts } from "#/lib/toasts";
  * echoed back. Validation errors (400) surface on `connectError` for inline
  * display in the token form rather than a toast.
  *
- * Success ordering: `onSuccess` is async and *awaits* the connectors
- * refetch before declaring success. TanStack Query's `mutateAsync` awaits
- * `onSuccess` before its returned promise resolves, so callers that
- * `await connect(...)` (the dialog) only proceed once the card data is
- * current — the toast and the dialog close never race ahead of the refetch
- * that makes them true.
+ * Success ordering: `meta.awaitInvalidation` holds the mutation open until the
+ * connectors refetch lands, so a caller that `await`s `connect(...)` only
+ * proceeds once the card data is current.
  *
  * Disconnect rides the generic `DELETE /connectors/{service}/token` flow
  * via `useConnectorAuth` — no discogs-specific removal here.
  */
 export function useDiscogsToken() {
-  const queryClient = useQueryClient();
-
   const connectMutation = usePutDiscogsTokenApiV1ConnectorsDiscogsTokenPut({
     mutation: {
-      onSuccess: async () => {
-        await settleConnectorsRefetch(queryClient);
-        toasts.success("Discogs connected");
-      },
-      // Inline error on the token form; suppress the global error toast.
-      meta: { suppressErrorToast: true },
+      onSuccess: () => toasts.success("Discogs connected"),
+      // `awaitInvalidation` holds the mutation open until the connectors
+      // refetch lands, so the toast never announces a card that still reads
+      // disconnected. Inline error on the form; suppress the global toast.
+      meta: { suppressErrorToast: true, awaitInvalidation: true },
     },
   });
 

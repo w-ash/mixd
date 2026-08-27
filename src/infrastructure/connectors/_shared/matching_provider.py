@@ -6,7 +6,7 @@ remain in the domain layer.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Container, Mapping
 from typing import ClassVar
 from uuid import UUID
 
@@ -27,6 +27,19 @@ from src.infrastructure.connectors._shared.failure_handling import (
 )
 
 logger = get_logger(__name__)
+
+
+def _lookup_failure_detail(
+    service_label: str, code_label: str, code: str, *, batched: bool
+) -> str:
+    """Why a code went unanswered, naming the request that actually failed.
+
+    A batched lookup fails every code in the request, so attributing the failure
+    to the one code would misread as "this code was rejected" across a page of
+    otherwise identical failures.
+    """
+    scope = f"the chunk holding {code_label}" if batched else code_label
+    return f"{service_label} catalog lookup failed for {scope}: {code}"
 
 
 class BaseMatchingProvider(ABC):
@@ -273,6 +286,73 @@ class BaseMatchingProvider(ABC):
             )
             for t in tracks
         ]
+
+    def _correlate_by_code[CandidateT](
+        self,
+        tracks: list[Track],
+        *,
+        code_of: Mapping[UUID, str],
+        candidates_by_code: Mapping[str, CandidateT],
+        failed_codes: Container[str],
+        make_match: Callable[[Track, CandidateT], RawProviderMatch],
+        service_label: str,
+        method: str,
+        code_label: str,
+        batched: bool = False,
+    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
+        """Correlate a batched code lookup back onto its tracks.
+
+        The batch counterpart to ``_match_each``: the caller does one lookup per
+        distinct code, and this decides per track whether the code went
+        unanswered (``API_ERROR``, the code is in ``failed_codes``) or was
+        answered with nothing (``NO_RESULTS``). Keeping that distinction here is
+        what stops each connector re-deriving the subtle half.
+
+        Args:
+            tracks: Pre-partitioned, pre-validated tracks.
+            code_of: track id -> the code looked up for it.
+            candidates_by_code: code -> whatever the lookup produced. A code
+                absent here, or mapping to a falsy value, counts as no result.
+            failed_codes: codes whose lookup raised.
+            make_match: builds the raw match from a track and its candidate.
+            service_label: display name used in failure details.
+            method: match-method label stamped on every failure ("isrc").
+            code_label: what the code is called in failure details ("ISRC").
+            batched: the caller looks codes up in batches, so one failed request
+                fails every code it carried — the message says so rather than
+                reading as a per-code miss.
+        """
+        matches: dict[UUID, RawProviderMatch] = {}
+        failures: list[MatchFailure] = []
+        for track in tracks:
+            if not track.id:
+                continue
+            code = code_of.get(track.id, "")
+            candidate = candidates_by_code.get(code)
+            if not candidate:
+                failed = code in failed_codes
+                failures.append(
+                    create_and_log_failure(
+                        track_id=track.id,
+                        reason=(
+                            MatchFailureReason.API_ERROR
+                            if failed
+                            else MatchFailureReason.NO_RESULTS
+                        ),
+                        service=self.service_name,
+                        method=method,
+                        details=(
+                            _lookup_failure_detail(
+                                service_label, code_label, code, batched=batched
+                            )
+                            if failed
+                            else f"No {service_label} results for {code_label}: {code}"
+                        ),
+                    )
+                )
+                continue
+            matches[track.id] = make_match(track, candidate)
+        return matches, failures
 
     async def _match_each(
         self,

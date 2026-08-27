@@ -92,10 +92,10 @@ export function WorkflowRunDetail() {
   const wasLive = useRef(false);
   useEffect(() => {
     if (wasLive.current && !isThisRunLive) {
-      afterRunStateChanged(queryClient, workflowId, runIdStr);
+      afterRunStateChanged(queryClient);
     }
     wasLive.current = isThisRunLive;
-  }, [isThisRunLive, queryClient, workflowId, runIdStr]);
+  }, [isThisRunLive, queryClient]);
 
   useEffect(() => {
     if (!isThisRunLive || !activeRun) return;

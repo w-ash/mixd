@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -38,6 +38,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -105,7 +106,7 @@ export const importLastfmHistoryApiV1ImportsLastfmHistoryPost = async (importLas
 
 
 
-export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMutationOptions = <TError = HTTPValidationError,
+export const useImportLastfmHistoryApiV1ImportsLastfmHistoryPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importLastfmHistoryApiV1ImportsLastfmHistoryPost>>, TError,{data: ImportLastfmHistoryRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof importLastfmHistoryApiV1ImportsLastfmHistoryPost>>, TError,{data: ImportLastfmHistoryRequest}, TContext> => {
 
@@ -127,10 +128,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/imports/lastfm/history` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ImportLastfmHistoryApiV1ImportsLastfmHistoryPostMutationResult = NonNullable<Awaited<ReturnType<typeof importLastfmHistoryApiV1ImportsLastfmHistoryPost>>>
     export type ImportLastfmHistoryApiV1ImportsLastfmHistoryPostMutationBody = ImportLastfmHistoryRequest
@@ -147,7 +148,7 @@ export const useImportLastfmHistoryApiV1ImportsLastfmHistoryPost = <TError = HTT
         {data: ImportLastfmHistoryRequest},
         TContext
       > => {
-      return useMutation(getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMutationOptions(options), queryClient);
+      return useMutation(useImportLastfmHistoryApiV1ImportsLastfmHistoryPostMutationOptions(options), queryClient);
     }
     export type importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse200 = {
   data: OperationStartedResponse
@@ -199,7 +200,7 @@ export const importSpotifyRecentApiV1ImportsSpotifyRecentPost = async (importSpo
 
 
 
-export const getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationOptions = <TError = HTTPValidationError,
+export const useImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>, TError,{data: ImportSpotifyRecentRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>, TError,{data: ImportSpotifyRecentRequest}, TContext> => {
 
@@ -221,10 +222,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/imports/spotify/recent` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationResult = NonNullable<Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>>
     export type ImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationBody = ImportSpotifyRecentRequest
@@ -241,7 +242,7 @@ export const useImportSpotifyRecentApiV1ImportsSpotifyRecentPost = <TError = HTT
         {data: ImportSpotifyRecentRequest},
         TContext
       > => {
-      return useMutation(getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationOptions(options), queryClient);
+      return useMutation(useImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationOptions(options), queryClient);
     }
     export type importAppleRecentApiV1ImportsAppleRecentPostResponse200 = {
   data: OperationStartedResponse
@@ -294,7 +295,7 @@ export const importAppleRecentApiV1ImportsAppleRecentPost = async (importAppleRe
 
 
 
-export const getImportAppleRecentApiV1ImportsAppleRecentPostMutationOptions = <TError = HTTPValidationError,
+export const useImportAppleRecentApiV1ImportsAppleRecentPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>, TError,{data: ImportAppleRecentRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>, TError,{data: ImportAppleRecentRequest}, TContext> => {
 
@@ -316,10 +317,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/imports/apple/recent` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ImportAppleRecentApiV1ImportsAppleRecentPostMutationResult = NonNullable<Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>>
     export type ImportAppleRecentApiV1ImportsAppleRecentPostMutationBody = ImportAppleRecentRequest
@@ -336,7 +337,7 @@ export const useImportAppleRecentApiV1ImportsAppleRecentPost = <TError = HTTPVal
         {data: ImportAppleRecentRequest},
         TContext
       > => {
-      return useMutation(getImportAppleRecentApiV1ImportsAppleRecentPostMutationOptions(options), queryClient);
+      return useMutation(useImportAppleRecentApiV1ImportsAppleRecentPostMutationOptions(options), queryClient);
     }
     export type importSpotifyLikesApiV1ImportsSpotifyLikesPostResponse200 = {
   data: OperationStartedResponse
@@ -384,7 +385,7 @@ export const importSpotifyLikesApiV1ImportsSpotifyLikesPost = async (importSpoti
 
 
 
-export const getImportSpotifyLikesApiV1ImportsSpotifyLikesPostMutationOptions = <TError = HTTPValidationError,
+export const useImportSpotifyLikesApiV1ImportsSpotifyLikesPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importSpotifyLikesApiV1ImportsSpotifyLikesPost>>, TError,{data: ImportSpotifyLikesRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof importSpotifyLikesApiV1ImportsSpotifyLikesPost>>, TError,{data: ImportSpotifyLikesRequest}, TContext> => {
 
@@ -406,10 +407,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/imports/spotify/likes` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ImportSpotifyLikesApiV1ImportsSpotifyLikesPostMutationResult = NonNullable<Awaited<ReturnType<typeof importSpotifyLikesApiV1ImportsSpotifyLikesPost>>>
     export type ImportSpotifyLikesApiV1ImportsSpotifyLikesPostMutationBody = ImportSpotifyLikesRequest
@@ -426,7 +427,7 @@ export const useImportSpotifyLikesApiV1ImportsSpotifyLikesPost = <TError = HTTPV
         {data: ImportSpotifyLikesRequest},
         TContext
       > => {
-      return useMutation(getImportSpotifyLikesApiV1ImportsSpotifyLikesPostMutationOptions(options), queryClient);
+      return useMutation(useImportSpotifyLikesApiV1ImportsSpotifyLikesPostMutationOptions(options), queryClient);
     }
     export type exportLastfmLikesApiV1ImportsLastfmLikesPostResponse200 = {
   data: OperationStartedResponse
@@ -474,7 +475,7 @@ export const exportLastfmLikesApiV1ImportsLastfmLikesPost = async (exportLastfmL
 
 
 
-export const getExportLastfmLikesApiV1ImportsLastfmLikesPostMutationOptions = <TError = HTTPValidationError,
+export const useExportLastfmLikesApiV1ImportsLastfmLikesPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportLastfmLikesApiV1ImportsLastfmLikesPost>>, TError,{data: ExportLastfmLikesRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof exportLastfmLikesApiV1ImportsLastfmLikesPost>>, TError,{data: ExportLastfmLikesRequest}, TContext> => {
 
@@ -496,10 +497,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/imports/lastfm/likes` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ExportLastfmLikesApiV1ImportsLastfmLikesPostMutationResult = NonNullable<Awaited<ReturnType<typeof exportLastfmLikesApiV1ImportsLastfmLikesPost>>>
     export type ExportLastfmLikesApiV1ImportsLastfmLikesPostMutationBody = ExportLastfmLikesRequest
@@ -516,7 +517,7 @@ export const useExportLastfmLikesApiV1ImportsLastfmLikesPost = <TError = HTTPVal
         {data: ExportLastfmLikesRequest},
         TContext
       > => {
-      return useMutation(getExportLastfmLikesApiV1ImportsLastfmLikesPostMutationOptions(options), queryClient);
+      return useMutation(useExportLastfmLikesApiV1ImportsLastfmLikesPostMutationOptions(options), queryClient);
     }
     export type importSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponse200 = {
   data: ImportQueueResponse
@@ -569,7 +570,7 @@ bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost.files.forEach(value => fo
 
 
 
-export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMutationOptions = <TError = HTTPValidationError,
+export const useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importSpotifyHistoryApiV1ImportsSpotifyHistoryPost>>, TError,{data: BodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof importSpotifyHistoryApiV1ImportsSpotifyHistoryPost>>, TError,{data: BodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost}, TContext> => {
 
@@ -591,10 +592,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/imports/spotify/history` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMutationResult = NonNullable<Awaited<ReturnType<typeof importSpotifyHistoryApiV1ImportsSpotifyHistoryPost>>>
     export type ImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMutationBody = BodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost
@@ -611,7 +612,7 @@ export const useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost = <TError = H
         {data: BodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost},
         TContext
       > => {
-      return useMutation(getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMutationOptions(options), queryClient);
+      return useMutation(useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMutationOptions(options), queryClient);
     }
     export type getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponse200 = {
   data: ImportQueueResponse
@@ -765,7 +766,7 @@ export const cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete = as
 
 
 
-export const getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationOptions = <TError = unknown,
+export const useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationOptions = <TError = unknown,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>, TError,void, TContext> => {
 
@@ -787,10 +788,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/imports/spotify/history/queue` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type CancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>>
 
@@ -807,7 +808,7 @@ export const useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete =
         void,
         TContext
       > => {
-      return useMutation(getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationOptions(options), queryClient);
+      return useMutation(useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationOptions(options), queryClient);
     }
     export type getCheckpointsApiV1ImportsCheckpointsGetResponse200 = {
   data: CheckpointStatusSchema[]

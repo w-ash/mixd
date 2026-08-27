@@ -1,11 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 
-import {
-  getListPlaylistsApiV1PlaylistsGetQueryKey,
-  useCreatePlaylistApiV1PlaylistsPost,
-} from "#/api/generated/playlists/playlists";
+import { useCreatePlaylistApiV1PlaylistsPost } from "#/api/generated/playlists/playlists";
 import { Button } from "#/components/ui/button";
 import {
   DialogDescription,
@@ -21,13 +17,9 @@ export function CreatePlaylistModal() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  const queryClient = useQueryClient();
   const createPlaylist = useCreatePlaylistApiV1PlaylistsPost({
     mutation: {
       onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: getListPlaylistsApiV1PlaylistsGetQueryKey(),
-        });
         setOpen(false);
         setName("");
         setDescription("");

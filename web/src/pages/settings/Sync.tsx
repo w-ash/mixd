@@ -4,13 +4,11 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
-  getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryKey,
   useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet,
   useGetConnectorsApiV1ConnectorsGet,
   useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut,
 } from "#/api/generated/connectors/connectors";
 import {
-  getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey,
   getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryKey,
   useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete,
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
@@ -27,7 +25,9 @@ import type {
   ImportLastfmHistoryRequestMode,
   ImportQueueEntrySchema,
   OperationStartedResponse,
+  SyncTargetSchemaId,
 } from "#/api/generated/model";
+import { useListSyncTargetsApiV1SyncTargetsGet } from "#/api/generated/schedules/schedules";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
@@ -47,7 +47,7 @@ import { useSyncScheduleController } from "#/hooks/useScheduleController";
 import { formatDateTime } from "#/lib/format";
 import { claimRunToast } from "#/lib/operation-toast-ledger";
 import { pluralSuffix } from "#/lib/pluralize";
-import { describeMinutes, type SyncTarget } from "#/lib/schedule";
+import { describeMinutes } from "#/lib/schedule";
 import {
   issueCountFromCounts,
   type RunOperationType,
@@ -55,11 +55,6 @@ import {
 } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 import { ImportQueueManifest } from "#/pages/settings/ImportQueueManifest";
-
-/** Query keys to invalidate when an import operation completes. */
-const CHECKPOINT_KEYS = [
-  getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey(),
-] as const;
 
 /** Build shared onSuccess/onError callbacks for import mutation triggers. */
 function makeOperationCallbacks(
@@ -88,11 +83,37 @@ function makeOperationCallbacks(
 // ─── Operation Card ──────────────────────────────────────────────
 
 /**
- * Recurring-schedule control for a sync target, sharing the workflow schedule
- * shell. Only the three background-syncable targets pass one in; the file-upload
- * imports (which can't run unattended) render no scheduler.
+ * Automatic-sync control for a sync target. Only the background-syncable cards
+ * pass one in; the file-upload imports (which can't run unattended) render none.
+ *
+ * Which control appears is the server's call, not a prop: `/sync/targets`
+ * reports `self_managed` per target, and a self-managed one gets the read-only
+ * cadence plus toggle instead of the daily/weekly picker. That is not cosmetic —
+ * there is one schedule row per (user, target), and a self-managed target's
+ * interval is rewritten by the poller after every poll, so saving it through the
+ * picker would overwrite the adaptive cadence and switch the backoff off. The
+ * backend enforces the same rule by keeping it out of `USER_SCHEDULABLE_TARGETS`,
+ * which makes its upsert route 400.
  */
-function SyncScheduleField({ targetId }: { targetId: SyncTarget }) {
+function SyncScheduleField({ targetId }: { targetId: SyncTargetSchemaId }) {
+  const { data } = useListSyncTargetsApiV1SyncTargetsGet({
+    // The dispatchable set is the same for every user and changes on deploy.
+    query: { staleTime: STALE.STATIC },
+  });
+  const target =
+    data?.status === 200
+      ? data.data.data.find((t) => t.id === targetId)
+      : undefined;
+
+  if (target === undefined) return null;
+  if (target.self_managed) {
+    // The play-polling endpoints are keyed by service, not by target id.
+    return <PlayPollingField service={targetId.split(":")[0] ?? targetId} />;
+  }
+  return <UserScheduleField targetId={targetId} />;
+}
+
+function UserScheduleField({ targetId }: { targetId: SyncTargetSchemaId }) {
   const controller = useSyncScheduleController(targetId);
   return (
     <div className="mt-3 border-t border-border-muted pt-3">
@@ -119,15 +140,11 @@ interface OperationCardProps {
   onTrigger: () => void;
   triggerLabel?: string;
   triggerDisabled?: boolean;
-  /** Background-sync target id (e.g. `lastfm:plays`). When set, the card shows a recurring-schedule control. */
-  syncTarget?: SyncTarget;
-  /** Self-managed poll target (`spotify:plays`). Shows a read-only cadence plus
-   * an on/off switch instead of the editable picker — see `PlayPollingField`. */
-  pollingService?: string;
-  /** Query keys refreshed when the running operation reaches a terminal event.
-   * Defaults to the checkpoints; the queue card adds its queue query so a
-   * finished file advances the chips without waiting for the next poll. */
-  invalidateKeys?: readonly (readonly unknown[])[];
+  /** Background-sync target id (e.g. `lastfm:plays`). When set, the card shows
+   * an automatic-sync control; which one is the server's call — see
+   * `SyncScheduleField`. */
+  syncTarget?: SyncTargetSchemaId;
+  /** Extra card body rendered above the progress bar. */
   children?: React.ReactNode;
   /** Card body needing the live progress the card is already subscribed to —
    * a second `useOperationProgress` on the same id opens a second stream. */
@@ -150,15 +167,11 @@ function OperationCard({
   triggerLabel = "Import",
   triggerDisabled,
   syncTarget,
-  pollingService,
-  invalidateKeys = CHECKPOINT_KEYS,
   children,
   renderDetail,
   hideProgressBar = false,
 }: OperationCardProps) {
-  const { progress, isActive } = useOperationProgress(operationId, {
-    invalidateKeys,
-  });
+  const { progress, isActive } = useOperationProgress(operationId);
   const navigate = useNavigate();
   const toastedForOpIdRef = useRef<string | null>(null);
 
@@ -230,8 +243,6 @@ function OperationCard({
 
       {syncTarget && <SyncScheduleField targetId={syncTarget} />}
 
-      {pollingService && <PlayPollingField service={pollingService} />}
-
       <PollStatusLine checkpoint={checkpoint} />
 
       <p className="mt-3 text-right text-xs text-text-faint">
@@ -294,15 +305,10 @@ function PollStatusLine({
 /**
  * Read-only cadence plus an on/off switch for a self-managed poll schedule.
  *
- * Deliberately not the shared `SchedulePicker`. There is one schedule row per
- * (user, target), and this one's interval is rewritten by the poller itself
- * after every poll — so offering the daily/weekly editor would let a save
- * overwrite the adaptive cadence and silently switch the backoff off. The
- * backend enforces the same rule by keeping this target out of
- * `USER_SCHEDULABLE_TARGETS`, which makes its upsert route 400.
+ * Deliberately not the shared `SchedulePicker` — see `SyncScheduleField`, which
+ * decides from the server's `self_managed` flag which of the two a target gets.
  */
 function PlayPollingField({ service }: { service: string }) {
-  const queryClient = useQueryClient();
   const { data, isLoading } =
     useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet(service, {
       query: { staleTime: STALE.SLOW, retry: false },
@@ -312,14 +318,6 @@ function PlayPollingField({ service }: { service: string }) {
   const toggle = useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut(
     {
       mutation: {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({
-            queryKey:
-              getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryKey(
-                service,
-              ),
-          });
-        },
         meta: { errorLabel: "Failed to update automatic sync" },
       },
     },
@@ -624,7 +622,7 @@ function SpotifyRecentImport({
       // A pre-v0.10.1 grant reports connected (likes and playlists still work),
       // so the shared connected gate can't catch this one.
       triggerDisabled={needsReconnect}
-      pollingService="spotify"
+      syncTarget="spotify:plays"
     >
       {needsReconnect && (
         <p className="mt-2 text-xs text-status-expired">
@@ -693,7 +691,6 @@ function isSettledEntry(entry: ImportQueueEntrySchema): boolean {
 }
 
 function SpotifyHistoryImport() {
-  const queryClient = useQueryClient();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const mutation = useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost();
   const queueQueryKey =
@@ -726,12 +723,11 @@ function SpotifyHistoryImport() {
     }
   }, [queue]);
 
+  const queryClient = useQueryClient();
+
   const cancelMutation =
     useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete({
       mutation: {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: queueQueryKey });
-        },
         meta: { errorLabel: "Failed to cancel queued files" },
       },
     });
@@ -746,11 +742,9 @@ function SpotifyHistoryImport() {
             setSelectedFiles([]);
             // Seed the queue cache from the POST response (same envelope the
             // GET returns) so the queue section renders immediately — the
-            // pre-upload query sits in 404-error state, and depending on an
-            // invalidate-triggered refetch to recover it proved fragile in
-            // the live app. The invalidation still follows for freshness.
+            // pre-upload query sits in 404-error state, and depending on the
+            // route's own invalidation to recover it proved fragile.
             queryClient.setQueryData(queueQueryKey, res);
-            void queryClient.invalidateQueries({ queryKey: queueQueryKey });
           } else {
             toasts.message("Failed to queue Spotify history import", {
               description: `Unexpected response (${res.status})`,
@@ -789,7 +783,6 @@ function SpotifyHistoryImport() {
           ? `Import ${selectedFiles.length} files`
           : "Import"
       }
-      invalidateKeys={[...CHECKPOINT_KEYS, queueQueryKey]}
       hideProgressBar
       renderDetail={(progress) =>
         queue != null && queue.entries.length > 0 ? (

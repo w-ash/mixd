@@ -46,9 +46,7 @@ include_track_metadata  # attrs field
 source_count  # attrs field on Track
 source_playlist_name  # attrs field on Track
 factory_created  # attrs field
-attributes  # attrs field on NodeRegistration
 incognito_excluded  # attrs field on ImportResult
-resolution_failures  # attrs field on ImportResult
 unique_tracks_processed  # attrs field on ImportResult
 spotify_enhanced_count  # attrs field on ImportResult
 accepted_plays  # attrs field on ImportResult
@@ -74,7 +72,6 @@ enrich_track_with_lastfm_metadata  # LastFMOperations — called by connector
 find_tracks_by_mbids  # TrackRepositoryProtocol — tested, part of public API
 
 # --- Parked decisions (v0.8.17 closeout, 2026-07-02) — see fable-sweep/README.md Deferred ---
-NO_ISRC  # MatchFailureReason member: no producers since spoke 04; removal is a domain-vocabulary decision
 added_at_dates  # Track metadata key: reader (sort_by_date) has no production writer; wire-or-delete decision pending
 
 # --- v0.9.x agent parity: classification API consumed outside src/ (parity test + matrix generator + v0.9.3 MCP) ---
@@ -187,23 +184,9 @@ main_release  # DiscogsMaster — canonical release id
 # the validated wire contract, not dead code.
 TIDAL_OAS_SHA256  # oas_models — spec pin, asserted by test_oas_pin.py
 self_url  # CursorLinks — JSON:API "self" link (aliased; "self" is not a valid field name)
-included  # JsonApiDocument — side-loaded resources block
 pointer  # TidalErrorSource — JSON Pointer into the failing request document
 parameter  # TidalErrorSource — offending query parameter name
-JsonApiDocument  # generic top-level document envelope
-TidalTrackResource  # track resource object (T3 ISRC lookup)
-TidalCollectionItemRef  # userCollection items entry (favorites snapshot)
 TidalErrorDocument  # JSON:API error body (error classifier detail)
-
-# --- v0.11.3 T5: Tidal client + domain-facing conversions ---
-# Written ahead of their consumers (the T-later inward resolver and the
-# favorites snapshot); today exercised only by tests (outside vulture's
-# paths). They are the connector's public API surface, not dead code.
-get_tracks_by_isrc  # TidalAPIClient — ISRC 1:N lookup (conservative resolution)
-get_track  # TidalAPIClient — single track + replacement successor pointer
-get_collection_track_items  # TidalAPIClient — favorites page (snapshot epic)
-tidal_track_from_resource  # models.py — wire resource → TidalTrack
-collection_item_from_ref  # models.py — items entry → TidalCollectionItem
 
 # --- v0.11.3 T9: Tidal conservative resolution (successor seam) ---
 # The shared per-connector dead-id consult protocol. Its method
@@ -212,3 +195,12 @@ collection_item_from_ref  # models.py — items entry → TidalCollectionItem
 # (runtime_checkable Protocol, asserted by tests, which vulture excludes)
 # and the consult-side consumer is the v0.13.0 re-resolution drain.
 SuccessorHook  # _shared/successor_resolution.py — dead-id successor consult protocol
+
+# --- v0.11.4: names whose only references vulture cannot see ---
+# Both are load-bearing and neither is reachable by static reference from src/.
+# ``resolved_track`` became visible here when the play resolvers' shared loop
+# moved to ``_shared/connector_play_resolver.py``: the local variable that
+# happened to share the name is gone, leaving the relationship addressed only by
+# the ``back_populates`` string on the other side.
+resolved_track  # DBConnectorPlay relationship — paired via back_populates="resolved_track"
+self_managed  # SyncTargetSchema field — serialized to /sync/targets, read by Sync.tsx

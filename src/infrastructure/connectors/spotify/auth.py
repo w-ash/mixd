@@ -17,12 +17,10 @@ multiple tasks call get_valid_token() simultaneously.
 import asyncio
 import base64
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import secrets
 import time
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast, override
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 import urllib.parse
-import webbrowser
 
 from attrs import define, field
 
@@ -40,6 +38,7 @@ from src.infrastructure.connectors._shared.http_client import (
 )
 from src.infrastructure.connectors._shared.oauth import (
     BearerAuth,
+    capture_loopback_redirect,
     compute_pkce_challenge,
     is_invalid_grant,
 )
@@ -304,30 +303,7 @@ class SpotifyTokenManager:
         }
         auth_url = f"{SPOTIFY_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
 
-        captured: dict[str, str] = {}
-
-        class _CallbackHandler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                parsed = urllib.parse.urlparse(self.path)
-                qs = urllib.parse.parse_qs(parsed.query)
-                captured["code"] = qs.get("code", [""])[0]
-                captured["state"] = qs.get("state", [""])[0]
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(
-                    b"Spotify authorization successful. You may close this tab."
-                )
-
-            @override
-            def log_message(self, format: str, *args: object) -> None:
-                pass  # Suppress HTTP server access logs
-
-        server = HTTPServer(("127.0.0.1", 8888), _CallbackHandler)
-
-        logger.info("Opening Spotify authorization in browser...")
-        webbrowser.open(auth_url)
-        server.handle_request()  # Block until exactly one request (the callback)
-        server.server_close()
+        captured = capture_loopback_redirect(auth_url, 8888, service_label="Spotify")
 
         if not captured.get("code"):
             raise RuntimeError(

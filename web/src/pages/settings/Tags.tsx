@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import {
   GitMerge,
   Pencil,
@@ -13,7 +12,6 @@ import type {
   TagSummarySchema,
 } from "#/api/generated/model";
 import {
-  getListTagsApiV1TagsGetQueryKey,
   useDeleteTagApiV1TagsTagDelete,
   useListTagsApiV1TagsGet,
   useMergeTagsApiV1TagsMergePost,
@@ -126,7 +124,6 @@ export function Tags() {
   const [targetInput, setTargetInput] = useState("");
   const [bulkApplyOpen, setBulkApplyOpen] = useState(false);
 
-  const queryClient = useQueryClient();
   const deferredSearch = useDeferredValue(search);
   const trimmedSearch = deferredSearch.trim();
 
@@ -135,11 +132,6 @@ export function Tags() {
     limit: 500,
   });
   const tags = data?.status === 200 ? data.data : [];
-
-  const invalidateTags = () =>
-    queryClient.invalidateQueries({
-      queryKey: getListTagsApiV1TagsGetQueryKey(),
-    });
 
   const closeDialog = () => {
     setActiveDialog(null);
@@ -175,7 +167,6 @@ export function Tags() {
       toasts.success(
         successMessage((resp.data as TagOperationResult).affected_count),
       );
-      invalidateTags();
       closeDialog();
     },
     onError: (err: unknown) => toasts.error(errorLabel, err),

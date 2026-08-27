@@ -34,6 +34,7 @@ from tenacity import (
 from tenacity.wait import wait_base
 
 from src.config import get_logger
+from src.config.settings import ConnectorAPIConfig
 from src.infrastructure.connectors._shared.error_classifier import (
     ErrorClassifier,
 )
@@ -415,6 +416,35 @@ class RetryPolicyFactory:
         ... )
         >>> result = await policy(api_method, *args)
     """
+
+    @staticmethod
+    def for_service(
+        service_name: str,
+        classifier: ErrorClassifier,
+        api: ConnectorAPIConfig,
+        *,
+        max_delay: float | None = None,
+        include_httpx_errors: bool = True,
+        service_error_types: tuple[type[BaseException], ...] = (),
+    ) -> AsyncRetrying:
+        """Policy whose three numeric knobs come from the service's own config.
+
+        Every connector read the same ``retry_count`` / ``retry_base_delay`` /
+        ``retry_max_delay`` triple off its section by hand; naming the section
+        once leaves only the genuinely per-service arguments at the call site.
+        """
+        return RetryPolicyFactory.create_policy(
+            RetryConfig(
+                service_name=service_name,
+                classifier=classifier,
+                max_attempts=api.retry_count,
+                wait_multiplier=api.retry_base_delay,
+                wait_max=api.retry_max_delay,
+                max_delay=max_delay,
+                include_httpx_errors=include_httpx_errors,
+                service_error_types=service_error_types,
+            )
+        )
 
     @staticmethod
     def create_policy(config: RetryConfig) -> AsyncRetrying:

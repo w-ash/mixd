@@ -31,9 +31,24 @@ from src.interface.api.schemas.schedules import (
     ScheduleResponse,
     ScheduleToggleRequest,
     ScheduleUpsertRequest,
+    SyncTargetListResponse,
 )
 
 router = APIRouter(tags=["schedules"])
+
+
+@router.get("/sync/targets")
+async def list_sync_targets(
+    _user_id: str = Depends(get_current_user_id),
+) -> SyncTargetListResponse:
+    """The sync targets this server can dispatch, with their display labels.
+
+    Server truth for the Sync page's scheduler cards: the list, the labels, and
+    which cadences a user may edit. The set is identical for every user — the
+    auth dependency is router consistency, not scoping. No use case, because
+    reading a module-level mapping is not data access.
+    """
+    return SyncTargetListResponse.from_registry()
 
 
 @router.get("/schedules")

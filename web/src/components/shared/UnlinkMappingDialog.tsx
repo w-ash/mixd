@@ -1,10 +1,6 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import type { ConnectorMappingSchema } from "#/api/generated/model";
-import {
-  getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
-  useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete,
-} from "#/api/generated/tracks/tracks";
+import { useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete } from "#/api/generated/tracks/tracks";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { MappingInfoCard } from "#/components/shared/MappingInfoCard";
 import { toasts } from "#/lib/toasts";
@@ -22,14 +18,10 @@ export function UnlinkMappingDialog({
   open,
   onOpenChange,
 }: UnlinkMappingDialogProps) {
-  const queryClient = useQueryClient();
   const unlinkMutation =
     useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete({
       mutation: {
         onSuccess: (response) => {
-          queryClient.invalidateQueries({
-            queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(trackId),
-          });
           const orphanId =
             response.status === 200 ? response.data.orphan_track_id : null;
           toasts.success("Mapping unlinked", {

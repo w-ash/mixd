@@ -33,16 +33,18 @@ Tidal cannot account for stays unresolved until a later import or the
 re-resolution drain retries it.
 """
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from typing import ClassVar, override
 
 from attrs import define, evolve
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.config.constants import MatchMethod
 from src.config.telemetry import phase
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
+from src.domain.exceptions import TidalAuthRequiredError
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.isrc_validation import (
@@ -169,6 +171,36 @@ class TidalInwardResolver(InwardTrackResolver):
         self._detail_cache[tidal_id] = detail
         return detail
 
+    async def _fetch_details(self, tidal_ids: Sequence[str]) -> None:
+        """Warm the memo for ``tidal_ids`` with a bounded concurrent fan-out.
+
+        Tidal has no batch read, so one id is one request; serialising them made
+        a hundred-id pass a hundred round trips. Only cache misses are fetched,
+        so a repeated id costs nothing. No ``phase("api")`` here — phases are
+        additive, so wrapping the fan-out would count the wall time on top of
+        every request ``_fetch_detail`` already times.
+        """
+        missing = [
+            tid for tid in dict.fromkeys(tidal_ids) if tid not in self._detail_cache
+        ]
+        if not missing:
+            return
+        semaphore = asyncio.Semaphore(settings.api.tidal.concurrency)
+
+        async def _one(tidal_id: str) -> None:
+            async with semaphore:
+                await self._fetch_detail(tidal_id)
+
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for tidal_id in missing:
+                    _ = tg.create_task(_one(tidal_id))
+        except* TidalAuthRequiredError as group:
+            # TaskGroup wraps task failures in an ExceptionGroup; re-raise the
+            # typed error bare so every catch site (the middleware's 409, the
+            # CLI's reconnect prompt) sees the exception type it knows.
+            raise group.exceptions[0] from None
+
     async def resolve_successors(
         self, dead_ids: Sequence[str]
     ) -> Mapping[str, SuccessorAssertion]:
@@ -181,6 +213,7 @@ class TidalInwardResolver(InwardTrackResolver):
         result. ``track_id`` is stamped later, once the successor has
         resolved to a canonical.
         """
+        await self._fetch_details(dead_ids)
         assertions: dict[str, SuccessorAssertion] = {}
         for dead_id in dead_ids:
             detail = await self._fetch_detail(dead_id)
@@ -206,9 +239,10 @@ class TidalInwardResolver(InwardTrackResolver):
         nothing and joins the absent ids on the no-match backoff clock.
         """
         self._detail_cache = {}
-        details: dict[str, TidalTrackDetail | None] = {}
-        for tidal_id in missing_ids:
-            details[tidal_id] = await self._fetch_detail(tidal_id)
+        await self._fetch_details(missing_ids)
+        details: dict[str, TidalTrackDetail | None] = {
+            tidal_id: await self._fetch_detail(tidal_id) for tidal_id in missing_ids
+        }
 
         alive = {
             tidal_id: detail

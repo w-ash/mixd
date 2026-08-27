@@ -15,12 +15,9 @@ CLI connect needs on top of it.
 import asyncio
 import collections.abc
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import secrets
 import time
-from typing import override
 import urllib.parse
-import webbrowser
 
 from attrs import define
 import httpx2
@@ -32,14 +29,17 @@ from src.infrastructure.connectors._shared.http_client import (
     parse_json_body,
     parse_json_response,
 )
-from src.infrastructure.connectors._shared.oauth import compute_pkce_challenge
+from src.infrastructure.connectors._shared.oauth import (
+    capture_loopback_redirect,
+    compute_pkce_challenge,
+)
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     TokenStorage,
 )
 from src.infrastructure.connectors.tidal.auth import (
-    TIDAL_AUTHORIZE_URL,
     TIDAL_SCOPES,
+    authorize_url,
     exchange_code,
     stored_token_from_response,
 )
@@ -281,39 +281,6 @@ def _redirect_port(redirect_uri: str) -> int:
     )
 
 
-def _capture_redirect(auth_url: str, port: int) -> dict[str, str]:
-    """Open the browser and capture one OAuth redirect on 127.0.0.1:port.
-
-    Mirrors Spotify's ``run_browser_auth`` server: a blocking one-shot
-    ``HTTPServer`` that answers exactly one request (the callback) and
-    returns the captured ``code`` + ``state``.
-    """
-    captured: dict[str, str] = {}
-
-    class _CallbackHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            parsed = urllib.parse.urlparse(self.path)
-            qs = urllib.parse.parse_qs(parsed.query)
-            captured["code"] = qs.get("code", [""])[0]
-            captured["state"] = qs.get("state", [""])[0]
-            self.send_response(HTTPStatus.OK)
-            self.end_headers()
-            _ = self.wfile.write(
-                b"Tidal authorization successful. You may close this tab."
-            )
-
-        @override
-        def log_message(self, format: str, *args: object) -> None:
-            pass  # Suppress HTTP server access logs
-
-    server = HTTPServer(("127.0.0.1", port), _CallbackHandler)
-    logger.info("Opening Tidal authorization in browser...")
-    _ = webbrowser.open(auth_url)
-    server.handle_request()  # Block until exactly one request (the callback)
-    server.server_close()
-    return captured
-
-
 async def run_browser_auth(storage: TokenStorage, user_id: str) -> StoredToken:
     """Localhost-redirect fallback: browser authorize + in-process PKCE.
 
@@ -330,19 +297,12 @@ async def run_browser_auth(storage: TokenStorage, user_id: str) -> StoredToken:
     redirect_uri = _cli_redirect_uri()
     code_verifier = secrets.token_urlsafe(64)
     state = secrets.token_urlsafe(16)
-    params = {
-        "client_id": settings.credentials.tidal_client_id,
-        "response_type": "code",
-        "redirect_uri": redirect_uri,
-        "scope": " ".join(TIDAL_SCOPES),
-        "state": state,
-        "code_challenge_method": "S256",
-        "code_challenge": compute_pkce_challenge(code_verifier),
-    }
-    auth_url = f"{TIDAL_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
+    auth_url = authorize_url(redirect_uri, state, compute_pkce_challenge(code_verifier))
     port = _redirect_port(redirect_uri)
 
-    captured = await asyncio.to_thread(_capture_redirect, auth_url, port)
+    captured = await asyncio.to_thread(
+        capture_loopback_redirect, auth_url, port, service_label="Tidal"
+    )
 
     if not captured.get("code"):
         raise RuntimeError(

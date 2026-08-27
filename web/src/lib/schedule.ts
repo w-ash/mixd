@@ -69,28 +69,6 @@ export function describeSchedule(schedule: {
 }
 
 /**
- * The background-syncable targets the Sync page renders a *user-editable*
- * scheduler for — the minimal frontend mirror of the backend's
- * `USER_SCHEDULABLE_TARGETS`. `SyncTarget` types the card literals so a drifted
- * id is a compile error, not a runtime 404. Friendly display names live
- * server-side (`target_label`), not here.
- *
- * `spotify:plays` is deliberately absent. It is dispatchable, but it manages its
- * own adaptive cadence, and there is one schedule row per (user, target) — so
- * saving it through the daily/weekly picker would overwrite that cadence and
- * switch the backoff off. It gets a read-only cadence line plus an on/off toggle
- * on its own card instead.
- */
-export const SYNC_TARGETS = [
-  "lastfm:plays",
-  "apple:plays",
-  "spotify:likes",
-  "lastfm:likes",
-] as const;
-
-export type SyncTarget = (typeof SYNC_TARGETS)[number];
-
-/**
  * Whether a schedule's recent runs are actively failing.
  *
  * Gated on `status === "enabled"`: a disabled schedule never runs, so the

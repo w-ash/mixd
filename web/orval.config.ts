@@ -21,6 +21,13 @@ export default defineConfig({
           // changed precedence so a global `useQuery: true` would force POST/
           // PUT/DELETE into query hooks and suppress mutations — so don't set it.)
           useSuspenseQuery: false,
+          // Stamps every generated mutation with the cache tags its route
+          // owns, so invalidation is declared once here instead of hand-rolled
+          // at ~40 callsites. See src/api/cache-tags.ts.
+          mutationOptions: {
+            path: "src/api/cache-tags-mutator.ts",
+            name: "withCacheTags",
+          },
         },
       },
     },

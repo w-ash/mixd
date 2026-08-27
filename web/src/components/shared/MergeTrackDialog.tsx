@@ -1,14 +1,10 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { GitMerge } from "lucide-react";
 import { useState } from "react";
 import type {
   LibraryTrackSchema,
   TrackDetailSchema,
 } from "#/api/generated/model";
-import {
-  getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
-  useMergeTrackApiV1TracksTrackIdMergePost,
-} from "#/api/generated/tracks/tracks";
+import { useMergeTrackApiV1TracksTrackIdMergePost } from "#/api/generated/tracks/tracks";
 import { CommandSearchList } from "#/components/shared/CommandSearchList";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { Badge } from "#/components/ui/badge";
@@ -65,13 +61,9 @@ export function MergeTrackDialog({ winner }: MergeTrackDialogProps) {
     null,
   );
 
-  const queryClient = useQueryClient();
   const mergeMutation = useMergeTrackApiV1TracksTrackIdMergePost({
     mutation: {
       onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(winner.id),
-        });
         toasts.success("Tracks merged", {
           description: `${selectedLoser?.title} has been merged into ${winner.title}.`,
         });

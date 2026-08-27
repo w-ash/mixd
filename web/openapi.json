@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.11.3.2"
+    "version": "0.11.4"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -4886,6 +4886,28 @@
         }
       }
     },
+    "/api/v1/sync/targets": {
+      "get": {
+        "tags": [
+          "schedules"
+        ],
+        "summary": "List Sync Targets",
+        "description": "The sync targets this server can dispatch, with their display labels.\n\nServer truth for the Sync page's scheduler cards: the list, the labels, and\nwhich cadences a user may edit. The set is identical for every user \u2014 the\nauth dependency is router consistency, not scoping. No use case, because\nreading a module-level mapping is not data access.",
+        "operationId": "list_sync_targets_api_v1_sync_targets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncTargetListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/schedules": {
       "get": {
         "tags": [
@@ -7818,13 +7840,6 @@
           "counts": {
             "$ref": "#/components/schemas/JsonDict"
           },
-          "issues": {
-            "items": {
-              "$ref": "#/components/schemas/JsonDict"
-            },
-            "type": "array",
-            "title": "Issues"
-          },
           "retryable": {
             "type": "boolean",
             "title": "Retryable"
@@ -7843,6 +7858,42 @@
               }
             ],
             "title": "Trigger Detail"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/JsonDict"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "touched": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "assistant",
+                "checkpoints",
+                "connector-playlists",
+                "connectors",
+                "import-queue",
+                "operation-runs",
+                "playlist-assignments",
+                "playlists",
+                "plays",
+                "reviews",
+                "schedules",
+                "settings",
+                "stats",
+                "tags",
+                "tracks",
+                "workflow-catalog",
+                "workflow-runs",
+                "workflows"
+              ]
+            },
+            "type": "array",
+            "title": "Touched",
+            "description": "Cache tags for the poll-recovery path, when the SSE stream dropped.\n\nDerived rather than stored, so correcting a tag fixes historic rows too\nand the live and recovered paths cannot disagree.",
+            "readOnly": true
           }
         },
         "type": "object",
@@ -7854,9 +7905,10 @@
           "ended_at",
           "status",
           "counts",
-          "issues",
           "retryable",
-          "initiated_by"
+          "initiated_by",
+          "issues",
+          "touched"
         ],
         "title": "OperationRunDetailSchema",
         "description": "Full audit-log row including the issues array."
@@ -7948,10 +8000,6 @@
           "counts": {
             "$ref": "#/components/schemas/JsonDict"
           },
-          "issue_count": {
-            "type": "integer",
-            "title": "Issue Count"
-          },
           "retryable": {
             "type": "boolean",
             "title": "Retryable"
@@ -7970,6 +8018,39 @@
               }
             ],
             "title": "Trigger Detail"
+          },
+          "issue_count": {
+            "type": "integer",
+            "title": "Issue Count"
+          },
+          "touched": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "assistant",
+                "checkpoints",
+                "connector-playlists",
+                "connectors",
+                "import-queue",
+                "operation-runs",
+                "playlist-assignments",
+                "playlists",
+                "plays",
+                "reviews",
+                "schedules",
+                "settings",
+                "stats",
+                "tags",
+                "tracks",
+                "workflow-catalog",
+                "workflow-runs",
+                "workflows"
+              ]
+            },
+            "type": "array",
+            "title": "Touched",
+            "description": "Cache tags for the poll-recovery path, when the SSE stream dropped.\n\nDerived rather than stored, so correcting a tag fixes historic rows too\nand the live and recovered paths cannot disagree.",
+            "readOnly": true
           }
         },
         "type": "object",
@@ -7981,12 +8062,13 @@
           "ended_at",
           "status",
           "counts",
-          "issue_count",
           "retryable",
-          "initiated_by"
+          "initiated_by",
+          "issue_count",
+          "touched"
         ],
         "title": "OperationRunSummarySchema",
-        "description": "Lightweight row for the list view (no full ``issues`` payload).\n\nThe list endpoint returns this shape; full ``issues`` come back from\nthe per-run detail endpoint so a 100-issue run doesn't bloat the\nlist response."
+        "description": "List row: issue count only, so a 100-issue run doesn't bloat the page."
       },
       "OperationSnapshotResponse": {
         "properties": {
@@ -9639,6 +9721,53 @@
         ],
         "title": "SyncPreviewResponse",
         "description": "Preview of what a sync operation would change (read-only).\n\nWhen ``has_comparison_data`` is False, the link has never been synced\nand no locally-cached external playlist exists for diffing."
+      },
+      "SyncTargetListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SyncTargetSchema"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "SyncTargetListResponse"
+      },
+      "SyncTargetSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "apple:plays",
+              "lastfm:likes",
+              "lastfm:plays",
+              "spotify:likes",
+              "spotify:plays"
+            ],
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "self_managed": {
+            "type": "boolean",
+            "title": "Self Managed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "self_managed"
+        ],
+        "title": "SyncTargetSchema",
+        "description": "One dispatchable sync target: its id, label, and who owns its cadence.\n\n``id`` reuses the application's ``SyncTarget`` alias rather than a wire copy,\nwhich would reintroduce inside the backend the mirror this endpoint deletes\nfrom the frontend."
       },
       "TagOperationResult": {
         "properties": {

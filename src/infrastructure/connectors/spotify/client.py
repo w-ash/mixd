@@ -27,7 +27,6 @@ from src.domain.exceptions import SpotifyQuotaExhaustedError
 from src.domain.repositories.play import RECENTLY_PLAYED_PAGE_LIMIT
 from src.infrastructure.connectors._shared.http_client import parse_json_response
 from src.infrastructure.connectors._shared.retry_policies import (
-    RetryConfig,
     RetryPolicyFactory,
 )
 from src.infrastructure.connectors.base import BaseAPIClient
@@ -169,14 +168,10 @@ class SpotifyAPIClient(BaseAPIClient):
             SpotifyErrorClassifier,
         )
 
-        self._retry_policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name="spotify",
-                classifier=SpotifyErrorClassifier(),
-                max_attempts=settings.api.spotify.retry_count,
-                wait_multiplier=settings.api.spotify.retry_base_delay,
-                wait_max=settings.api.spotify.retry_max_delay,
-            )
+        self._retry_policy = RetryPolicyFactory.for_service(
+            "spotify",
+            SpotifyErrorClassifier(),
+            settings.api.spotify,
         )
         self._client = make_spotify_client(SpotifyBearerAuth(self._token_manager))
 

@@ -1,7 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey } from "#/api/generated/connectors/connectors";
 import type {
   ApplyResultSchema,
   ConnectorMetadataSchema,
@@ -53,7 +51,6 @@ export function AssignPlaylistDialog({
   connector,
   playlist,
 }: AssignPlaylistDialogProps) {
-  const queryClient = useQueryClient();
   const existingTagValues = playlist.current_assignments
     .filter((a) => a.action_type === "add_tag")
     .map((a) => a.action_value);
@@ -67,13 +64,7 @@ export function AssignPlaylistDialog({
 
   const create = useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost({
     mutation: {
-      onSuccess: async (response) => {
-        await queryClient.invalidateQueries({
-          queryKey:
-            getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey(
-              connector.name,
-            ),
-        });
+      onSuccess: (response) => {
         if (response.status === 201) {
           const value = response.data.assignment.action_value;
           toasts.success(`${value} → '${playlist.name}'`, {
@@ -82,7 +73,12 @@ export function AssignPlaylistDialog({
           onOpenChange(false);
         }
       },
-      meta: { errorLabel: "Failed to save assignment" },
+      // The toast names the playlist the assignment lands in, so the connector
+      // playlist list must be current before it fires.
+      meta: {
+        errorLabel: "Failed to save assignment",
+        awaitInvalidation: true,
+      },
     },
   });
 

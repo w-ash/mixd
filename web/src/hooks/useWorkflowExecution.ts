@@ -58,7 +58,7 @@ export function useWorkflowExecution(
             ctx.startExecution(workflowId, data.operation_id, data.run_id);
             // Flip every mounted surface to "running" now rather than waiting
             // out the 25s idle poll on active-runs.
-            afterRunStateChanged(queryClient, workflowId, data.run_id);
+            afterRunStateChanged(queryClient);
           } else {
             toasts.message("Failed to start workflow");
           }

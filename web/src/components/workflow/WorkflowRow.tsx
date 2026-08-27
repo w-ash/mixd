@@ -13,7 +13,7 @@ import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { formatDate } from "#/lib/format";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
-import { afterWorkflowSaved } from "#/lib/workflow-queries";
+import { writeWorkflowDetail } from "#/lib/workflow-queries";
 
 /** Inline run button for a single workflow row. */
 function WorkflowRunButton({
@@ -78,9 +78,14 @@ export function WorkflowRowActions({
 
   const duplicate = useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost({
     mutation: {
-      onSuccess: (res) => {
+      onSuccess: async (res) => {
         if (res.status === 201) {
-          afterWorkflowSaved(queryClient, res.data.id, res.data, res.headers);
+          await writeWorkflowDetail(
+            queryClient,
+            res.data.id,
+            res.data,
+            res.headers,
+          );
           toasts.success("Workflow duplicated");
           navigate(`/workflows/${res.data.id}/edit`);
         }

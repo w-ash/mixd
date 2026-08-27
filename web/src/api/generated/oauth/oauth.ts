@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -31,6 +31,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -218,7 +219,7 @@ export const approveConsentApiV1OauthConsentRequestIdApprovePost = async (reques
 
 
 
-export const getApproveConsentApiV1OauthConsentRequestIdApprovePostMutationOptions = <TError = HTTPValidationError,
+export const useApproveConsentApiV1OauthConsentRequestIdApprovePostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, TError,{requestId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, TError,{requestId: string}, TContext> => {
 
@@ -240,10 +241,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/oauth/consent/{requestId}/approve` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationResult = NonNullable<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>>
 
@@ -260,7 +261,7 @@ export const useApproveConsentApiV1OauthConsentRequestIdApprovePost = <TError = 
         {requestId: string},
         TContext
       > => {
-      return useMutation(getApproveConsentApiV1OauthConsentRequestIdApprovePostMutationOptions(options), queryClient);
+      return useMutation(useApproveConsentApiV1OauthConsentRequestIdApprovePostMutationOptions(options), queryClient);
     }
     export type denyConsentApiV1OauthConsentRequestIdDenyPostResponse200 = {
   data: ConsentRedirect
@@ -308,7 +309,7 @@ export const denyConsentApiV1OauthConsentRequestIdDenyPost = async (requestId: s
 
 
 
-export const getDenyConsentApiV1OauthConsentRequestIdDenyPostMutationOptions = <TError = HTTPValidationError,
+export const useDenyConsentApiV1OauthConsentRequestIdDenyPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, TError,{requestId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, TError,{requestId: string}, TContext> => {
 
@@ -330,10 +331,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/oauth/consent/{requestId}/deny` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type DenyConsentApiV1OauthConsentRequestIdDenyPostMutationResult = NonNullable<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>>
 
@@ -350,5 +351,5 @@ export const useDenyConsentApiV1OauthConsentRequestIdDenyPost = <TError = HTTPVa
         {requestId: string},
         TContext
       > => {
-      return useMutation(getDenyConsentApiV1OauthConsentRequestIdDenyPostMutationOptions(options), queryClient);
+      return useMutation(useDenyConsentApiV1OauthConsentRequestIdDenyPostMutationOptions(options), queryClient);
     }

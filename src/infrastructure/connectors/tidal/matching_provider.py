@@ -12,10 +12,11 @@ match per code for batched filters: a silent partial answer for a 1:N
 lookup).
 """
 
+import asyncio
 from typing import ClassVar, override
 from uuid import UUID
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.isrc_validation import (
@@ -24,11 +25,7 @@ from src.domain.matching.isrc_validation import (
 )
 from src.domain.matching.types import (
     MatchFailure,
-    MatchFailureReason,
     RawProviderMatch,
-)
-from src.infrastructure.connectors._shared.failure_handling import (
-    create_and_log_failure,
 )
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors._shared.matching_provider import (
@@ -92,58 +89,45 @@ class TidalMatchingProvider(BaseMatchingProvider):
 
         candidates_by_isrc: dict[str, list[TidalTrack]] = {}
         failed_isrcs: set[str] = set()
-        for code in dict.fromkeys(isrc_by_track.values()):
-            try:
-                resources = await self._client.get_tracks_by_isrc(
-                    code, TIDAL_COUNTRY_CODE
-                )
-            except Exception:
-                logger.warning(
-                    f"Tidal ISRC lookup failed for {code} — "
-                    f"its tracks fail as API_ERROR",
-                    exc_info=True,
-                )
-                failed_isrcs.add(code)
-            else:
-                candidates_by_isrc[code] = [
-                    tidal_track_from_resource(resource) for resource in resources
-                ]
+        # Multi-ISRC batching returns one match per code, so each code is its own
+        # request — bounded concurrency is what keeps a large batch off a serial
+        # round trip per track. The shared rate limiter still paces each call.
+        semaphore = asyncio.Semaphore(settings.api.tidal.concurrency)
 
-        matches: dict[UUID, RawProviderMatch] = {}
-        failures: list[MatchFailure] = []
-        for track in tracks:
-            if not track.id:
-                continue
-            track_isrc = isrc_by_track.get(track.id, "")
-            candidates = candidates_by_isrc.get(track_isrc, [])
-            if not candidates:
-                if track_isrc in failed_isrcs:
-                    failures.append(
-                        create_and_log_failure(
-                            track_id=track.id,
-                            reason=MatchFailureReason.API_ERROR,
-                            service=self.service_name,
-                            method="isrc",
-                            details=f"Tidal catalog lookup failed for ISRC: "
-                            f"{track.isrc}",
-                        )
+        async def _lookup(code: str) -> None:
+            async with semaphore:
+                try:
+                    resources = await self._client.get_tracks_by_isrc(
+                        code, TIDAL_COUNTRY_CODE
                     )
+                except Exception:
+                    logger.warning(
+                        f"Tidal ISRC lookup failed for {code} — "
+                        f"its tracks fail as API_ERROR",
+                        exc_info=True,
+                    )
+                    failed_isrcs.add(code)
                 else:
-                    failures.append(
-                        create_and_log_failure(
-                            track_id=track.id,
-                            reason=MatchFailureReason.NO_RESULTS,
-                            service=self.service_name,
-                            method="isrc",
-                            details=f"No Tidal results for ISRC: {track.isrc}",
-                        )
-                    )
-                continue
-            matches[track.id] = self._create_raw_match(
-                self._pick_candidate(track, candidates)
-            )
+                    candidates_by_isrc[code] = [
+                        tidal_track_from_resource(resource) for resource in resources
+                    ]
 
-        return matches, failures
+        async with asyncio.TaskGroup() as tg:
+            for code in dict.fromkeys(isrc_by_track.values()):
+                _ = tg.create_task(_lookup(code))
+
+        return self._correlate_by_code(
+            tracks,
+            code_of=isrc_by_track,
+            candidates_by_code=candidates_by_isrc,
+            failed_codes=failed_isrcs,
+            make_match=lambda track, candidates: self._create_raw_match(
+                self._pick_candidate(track, candidates)
+            ),
+            service_label="Tidal",
+            method="isrc",
+            code_label="ISRC",
+        )
 
     @staticmethod
     def _pick_candidate(track: Track, candidates: list[TidalTrack]) -> TidalTrack:

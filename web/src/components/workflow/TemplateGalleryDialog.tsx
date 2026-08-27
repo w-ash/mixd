@@ -19,7 +19,7 @@ import {
 } from "#/components/ui/dialog";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { toasts } from "#/lib/toasts";
-import { afterWorkflowSaved } from "#/lib/workflow-queries";
+import { writeWorkflowDetail } from "#/lib/workflow-queries";
 
 /** One selectable template card in the gallery list. */
 function TemplateCard({
@@ -86,9 +86,14 @@ export function TemplateGalleryDialog({ trigger }: { trigger: ReactNode }) {
   const useTemplate =
     useUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost({
       mutation: {
-        onSuccess: (res) => {
+        onSuccess: async (res) => {
           if (res.status === 201) {
-            afterWorkflowSaved(queryClient, res.data.id, res.data, res.headers);
+            await writeWorkflowDetail(
+              queryClient,
+              res.data.id,
+              res.data,
+              res.headers,
+            );
             setOpen(false);
             toasts.success("Workflow created from template");
             navigate(`/workflows/${res.data.id}/edit`);

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import {
   useMutation,
@@ -35,6 +35,7 @@ import type {
 } from '../model';
 
 import { customFetch } from '../../client.ts';
+import { withCacheTags } from '../../cache-tags-mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -746,7 +747,7 @@ export const storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost = async (app
 
 
 
-export const getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions = <TError = HTTPValidationError,
+export const useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,{data: AppleMusicTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,{data: AppleMusicTokenRequest}, TContext> => {
 
@@ -768,10 +769,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/connectors/apple_music/token` });
 
 
-
-  return  { mutationFn, ...mutationOptions }}
+  return  customOptions}
 
     export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationResult = NonNullable<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>>
     export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationBody = AppleMusicTokenRequest
@@ -788,5 +789,5 @@ export const useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost = <TError
         {data: AppleMusicTokenRequest},
         TContext
       > => {
-      return useMutation(getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions(options), queryClient);
+      return useMutation(useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions(options), queryClient);
     }

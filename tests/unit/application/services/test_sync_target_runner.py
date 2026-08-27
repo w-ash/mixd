@@ -61,7 +61,12 @@ def _env(spec: SyncTargetSpec, *, finalize: AsyncMock | None = None):
 
 
 def _spec(run: AsyncMock, **kwargs: object) -> SyncTargetSpec:
-    return SyncTargetSpec(label="Test target", run=run, **kwargs)  # pyright: ignore[reportArgumentType]
+    return SyncTargetSpec(
+        label="Test target",
+        run=run,
+        operation_type="import_lastfm_history",
+        **kwargs,  # pyright: ignore[reportArgumentType]
+    )
 
 
 class TestFailureSignals:

@@ -3,10 +3,11 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.2
+ * OpenAPI spec version: 0.11.4
  */
 import type { JsonDict } from './jsonDict.ts';
 import type { OperationRunDetailSchemaStatus } from './operationRunDetailSchemaStatus.ts';
+import type { OperationRunDetailSchemaTouchedItem } from './operationRunDetailSchemaTouchedItem.ts';
 
 /**
  * Full audit-log row including the issues array.
@@ -19,8 +20,15 @@ export interface OperationRunDetailSchema {
   ended_at: string | null;
   status: OperationRunDetailSchemaStatus;
   counts: JsonDict;
-  issues: JsonDict[];
   retryable: boolean;
   initiated_by: string;
   trigger_detail?: string | null;
+  issues: JsonDict[];
+  /**
+     * Cache tags for the poll-recovery path, when the SSE stream dropped.
+     *
+     * Derived rather than stored, so correcting a tag fixes historic rows too
+     * and the live and recovered paths cannot disagree.
+     */
+  readonly touched: readonly OperationRunDetailSchemaTouchedItem[];
 }

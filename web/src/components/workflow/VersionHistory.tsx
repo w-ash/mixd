@@ -19,7 +19,7 @@ import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { WorkflowDiff } from "#/components/workflow/WorkflowDiff";
 import { formatDateTime } from "#/lib/format";
 import { toasts } from "#/lib/toasts";
-import { afterWorkflowSaved } from "#/lib/workflow-queries";
+import { writeWorkflowDetail } from "#/lib/workflow-queries";
 import { useEditorStore } from "#/stores/editor-store";
 
 export function VersionHistory({ workflowId }: { workflowId: string }) {
@@ -40,12 +40,17 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
     revertMutation.mutate(
       { workflowId, version },
       {
-        onSuccess: (res) => {
+        onSuccess: async (res) => {
           if (res.status === 200) {
             loadWorkflow(res.data.definition, workflowId);
             // A revert writes a NEW version server-side, so the list this panel
             // is rendering is stale too — not just the workflow detail.
-            afterWorkflowSaved(queryClient, workflowId, res.data, res.headers);
+            await writeWorkflowDetail(
+              queryClient,
+              workflowId,
+              res.data,
+              res.headers,
+            );
             toasts.success(`Reverted to version ${version}`);
           }
         },
