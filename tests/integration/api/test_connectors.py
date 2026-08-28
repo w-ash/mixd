@@ -4,7 +4,9 @@ Route-level coverage only: registry serialization, the Spotify-playlist
 browse + import routes (via the ``mock_connector_provider`` fixture so no
 live API calls leak from the integration env's real OAuth tokens), play
 polling, disconnect scoping, and the Discogs token flow. Per-connector
-status-probe behavior is unit-tested in
+status-probe behavior is unit-tested beside each connector in
+``tests/unit/infrastructure/connectors/<service>/test_status.py``, and the
+shared stored-token primitive in
 ``tests/unit/infrastructure/connectors/_shared/test_connector_status.py``.
 """
 
@@ -153,8 +155,7 @@ class TestDeleteTokenGate:
         substrate — a fake registry entry stands in since no ``token``-auth
         connector is registered yet."""
         fake_config = {
-            "factory": lambda config: object(),
-            "dependencies": [],
+            "factory": object,
             "metrics": {},
             "display_name": "Fake Token Service",
             "category": "streaming",
@@ -170,6 +171,35 @@ class TestDeleteTokenGate:
             response = await client.delete("/api/v1/connectors/fake_token_svc/token")
 
         assert response.status_code == 204
+
+    async def test_declared_on_disconnect_hook_runs(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """A config-declared ``on_disconnect`` hook is awaited with the user id.
+
+        The absent-hook case is the test above: no ``on_disconnect`` key, and
+        the delete still returns 204.
+        """
+        hook = AsyncMock()
+        fake_config = {
+            "factory": object,
+            "metrics": {},
+            "display_name": "Fake Token Service",
+            "category": "streaming",
+            "auth_method": "token",
+            "capabilities": frozenset(),
+            "status_fn": AsyncMock(),
+            "build_auth_url": None,
+            "on_disconnect": hook,
+        }
+        with patch(
+            "src.interface.api.routes.connectors.discover_connectors",
+            return_value={"fake_token_svc": fake_config},
+        ):
+            response = await client.delete("/api/v1/connectors/fake_token_svc/token")
+
+        assert response.status_code == 204
+        hook.assert_awaited_once_with("default")
 
 
 class TestSpotifyPlaylistBrowse:
@@ -379,12 +409,48 @@ class TestPlayPolling:
     async def test_other_connectors_are_rejected(
         self, client: httpx2.AsyncClient
     ) -> None:
-        # Only Spotify has a polled play channel; a silent no-op would imply the
-        # switch did something.
+        # Only Spotify declares supports_play_polling; a silent no-op would
+        # imply the switch did something.
         response = await client.put(
             "/api/v1/connectors/lastfm/play-polling", json={"enabled": True}
         )
         assert response.status_code == 400
+
+    async def test_apple_music_rejected_until_policy_generalizes(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # Apple declares history_import_api, but the poll policy still targets
+        # spotify:plays — the supports_play_polling flag is the gate, not the
+        # capability.
+        response = await client.put(
+            "/api/v1/connectors/apple_music/play-polling", json={"enabled": True}
+        )
+        assert response.status_code == 400
+
+    async def test_connector_without_the_capability_gets_501(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        response = await client.put(
+            "/api/v1/connectors/musicbrainz/play-polling", json={"enabled": True}
+        )
+        assert response.status_code == 501
+
+    async def test_unknown_connector_gets_404(self, client: httpx2.AsyncClient) -> None:
+        response = await client.get("/api/v1/connectors/nope/play-polling")
+        assert response.status_code == 404
+
+    async def test_disconnect_stops_polling(self, client: httpx2.AsyncClient) -> None:
+        # supports_play_polling drives the disconnect teardown too — the
+        # heartbeat must not outlive the credential it polls with.
+        await client.put(
+            "/api/v1/connectors/spotify/play-polling", json={"enabled": True}
+        )
+
+        response = await client.delete("/api/v1/connectors/spotify/token")
+
+        assert response.status_code == 204
+        after = await client.get("/api/v1/connectors/spotify/play-polling")
+        assert after.json()["enabled"] is False
 
 
 class TestDisconnectPreservesSiblingData:

@@ -259,7 +259,7 @@ class DatabaseUnitOfWork:
                 connectors = discover_connectors()
                 if service_name not in connectors:
                     raise ValueError(f"Unknown connector: {service_name}")
-                instance = connectors[service_name]["factory"]({})
+                instance = connectors[service_name]["factory"]()
                 cache[service_name] = instance
                 return instance
 

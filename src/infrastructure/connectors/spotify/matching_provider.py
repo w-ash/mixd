@@ -24,6 +24,8 @@ from src.infrastructure.connectors._shared.failure_handling import (
 )
 from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
+    IsrcThenArtistTitle,
+    MatchStrategy,
 )
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
@@ -55,13 +57,21 @@ class SpotifyProvider(BaseMatchingProvider):
         return "spotify"
 
     @override
+    def _match_strategy(self) -> MatchStrategy:
+        """ISRC first, artist/title for the rest and for ISRC misses."""
+        return IsrcThenArtistTitle(
+            match_by_isrc=self._match_by_isrc,
+            match_by_artist_title=self._match_by_artist_title,
+        )
+
     async def _match_by_isrc(
         self, tracks: list[Track]
     ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
         """Match tracks using Spotify ISRC search API.
 
         Args:
-            tracks: Tracks with ISRC to match (pre-validated by the base partition).
+            tracks: Tracks with ISRC to match (pre-validated by the strategy
+                partition).
 
         Returns:
             Tuple of (matches dict, failures list).
@@ -92,7 +102,6 @@ class SpotifyProvider(BaseMatchingProvider):
             f"No Spotify results for ISRC: {track.isrc}",
         )
 
-    @override
     async def _match_by_artist_title(
         self, tracks: list[Track]
     ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
@@ -100,7 +109,7 @@ class SpotifyProvider(BaseMatchingProvider):
 
         Args:
             tracks: Tracks with artist and title to match (pre-validated by the
-                base partition).
+                strategy partition).
 
         Returns:
             Tuple of (matches dict, failures list).

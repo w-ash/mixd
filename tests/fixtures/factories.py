@@ -583,3 +583,25 @@ def make_operation_run(
         issues=issues if issues is not None else [],
         **kwargs,
     )
+
+
+async def discover_one(provider, probe_track, artist_name, track_name, uow, *, user_id):
+    """Run one cross-discovery question through the batch-first API.
+
+    Test convenience: production code calls ``discover_batch`` with real
+    batches; tests asking a single question wrap it here.
+    """
+    from src.domain.matching.protocols import DiscoveryRequest
+
+    outcomes = await provider.discover_batch(
+        [
+            DiscoveryRequest(
+                probe_track=probe_track,
+                artist_name=artist_name,
+                track_name=track_name,
+            )
+        ],
+        uow,
+        user_id=user_id,
+    )
+    return outcomes[0]

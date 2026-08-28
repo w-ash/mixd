@@ -10,6 +10,7 @@ from .config import MatchingConfig
 from .protocols import (
     CrossDiscoveryProvider,
     DiscoveryOutcome,
+    DiscoveryRequest,
     MatchProvider,
     NewMapping,
     Nothing,
@@ -27,6 +28,7 @@ __all__ = [
     "ConfidenceEvidence",
     "CrossDiscoveryProvider",
     "DiscoveryOutcome",
+    "DiscoveryRequest",
     "EvaluationResult",
     "MatchProvider",
     "MatchResult",

@@ -1,6 +1,6 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.11.4
+**Current Version**: 0.11.5
 **Dated follow-up**: [residue-tenant-purge-due-2026-09-04.md](residue-tenant-purge-due-2026-09-04.md) — production carries three phantom tenants; the purge is written and tested but refuses on liveness until 14 quiet days prove the v0.10.4.1 guard closed the door.
 
 **Next**: **v0.12.0 — Entity Representation Spike** (artists/albums across six services, against real data; docs-only, no deploy artifact). The v0.10.3 production sequence is **complete** (2026-08-20): cross-tenant tracks re-owned, 51 merges run, `default` purged, `start_shift_ms` backfilled, unresolved plays replayed (51 → 39; the remainder are ids Spotify answers for with no title), and the full rebuild applied — 132,273 plays unchanged, divergence 0. Residue, now sharper than when the audit filed it: **RLS is configured on every tenant table and enforced on none** (prod connects with `BYPASSRLS`) — v0.10.3.6 proved this is not a someday-hardening item, since a repair script relying on RLS for tenant isolation wrote across tenants in production; audit what else depends on it. Also open: whether `uq_tracks_user_isrc` should constrain a field that is only a reference ([findings](v0.10.3-audit-findings.md)). Follow-up pool: the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)); `set_primary_mapping` (`track/connector.py`) catches, logs and returns False with no savepoint — the same latent class v0.10.3.4/.5 fixed twice; `docker-compose.yml` launches uvicorn without `--timeout-graceful-shutdown`, so local dev keeps the Ctrl-C stall the Dockerfile no longer has; surfacing lock contention as a counter on the operation run rather than only in logs; and the still-gated candidates (model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
@@ -9,6 +9,7 @@
 
 Canonical release log: [CHANGELOG.md](../../CHANGELOG.md) (all ships, full entries). This narrative keeps one line per ship for the current + previous minor cycle only; older lines are pruned at cycle close.
 
+- **v0.11.5** (2026-08-28) — Big imports run faster and every service's rate budget is honestly enforced: Apple catalog lookups go concurrent, Last.fm cross-discovery batches its round trips, dead sleep time is gone, and the six connectors now share one write pipeline, one match workflow, and one request pacer — so the next connector is thin adapters, not a seventh copy. [changelog](../../CHANGELOG.md#0115--2026-08-28)
 - **v0.11.4** (2026-08-27) — Anything you do now shows up everywhere it should without a reload: connect a service, finish an import, save a workflow, and every surface that displays the result refreshes itself, because what an action changed is declared once instead of guessed at forty call sites. [changelog](../../CHANGELOG.md#0114--2026-08-27)
 - **v0.11.3.2** (2026-08-23) — Connect shows connected immediately (connector status is never browser-cached) and Apple Music connects in-page — the only popup is Apple's own sign-in sheet. [changelog](../../CHANGELOG.md#01132--2026-08-23)
 - **v0.11.3.1** (2026-08-23) — Connecting any service from the web works in production again: the OAuth state helpers now declare who they run as, satisfying the v0.10.4.1 safety guard. [changelog](../../CHANGELOG.md#01131--2026-08-23)
@@ -169,6 +170,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.11.2** | Spotify API currency — invalid_grant re-auth + reconnect UX, quota-429 discrimination, account_id linkage, explicit disconnect semantics | 🚀 Shipped | [details](v0.11.x.md#v0112-spotify-api-currency) |
 | **v0.11.3** | Tidal foundation — BYO-app OAuth 2.1/PKCE auth, client, ISRC-conservative resolution, favorites snapshot | 🚀 Shipped | [details](v0.11.x.md#v0113-tidal-foundation) |
 | **v0.11.4** | Web cache consistency — tag-driven invalidation (mutation meta + server-named SSE tags), race-safe core, backend-owned enums | 🚀 Shipped | [details](v0.11.x.md#v0114-web-cache-consistency) |
+| **v0.11.5** | Connector quality sweep — shared write pipeline/match strategies/status probes, one request pacer, batch-first hot paths, dead-surface removal | 🚀 Shipped | [details](v0.11.x.md#v0115-connector-quality-sweep) |
 | **v0.12.0** | Entity representation spike — artists/albums across six services, real data (docs-only) | 🔜 Not Started | [details](v0.12.x.md#v0120-entity-representation-spike) |
 | **v0.12.1** | First-class artists | 🔜 Not Started | [details](v0.12.x.md#v0121-first-class-artists) |
 | **v0.12.2** | First-class albums | 🔜 Not Started | [details](v0.12.x.md#v0122-first-class-albums) |

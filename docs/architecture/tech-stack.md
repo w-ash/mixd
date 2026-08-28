@@ -79,8 +79,8 @@ src/infrastructure/connectors/_shared/
 ├── inward_track_resolver.py # Base class for connector ID → canonical track resolution
 ├── isrc.py                  # Shared ISRC normalization/validation
 ├── matching_provider.py     # BaseMatchingProvider ABC (template method)
-├── metric_registry.py       # Metric resolver registry
-├── rate_limited_batch_processor.py
+├── fan_out.py               # bounded_fan_out concurrency helper
+├── metric_registry.py       # Connector metric registry (fed by discovery)
 └── retry_policies.py        # Tenacity retry configuration
 ```
 

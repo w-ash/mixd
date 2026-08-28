@@ -8,8 +8,9 @@ exposes resolution metrics plus progress callbacks.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from src.application.connector_protocols import Closeable
 from src.domain.entities import ConnectorTrackPlay
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     TrackResolutionMetrics,
@@ -264,49 +265,6 @@ class TestResolveContextKeys:
         assert context["extra_key"] == "extra"
 
 
-class TestResolveProgressCallbacks:
-    """progress_callback is invoked at each pipeline checkpoint with correct args."""
-
-    async def test_callback_invoked_at_each_step(self):
-        track = make_track(title="Creep", artist="Radiohead")
-        resolver, _ = _make_resolver(
-            canonical_tracks={make_lastfm_identifier("Radiohead", "Creep"): track},
-            metrics=TrackResolutionMetrics(existing=1),
-        )
-        uow = make_mock_uow()
-        callback = MagicMock()
-
-        await resolver.resolve_connector_plays(
-            [_play("Radiohead", "Creep")],
-            uow,
-            user_id="user-1",
-            progress_callback=callback,
-        )
-
-        percents = [c.args[0] for c in callback.call_args_list]
-        assert percents == [10, 30, 80, 100]
-        assert all(c.args[1] == 100 for c in callback.call_args_list)
-        assert "1/1" in callback.call_args_list[-1].args[2]
-
-    async def test_callback_not_required(self):
-        track = make_track(title="Creep", artist="Radiohead")
-        resolver, _ = _make_resolver(
-            canonical_tracks={make_lastfm_identifier("Radiohead", "Creep"): track},
-            metrics=TrackResolutionMetrics(existing=1),
-        )
-        uow = make_mock_uow()
-
-        outcome = await resolver.resolve_connector_plays(
-            [_play("Radiohead", "Creep")],
-            uow,
-            user_id="user-1",
-            progress_callback=None,
-        )
-        plays, _metrics = outcome.track_plays, outcome.metrics
-
-        assert len(plays) == 1
-
-
 class TestExtractUniqueIdentifiers:
     """_extract_unique_lastfm_identifiers dedupes, normalizes, and skips invalid rows."""
 
@@ -382,3 +340,46 @@ class TestResolverConstruction:
         resolver = LastfmConnectorPlayResolver(lastfm_client=client)
 
         assert resolver.lastfm_client is client
+
+
+class TestLifecycle:
+    """The orchestrator's Closeable teardown must release the chain's pools."""
+
+    def test_resolver_satisfies_closeable(self):
+        """The orchestrator's ``isinstance(resolver, Closeable)`` gate passes."""
+        resolver = LastfmConnectorPlayResolver(
+            lastfm_client=MagicMock(), inward_resolver=AsyncMock()
+        )
+
+        assert isinstance(resolver, Closeable)
+
+    async def test_aclose_closes_owned_client_and_adopted_provider(self):
+        """A factory-built chain closes its own client and forwards to the
+        cross-discovery provider's aclose — each pool exactly once."""
+        client = AsyncMock()
+        # A REAL aclose attribute: the resolver's Closeable isinstance check
+        # uses static lookup, which never sees Mock's lazily-created children.
+        provider = MagicMock()
+        provider.aclose = AsyncMock()
+        with patch(
+            "src.infrastructure.connectors.lastfm.play_resolver.LastFMAPIClient",
+            return_value=client,
+        ):
+            resolver = LastfmConnectorPlayResolver(cross_discovery=provider)
+
+        await resolver.aclose()
+
+        client.aclose.assert_awaited_once()
+        provider.aclose.assert_awaited_once()
+
+    async def test_aclose_leaves_injected_client_open(self):
+        """An injected client belongs to the caller; with no cross-discovery
+        provider there is nothing else to close."""
+        client = AsyncMock()
+        resolver = LastfmConnectorPlayResolver(
+            lastfm_client=client, inward_resolver=AsyncMock()
+        )
+
+        await resolver.aclose()
+
+        client.aclose.assert_not_awaited()

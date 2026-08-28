@@ -292,6 +292,19 @@ class TestQuota429Discrimination:
     def classifier(self):
         return SpotifyErrorClassifier()
 
+    @pytest.fixture(autouse=True)
+    def _fresh_module_logger(self, monkeypatch: pytest.MonkeyPatch):
+        """Give the classifier module an uncached logger per test.
+
+        ``cache_logger_on_first_use=True`` pins a logger's processor chain
+        at its first emission, so ``capture_logs`` sees nothing when an
+        earlier test in the worker already used the module logger.
+        """
+        from src.infrastructure.connectors.spotify import error_classifier
+
+        fresh = structlog.get_logger(error_classifier.__name__).bind(service="spotify")
+        monkeypatch.setattr(error_classifier, "logger", fresh)
+
     def test_quota_exceeded_top_level_reason_is_permanent(self, classifier):
         exception = make_http_error(429, json_body={"reason": "QUOTA_EXCEEDED"})
 

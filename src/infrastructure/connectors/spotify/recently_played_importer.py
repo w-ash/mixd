@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import override
 
 from src.config import get_logger
-from src.domain.entities import ConnectorTrackPlay, OperationResult
+from src.domain.entities import ConnectorTrackPlay
 from src.domain.entities.progress import ProgressEmitter
 from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import SpotifyAuthRequiredError
@@ -24,7 +24,6 @@ from src.domain.matching.play_projection import START_SHIFT_MS_KEY
 from src.domain.repositories.play import (
     RECENTLY_PLAYED_SCOPE,
     PlayImporterProtocol,
-    PlayImportParams,
     SpotifyRecentImportParams,
 )
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -63,76 +62,31 @@ class SpotifyRecentlyPlayedImporter(
 
     operation_name: str
 
+    # import_plays comes from BasePlayImporter's shared shell: it narrows
+    # params to this type, runs the pipeline, and closes an owned client.
+    _params_type = SpotifyRecentImportParams
+
     def __init__(self, client: SpotifyAPIClient | None = None) -> None:
         """Initialize with an optional injected client (tests supply a double)."""
         self.operation_name = "Spotify Recently Played Import"
-        self._client = client or SpotifyAPIClient()
-        # A client we built is ours to close; an injected one belongs to the
-        # caller. The importer is created per import (never cached on the UoW),
-        # so without this every poll would strand an httpx2 connection pool —
-        # and the scheduled poller runs this on a loop.
-        self._owns_client = client is None
+        self._client = self._adopt_client(client, SpotifyAPIClient)
 
     @override
-    async def import_plays(
-        self,
-        uow: UnitOfWorkProtocol,
-        params: PlayImportParams,
-        *,
-        user_id: str,
-        progress_emitter: ProgressEmitter | None = None,
-    ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
-        """Poll recently-played and ingest the new plays as connector plays.
+    async def _before_import(
+        self, params: SpotifyRecentImportParams, *, user_id: str
+    ) -> None:
+        """Verify the grant before any pipeline work.
 
-        Args:
-            uow: Unit of work for database operations
-            params: Spotify recently-played selectors (page limit)
-            user_id: The mixd user whose grant is used and whose checkpoint
-                records the resume position
-            progress_emitter: Optional progress emitter
-
-        Returns:
-            Tuple of (operation_result, connector_plays_list)
+        The pipeline re-raises auth errors anyway, but failing here keeps the
+        diagnosis precise (missing scope, not "the API returned nothing") and
+        costs no API call.
 
         Raises:
-            TypeError: If params is not SpotifyRecentImportParams.
             SpotifyAuthRequiredError: If the user has no Spotify grant, or the
                 grant predates the recently-played scope.
         """
-        if not isinstance(params, SpotifyRecentImportParams):
-            raise TypeError(
-                f"SpotifyRecentlyPlayedImporter requires SpotifyRecentImportParams, "
-                f"got {type(params).__name__}"
-            )
-
-        try:
-            # Precheck BEFORE import_data: the base class re-raises auth errors,
-            # but failing here keeps the diagnosis precise (missing scope, not
-            # "the API returned nothing") and costs no API call.
-            await self._require_recently_played_grant(user_id)
-
-            logger.info("Starting Spotify recently-played import", limit=params.limit)
-
-            result, connector_plays = await self.import_data(
-                params,
-                uow=uow,
-                user_id=user_id,
-                progress_emitter=progress_emitter,
-            )
-        finally:
-            await self._aclose_owned_client()
-
-        logger.info(
-            "Spotify recently-played import complete",
-            connector_plays_ingested=len(connector_plays),
-        )
-
-        return result, connector_plays
-
-    async def _aclose_owned_client(self) -> None:
-        """Release the HTTP pool when this importer created the client."""
-        if self._owns_client:
-            await self._client.aclose()
+        await self._require_recently_played_grant(user_id)
+        logger.info("Starting Spotify recently-played import", limit=params.limit)
 
     @staticmethod
     async def _require_recently_played_grant(user_id: str) -> None:

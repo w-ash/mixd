@@ -3,30 +3,29 @@
 This provider handles communication with the LastFM API and transforms
 LastFM track data into raw provider matches without business logic.
 
-Satisfies the ``MatchProvider`` protocol structurally (service_name +
-fetch_raw_matches_for_tracks). Does NOT inherit ``BaseMatchingProvider``
-because Last.fm's batch API doesn't partition by ISRC / artist-title —
-inheriting would violate LSP (the abstract template-method hooks would
-raise ``NotImplementedError``).
+Last.fm's batch API answers every track at once, so the provider runs the
+shared workflow shell with the ``SingleBatch`` strategy — no ISRC /
+artist-title partitioning step.
 """
 
+from typing import override
 from uuid import UUID
 
 from src.config import get_logger
-from src.config.logging import logging_context
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
-    ProgressCallback,
-    ProviderMatchResult,
     RawProviderMatch,
 )
 from src.infrastructure.connectors._shared.failure_handling import (
     create_and_log_failure,
-    handle_track_processing_failure,
-    log_failure_summary,
+)
+from src.infrastructure.connectors._shared.matching_provider import (
+    BaseMatchingProvider,
+    MatchStrategy,
+    SingleBatch,
 )
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
@@ -35,12 +34,11 @@ from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identif
 logger = get_logger(__name__)
 
 
-class LastFMProvider:
+class LastFMProvider(BaseMatchingProvider):
     """LastFM track matching provider.
 
-    Satisfies ``MatchProvider`` protocol structurally. Uses Last.fm's batch
-    API which processes all tracks at once, so there is no ISRC / artist-title
-    partitioning step.
+    Uses Last.fm's batch API which processes all tracks at once, so the
+    match strategy is ``SingleBatch``.
     """
 
     connector_instance: LastFMConnector
@@ -54,71 +52,19 @@ class LastFMProvider:
         self.connector_instance = connector_instance
 
     @property
+    @override
     def service_name(self) -> str:
         """Service identifier."""
         return "lastfm"
 
-    async def fetch_raw_matches_for_tracks(
-        self,
-        tracks: list[Track],
-        progress_callback: ProgressCallback | None = None,
-        **additional_options: object,
-    ) -> ProviderMatchResult:
-        """Fetch raw track matches from LastFM.
+    @override
+    def _match_strategy(self) -> MatchStrategy:
+        """One batch call over the whole track list."""
+        return SingleBatch(match_batch=self._match_batch, label="LastFM")
 
-        Args:
-            tracks: Tracks to match against LastFM catalog.
-            progress_callback: Optional async callback invoked with
-                (completed_count, total, description) after matching completes.
-            **additional_options: Additional options (unused).
-
-        Returns:
-            ProviderMatchResult with successful matches and structured failure information.
-        """
-        # Acknowledge additional options to satisfy linter
-        _ = additional_options
-
-        if not tracks:
-            return ProviderMatchResult()
-
-        with logging_context(operation="match_lastfm", tracks_count=len(tracks)):
-            logger.info(f"Matching {len(tracks)} tracks to LastFM")
-
-            matches: dict[UUID, RawProviderMatch] = {}
-            failures: list[MatchFailure] = []
-
-            try:
-                await self._fetch_and_classify_batch(tracks, matches, failures)
-            except Exception as e:
-                # Batch API failed - all tracks failed
-                failures.extend(
-                    handle_track_processing_failure(
-                        track.id, self.service_name, "batch_lookup", e
-                    )
-                    for track in tracks
-                    if track.id
-                )
-
-            # Report progress after batch processing
-            if progress_callback is not None:
-                await progress_callback(
-                    len(tracks),
-                    len(tracks),
-                    f"LastFM batch matching complete ({len(matches)} matched)",
-                )
-
-            # Log summary
-            log_failure_summary(self.service_name, len(matches), len(failures))
-            logger.info(f"Found {len(matches)} matches from {len(tracks)} tracks")
-
-            return ProviderMatchResult(matches=matches, failures=failures)
-
-    async def _fetch_and_classify_batch(
-        self,
-        tracks: list[Track],
-        matches: dict[UUID, RawProviderMatch],
-        failures: list[MatchFailure],
-    ) -> None:
+    async def _match_batch(
+        self, tracks: list[Track]
+    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
         """Fetch LastFM batch metadata and classify into matches/failures."""
         # Get batch track info from LastFM
         logger.info(f"Fetching LastFM metadata for {len(tracks)} tracks")
@@ -127,6 +73,9 @@ class LastFMProvider:
         logger.info(
             f"LastFM API completed: retrieved {len(track_infos)} track metadata results"
         )
+
+        matches: dict[UUID, RawProviderMatch] = {}
+        failures: list[MatchFailure] = []
 
         # Process results and classify failures
         processed_track_ids: set[UUID] = set()
@@ -170,6 +119,8 @@ class LastFMProvider:
             for track in tracks
             if track.id and track.id not in processed_track_ids
         )
+
+        return matches, failures
 
     def _create_raw_match(self, track_info: LastFMTrackInfo) -> RawProviderMatch | None:
         """Create raw match data from LastFM track data.

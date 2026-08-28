@@ -8,6 +8,10 @@ fallback for tokens stored before the lookup succeeded. A successful fallback
 writes the id back onto the stored token (best-effort) so the next
 resolution takes the fast path.
 
+A successful resolution is also memoized on the client instance
+(``cached_storefront``, invalidated with the MUT cache) — batch runs that
+resolve once per batch stop re-reading the token row every ~50 ids.
+
 Returns ``None`` rather than raising when no storefront can be determined
 (no stored token, revoked authorization, Apple unreachable): callers own the
 failure shape — the matching provider fails its batch with MatchFailures, the
@@ -31,11 +35,16 @@ async def resolve_storefront(
     storage: TokenStorage | None = None,
     user_id: str | None = None,
 ) -> str | None:
-    """The user's storefront id, from the stored token or a live lookup.
+    """The user's storefront id, from the client memo, stored token, or a live lookup.
 
-    ``storage``/``user_id`` default to the shared token storage and the
-    ambient user context; tests pass both explicitly.
+    A resolved id is memoized on ``client.cached_storefront``; failed
+    resolutions are not, so the next call retries. ``storage``/``user_id``
+    default to the shared token storage and the ambient user context; tests
+    pass both explicitly.
     """
+    memoized = client.cached_storefront
+    if memoized:
+        return memoized
     if storage is None:
         from src.infrastructure.connectors._shared.token_storage import (
             get_token_storage,
@@ -53,6 +62,7 @@ async def resolve_storefront(
     extra_data = (stored.get("extra_data") if stored else None) or {}
     storefront = extra_data.get("storefront")
     if isinstance(storefront, str) and storefront:
+        client.cached_storefront = storefront
         return storefront
 
     try:
@@ -65,6 +75,7 @@ async def resolve_storefront(
         return None
     if stored is not None:
         await _persist_storefront(storage, user_id, live.id)
+    client.cached_storefront = live.id
     return live.id
 
 

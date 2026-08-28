@@ -205,7 +205,27 @@ class ConnectorAPIConfig(BaseModel):
     )
     rate_limit: PositiveFloat | None = Field(
         default=None,
-        description="Request starts per second. None means no rate limiting.",
+        description="Request starts per second. None means no pacing — the "
+        "shared limiter still brakes every in-flight call on a 429 window.",
+    )
+    max_concurrent: PositiveInt | None = Field(
+        default=None,
+        description="Cap on simultaneous in-flight calls, held by the shared "
+        "limiter across each call's full retry loop (1 = serialize). None "
+        "means no cap. Distinct from concurrency, which bounds fan-out "
+        "batching and never paces.",
+    )
+    rate_remaining_header: str | None = Field(
+        default=None,
+        description="Response header naming the requests remaining in the "
+        "service's rate window. Set to enable the success-path brake "
+        "(apply_rate_headers); None disables it.",
+    )
+    rate_low_water: PositiveInt = Field(
+        default=5,
+        description="Success-path brake threshold: remaining headroom at or "
+        "below this pauses the shared limiter until the deficit is earned "
+        "back at the configured rate.",
     )
     retry_count: NonNegativeInt = Field(
         default=3,
@@ -218,10 +238,6 @@ class ConnectorAPIConfig(BaseModel):
     retry_max_delay: PositiveFloat = Field(
         default=30.0,
         description="Maximum backoff delay in seconds.",
-    )
-    request_delay: NonNegativeFloat = Field(
-        default=0.0,
-        description="Delay in seconds between sequential API calls.",
     )
     request_timeout: PositiveFloat = Field(
         default=15.0,
@@ -241,26 +257,30 @@ class APIConfig(BaseModel):
             request_timeout=30.0,
             retry_max_delay=60.0,
         ),
-        description="Last.fm API tuning. Higher concurrency + rate limit because Last.fm allows bursts within 5/s.",
+        description="Last.fm API tuning. High concurrency + 4.5/s pacing sized to the archived ToS §4.4 rule (5 req/s per IP averaged over 5 minutes) — the current ToS drops the number and reserves discretionary throttling, so the historical figure stays as the conservative basis.",
     )
     spotify: ConnectorAPIConfig = Field(
         default_factory=lambda: ConnectorAPIConfig(
             batch_size=50,
             concurrency=50,
             rate_limit=12.0,
-            request_delay=0.1,
             retry_count=6,
             retry_base_delay=1.0,
             retry_max_delay=60.0,
         ),
         description="Spotify API tuning. Higher retry count + delay to survive rate limit windows during large library imports. Rate limit raised from 5/s after measuring zero 429s at a sustained 5.9/s burst; Spotify meters over an unpublished rolling 30s window, so the rate is self-correcting rather than exact — a 429 both honors Retry-After and brakes every concurrent caller via ConnectorRateLimiter.pause_for.",
     )
+    # MusicBrainz sends X-RateLimit-{Limit,Remaining,Reset} but must NOT get a
+    # rate_remaining_header: the header is undocumented, the window is ~1-2s,
+    # and live probes (2026-08-28) saw `remaining` RISING across sequential
+    # requests against limit 1200 — it reflects a shared/global bucket, not our
+    # per-IP headroom, so a low-water brake would stall on strangers' traffic.
     musicbrainz: ConnectorAPIConfig = Field(
         default_factory=lambda: ConnectorAPIConfig(
             concurrency=5,
-            request_delay=0.2,
+            rate_limit=1.0,
         ),
-        description="MusicBrainz API tuning. Conservative defaults — MusicBrainz rate-limits aggressively.",
+        description="MusicBrainz API tuning. rate_limit=1.0 is MusicBrainz's documented 1 req/s policy, enforced process-wide by the shared ConnectorRateLimiter.",
     )
     apple_music: ConnectorAPIConfig = Field(
         default_factory=lambda: ConnectorAPIConfig(
@@ -275,9 +295,21 @@ class APIConfig(BaseModel):
         default_factory=lambda: ConnectorAPIConfig(
             concurrency=1,
             rate_limit=0.7,
+            max_concurrent=1,
+            # Wire header arrives lowercase; httpx2 lookup is case-insensitive.
+            rate_remaining_header="X-Discogs-Ratelimit-Remaining",
+            rate_low_water=5,
             retry_count=4,
         ),
-        description="Discogs API tuning. Discogs throttles by source IP: the whole instance (and anything sharing its egress) shares one 60/min bucket, so calls serialize through one instance-wide queue (concurrency=1) and pace at ~42/min (0.7/s) under the ceiling, self-correcting from X-Discogs-Ratelimit-Remaining.",
+        description="Discogs API tuning. Discogs throttles by source IP: the "
+        "whole instance (and anything sharing its egress) shares one "
+        "authenticated 60/min bucket (25/min unauthenticated — a remaining "
+        "value from an unauthenticated call describes that smaller ceiling; "
+        "the brake paces the authenticated bucket), so calls serialize "
+        "through the shared limiter's call slot (max_concurrent=1) and pace "
+        "at ~42/min (0.7/s) under the ceiling, self-correcting from "
+        "X-Discogs-Ratelimit-Remaining. Image fetches (i.discogs.com) ride a "
+        "separate, undocumented bucket and are never paced or braked.",
     )
 
     tidal: ConnectorAPIConfig = Field(
@@ -288,7 +320,28 @@ class APIConfig(BaseModel):
         description="Tidal API tuning (v0.11.3 T1 scaffold). Tidal publishes "
         "no rate-limit numbers, so pacing is designed to Retry-After alone "
         "(rate_limit stays unset rather than an invented steady-state rate) "
-        "with a conservative concurrency ceiling.",
+        "with a conservative concurrency ceiling. The pause-only shared "
+        "limiter still holds every in-flight call out of a 429's declared "
+        "window, not just the call that hit it.",
+    )
+
+    listenbrainz: ConnectorAPIConfig = Field(
+        default_factory=lambda: ConnectorAPIConfig(
+            batch_size=50,
+            concurrency=5,
+            rate_limit=2.5,
+            rate_remaining_header="X-RateLimit-Remaining",
+        ),
+        description="ListenBrainz API tuning. rate_limit=2.5 sits under the "
+        "main API's measured unauthenticated policy (30 per 10s ≈ 3/s); the "
+        "Labs host (spotify-id-from-metadata) publishes no numbers and sends "
+        "no rate headers, so it inherits the same pacing through the one "
+        "shared limiter. batch_size=50 borrows the main API's documented "
+        "MAX_LOOKUPS_PER_POST=50 ceiling — Labs documents no batch maximum. "
+        "rate_remaining_header arms the success-path brake for the main "
+        "API's documented client-steered X-RateLimit-* headers; Labs "
+        "responses carry none, so the brake is a no-op on today's "
+        "Labs-only traffic.",
     )
 
     # Spotify-specific fields that don't fit the common shape

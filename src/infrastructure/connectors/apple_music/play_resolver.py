@@ -9,8 +9,6 @@ private-session flag, so the only exclusion is a genuine failure to identify
 the track; unresolved rows keep ``resolved_track_id = NULL`` in the ledger.
 """
 
-from collections.abc import Callable
-
 from src.config import get_logger
 from src.domain.entities import (
     ConnectorTrackPlay,
@@ -83,10 +81,8 @@ class AppleMusicConnectorPlayResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> PlayResolutionOutcome:
         """Resolve Apple Music connector plays to canonical track plays."""
-        _ = progress_callback  # Kept for protocol parity; no phases to report
         if not connector_plays:
             return PlayResolutionOutcome(
                 track_plays=[],

@@ -2,8 +2,9 @@
 
 The provider-agnostic pieces Spotify and Tidal both need: S256 PKCE
 challenge computation (RFC 7636), the ``invalid_grant`` refresh-rejection
-probe, and the bearer-injection httpx2 auth flow with its
-one-forced-refresh-then-replay 401 recovery. ``build_auth_url`` stays
+probe, the dead-grant compare-and-delete, the refresh carry-forward merge,
+the buffered expiry check, and the bearer-injection httpx2 auth flow with
+its one-forced-refresh-then-replay 401 recovery. ``build_auth_url`` stays
 per-connector — the authorize-request param dicts differ enough that a
 shared assembler would hide what each provider actually sends.
 """
@@ -13,6 +14,7 @@ import collections.abc
 import hashlib
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import time
 from typing import Protocol, override
 import urllib.parse
 import webbrowser
@@ -21,6 +23,10 @@ import httpx2
 
 from src.config import get_logger
 from src.infrastructure.connectors._shared.http_client import parse_json_body
+from src.infrastructure.connectors._shared.token_storage import (
+    StoredToken,
+    TokenStorage,
+)
 
 logger = get_logger(__name__).bind(service="connector_oauth")
 
@@ -39,6 +45,68 @@ def is_invalid_grant(response: httpx2.Response) -> bool:
     """
     body = parse_json_body(response)
     return body is not None and body.get("error") == "invalid_grant"
+
+
+def token_expired(token: StoredToken, buffer_seconds: int = 300) -> bool:
+    """True if the token expires within ``buffer_seconds`` (default 300).
+
+    The buffer gives headroom against provider clock skew or early
+    invalidation — a token near expiry refreshes proactively instead of
+    being spent on a request that would 401. A token without ``expires_at``
+    reads as expired.
+    """
+    return int(time.time()) > token.get("expires_at", 0) - buffer_seconds
+
+
+async def delete_grant_if_unchanged(
+    storage: TokenStorage, service: str, user_id: str, refresh_token: str
+) -> None:
+    """Compare-and-delete the stored token after an ``invalid_grant`` rejection.
+
+    The dead grant can never succeed again, but a stale manager (long-lived
+    worker, or a race with the connect flow) may hold a refresh token that
+    was already superseded. Only delete the stored row if it still carries
+    the refresh token that just failed — deleting on a mismatch would
+    destroy a NEWER, working grant.
+    """
+    stored = await storage.load_token(service, user_id)
+    if stored is not None and stored.get("refresh_token") == refresh_token:
+        await storage.delete_token(service, user_id)
+    else:
+        logger.info(
+            "Skipping dead-token deletion — stored refresh token "
+            "differs from the one that failed (a newer grant exists)"
+        )
+
+
+def carry_forward_token_fields(
+    new: StoredToken, previous: StoredToken | None
+) -> StoredToken:
+    """Merge refresh-omitted and mixd-owned fields from ``previous`` into ``new``.
+
+    Providers may omit ``refresh_token`` and ``scope`` from a refresh
+    response even though the grant is intact — losing ``scope`` reads
+    downstream as "the grant covers nothing", and losing ``refresh_token``
+    stores a pair with no way to renew it. ``extra_data`` and
+    ``account_name`` are mixd's own fields (``authorized_at``, cached
+    counts, the connector card's display name), never the provider's —
+    they carry forward verbatim. Values present in ``new`` win, except
+    ``extra_data``/``account_name``, which the provider never sends.
+    Mutates and returns ``new``.
+    """
+    if previous is None:
+        return new
+    if "refresh_token" not in new and (
+        previous_refresh := previous.get("refresh_token")
+    ):
+        new["refresh_token"] = previous_refresh
+    if "scope" not in new and (previous_scope := previous.get("scope")):
+        new["scope"] = previous_scope
+    if (previous_extra := previous.get("extra_data")) is not None:
+        new["extra_data"] = previous_extra
+    if (previous_name := previous.get("account_name")) is not None:
+        new["account_name"] = previous_name
+    return new
 
 
 class RefreshableTokenManager(Protocol):

@@ -2,10 +2,10 @@
 
 Provides shared functionality for integrating with external music services like Spotify,
 Last.fm, MusicBrainz, etc. Child connectors inherit from these base classes to get
-standardized configuration loading and metric resolution.
+standardized retry, rate limiting, and conversion patterns.
 
 Classes:
-    BaseMetricResolver: Retrieves track metrics (play counts, explicit flags) from connector metadata
+    BaseAPIClient: Shared retry/rate-limit/suppression plumbing for API clients
     BaseAPIConnector: Abstract base for service-specific API clients (inherit for Spotify, Last.fm)
 
 Example:
@@ -31,18 +31,11 @@ from src.config import get_logger
 from src.config.logging import logging_context
 from src.config.telemetry import record_api_call
 from src.domain.entities.playlist import ConnectorPlaylist
-from src.domain.entities.shared import JsonValue, MetricValue
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import ConnectorTrack
-from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.error_classifier import (
     ErrorClassifier,
     classify_unknown_error,
-)
-from src.infrastructure.connectors._shared.metric_registry import (
-    MetricResolveFn,
-    MetricResolverProtocol,
-    register_metric_config,
-    register_metric_resolver,
 )
 from src.infrastructure.connectors._shared.rate_limiting import (
     ConnectorRateLimiter,
@@ -163,57 +156,6 @@ def _paced[T](
     return paced_impl
 
 
-@define(frozen=True, slots=True)
-class BaseMetricResolver:
-    """Retrieves track metrics from connector metadata stored in database.
-
-    Looks up track metrics like Last.fm play counts by querying
-    the connector_metadata table. Child classes define which metadata fields map to
-    which metric names via FIELD_MAP and CONNECTOR class variables.
-
-    Attributes:
-        FIELD_MAP: Maps metric names to connector metadata field names
-        CONNECTOR: Service identifier (e.g., "spotify", "lastfm")
-    """
-
-    # To be defined by subclasses - maps metric names to connector metadata fields
-    FIELD_MAP: ClassVar[dict[str, str]] = {}
-
-    # Connector name to be overridden by subclasses
-    CONNECTOR: ClassVar[str] = ""
-
-    async def resolve(
-        self,
-        track_ids: list[int],
-        metric_name: str,
-        uow: UnitOfWorkProtocol,
-        resolve_fn: MetricResolveFn,
-    ) -> dict[int, MetricValue]:
-        """Retrieve metric values for multiple tracks from database.
-
-        Uses a callback injected by the application layer to perform the actual
-        metric resolution, avoiding a circular import from infrastructure to
-        application.
-
-        Args:
-            track_ids: Internal track IDs to get metrics for
-            metric_name: Name of metric to retrieve (e.g., "lastfm_global_playcount")
-            uow: Database unit of work for transaction management
-            resolve_fn: Application-layer callback that handles cache lookup,
-                API fetching, and persistence of metric values.
-
-        Returns:
-            Track ID to metric value mapping
-        """
-        return await resolve_fn(
-            track_ids=track_ids,
-            metric_name=metric_name,
-            connector=self.CONNECTOR,
-            field_map=self.FIELD_MAP,
-            uow=uow,
-        )
-
-
 @define(slots=True)
 class BaseAPIConnector(ABC):
     """Abstract base for music service API clients.
@@ -293,24 +235,3 @@ class _DefaultClassifier:
 
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         return classify_unknown_error(exception)
-
-
-def register_metrics(
-    metric_resolver: MetricResolverProtocol,
-    field_map: dict[str, str],
-    freshness_map: dict[str, float] | None = None,
-) -> None:
-    """Register metric resolver for all metrics defined in field_map.
-
-    Connects metric names to resolver instances so the application layer can
-    look up track metrics like play counts or explicit flags.
-
-    Args:
-        metric_resolver: Resolver instance that can fetch metric values
-        field_map: Maps metric names to connector metadata field names
-        freshness_map: Optional per-metric freshness hours (from settings)
-    """
-    for metric_name, field_name in field_map.items():
-        register_metric_resolver(metric_name, metric_resolver)
-        freshness_hours = freshness_map.get(metric_name) if freshness_map else None
-        register_metric_config(metric_name, field_name, freshness_hours)

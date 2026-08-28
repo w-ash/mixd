@@ -10,12 +10,14 @@ retry policy into each client method. Covers:
 - Recovery: Success after transient failures
 - Every client method wired with retry
 
-Injection strategy: patch individual _impl methods to inject httpx2 errors.
-The per-classification cases below all run through ``get_tracks_batched``,
-whose per-chunk ``_api_call`` is the single GET-and-parse implementation for
-tracks, so its injection point is ``_get_tracks_batch_impl``. A suppressed
+Injection strategy: patch the per-attempt request implementations to inject
+httpx2 errors. The per-classification cases below all run through
+``get_tracks_batched``, whose per-chunk ``_api_call`` uses the dedicated
+``_get_tracks_batch_impl``, so that stays their injection point. A suppressed
 failure there surfaces as the chunk's ids in ``unanswered`` — the shape that
-keeps a failed request from being read as a dead id.
+keeps a failed request from being read as a dead id. Every other method
+routes its HTTP through ``_json``, whose per-attempt unit is
+``_request_json`` — the single injection point for the all-methods sweep.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -213,40 +215,35 @@ class TestComprehensiveErrorClassification:
 
     # ALL METHODS COMPREHENSIVE TESTING - Test error handling across all client methods
     @pytest.mark.parametrize(
-        ("method_name", "method_args", "impl_name"),
+        ("method_name", "method_args"),
         [
             # get_tracks_batched is absent by design: its result is a
             # SpotifyTracksFetch, not a falsy None, and the classification
             # tests above already drive every error class through it.
-            ("search_by_isrc", ("USRC17607839",), "_search_by_isrc_impl"),
+            ("search_by_isrc", ("USRC17607839",)),
             (
                 "search_track",
                 ('artist:"Test Artist" track:"Test Track"',),
-                "_search_track_impl",
             ),
-            ("get_playlist", ("test_playlist_id",), "_get_playlist_impl"),
-            ("create_playlist", ("Test Playlist",), "_create_playlist_impl"),
-            ("get_saved_tracks", (), "_get_saved_tracks_impl"),
-            ("get_current_user", (), "_get_current_user_impl"),
+            ("get_playlist", ("test_playlist_id",)),
+            ("create_playlist", ("Test Playlist",)),
+            ("get_saved_tracks", ()),
+            ("get_current_user", ()),
             (
                 "playlist_add_items",
                 ("test_playlist_id", ["spotify:track:test_id"]),
-                "_playlist_add_items_impl",
             ),
             (
                 "playlist_remove_specific_occurrences_of_items",
                 ("test_playlist_id", [{"uri": "spotify:track:test_id"}]),
-                "_playlist_remove_specific_occurrences_of_items_impl",
             ),
             (
                 "playlist_reorder_items",
                 ("test_playlist_id", 0, 1),
-                "_playlist_reorder_items_impl",
             ),
             (
                 "playlist_replace_items",
                 ("test_playlist_id", ["spotify:track:test_id"]),
-                "_playlist_replace_items_impl",
             ),
             (
                 "get_next_page",
@@ -255,25 +252,24 @@ class TestComprehensiveErrorClassification:
                         next="https://api.spotify.com/v1/test"
                     ),
                 ),
-                "_get_next_page_impl",
             ),
         ],
     )
     async def test_all_methods_error_handling_comprehensive(
-        self, fast_retry_client, method_name, method_args, impl_name
+        self, fast_retry_client, method_name, method_args
     ):
         """Test that all Spotify client methods have proper error handling and retry behavior."""
         error = make_httpx_error(429, "Too Many Requests")
 
-        mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, impl_name, mock_impl):
+        mock_request = AsyncMock(side_effect=error)
+        with patch.object(SpotifyAPIClient, "_request_json", mock_request):
             method = getattr(fast_retry_client, method_name)
             result = await method(*method_args)
 
         assert not result  # None for most methods, [] for search_track
 
         # Should retry 3 times for rate limit errors
-        assert mock_impl.call_count == 3, (
+        assert mock_request.call_count == 3, (
             f"Method {method_name} expected 3 calls for rate limit error, "
-            f"got {mock_impl.call_count}"
+            f"got {mock_request.call_count}"
         )

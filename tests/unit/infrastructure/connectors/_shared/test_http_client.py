@@ -524,3 +524,51 @@ class TestTidalClientFactories:
         )
 
         assert TIDAL_LOGIN_BASE == "https://login.tidal.com"
+
+
+class TestListenBrainzClientFactory:
+    """One factory serves both ListenBrainz hosts; Labs is not the default."""
+
+    async def test_defaults_to_the_main_api_base(self):
+        from src.infrastructure.connectors._shared.http_client import (
+            LISTENBRAINZ_API_BASE,
+            make_listenbrainz_client,
+        )
+
+        client = make_listenbrainz_client()
+        try:
+            assert str(client.base_url).rstrip("/") == LISTENBRAINZ_API_BASE
+            assert client.auth is None
+        finally:
+            await client.aclose()
+
+    async def test_labs_base_hosts_the_lookup_endpoint(self):
+        """spotify-id-from-metadata lives on the Labs Dataset Hoster host,
+        NOT the main API host — posting it to the main host can only 404."""
+        from src.infrastructure.connectors._shared.http_client import (
+            LISTENBRAINZ_LABS_BASE,
+            make_listenbrainz_client,
+        )
+
+        assert LISTENBRAINZ_LABS_BASE == "https://labs.api.listenbrainz.org"
+        client = make_listenbrainz_client(LISTENBRAINZ_LABS_BASE)
+        try:
+            assert str(client.base_url).rstrip("/") == LISTENBRAINZ_LABS_BASE
+        finally:
+            await client.aclose()
+
+    async def test_timeout_from_settings(self):
+        with patch(
+            "src.infrastructure.connectors._shared.http_client.settings"
+        ) as mock_settings:
+            mock_settings.api.listenbrainz.request_timeout = 21.0
+
+            from src.infrastructure.connectors._shared.http_client import (
+                make_listenbrainz_client,
+            )
+
+            client = make_listenbrainz_client()
+        try:
+            assert client.timeout.read == 21.0
+        finally:
+            await client.aclose()

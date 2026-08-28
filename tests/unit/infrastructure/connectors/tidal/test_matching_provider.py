@@ -1,16 +1,17 @@
 """Tests for TidalMatchingProvider — conservative ISRC-only matching.
 
 Validates the one-code-per-request loop (the client's ``filter[isrc]``
-contract), the ``supports_artist_title_matching = False`` contract (no
-artist/title funnel, ever), the 1:N duration-cross-check pick, and the
-per-code failure isolation (a failed lookup fails only its own tracks, as
-API_ERROR, never NO_RESULTS).
+contract), the ``IsrcOnly`` strategy contract (no artist/title funnel,
+ever), the 1:N duration-cross-check pick, and the per-code failure
+isolation (a failed lookup fails only its own tracks, as API_ERROR, never
+NO_RESULTS).
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from src.domain.entities import Artist, Track
 from src.domain.matching.types import MatchFailureReason
+from src.infrastructure.connectors._shared.matching_provider import IsrcOnly
 from src.infrastructure.connectors.tidal.client import TIDAL_COUNTRY_CODE
 from src.infrastructure.connectors.tidal.matching_provider import (
     TidalMatchingProvider,
@@ -51,17 +52,10 @@ class TestServiceContract:
         provider, _ = _make_provider()
         assert provider.service_name == "tidal"
 
-    def test_artist_title_matching_unsupported(self):
-        assert TidalMatchingProvider.supports_artist_title_matching is False
-
-    async def test_match_by_artist_title_raises_not_implemented(self):
+    def test_strategy_is_isrc_only(self):
+        """No artist/title phase exists — the strategy has no such hook."""
         provider, _ = _make_provider()
-        try:
-            await provider._match_by_artist_title([_isrc_track()])
-        except NotImplementedError:
-            pass
-        else:
-            raise AssertionError("expected NotImplementedError")
+        assert isinstance(provider._match_strategy(), IsrcOnly)
 
 
 class TestIsrcMatching:
@@ -145,13 +139,11 @@ class TestIsrcMatching:
         assert result.matches[track.id]["connector_id"] == "first"
 
     async def test_isrc_miss_fails_without_artist_title_fallback(self):
-        """ISRC miss → NO_RESULTS failure; the fallback funnel never fires."""
-        provider, _ = _make_provider({})
+        """ISRC miss → NO_RESULTS failure; no second-chance search runs."""
+        provider, client = _make_provider({})
         track = _isrc_track("USUM72309818")
 
-        at_mock = AsyncMock()
-        with patch.object(TidalMatchingProvider, "_match_by_artist_title", at_mock):
-            result = await provider.fetch_raw_matches_for_tracks([track])
+        result = await provider.fetch_raw_matches_for_tracks([track])
 
         assert not result.matches
         assert len(result.failures) == 1
@@ -160,21 +152,18 @@ class TestIsrcMatching:
         assert failure.reason == MatchFailureReason.NO_RESULTS
         assert failure.method == "isrc"
         assert failure.service == "tidal"
-        at_mock.assert_not_awaited()
+        client.get_tracks_by_isrc.assert_awaited_once()
 
     async def test_track_without_isrc_fails_without_artist_title_call(self):
-        """No ISRC → NO_ISRC failure from the base template, no funnel."""
+        """No ISRC → NO_ISRC failure from the IsrcOnly strategy, no lookup."""
         provider, client = _make_provider()
         track = Track(title="No Code", artists=[Artist(name="Someone")])
 
-        at_mock = AsyncMock()
-        with patch.object(TidalMatchingProvider, "_match_by_artist_title", at_mock):
-            result = await provider.fetch_raw_matches_for_tracks([track])
+        result = await provider.fetch_raw_matches_for_tracks([track])
 
         assert not result.matches
         assert len(result.failures) == 1
         assert result.failures[0].reason == MatchFailureReason.NO_ISRC
-        at_mock.assert_not_awaited()
         client.get_tracks_by_isrc.assert_not_awaited()
 
     async def test_failed_lookup_fails_only_its_own_tracks_as_api_error(self):

@@ -20,8 +20,9 @@ from uuid import UUID
 
 from attrs import define, field
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.entities import Track
+from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import (
     LastFMTrackInfo,
@@ -264,12 +265,11 @@ class LastFMOperations:
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
         **_options: object,
     ) -> dict[UUID, LastFMTrackInfo]:
-        """Fetch track information for multiple tracks using queue-based rate limiting."""
-        from src.config import settings
-        from src.infrastructure.connectors._shared.rate_limited_batch_processor import (
-            RateLimitedBatchProcessor,
-        )
+        """Fetch track information for multiple tracks with bounded concurrency.
 
+        Request pacing stays with the shared ConnectorRateLimiter inside each
+        API call; this method only caps how many lookups run at once.
+        """
         if not tracks:
             return {}
 
@@ -278,27 +278,28 @@ class LastFMOperations:
             track_count=len(tracks),
         )
 
+        total = len(tracks)
+        completed = 0
+
         async def process_track(track: Track) -> TrackProcessingResult:
+            nonlocal completed
             lastfm_info = await self.get_track_info_intelligent(track)
+            completed += 1
+            if progress_callback is not None:
+                await progress_callback(
+                    completed, total, f"Processed {completed}/{total}"
+                )
             return TrackProcessingResult(track.id, lastfm_info)
 
-        # Create rate-limited batch processor with LastFM-specific settings
-        lastfm_rate = settings.api.lastfm.rate_limit
-        if lastfm_rate is None:
-            raise ValueError("Last.fm rate_limit must be configured")
-        processor = RateLimitedBatchProcessor(
-            rate_per_second=lastfm_rate,
-            connector_name="lastfm",
-            max_concurrent_tasks=settings.api.lastfm.concurrency,
+        processed = await bounded_fan_out(
+            tracks,
+            process_track,
+            concurrency=settings.api.lastfm.concurrency,
         )
 
-        # Process batch with queue-based rate limiting
-        results: dict[UUID, LastFMTrackInfo] = {}
-        async for _item_id, result in processor.process_batch(
-            tracks, process_track, progress_callback=progress_callback
-        ):
-            if isinstance(result, TrackProcessingResult) and result.info.lastfm_title:
-                results[result.track_id] = result.info
+        results: dict[UUID, LastFMTrackInfo] = {
+            item.track_id: item.info for item in processed if item.info.lastfm_title
+        }
 
         logger.info(
             "LastFM batch processing completed",

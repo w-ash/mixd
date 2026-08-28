@@ -1,11 +1,10 @@
-"""Infrastructure service registry for mapping service names to connector factories.
+"""Play importer/resolver lookup over the connector registry.
 
-Implements clean architecture by providing a generic mapping layer that routes
-service requests to appropriate connector factories without the application layer
-needing to know about specific connectors.
+Connectors declare their play factories on ``ConnectorConfig``
+(``play_importer_factories``, ``play_resolver_factory``), and this registry
+resolves ``(service, kind)`` requests against those declarations — a new
+connector wires its play channels by editing only its own package.
 """
-
-from collections.abc import Awaitable, Callable
 
 from src.domain.repositories.play import (
     ImportKind,
@@ -13,164 +12,81 @@ from src.domain.repositories.play import (
     PlayResolverProtocol,
 )
 from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.infrastructure.connectors.discovery import discover_connectors
+from src.infrastructure.connectors.protocols import (
+    ConnectorConfig,
+    PlayImporterFactory,
+    PlayResolverFactory,
+)
 
-# Concrete factory types — eliminates Callable[..., Any]
-type _ImporterFactory = Callable[[UnitOfWorkProtocol], Awaitable[PlayImporterProtocol]]
-type _ResolverFactory = Callable[
-    [UnitOfWorkProtocol | None], Awaitable[PlayResolverProtocol]
-]
-
-# Importers key on (service, ImportKind); resolvers stay per-service, because
-# resolution depends on the identifiers a service mints, not on how rows arrived.
 __all__ = ["ImportKind", "PlayImportServiceRegistry", "get_play_import_registry"]
 
 
-class PlayImportServiceRegistry:
-    """Registry for mapping service names to connector-specific factories.
+def _play_service_name(name: str, config: ConnectorConfig) -> str:
+    """Data-plane service name a connector's play rows key on."""
+    return config.get("play_service_name", name)
 
-    Encapsulates the mapping from generic service names (e.g., 'lastfm', 'spotify')
-    to specific connector factory implementations, maintaining clean architecture
-    boundaries while enabling extensibility.
+
+class PlayImportServiceRegistry:
+    """Resolves play importers and resolvers from connector declarations.
+
+    Importers key on ``(service, ImportKind)``; resolvers stay per-service,
+    because resolution depends on the identifiers a service mints, not on how
+    rows arrived. Lookups read ``discover_connectors()`` per call — the
+    discovery cache makes that cheap, and no table here can go stale.
     """
 
-    _importer_factories: dict[tuple[str, ImportKind], _ImporterFactory]
-    _resolver_factories: dict[str, _ResolverFactory]
-
-    def __init__(self):
-        """Initialize registry with known service mappings."""
-        self._importer_factories = {
-            ("apple", "api"): self._create_apple_recently_played_importer,
-            ("lastfm", "api"): self._create_lastfm_importer,
-            ("spotify", "file"): self._create_spotify_importer,
-            ("spotify", "api"): self._create_spotify_recently_played_importer,
+    def _importer_factories(self) -> dict[tuple[str, ImportKind], PlayImporterFactory]:
+        """Declared ``(service, kind)`` → importer factory across all connectors."""
+        return {
+            (_play_service_name(name, config), kind): factory
+            for name, config in discover_connectors().items()
+            for kind, factory in config.get("play_importer_factories", {}).items()
         }
 
-        self._resolver_factories = {
-            "apple": self._create_apple_resolver,
-            "lastfm": self._create_lastfm_resolver,
-            "spotify": self._create_spotify_resolver,
+    def _resolver_factories(self) -> dict[str, PlayResolverFactory]:
+        """Declared service → resolver factory across all connectors."""
+        return {
+            _play_service_name(name, config): factory
+            for name, config in discover_connectors().items()
+            if (factory := config.get("play_resolver_factory")) is not None
         }
 
     async def create_play_importer(
         self, service: str, kind: ImportKind, uow: UnitOfWorkProtocol
     ) -> PlayImporterProtocol:
-        """Create play importer for the specified service and data source.
+        """Importer for ``service`` reading from ``kind`` (live API or export file).
 
-        Args:
-            service: Service identifier (e.g., 'lastfm', 'spotify')
-            kind: Where the data comes from — an uploaded export ('file') or a
-                live API read ('api')
-            uow: Unit of work for repository access
-
-        Returns:
-            Service-specific play importer implementing PlayImporterProtocol
-
-        Raises:
-            ValueError: If the service/kind combination is not supported
+        Raises ValueError when no connector declares the combination.
         """
-        if (service, kind) not in self._importer_factories:
-            supported = ", ".join(
-                f"{svc}:{knd}" for svc, knd in self._importer_factories
-            )
+        # The PlayImportProvider protocol carries a uow; config-declared
+        # factories are zero-arg, so nothing here consumes it.
+        del uow
+        factories = self._importer_factories()
+        factory = factories.get((service, kind))
+        if factory is None:
+            supported = ", ".join(f"{svc}:{knd}" for svc, knd in sorted(factories))
             raise ValueError(
                 f"Unsupported import '{service}:{kind}'. Supported: {supported}"
             )
-
-        factory_func = self._importer_factories[service, kind]
-        return await factory_func(uow)
+        return factory()
 
     async def create_play_resolver(
         self, service: str, uow: UnitOfWorkProtocol | None = None
     ) -> PlayResolverProtocol:
-        """Create play resolver for the specified service.
+        """Resolver for ``service`` — how its identifiers map to canonical tracks.
 
-        Args:
-            service: Service identifier (e.g., 'lastfm', 'spotify')
-            uow: Unit of work (optional for resolvers)
-
-        Returns:
-            Service-specific play resolver
-
-        Raises:
-            ValueError: If service is not supported
+        Raises ValueError when no connector declares one.
         """
-        if service not in self._resolver_factories:
-            supported_services = ", ".join(self._resolver_factories.keys())
+        del uow
+        factories = self._resolver_factories()
+        factory = factories.get(service)
+        if factory is None:
+            supported = ", ".join(sorted(factories))
             raise ValueError(
-                f"Unsupported service '{service}'. Supported services: {supported_services}"
+                f"Unsupported service '{service}'. Supported services: {supported}"
             )
-
-        factory_func = self._resolver_factories[service]
-        return await factory_func(uow)
-
-    # === PRIVATE FACTORY METHODS ===
-    # These delegate to connector-specific factories while maintaining clean boundaries
-
-    async def _create_lastfm_importer(
-        self, _uow: UnitOfWorkProtocol
-    ) -> PlayImporterProtocol:
-        """Create Last.fm importer via connector factory."""
-        from src.infrastructure.connectors.lastfm.factory import create_play_importer
-
-        return create_play_importer()
-
-    async def _create_spotify_importer(
-        self, _uow: UnitOfWorkProtocol
-    ) -> PlayImporterProtocol:
-        """Create Spotify importer via connector factory."""
-        from src.infrastructure.connectors.spotify.factory import create_play_importer
-
-        return create_play_importer()
-
-    async def _create_spotify_recently_played_importer(
-        self, _uow: UnitOfWorkProtocol
-    ) -> PlayImporterProtocol:
-        """Create the Spotify recently-played API importer via connector factory."""
-        from src.infrastructure.connectors.spotify.factory import (
-            create_recently_played_importer,
-        )
-
-        return create_recently_played_importer()
-
-    async def _create_apple_recently_played_importer(
-        self, _uow: UnitOfWorkProtocol
-    ) -> PlayImporterProtocol:
-        """Create the Apple Music recently-played API importer via connector factory."""
-        from src.infrastructure.connectors.apple_music.factory import (
-            create_recently_played_importer,
-        )
-
-        return create_recently_played_importer()
-
-    async def _create_apple_resolver(
-        self, _uow: UnitOfWorkProtocol | None = None
-    ) -> PlayResolverProtocol:
-        """Create the Apple Music resolver via connector factory.
-
-        Registered under the data-plane service name "apple", matching the
-        ("apple", "api") importer entry above.
-        """
-        from src.infrastructure.connectors.apple_music.factory import (
-            create_play_resolver,
-        )
-
-        return create_play_resolver()
-
-    async def _create_lastfm_resolver(
-        self, _uow: UnitOfWorkProtocol | None = None
-    ) -> PlayResolverProtocol:
-        """Create Last.fm resolver via connector factory."""
-        from src.infrastructure.connectors.lastfm.factory import create_play_resolver
-
-        return create_play_resolver()
-
-    async def _create_spotify_resolver(
-        self, _uow: UnitOfWorkProtocol | None = None
-    ) -> PlayResolverProtocol:
-        """Create Spotify resolver via connector factory."""
-        from src.infrastructure.connectors.spotify.factory import create_play_resolver
-
-        return create_play_resolver()
+        return factory()
 
 
 # Global registry instance for easy access
@@ -178,13 +94,7 @@ _registry_instance: PlayImportServiceRegistry | None = None
 
 
 def get_play_import_registry() -> PlayImportServiceRegistry:
-    """Get the global play import service registry instance.
-
-    Uses singleton pattern to ensure consistent registry across the application.
-
-    Returns:
-        Shared PlayImportServiceRegistry instance
-    """
+    """Get the shared play import service registry instance."""
     global _registry_instance
     if _registry_instance is None:
         _registry_instance = PlayImportServiceRegistry()

@@ -176,17 +176,38 @@ async def delete_connector_token(
 
     Only connectors that store a per-user credential
     (``CREDENTIAL_AUTH_METHODS``) can be disconnected; anything else
-    (public APIs, coming-soon stubs) returns 400.
+    (public APIs, coming-soon stubs) returns 400. Cleanup is config-driven:
+    the connector's ``on_disconnect`` hook runs when declared, and a polled
+    play channel (``supports_play_polling``) gets its heartbeat stopped here
+    because that teardown is application-owned — connector configs cannot
+    reference it.
     """
     config = _require_connector(service)
     if config["auth_method"] not in CREDENTIAL_AUTH_METHODS:
         raise HTTPException(status_code=400, detail=f"Cannot disconnect {service}")
-    storage = get_token_storage()
-    await storage.delete_token(service, user_id)
-    if service == "spotify":
+    await get_token_storage().delete_token(service, user_id)
+    if (on_disconnect := config.get("on_disconnect")) is not None:
+        await on_disconnect(user_id)
+    if config.get("supports_play_polling", False):
         # Without this the poller keeps firing against a token that no longer
         # exists — harmless (every tick vetoes) but it clutters the run log.
         await stop_play_polling_after_disconnect(user_id)
+
+
+def _require_play_polling(service: str) -> None:
+    """Gate the play-polling routes on config declarations, not service names.
+
+    Capability alone is not enough: Apple Music declares ``history_import_api``
+    but the poll policy still targets ``spotify:plays`` (see the "Generalize
+    adaptive play polling" backlog note), so the routes also require
+    ``supports_play_polling`` — a service enables polling by declaring the
+    flag in its own package once the policy covers it.
+    """
+    config = _require_connector(service, capability="history_import_api")
+    if not config.get("supports_play_polling", False):
+        raise HTTPException(
+            status_code=400, detail=f"{service} does not support play polling"
+        )
 
 
 @router.put("/{service}/play-polling")
@@ -203,10 +224,7 @@ async def set_connector_play_polling(
     that needs a surface — enabling otherwise happens only inside the OAuth
     callback, stranding anyone who consented before the feature shipped.
     """
-    if service != "spotify":
-        raise HTTPException(
-            status_code=400, detail=f"{service} does not support play polling"
-        )
+    _require_play_polling(service)
     state = await set_play_polling(user_id, enabled=body.enabled)
     return PlayPollingResponse(
         enabled=state.enabled,
@@ -221,10 +239,7 @@ async def get_connector_play_polling(
     user_id: str = Depends(get_current_user_id),
 ) -> PlayPollingResponse:
     """Current polling state — off, or on with its live backed-off cadence."""
-    if service != "spotify":
-        raise HTTPException(
-            status_code=400, detail=f"{service} does not support play polling"
-        )
+    _require_play_polling(service)
     state = await get_play_polling_state(user_id)
     return PlayPollingResponse(
         enabled=state.enabled,

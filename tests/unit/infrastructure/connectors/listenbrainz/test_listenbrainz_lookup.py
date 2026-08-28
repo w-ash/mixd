@@ -1,103 +1,148 @@
-"""Tests for ListenBrainz Labs API lookup client.
+"""Tests for ListenBrainz Labs Spotify-id resolution.
 
-Validates Spotify ID resolution via the ListenBrainz metadata lookup
-endpoint, including response parsing, URI prefix stripping, and error
-handling for HTTP and request failures.
+Validates the lookup's contract over the API client: triple-keyed results
+read from the plural ``spotify_track_ids`` rows, echoed-field (not
+positional) keying with case-insensitive matching, chunking at the
+configured batch size, and degradation to misses when a chunk's call fails.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
-import httpx2
-
+from src.config import settings
+from src.infrastructure.connectors.listenbrainz.client import ListenBrainzAPIClient
 from src.infrastructure.connectors.listenbrainz.lookup import ListenBrainzLookup
+from src.infrastructure.connectors.listenbrainz.models import (
+    SpotifyIdLookupQuery,
+    SpotifyIdLookupResult,
+)
+
+_CREEP = ("Radiohead", "Pablo Honey", "Creep")
+_BLISS = ("Muse", "Origin of Symmetry", "Bliss")
 
 
-class TestSpotifyIdFromMetadata:
-    """Spotify ID resolution from artist + recording name."""
+def _row(
+    triple: tuple[str, str, str], spotify_track_ids: list[str]
+) -> SpotifyIdLookupResult:
+    artist, release, track = triple
+    return SpotifyIdLookupResult(
+        artist_name=artist,
+        release_name=release,
+        track_name=track,
+        spotify_track_ids=spotify_track_ids,
+    )
 
-    async def test_returns_spotify_id_on_success(self):
-        mock_client = AsyncMock(spec=httpx2.AsyncClient)
-        mock_response = MagicMock(spec=httpx2.Response)
-        mock_response.json.return_value = [{"spotify_track_id": "abc123"}]
-        mock_response.raise_for_status = MagicMock()
-        mock_client.post.return_value = mock_response
 
-        lookup = ListenBrainzLookup(client=mock_client)
-        result = await lookup.spotify_id_from_metadata("Radiohead", "Creep")
+def _lookup_returning(
+    *chunk_results: list[SpotifyIdLookupResult] | None,
+) -> tuple[ListenBrainzLookup, AsyncMock]:
+    """A lookup over a client double answering one result set per chunk."""
+    client = AsyncMock(spec=ListenBrainzAPIClient)
+    client.lookup_spotify_ids.side_effect = list(chunk_results)
+    return ListenBrainzLookup(client=client), client
 
-        assert result == "abc123"
 
-    async def test_strips_spotify_uri_prefix(self):
-        mock_client = AsyncMock(spec=httpx2.AsyncClient)
-        mock_response = MagicMock(spec=httpx2.Response)
-        mock_response.json.return_value = [{"spotify_track_id": "spotify:track:abc123"}]
-        mock_response.raise_for_status = MagicMock()
-        mock_client.post.return_value = mock_response
+class TestSpotifyIdsFromMetadata:
+    """Batch resolution from (artist, release, track) triples."""
 
-        lookup = ListenBrainzLookup(client=mock_client)
-        result = await lookup.spotify_id_from_metadata("Radiohead", "Creep")
+    async def test_resolves_first_id_keyed_by_original_triple(self):
+        lookup, _ = _lookup_returning([_row(_CREEP, ["abc123", "alt456"])])
 
-        assert result == "abc123"
+        result = await lookup.spotify_ids_from_metadata([_CREEP])
 
-    async def test_returns_none_on_empty_response(self):
-        mock_client = AsyncMock(spec=httpx2.AsyncClient)
-        mock_response = MagicMock(spec=httpx2.Response)
-        mock_response.json.return_value = []
-        mock_response.raise_for_status = MagicMock()
-        mock_client.post.return_value = mock_response
+        assert result == {_CREEP: "abc123"}
 
-        lookup = ListenBrainzLookup(client=mock_client)
-        result = await lookup.spotify_id_from_metadata("Radiohead", "Creep")
+    async def test_empty_id_list_is_a_miss(self):
+        lookup, _ = _lookup_returning([
+            _row(_CREEP, ["abc123"]),
+            _row(_BLISS, []),
+        ])
 
-        assert result is None
+        result = await lookup.spotify_ids_from_metadata([_CREEP, _BLISS])
 
-    async def test_returns_none_on_missing_field(self):
-        mock_client = AsyncMock(spec=httpx2.AsyncClient)
-        mock_response = MagicMock(spec=httpx2.Response)
-        mock_response.json.return_value = [{}]
-        mock_response.raise_for_status = MagicMock()
-        mock_client.post.return_value = mock_response
+        assert result == {_CREEP: "abc123"}
 
-        lookup = ListenBrainzLookup(client=mock_client)
-        result = await lookup.spotify_id_from_metadata("Radiohead", "Creep")
+    async def test_results_key_off_echoed_fields_not_position(self):
+        """Rows scrambled out of request order still land on their triples."""
+        lookup, _ = _lookup_returning([
+            _row(_BLISS, ["muse1"]),
+            _row(_CREEP, ["rad1"]),
+        ])
 
-        assert result is None
+        result = await lookup.spotify_ids_from_metadata([_CREEP, _BLISS])
 
-    async def test_returns_none_on_http_error(self):
-        mock_client = AsyncMock(spec=httpx2.AsyncClient)
-        mock_error_response = MagicMock(spec=httpx2.Response)
-        mock_error_response.status_code = 500
-        mock_client.post.side_effect = httpx2.HTTPStatusError(
-            "error", request=MagicMock(), response=mock_error_response
+        assert result == {_CREEP: "rad1", _BLISS: "muse1"}
+
+    async def test_echo_matching_is_case_insensitive(self):
+        """A server-normalized echo must not strand the hit; the result keys
+        by the caller's original triple either way."""
+        lookup, _ = _lookup_returning([
+            _row(("radiohead", "pablo honey", "creep"), ["abc123"])
+        ])
+
+        result = await lookup.spotify_ids_from_metadata([_CREEP])
+
+        assert result == {_CREEP: "abc123"}
+
+    async def test_unmatched_echo_rows_are_dropped(self):
+        lookup, _ = _lookup_returning([
+            _row(("Someone", "Else", "Entirely"), ["stray1"])
+        ])
+
+        result = await lookup.spotify_ids_from_metadata([_CREEP])
+
+        assert result == {}
+
+    async def test_chunks_at_the_configured_batch_size(self):
+        batch_size = settings.api.listenbrainz.batch_size
+        assert batch_size == 50
+        triples = [(f"Artist {n}", f"Album {n}", f"Track {n}") for n in range(60)]
+
+        async def _echo_all(
+            queries: list[SpotifyIdLookupQuery],
+        ) -> list[SpotifyIdLookupResult]:
+            return [
+                SpotifyIdLookupResult(
+                    artist_name=query.artist_name,
+                    release_name=query.release_name,
+                    track_name=query.track_name,
+                    spotify_track_ids=[f"id-{query.track_name}"],
+                )
+                for query in queries
+            ]
+
+        client = AsyncMock(spec=ListenBrainzAPIClient)
+        client.lookup_spotify_ids.side_effect = _echo_all
+        lookup = ListenBrainzLookup(client=client)
+
+        result = await lookup.spotify_ids_from_metadata(triples)
+
+        assert client.lookup_spotify_ids.await_count == 2
+        chunk_sizes = [
+            len(call.args[0]) for call in client.lookup_spotify_ids.await_args_list
+        ]
+        assert chunk_sizes == [50, 10]
+        assert len(result) == 60
+        assert result["Artist 59", "Album 59", "Track 59"] == "id-Track 59"
+
+    async def test_failed_call_resolves_nothing(self):
+        """The client suppresses transport/HTTP/shape failures to None — the
+        lookup reads that as all-miss, never raises."""
+        lookup, _ = _lookup_returning(None)
+
+        assert await lookup.spotify_ids_from_metadata([_CREEP]) == {}
+
+    async def test_one_failed_chunk_degrades_only_its_own_triples(self):
+        triples = [(f"Artist {n}", f"Album {n}", f"Track {n}") for n in range(51)]
+        lookup, _ = _lookup_returning(
+            None, [_row(("Artist 50", "Album 50", "Track 50"), ["tail1"])]
         )
 
-        lookup = ListenBrainzLookup(client=mock_client)
-        result = await lookup.spotify_id_from_metadata("Radiohead", "Creep")
+        result = await lookup.spotify_ids_from_metadata(triples)
 
-        assert result is None
+        assert result == {("Artist 50", "Album 50", "Track 50"): "tail1"}
 
-    async def test_returns_none_on_request_error(self):
-        mock_client = AsyncMock(spec=httpx2.AsyncClient)
-        mock_client.post.side_effect = httpx2.RequestError(
-            "connection failed", request=MagicMock()
-        )
+    async def test_empty_triples_skip_the_request(self):
+        lookup, client = _lookup_returning()
 
-        lookup = ListenBrainzLookup(client=mock_client)
-        result = await lookup.spotify_id_from_metadata("Radiohead", "Creep")
-
-        assert result is None
-
-    async def test_sends_correct_payload(self):
-        mock_client = AsyncMock(spec=httpx2.AsyncClient)
-        mock_response = MagicMock(spec=httpx2.Response)
-        mock_response.json.return_value = [{"spotify_track_id": "abc123"}]
-        mock_response.raise_for_status = MagicMock()
-        mock_client.post.return_value = mock_response
-
-        lookup = ListenBrainzLookup(client=mock_client)
-        await lookup.spotify_id_from_metadata("Radiohead", "Creep")
-
-        mock_client.post.assert_called_once_with(
-            "/spotify-id-from-metadata/json",
-            json=[{"artist_name": "Radiohead", "recording_name": "Creep"}],
-        )
+        assert await lookup.spotify_ids_from_metadata([]) == {}
+        client.lookup_spotify_ids.assert_not_awaited()

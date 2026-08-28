@@ -1,4 +1,5 @@
-"""Tests for the MusicBrainz matching provider's ISRC match payloads.
+"""Tests for the MusicBrainz matching provider's ISRC match payloads
+and batch-correlation failure semantics.
 
 FLIPPED characterization (FM1g, fixed by v0.8.18 epic 2): the original pins
 recorded ISRC matches created with empty title/artist/duration, scored with
@@ -11,9 +12,11 @@ routes to review instead of auto-accepting.
 See docs/backlog/identity-resolution-design-space.md §4 (test 8).
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from src.config import create_evaluation_service
+from src.domain.matching.types import MatchFailureReason
+from src.infrastructure.connectors.musicbrainz.connector import MusicBrainzConnector
 from src.infrastructure.connectors.musicbrainz.matching_provider import (
     MusicBrainzProvider,
 )
@@ -107,3 +110,101 @@ class TestIsrcMatchPayload:
         assert match.evidence is not None
         assert match.evidence.duration_missing is True
         assert match.evidence.isrc_suspect is False
+
+
+class TestIsrcBatchCorrelation:
+    """Batch-result correlation keeps miss vs unanswered code distinct."""
+
+    @staticmethod
+    def _provider(
+        batch_result: dict[str, MusicBrainzRecording | None],
+    ) -> MusicBrainzProvider:
+        connector = AsyncMock()
+        connector.batch_isrc_lookup.return_value = batch_result
+        connector.search_recording.return_value = None  # quiet fallback
+        return MusicBrainzProvider(connector_instance=connector)
+
+    async def test_isrc_answered_with_none_fails_as_no_results(self):
+        """A code the API answered with no recording is a genuine miss."""
+        track = make_track(title="Gold Rush", artist="Neon Priest", isrc="USNP12400001")
+        provider = self._provider({"USNP12400001": None})
+
+        result = await provider.fetch_raw_matches_for_tracks([track])
+
+        isrc_failures = [f for f in result.failures if f.method == "isrc"]
+        assert [f.reason for f in isrc_failures] == [MatchFailureReason.NO_RESULTS]
+        assert not result.matches
+
+    async def test_isrc_absent_from_batch_result_fails_as_api_error(self):
+        """A code the batch never answered is unanswered, not absent."""
+        track = make_track(title="Gold Rush", artist="Neon Priest", isrc="USNP12400001")
+        provider = self._provider({})
+
+        result = await provider.fetch_raw_matches_for_tracks([track])
+
+        isrc_failures = [f for f in result.failures if f.method == "isrc"]
+        assert [f.reason for f in isrc_failures] == [MatchFailureReason.API_ERROR]
+        assert "USNP12400001" in isrc_failures[0].details
+        assert not result.matches
+
+    async def test_lookup_error_surfaces_as_api_error_through_real_batch(self):
+        """A raised per-ISRC lookup classifies as API_ERROR, not NO_RESULTS.
+
+        Runs the real connector batch (per-ISRC lookup mocked) so the
+        omit-errored-codes contract is exercised end to end: the errored
+        code's track fails as ``API_ERROR`` with the code in the details,
+        while an answered-``None`` code's track stays ``NO_RESULTS``.
+        """
+        errored = make_track(
+            title="Gold Rush", artist="Neon Priest", isrc="USNP12400001"
+        )
+        missed = make_track(
+            title="Silver Ash", artist="Neon Priest", isrc="USNP12400002"
+        )
+
+        async def lookup(isrc: str) -> MusicBrainzRecording | None:
+            if isrc == "USNP12400001":
+                raise ConnectionError("MusicBrainz unreachable")
+            return None
+
+        with (
+            patch.object(
+                MusicBrainzConnector,
+                "get_recording_by_isrc",
+                AsyncMock(side_effect=lookup),
+            ),
+            patch.object(
+                MusicBrainzConnector,
+                "search_recording",
+                AsyncMock(return_value=None),  # quiet fallback
+            ),
+        ):
+            connector = MusicBrainzConnector()
+            provider = MusicBrainzProvider(connector_instance=connector)
+            result = await provider.fetch_raw_matches_for_tracks([errored, missed])
+            await connector.aclose()
+
+        isrc_failures = {f.track_id: f for f in result.failures if f.method == "isrc"}
+        assert isrc_failures[errored.id].reason == MatchFailureReason.API_ERROR
+        assert "USNP12400001" in isrc_failures[errored.id].details
+        assert isrc_failures[missed.id].reason == MatchFailureReason.NO_RESULTS
+        assert not result.matches
+
+    async def test_duplicate_isrcs_collapse_to_one_lookup(self):
+        """Tracks sharing an ISRC share one lookup and both match."""
+        tracks = [
+            make_track(title="Gold Rush", artist="Neon Priest", isrc="USNP12400001"),
+            make_track(
+                title="Gold Rush (Live)", artist="Neon Priest", isrc="USNP12400001"
+            ),
+        ]
+        connector = AsyncMock()
+        connector.batch_isrc_lookup.return_value = {
+            "USNP12400001": _recording(length=200_000)
+        }
+        provider = MusicBrainzProvider(connector_instance=connector)
+
+        result = await provider.fetch_raw_matches_for_tracks(tracks)
+
+        connector.batch_isrc_lookup.assert_awaited_once_with(["USNP12400001"])
+        assert set(result.matches) == {t.id for t in tracks}

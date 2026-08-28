@@ -164,9 +164,6 @@ class TestExtractorContracts:
         # Check for updated connector configuration structure
         assert "metrics" in config, "Last.fm connector config must provide metrics"
         assert "factory" in config, "Last.fm connector config must provide factory"
-        assert "dependencies" in config, (
-            "Last.fm connector config must provide dependencies"
-        )
 
         metrics = config["metrics"]
         assert isinstance(metrics, dict), "Metrics must be a dictionary"
@@ -204,9 +201,6 @@ class TestExtractorContracts:
         # Check for updated connector configuration structure
         assert "metrics" in config, "Spotify connector config must provide metrics"
         assert "factory" in config, "Spotify connector config must provide factory"
-        assert "dependencies" in config, (
-            "Spotify connector config must provide dependencies"
-        )
 
         metrics = config["metrics"]
         assert isinstance(metrics, dict), "Metrics must be a dictionary"

@@ -34,7 +34,7 @@ items:0,urls:{}}, releases:[] — parses clean, urls.next is None.
 
 Rate headers (live): x-discogs-ratelimit(-remaining/-used) arrive
 lowercase; first call observed 60/60/0. httpx2.Headers is case-insensitive,
-so pacer.py's "X-Discogs-Ratelimit-Remaining" lookup matches.
+so the shared brake's "X-Discogs-Ratelimit-Remaining" lookup matches.
 
 Endpoints: /oauth/identity, /users/{u}/collection/folders/0/releases,
 /releases/{id}, /masters/{id}.

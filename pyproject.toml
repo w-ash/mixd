@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.11.4"
+version = "0.11.5"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -213,7 +213,7 @@ unfixable = []
 "src/interface/api/**/*.py" = [
     "unused-async",   # FastAPI requires async handlers even without await (framework awaits them)
 ]
-"src/infrastructure/connectors/_shared/connector_status.py" = [
+"src/infrastructure/connectors/musicbrainz/status.py" = [
     "unused-async",   # status_fn Protocol requires async callables even for stateless probes
 ]
 "src/application/chat/tool_executor.py" = [
@@ -496,7 +496,9 @@ ignore_imports = [
     # never the runner. Importing them realises a contract, not orchestration.
     "src.infrastructure.chat.anthropic_adapter -> src.application.chat.events",
     "src.infrastructure.chat.anthropic_adapter -> src.application.chat.protocols",
+    "src.infrastructure.connectors.lastfm.play_resolver -> src.application.connector_protocols",
     "src.infrastructure.persistence.unit_of_work -> src.application.connector_protocols",
+    "src.infrastructure.services.base_play_importer -> src.application.connector_protocols",
 ]
 
 [[tool.importlinter.contracts]]
@@ -542,11 +544,13 @@ allow_indirect_imports = true
 ignore_imports = [
     # interface-patterns.md, v0.6.5 credential/secret carve-out — connector
     # OAuth/token management shared by CLI + web so one `exchange_code` serves both.
-    "src.interface.api.routes.auth -> src.infrastructure.connectors._shared.connector_status",
     "src.interface.api.routes.auth -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.api.routes.auth -> src.infrastructure.connectors.discovery",
     "src.interface.api.routes.auth -> src.infrastructure.connectors.lastfm.client",
     "src.interface.api.routes.auth -> src.infrastructure.connectors.spotify.auth",
+    # Same carve-out: the callbacks stamp the Spotify identity (display name +
+    # account_id) onto the fresh grant via the connector's own status module.
+    "src.interface.api.routes.auth -> src.infrastructure.connectors.spotify.status",
     # Same carve-out, v0.11.3: the Tidal OAuth callback shares the connector's
     # `exchange_code` (PKCE public client) exactly as Spotify's does.
     "src.interface.api.routes.auth -> src.infrastructure.connectors.tidal.auth",
@@ -584,6 +588,7 @@ ignore_imports = [
     "src.interface.cli.connector_commands -> src.infrastructure.connectors.discovery",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors.lastfm.client",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors.spotify.auth",
+    "src.interface.cli.connector_commands -> src.infrastructure.connectors.spotify.status",
     # Same carve-out: `whoami` probes connectors exactly as `connector status`
     # does, and the probe reads (and silently refreshes) the stored grant.
     "src.interface.cli.app -> src.infrastructure.connectors._shared.connector_status",
@@ -616,6 +621,7 @@ ignore_imports = [
     # httpx2 pools in the lifespan `finally`. No session, no data access;
     # nothing in application/ owns adapter lifetime.
     "src.interface.api.app -> src.infrastructure.chat.anthropic_adapter",
+    "src.interface.api.app -> src.infrastructure.connectors.spotify.status",
 ]
 
 # Sixth contract, v0.11.3 Tidal churn defense: the hand-written models derived

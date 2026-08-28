@@ -41,8 +41,11 @@ from src.infrastructure.connectors._shared.http_client import (
 )
 from src.infrastructure.connectors._shared.oauth import (
     BearerAuth,
+    carry_forward_token_fields,
     compute_pkce_challenge,
+    delete_grant_if_unchanged,
     is_invalid_grant,
+    token_expired,
 )
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
@@ -68,10 +71,6 @@ TIDAL_AUTHORIZE_URL = f"{TIDAL_LOGIN_BASE}/authorize"
 # Recorded scope set; verify against dashboard at T7 (app registration
 # records the dashboard's allowed-scope list in the epic's completion note).
 TIDAL_SCOPES: Final[list[str]] = ["collection.read"]
-
-# Refresh this many seconds before the stored expiry — headroom against
-# provider clock skew, mirroring Spotify's buffer.
-_EXPIRY_BUFFER_SECONDS = 300
 
 # Waiters at the single-flight guard must outlast a healthy winner's
 # refresh POST: lock timeout = the configured request timeout + headroom.
@@ -199,13 +198,6 @@ class TidalTokenManager:
     _refresh_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _token_info: StoredToken | None = field(default=None, init=False, repr=False)
 
-    @staticmethod
-    def _is_expired(token_info: StoredToken) -> bool:
-        """True if the token expires within ``_EXPIRY_BUFFER_SECONDS``."""
-        return (
-            int(time.time()) > token_info.get("expires_at", 0) - _EXPIRY_BUFFER_SECONDS
-        )
-
     async def get_valid_token(self) -> str:
         """Return a valid Tidal access token, refreshing if needed.
 
@@ -221,7 +213,7 @@ class TidalTokenManager:
             if self._token_info is None:
                 logger.info("No Tidal token found — auth required")
                 raise TidalAuthRequiredError
-            if self._is_expired(self._token_info):
+            if token_expired(self._token_info):
                 logger.debug("Tidal access token expired — refreshing")
                 self._token_info = await self._refreshed_token(self._token_info)
             access_token = self._token_info.get("access_token")
@@ -303,36 +295,17 @@ class TidalTokenManager:
                     "Tidal refresh rejected with invalid_grant — grant "
                     "revoked or rotated away; reauthorization required"
                 )
-                stored = await self.storage.load_token("tidal", self.user_id)
-                if stored is not None and stored.get("refresh_token") == refresh_token:
-                    await self.storage.delete_token("tidal", self.user_id)
-                else:
-                    logger.info(
-                        "Skipping dead-token deletion — stored refresh token "
-                        "differs from the one that failed (a newer grant exists)"
-                    )
+                await delete_grant_if_unchanged(
+                    self.storage, "tidal", self.user_id, refresh_token
+                )
                 self._token_info = None
                 raise TidalReauthRequiredError
             _ = response.raise_for_status()
             raw = parse_json_response(response)
 
-        new_token = stored_token_from_response(raw)
-        # Rotation should always return a new refresh token; tolerate an
-        # omission by keeping the old one rather than storing a pair with
-        # no way to renew it.
-        if "refresh_token" not in new_token:
-            new_token["refresh_token"] = refresh_token
-        # `scope` may be omitted on refresh — losing it would read
-        # downstream as "the grant covers nothing" for an intact grant.
-        if "scope" not in new_token and (previous_scope := current.get("scope")):
-            new_token["scope"] = previous_scope
-        # extra_data and account_name are ours, never Tidal's — carry them
-        # forward verbatim so authorized_at and the cached display name
-        # survive every rotation.
-        if (previous_extra := current.get("extra_data")) is not None:
-            new_token["extra_data"] = previous_extra
-        if (previous_name := current.get("account_name")) is not None:
-            new_token["account_name"] = previous_name
+        # Rotation should return a new refresh token and may omit scope —
+        # carry both forward on omission, plus our extra_data/account_name.
+        new_token = carry_forward_token_fields(stored_token_from_response(raw), current)
         logger.debug("Tidal access token refreshed successfully")
         return new_token
 

@@ -19,16 +19,27 @@ Apple-specific rules verified against the live API (probe 2026-08-22):
 """
 
 import json
+from pathlib import Path
 
 import httpx2
 import pytest
 
 from src.domain.exceptions import AppleMusicAuthRequiredError
+from src.infrastructure.connectors._shared.json_api import JsonApiError
 from src.infrastructure.connectors.apple_music.error_classifier import (
     AppleMusicErrorClassifier,
+    first_json_api_error,
     indicates_user_token_rejection,
 )
-from src.infrastructure.connectors.apple_music.models import AppleMusicError
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def load_fixture(name: str) -> dict[str, object]:
+    """A redacted live error capture from the fixtures directory."""
+    payload = json.loads((FIXTURES / name).read_text())
+    assert isinstance(payload, dict)
+    return payload
 
 
 def make_status_error(
@@ -190,9 +201,35 @@ class TestDeveloperToken:
         assert error_code == "token"
 
 
+class TestVerbatimErrorEnvelopes:
+    """REDACTED live captures (probe 2026-08-22) parse via the shared models."""
+
+    def test_verbatim_invalid_mut_403_body_parses(self):
+        exc = make_status_error(403, body=load_fixture("error_403_invalid_mut.json"))
+
+        error = first_json_api_error(exc.response)
+
+        assert error is not None
+        assert error.code == "40300"
+        assert error.status == "403"
+        assert error.title == "Forbidden"
+        assert error.detail == "Invalid authentication"
+
+    def test_verbatim_limit_over_max_400_body_parses(self):
+        exc = make_status_error(400, body=load_fixture("error_400_limit_over_max.json"))
+
+        error = first_json_api_error(exc.response)
+
+        assert error is not None
+        assert error.code == "40005"
+        assert error.status == "400"
+        assert error.detail is not None
+        assert "less than or equal to 30" in error.detail
+
+
 class TestIndicatesUserTokenRejection:
     def test_real_envelope_indicates_rejection(self):
-        error = AppleMusicError.model_validate({
+        error = JsonApiError.model_validate({
             "code": "40300",
             "detail": "Invalid authentication",
             "status": "403",
@@ -206,7 +243,7 @@ class TestIndicatesUserTokenRejection:
         assert indicates_user_token_rejection(None) is True
 
     def test_developer_token_body_does_not_indicate_rejection(self):
-        error = AppleMusicError.model_validate({
+        error = JsonApiError.model_validate({
             "title": "Forbidden",
             "detail": "Invalid developer token",
         })

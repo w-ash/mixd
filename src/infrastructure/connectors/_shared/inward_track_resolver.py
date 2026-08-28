@@ -1,14 +1,19 @@
 """Shared 'resolve inward' pattern: external connector IDs → canonical tracks.
 
-Both Spotify and Last.fm resolvers follow a three-step pipeline:
+Every inward resolver follows a three-step pipeline:
 1. **Mapping Lookup**: Bulk-fetch existing connector→track mappings (fast path)
 2. **Canonical Reuse**: Match unresolved IDs against existing canonical tracks
 3. **Track Creation**: Batch-create new tracks for remaining unresolved IDs
 
-This base class captures that shared pattern while letting subclasses define
-connector-specific creation logic (Spotify batches ids per API call, Last.fm
-enriches per-track calls concurrently) and metadata extraction for canonical
+``InwardTrackResolver`` captures that shared pattern while letting subclasses
+define connector-specific creation logic and metadata extraction for canonical
 reuse (via the _extract_reuse_metadata hook).
+
+``WritePlanningResolver`` layers the shared planned-write persist pipeline on
+top for connectors whose creation step plans immutable writes and persists
+them through the batch primitives: collision-review queue → save_tracks →
+map_tracks_to_connectors → substitution events. Apple and Tidal run on it;
+its hooks are shaped so Spotify's resolver can adopt it too.
 """
 
 from abc import ABC, abstractmethod
@@ -17,20 +22,30 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import NamedTuple
 
-from attrs import define, evolve
+from attrs import define, evolve, field
 
 from src.config import create_evaluation_service, get_logger
 from src.config.constants import MatchMethod
 from src.domain.entities import Track
+from src.domain.entities.shared import JsonValue
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.isrc_validation import (
+    assess_isrc_match_reliability,
+    compute_duration_diff_ms,
+)
 from src.domain.matching.types import RawProviderMatch
-from src.domain.repositories.connector import ConnectorMappingSpec
+from src.domain.repositories.connector import ConnectorMappingSpec, IsrcCollisionSpec
 from src.domain.repositories.errors import (
     is_transient_contention,
     postgres_sqlstate,
 )
 from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.infrastructure.connectors._shared.successor_resolution import (
+    SuccessorAssertion,
+    record_substitutions,
+    stale_id_mapping_spec,
+)
 
 logger = get_logger(__name__)
 
@@ -63,6 +78,36 @@ def count_degraded_persists() -> Generator[_DegradedTally]:
         yield tally
     finally:
         _degraded_persists.reset(token)
+
+
+@define(slots=True)
+class _WriteFailureTally:
+    """Keys of writes rolled back across one resolution pass."""
+
+    keys: set[object] = field(factory=set)
+
+
+_write_failures: ContextVar[_WriteFailureTally | None] = ContextVar(
+    "mixd_write_failures", default=None
+)
+
+
+@contextmanager
+def collect_write_failures() -> Generator[_WriteFailureTally]:
+    """Collect rolled-back write keys across one resolution pass.
+
+    ``persist_bulk_with_item_fallback`` already isolates and reports the keys
+    whose savepoint rolled back; this collector is how the base resolver sees
+    them without every subclass threading a failure set back up. The count
+    feeds ``TrackResolutionMetrics.write_failed`` — the ids that were
+    answered for but not stored, as against dead identifiers.
+    """
+    tally = _WriteFailureTally()
+    token = _write_failures.set(tally)
+    try:
+        yield tally
+    finally:
+        _write_failures.reset(token)
 
 
 async def persist_bulk_with_item_fallback[TWrite, TKey, TPersisted](
@@ -137,6 +182,9 @@ async def persist_bulk_with_item_fallback[TWrite, TKey, TPersisted](
             if on_persisted is not None:
                 on_persisted([write])
             resolved.update(persisted)
+    failure_tally = _write_failures.get()
+    if failure_tally is not None:
+        failure_tally.keys.update(failed_keys)
     return resolved, failed_keys
 
 
@@ -203,7 +251,7 @@ class _AcceptedReuse:
     spec: ConnectorMappingSpec
 
 
-class InwardTrackResolver(ABC):
+class InwardTrackResolver[THint = object](ABC):
     """Shared 'resolve inward' pattern: external IDs → canonical tracks.
 
     Three-step pipeline:
@@ -216,6 +264,12 @@ class InwardTrackResolver(ABC):
     - _normalize_id(raw_id) → connector_track_identifier for DB lookup
     - _create_tracks_batch(missing_ids, uow) → dict mapping ID → Track
     - _extract_reuse_metadata(identifier) → ReuseMetadata or None
+
+    ``THint`` types the optional per-id hints a caller can pass to
+    ``resolve_to_canonical_tracks`` — connector-specific evidence about the
+    ids being asked about (Spotify's fallback hints). The default hook
+    ignores them; a hint-aware resolver parameterizes the class and
+    overrides ``_begin_resolution`` to stash them.
     """
 
     _match_evaluation_service: TrackMatchEvaluationService
@@ -457,6 +511,7 @@ class InwardTrackResolver(ABC):
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
+        hints: Mapping[str, THint] | None = None,
     ) -> tuple[dict[str, Track], TrackResolutionMetrics]:
         """Resolve external connector IDs to canonical tracks.
 
@@ -467,15 +522,44 @@ class InwardTrackResolver(ABC):
         Args:
             connector_ids: Raw external IDs (will be normalized).
             uow: Unit of work for database operations.
+            hints: Optional per-id evidence, handed to ``_begin_resolution``.
 
         Returns:
             Tuple of (normalized_id → Track mapping, resolution metrics).
         """
-        with count_degraded_persists() as degraded:
+        self._begin_resolution(hints or {})
+        with (
+            count_degraded_persists() as degraded,
+            collect_write_failures() as failures,
+        ):
             result, metrics = await self._resolve_to_canonical_tracks(
                 connector_ids, uow, user_id=user_id
             )
-        return result, evolve(metrics, degraded_persists=degraded.count)
+        metrics = evolve(
+            metrics,
+            degraded_persists=degraded.count,
+            write_failed=len(failures.keys),
+        )
+        return result, self._decorate_metrics(metrics)
+
+    def _begin_resolution(self, hints: Mapping[str, THint]) -> None:
+        """Per-pass setup, called before any lookup. Default: ignore hints.
+
+        Owns the base's per-pass reset. A hint-aware resolver overrides this
+        to stash ``hints`` and reset its own tracking state, and calls super.
+        """
+        _ = hints
+        self._reuse_failed_ids = set()
+
+    def _decorate_metrics(
+        self, metrics: TrackResolutionMetrics
+    ) -> TrackResolutionMetrics:
+        """Final-metrics hook. Default: pass through unchanged.
+
+        A resolver with counters the base cannot see (Spotify's redirect and
+        fallback tracking) overrides this to fold them in.
+        """
+        return metrics
 
     async def _resolve_to_canonical_tracks(
         self,
@@ -490,7 +574,6 @@ class InwardTrackResolver(ABC):
 
         # Normalize + deduplicate
         unique_ids = list({self._normalize_id(cid) for cid in connector_ids})
-        self._reuse_failed_ids = set()
 
         # Step 1 — Mapping Lookup: bulk-fetch existing connector→track mappings
         connections = [(self.connector_name, uid) for uid in unique_ids]
@@ -592,3 +675,329 @@ class InwardTrackResolver(ABC):
         )
 
         return result, metrics
+
+
+@define(frozen=True, slots=True)
+class IsrcCollisionReview:
+    """A suspect ISRC collision to queue against the canonical that owns it."""
+
+    owner: Track
+    service_data: dict[str, JsonValue]
+
+
+@define(frozen=True, slots=True)
+class PlannedWrite[TPayload]:
+    """One requested id's persist, decided before anything is written.
+
+    Deciding is pure and happens once per id; the persist step then writes
+    *this* and builds no payload of its own — once for the whole chunk, or
+    one savepoint at a time over the same code when the chunk has to be
+    isolated. ``payload`` is the provider's answer for the *current* id;
+    ``current_id`` is the id the provider considers current — it differs
+    from ``requested_id`` on a platform-asserted successor.
+    """
+
+    requested_id: str
+    current_id: str
+    payload: TPayload
+    match_method: str
+    confidence: int
+    # An existing canonical already holds this recording — map onto it,
+    # create nothing.
+    reuse_track: Track | None = None
+    # Suspect collision: the ISRC is claimed by an owner whose duration
+    # disagrees, so a review is queued and the contested ISRC withheld.
+    review: IsrcCollisionReview | None = None
+    # Does the main mapping this write asserts hold primacy? A creation and
+    # an ISRC reuse do; a mapping that only aliases a stale id onto an
+    # already-mapped canonical does not.
+    primary: bool = True
+
+    @property
+    def requested_id_is_stale(self) -> bool:
+        return self.current_id != self.requested_id
+
+    @property
+    def creates_canonical(self) -> bool:
+        return self.reuse_track is None
+
+
+def plan_isrc_write[TPayload](
+    *,
+    connector: str,
+    requested_id: str,
+    current_id: str,
+    payload: TPayload,
+    duration_ms: int | None,
+    isrc: str,
+    existing_by_isrc: Mapping[str, Track],
+    service_data: dict[str, JsonValue],
+) -> PlannedWrite[TPayload]:
+    """Decide what one answered, ISRC-carrying id persists as.
+
+    Three outcomes: reuse the canonical that owns this ISRC, defer a suspect
+    collision to review and create a distinct canonical without the contested
+    ISRC, or create a plain new canonical. Pure but for the suspect-deferral
+    log line. ``service_data`` is what the queued review shows a person about
+    the incoming track.
+    """
+    existing = existing_by_isrc.get(isrc)
+    if existing is None:
+        return PlannedWrite(
+            requested_id=requested_id,
+            current_id=current_id,
+            payload=payload,
+            match_method=MatchMethod.DIRECT_IMPORT,
+            confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+        )
+
+    duration_diff_ms = compute_duration_diff_ms(duration_ms, existing.duration_ms)
+    if not assess_isrc_match_reliability(duration_diff_ms).suspect:
+        return PlannedWrite(
+            requested_id=requested_id,
+            current_id=current_id,
+            payload=payload,
+            match_method=MatchMethod.ISRC_MATCH,
+            confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
+            reuse_track=existing,
+        )
+
+    logger.info(
+        f"ISRC suspect: queueing review for {connector}:{current_id} vs canonical "
+        f"{existing.id} (ISRC={isrc}, duration_diff_ms={duration_diff_ms})"
+    )
+    return PlannedWrite(
+        requested_id=requested_id,
+        current_id=current_id,
+        payload=payload,
+        match_method=MatchMethod.DIRECT_IMPORT,
+        confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+        review=IsrcCollisionReview(owner=existing, service_data=service_data),
+    )
+
+
+class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint], ABC):
+    """Inward resolver whose creations persist through planned writes.
+
+    Owns the full ordered write path for a chunk of ``PlannedWrite``s:
+    collision-review queue → save_tracks → map_tracks_to_connectors →
+    substitution events — one savepoint for the chunk, one per id on failure.
+    Subclasses supply payload extraction and detection labels only:
+
+    - ``_canonical_payload(write)`` → the Track a creation saves
+    - ``_mapping_metadata(write)`` → the main mapping's metadata
+    - ``_successor_assertion(write, track)`` → the substitution this write
+      records, or None
+
+    Two policy hooks carry the per-connector mapping shape and default to
+    the majority behavior; see each hook's docstring.
+    """
+
+    @abstractmethod
+    def _canonical_payload(
+        self, write: PlannedWrite[TPayload], *, user_id: str
+    ) -> Track:
+        """The canonical this write creates, keyed on the *current* id.
+
+        Implementations strip a suspect ISRC — the owner keeps it, and the
+        queued review decides later whether the two are one recording.
+        """
+        ...
+
+    @abstractmethod
+    def _mapping_metadata(self, write: PlannedWrite[TPayload]) -> dict[str, object]:
+        """JSON-able metadata the main connector mapping stores."""
+        ...
+
+    @abstractmethod
+    def _successor_assertion(
+        self, write: PlannedWrite[TPayload], track: Track
+    ) -> SuccessorAssertion | None:
+        """The successor assertion this write records, or None.
+
+        Detection stays per-connector — the label and the qualifying
+        condition are the connector's own (Apple records creations only,
+        Tidal any stale requested id, Spotify provider-asserted relinks).
+        """
+        ...
+
+    def _primary_mapping_id(self, write: PlannedWrite[TPayload]) -> str:
+        """The connector id the main mapping names.
+
+        Default: the requested id for a reuse (it answered under its own
+        id), the current id for a creation. Tidal overrides — its reuses
+        answer under the successor, so the current id always wins there.
+        """
+        return write.requested_id if write.reuse_track is not None else write.current_id
+
+    def _owes_stale_mapping(self, write: PlannedWrite[TPayload]) -> bool:
+        """Does the requested id get a non-primary stale-id cache mapping?
+
+        Default: only a creation whose requested id is stale. Tidal
+        overrides — a reuse can substitute there, and the dead requested id
+        still owes its cache mapping.
+        """
+        return write.creates_canonical and write.requested_id_is_stale
+
+    def _on_writes_persisted(self, writes: Sequence[PlannedWrite[TPayload]]) -> None:
+        """Post-savepoint bookkeeping hook. Default: nothing.
+
+        Runs only after a savepoint releases — over the whole chunk on the
+        bulk path, over the single write on the isolating one. Never before:
+        an unreleased savepoint's rows can still be discarded.
+        """
+
+    async def _persist_planned_writes(
+        self,
+        writes: Sequence[PlannedWrite[TPayload]],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> tuple[dict[str, Track], set[str]]:
+        """Write a chunk's resolutions — one savepoint for all, per id on failure.
+
+        Returns the resolved tracks and the ids whose write was rolled back —
+        never absent ids, which the caller classifies separately.
+        """
+
+        def _log_failed_write(write: PlannedWrite[TPayload], e: Exception) -> None:
+            logger.error(
+                f"Failed to create track for "
+                f"{self.connector_name}:{write.requested_id}: {e}",
+                exc_info=e,
+            )
+
+        return await persist_bulk_with_item_fallback(
+            writes,
+            uow,
+            persist=lambda chunk: self._persist_planned_bulk(
+                chunk, uow, user_id=user_id
+            ),
+            write_key=lambda write: write.requested_id,
+            describe=f"resolved {self.connector_name} tracks",
+            on_persisted=self._on_writes_persisted,
+            on_item_failure=_log_failed_write,
+        )
+
+    async def _persist_planned_bulk(
+        self,
+        writes: Sequence[PlannedWrite[TPayload]],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> dict[str, Track]:
+        """Write every resolution in the chunk through the batch primitives.
+
+        Writes that share an identity are deduped by their identity key (the
+        current id) before anything persists: one collision review, one
+        canonical create — every requested id fans in to the same canonical,
+        while each still owes its own mappings and substitution event. Two
+        dead ids can share one successor, and duplicate payloads would
+        otherwise mint duplicate canonicals and trip ``save_tracks``'
+        duplicate-identity caller-bug warning.
+        """
+        connector_repo = uow.get_connector_repository()
+
+        collisions_by_id: dict[str, IsrcCollisionSpec] = {}
+        for write in writes:
+            if write.review is not None:
+                _ = collisions_by_id.setdefault(
+                    write.current_id,
+                    IsrcCollisionSpec(
+                        owner=write.review.owner,
+                        connector_id=write.current_id,
+                        service_data=write.review.service_data,
+                    ),
+                )
+        if collisions_by_id:
+            _ = await connector_repo.queue_isrc_collision_reviews(
+                list(collisions_by_id.values()), self.connector_name, user_id=user_id
+            )
+
+        created = [write for write in writes if write.creates_canonical]
+        creates_by_id: dict[str, PlannedWrite[TPayload]] = {}
+        for write in created:
+            _ = creates_by_id.setdefault(write.current_id, write)
+        saved = await uow.get_track_repository().save_tracks([
+            self._canonical_payload(write, user_id=user_id)
+            for write in creates_by_id.values()
+        ])
+        track_by_current_id = dict(zip(creates_by_id, saved, strict=True))
+        canonicals: dict[str, Track] = {
+            write.requested_id: track_by_current_id[write.current_id]
+            for write in created
+        }
+        canonicals.update({
+            write.requested_id: write.reuse_track
+            for write in writes
+            if write.reuse_track is not None
+        })
+
+        _ = await connector_repo.map_tracks_to_connectors(
+            self._mapping_batch(writes, canonicals)
+        )
+
+        assertions = [
+            assertion
+            for write in writes
+            if (
+                assertion := self._successor_assertion(
+                    write, canonicals[write.requested_id]
+                )
+            )
+            is not None
+        ]
+        await record_substitutions(
+            uow.get_resolution_recorder(),
+            connector_name=self.connector_name,
+            assertions=assertions,
+            user_id=user_id,
+        )
+        return canonicals
+
+    def _mapping_batch(
+        self,
+        writes: Sequence[PlannedWrite[TPayload]],
+        canonicals: Mapping[str, Track],
+    ) -> list[ConnectorMappingSpec]:
+        """Every mapping the chunk owes, each saying whether it holds primacy.
+
+        One spec per connector id — two requested ids can share a successor,
+        and `uq_track_mappings_live_connector` admits one live mapping per
+        (user, connector track, connector), so a second spec for an id
+        already claimed is a constraint violation that costs the whole chunk
+        its bulk write.
+        """
+        specs: list[ConnectorMappingSpec] = []
+        claimed: set[str] = set()
+
+        def claim(spec: ConnectorMappingSpec) -> None:
+            if spec.connector_id in claimed:
+                return
+            claimed.add(spec.connector_id)
+            specs.append(spec)
+
+        for write in writes:
+            track = canonicals[write.requested_id]
+            claim(
+                ConnectorMappingSpec(
+                    track=track,
+                    connector=self.connector_name,
+                    connector_id=self._primary_mapping_id(write),
+                    match_method=write.match_method,
+                    confidence=write.confidence,
+                    metadata=self._mapping_metadata(write),
+                    primary=write.primary,
+                )
+            )
+            if self._owes_stale_mapping(write):
+                claim(
+                    stale_id_mapping_spec(
+                        track=track,
+                        connector=self.connector_name,
+                        requested_id=write.requested_id,
+                        primary_method=write.match_method,
+                        confidence=write.confidence,
+                    )
+                )
+        return specs

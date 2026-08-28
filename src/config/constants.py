@@ -265,8 +265,19 @@ class MatchMethod:
     SEARCH_FALLBACK_STALE_ID: Final = "search_fallback_stale_id"
     ISRC_MATCH_STALE_ID: Final = "isrc_match_stale_id"
 
+    # The stale-id variant a substitution writes for each primary method.
+    # Authoritative: ``stale_id_mapping_spec`` reads this map directly.
+    STALE_ID_FOR: Final[dict[str, str]] = {
+        DIRECT_IMPORT: DIRECT_IMPORT_STALE_ID,
+        SEARCH_FALLBACK: SEARCH_FALLBACK_STALE_ID,
+        ISRC_MATCH: ISRC_MATCH_STALE_ID,
+    }
+
     # Confidence scores for automated resolution strategies
     ISRC_MATCH_CONFIDENCE: Final = 95
+    # The provider answered for the id it was asked about — its own assertion,
+    # taken at face value.
+    DIRECT_IMPORT_CONFIDENCE: Final = 100
 
     CATEGORY_ORDER: Final[tuple[str, ...]] = (
         "Primary Import",

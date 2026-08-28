@@ -113,15 +113,16 @@ class TestConnectorAPIConfigNesting:
         config = APIConfig()
         assert config.spotify.batch_size == 50
         assert config.spotify.concurrency == 50
-        assert config.spotify.request_delay == 0.1
         assert config.spotify.retry_count == 6
         assert config.spotify.retry_base_delay == 1.0
         assert config.spotify.retry_max_delay == 60.0
 
     def test_musicbrainz_overrides(self):
+        # rate_limit=1.0 is MusicBrainz's documented 1 req/s policy — it feeds
+        # the shared ConnectorRateLimiter that paces every client call.
         config = APIConfig()
         assert config.musicbrainz.concurrency == 5
-        assert config.musicbrainz.request_delay == 0.2
+        assert config.musicbrainz.rate_limit == 1.0
 
     def test_spotify_specific_fields(self):
         config = APIConfig()
@@ -135,6 +136,18 @@ class TestConnectorAPIConfigNesting:
         config = APIConfig()
         assert config.tidal.concurrency == 5
         assert config.tidal.rate_limit is None
+
+    def test_listenbrainz_overrides(self):
+        # rate_limit=2.5 sits under the main API's measured 30-per-10s
+        # policy; batch_size=50 borrows the main API's documented
+        # MAX_LOOKUPS_PER_POST ceiling (Labs documents no maximum); the
+        # brake header is the main API's — Labs sends none, so it is a
+        # no-op on today's Labs-only traffic.
+        config = APIConfig()
+        assert config.listenbrainz.batch_size == 50
+        assert config.listenbrainz.concurrency == 5
+        assert config.listenbrainz.rate_limit == 2.5
+        assert config.listenbrainz.rate_remaining_header == "X-RateLimit-Remaining"
 
 
 class TestBoundaryAcceptance:
@@ -177,8 +190,8 @@ class TestBoundaryAcceptance:
         assert config.retry_count == 0
 
     def test_non_negative_float_zero(self):
-        config = ConnectorAPIConfig(request_delay=0.0)
-        assert config.request_delay == 0.0
+        config = ConnectorAPIConfig(retry_base_delay=0.0)
+        assert config.retry_base_delay == 0.0
 
     def test_freshness_zero_hours(self):
         config = FreshnessConfig(lastfm_hours=0.0)

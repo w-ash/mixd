@@ -195,6 +195,10 @@ Items explicitly descoped — they serve neither persona or are Data Exploiter t
 
 > _Scheduled 2026-06 (from the v0.8.9 review): config-aware enrichment validation + the day-window key rename + the editor-store lifecycle contract all shipped in [v0.8.10](v0.8.9-0.8.10.md) (the play-history-config follow-ons were pulled into v0.8.10 rather than a separate version). The Multi-value item above is the same subsystem and a natural companion if picked up._
 
+## Connector Architecture Follow-Ups (2026-08 /simplify sweep)
+
+- ~~Capability-driven connector wiring · ListenBrainz package placement · Discogs pacer generalization · Spotify play-resolver `progress_callback`~~ → All four implemented 2026-08-28 as the **Review hardening & follow-ups** epic of [v0.11.5: Connector Quality Sweep](v0.11.x.md#v0115-connector-quality-sweep). Residual work spun off there: play-poll policy generalization still gates Apple polling (tracked under *Testing & CI* → "Generalize adaptive play polling"), and a full ListenBrainz user-facing integration remains the *Enrichment Sources* entry.
+
 ## Workflow Editor
 
 - **Navigating large (40+ node) workflows** (M, design-first) — _Problem:_ real power-user workflows reach 40+ nodes (the bundled gallery templates are 5–9-node starter content and aren't representative), and the canvas offers no aid for orienting within a large graph. _Considered + rejected:_ sub-flows / collapsible named groups (planned for v0.8.10, cut) — too much overhead (a persistence model + the cycle's only `WorkflowDef` schema change) for the problem, and snippet reuse overlaps v0.8.9 templates + import/export. _Lighter candidates to weigh (starting point, not a chosen design):_ React Flow `<MiniMap>`; a node-search / jump-to-node command (palette-style, focus + center on match); an outline / index side panel listing nodes by type with click-to-focus; fit-view-to-selection. Aim for one or two cheap wins, no schema change. Touches `EditorCanvas.tsx` + the editor store.

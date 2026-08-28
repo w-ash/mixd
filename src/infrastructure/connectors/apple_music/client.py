@@ -39,7 +39,10 @@ from src.infrastructure.connectors._shared.http_client import (
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryPolicyFactory,
 )
-from src.infrastructure.connectors._shared.token_storage import TokenStorage
+from src.infrastructure.connectors._shared.token_storage import (
+    TokenStorage,
+    load_required_access_token,
+)
 from src.infrastructure.connectors.apple_music.auth import (
     AppleMusicDeveloperAuth,
     DeveloperTokenProvider,
@@ -115,6 +118,7 @@ class AppleMusicAPIClient(BaseAPIClient):
     _storage: TokenStorage = field(init=False, repr=False)
     _user_id: str = field(init=False, repr=False)
     _music_user_token: str | None = field(init=False, default=None, repr=False)
+    _storefront: str | None = field(init=False, default=None, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Initialize token storage, retry policy, and long-lived pooled client."""
@@ -158,11 +162,12 @@ class AppleMusicAPIClient(BaseAPIClient):
         """
         token = self._music_user_token
         if token is None:
-            stored = await self._storage.load_token(APPLE_MUSIC_SERVICE, self._user_id)
-            token = stored.get("access_token") if stored else None
-            if not token:
-                logger.info("No Apple Music user token found — auth required")
-                raise AppleMusicAuthRequiredError
+            token = await load_required_access_token(
+                self._storage,
+                APPLE_MUSIC_SERVICE,
+                self._user_id,
+                missing_error=AppleMusicAuthRequiredError,
+            )
             self._music_user_token = token
         return {"Music-User-Token": token}
 
@@ -193,8 +198,10 @@ class AppleMusicAPIClient(BaseAPIClient):
             return
         if not indicates_user_token_rejection(first_json_api_error(response)):
             return
-        # The cached MUT is dead — drop it so a later call reloads storage.
+        # The cached MUT is dead — drop it, and the storefront memoized off
+        # it, so a later call reloads storage.
         self._music_user_token = None
+        self._storefront = None
         await self._mark_reauth_required()
         raise AppleMusicAuthRequiredError(
             "Apple Music user authorization expired or was revoked — "
@@ -228,6 +235,19 @@ class AppleMusicAPIClient(BaseAPIClient):
     # -------------------------------------------------------------------------
     # Storefront
     # -------------------------------------------------------------------------
+
+    @property
+    def cached_storefront(self) -> str | None:
+        """Storefront id memoized on this instance by ``resolve_storefront``.
+
+        Invalidated with the MUT cache when Apple rejects the user token —
+        a re-authorization can change the storefront.
+        """
+        return self._storefront
+
+    @cached_storefront.setter
+    def cached_storefront(self, value: str | None) -> None:
+        self._storefront = value
 
     async def get_storefront(self) -> AppleMusicStorefront | None:
         """Fetch the authorized user's storefront (requires Music-User-Token)."""

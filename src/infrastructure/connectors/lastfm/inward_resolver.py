@@ -13,11 +13,13 @@ A. **Concurrent API enrichment** — track.getInfo (with track.getCorrection as
    call itself failed after the retry policy gave up) fails the identifier
    instead — minting a canonical from an outage would be permanent junk the
    next import can never heal (v0.10.2.9 F5).
-B. **Sequential cross-discovery** — ``CrossDiscoveryProvider.discover`` per
-   probe, sequential because it takes the (non-concurrency-safe) uow and may
-   write ISRC-collision reviews. Each call runs under its own savepoint so a
-   swallowed mid-transaction SQL failure rolls back alone; a failed discovery
-   degrades to ``Nothing()`` and the identifier proceeds to creation.
+B. **Batched cross-discovery** — one ``CrossDiscoveryProvider.discover_batch``
+   call for the whole chunk. The provider fans out its side-effect-free API
+   probes concurrently and batches its reads (one ISRC prefetch per chunk),
+   keeping every uow touchpoint sequential and savepoint-isolated on its
+   side, so a swallowed mid-transaction SQL failure rolls back alone. A
+   failed discovery degrades to ``Nothing()`` and the identifier proceeds
+   to creation.
 C. **Pure plan + chunk persist** — every identifier's writes are decided into
    a frozen ``_LastfmResolvedWrite`` (mappings evaluated, enrichment folded),
    then the whole chunk persists through one ``save_tracks`` and one
@@ -36,7 +38,6 @@ still hits the fast connector-mapping lookup. Correction only ever runs when
 creating a NEW connector track — never per-play.
 """
 
-import asyncio
 from collections.abc import Mapping, Sequence
 from typing import override
 
@@ -50,6 +51,7 @@ from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.protocols import (
     CrossDiscoveryProvider,
     DiscoveryOutcome,
+    DiscoveryRequest,
     NewMapping,
     Nothing,
     ReuseExisting,
@@ -57,6 +59,7 @@ from src.domain.matching.protocols import (
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     ReuseMetadata,
@@ -150,8 +153,8 @@ class LastfmInwardResolver(InwardTrackResolver):
 
     API enrichment runs concurrently under the configured limiter; database
     writes are planned per chunk and persisted through the batch primitives.
-    Optionally attempts cross-service discovery (e.g. Spotify) for each new
-    track via the ``CrossDiscoveryProvider`` protocol.
+    Optionally attempts cross-service discovery (e.g. Spotify) for the
+    chunk's new tracks in one ``CrossDiscoveryProvider.discover_batch`` pass.
     """
 
     _lastfm_client: LastFMAPIClient
@@ -200,18 +203,16 @@ class LastfmInwardResolver(InwardTrackResolver):
         """Create canonical tracks for missing Last.fm identifiers.
 
         Phase A enriches every identifier concurrently (pure API), Phase B
-        runs cross-discovery sequentially (it holds the uow), Phase C plans
-        each identifier's writes pure and persists the chunk through the
-        batch primitives. Chunks arrive at most ~50 identifiers wide (the
-        orchestrator's resolution commit chunking), so no further chunking
-        happens here.
+        cross-discovers the whole chunk in one batched provider pass, Phase C
+        plans each identifier's writes pure and persists the chunk through
+        the batch primitives. Chunks arrive at most ~50 identifiers wide
+        (the orchestrator's resolution commit chunking), so no further
+        chunking happens here.
         """
         probes = await self._enrich_probes(missing_ids, user_id=user_id)
+        outcomes = await self._discover_outcomes(probes, uow, user_id=user_id)
 
-        writes: list[_LastfmResolvedWrite] = []
-        for enriched in probes:
-            outcome = await self._discover_outcome(enriched, uow, user_id=user_id)
-            writes.append(self._plan_write(enriched, outcome))
+        writes = list(map(self._plan_write, probes, outcomes, strict=True))
 
         def _log_failed_write(write: _LastfmResolvedWrite, e: Exception) -> None:
             logger.error(
@@ -234,112 +235,121 @@ class LastfmInwardResolver(InwardTrackResolver):
     ) -> list[_EnrichedProbe]:
         """Phase A: enrich every identifier concurrently under the limiter.
 
-        The semaphore bounds in-flight coroutines to the configured
+        ``bounded_fan_out`` caps in-flight coroutines at the configured
         concurrency; actual request pacing stays with the shared
-        ConnectorRateLimiter on ``_api_call``. Task bodies catch every
-        exception — a TaskGroup cancels siblings on escape, and one bad
-        identifier must not cost the chunk — but what the catch DOES differs:
-        an unparseable identifier or a transport failure marks that identifier
-        failed (absent from the returned list, so it skips Phases B/C and the
-        base class counts it in the failed metric — the play stays unresolved
-        and the next import retries enrichment), while content misses never
-        raise at all (``_build_enriched_probe`` degrades them to a raw-name
-        probe). Results are returned in ``missing_ids`` order, not completion
-        order: downstream planning and persistence must be deterministic.
+        ConnectorRateLimiter on ``_api_call``. Worker bodies catch every
+        exception — one bad identifier must not cost the chunk — see
+        ``_enrich_one``. Results come back in ``missing_ids`` order, not
+        completion order: downstream planning and persistence must be
+        deterministic.
         """
-        semaphore = asyncio.Semaphore(settings.api.lastfm.concurrency)
-        enriched_by_id: dict[str, _EnrichedProbe] = {}
+        enriched = await bounded_fan_out(
+            missing_ids,
+            lambda identifier: self._enrich_one(identifier, user_id=user_id),
+            concurrency=settings.api.lastfm.concurrency,
+        )
+        return [probe for probe in enriched if probe is not None]
 
-        async def _enrich_one(identifier: str) -> None:
-            try:
-                artist_name, track_name = parse_lastfm_identifier(identifier)
-            except ValueError as e:
-                # Unmintable identifier: no probe can be built, so the
-                # identifier is skipped (counted failed by the base class)
-                # instead of cancelling the TaskGroup's sibling enrichments.
-                logger.error(f"Skipping unparseable Last.fm identifier: {e}")
-                return
-            async with semaphore:
-                try:
-                    (
-                        probe,
-                        corrected_artist,
-                        corrected_title,
-                    ) = await self._build_enriched_probe(
-                        artist_name, track_name, user_id=user_id
-                    )
-                except Exception as e:
-                    # Transport failure: the Last.fm client raises
-                    # httpx2.RequestError / httpx2.HTTPStatusError /
-                    # LastFMAPIError (non-"not found" codes) after its retry
-                    # policy gives up — a content miss comes back as None,
-                    # never an exception. Minting a canonical from the raw
-                    # names here is what turned an outage into permanent junk
-                    # canonicals: mark the identifier failed instead (absent
-                    # from the results, counted failed by the base class) so
-                    # the play stays unresolved and the next import retries.
-                    # Caught in the task body so one failure cannot cancel
-                    # the TaskGroup's sibling enrichments.
-                    logger.warning(
-                        f"Enrichment transport failure for {artist_name} - "
-                        f"{track_name}; identifier fails and will be retried "
-                        f"on the next import: {e}",
-                        exc_info=True,
-                    )
-                    return
-            enriched_by_id[identifier] = _EnrichedProbe(
-                identifier=identifier,
-                raw_artist=artist_name,
-                raw_title=track_name,
-                corrected_artist=corrected_artist,
-                corrected_title=corrected_title,
-                probe=probe,
+    async def _enrich_one(
+        self, identifier: str, *, user_id: str
+    ) -> _EnrichedProbe | None:
+        """Build one identifier's probe; ``None`` marks the identifier failed.
+
+        A failed identifier is absent from Phase A's results, so it skips
+        Phases B/C and the base class counts it in the failed metric — the
+        play stays unresolved and the next import retries enrichment.
+        Content misses never raise at all (``_build_enriched_probe``
+        degrades them to a raw-name probe).
+        """
+        try:
+            artist_name, track_name = parse_lastfm_identifier(identifier)
+        except ValueError as e:
+            # Unmintable identifier: no probe can be built, so the
+            # identifier is skipped (counted failed by the base class)
+            # instead of cancelling the fan-out's sibling enrichments.
+            logger.error(f"Skipping unparseable Last.fm identifier: {e}")
+            return None
+        try:
+            (
+                probe,
+                corrected_artist,
+                corrected_title,
+            ) = await self._build_enriched_probe(
+                artist_name, track_name, user_id=user_id
             )
+        except Exception as e:
+            # Transport failure: the Last.fm client raises
+            # httpx2.RequestError / httpx2.HTTPStatusError /
+            # LastFMAPIError (non-"not found" codes) after its retry
+            # policy gives up — a content miss comes back as None,
+            # never an exception. Minting a canonical from the raw
+            # names here is what turned an outage into permanent junk
+            # canonicals: mark the identifier failed instead (absent
+            # from the results, counted failed by the base class) so
+            # the play stays unresolved and the next import retries.
+            # Caught in the worker body so one failure cannot cancel
+            # the fan-out's sibling enrichments.
+            logger.warning(
+                f"Enrichment transport failure for {artist_name} - "
+                f"{track_name}; identifier fails and will be retried "
+                f"on the next import: {e}",
+                exc_info=True,
+            )
+            return None
+        return _EnrichedProbe(
+            identifier=identifier,
+            raw_artist=artist_name,
+            raw_title=track_name,
+            corrected_artist=corrected_artist,
+            corrected_title=corrected_title,
+            probe=probe,
+        )
 
-        async with asyncio.TaskGroup() as tg:
-            for identifier in missing_ids:
-                _ = tg.create_task(_enrich_one(identifier))
-
-        return [
-            enriched_by_id[identifier]
-            for identifier in missing_ids
-            if identifier in enriched_by_id
-        ]
-
-    async def _discover_outcome(
+    async def _discover_outcomes(
         self,
-        enriched: _EnrichedProbe,
+        probes: Sequence[_EnrichedProbe],
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-    ) -> DiscoveryOutcome:
-        """Phase B: one sequential cross-discovery call, savepoint-isolated.
+    ) -> list[DiscoveryOutcome]:
+        """Phase B: one batched cross-discovery pass for the whole chunk.
 
-        Sequential because ``discover`` takes the uow (not concurrency-safe)
-        and may write ISRC-collision reviews. The savepoint preserves the
-        isolation the old per-identifier savepoint gave those writes: a SQL
-        failure swallowed mid-discovery rolls back alone instead of aborting
-        the chunk's transaction. A failed discovery is not a failed
-        identifier — it degrades to ``Nothing()`` and creation proceeds.
+        The provider fans out its side-effect-free API probes concurrently
+        and batches its reads (one ISRC prefetch per chunk), keeping every
+        uow touchpoint sequential and savepoint-isolated on its side — a
+        SQL failure swallowed mid-discovery rolls back alone instead of
+        aborting the chunk's transaction. A failed discovery is not a
+        failed identifier: it degrades to ``Nothing()`` and creation
+        proceeds.
         """
-        if not self._cross_discovery:
-            return Nothing()
+        if not self._cross_discovery or not probes:
+            return [Nothing() for _ in probes]
+        requests = [
+            DiscoveryRequest(
+                probe_track=enriched.probe,
+                artist_name=enriched.raw_artist,
+                track_name=enriched.raw_title,
+            )
+            for enriched in probes
+        ]
         try:
-            async with uow.savepoint():
-                return await self._cross_discovery.discover(
-                    enriched.probe,
-                    enriched.raw_artist,
-                    enriched.raw_title,
-                    uow,
-                    user_id=user_id,
-                )
+            outcomes = await self._cross_discovery.discover_batch(
+                requests, uow, user_id=user_id
+            )
         except Exception as e:
             logger.warning(
-                f"Cross-discovery failed for {enriched.raw_artist} - "
-                f"{enriched.raw_title}; proceeding without it: {e}",
+                f"Cross-discovery failed for a chunk of {len(probes)} "
+                f"identifiers; proceeding without it: {e}",
                 exc_info=True,
             )
-            return Nothing()
+            return [Nothing() for _ in probes]
+        if len(outcomes) != len(probes):
+            logger.warning(
+                f"Cross-discovery returned {len(outcomes)} outcomes for "
+                f"{len(probes)} requests; proceeding without it"
+            )
+            return [Nothing() for _ in probes]
+        return list(outcomes)
 
     def _plan_write(
         self, enriched: _EnrichedProbe, outcome: DiscoveryOutcome

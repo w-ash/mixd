@@ -17,7 +17,6 @@ Usage:
 
 from src.infrastructure.connectors.lastfm.connector import (
     LastFMConnector,
-    LastFmMetricResolver,
     get_connector_config,
 )
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
@@ -27,6 +26,5 @@ __all__ = [
     "LastFMConnector",
     "LastFMProvider",
     "LastFMTrackInfo",
-    "LastFmMetricResolver",
     "get_connector_config",
 ]

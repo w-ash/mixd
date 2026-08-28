@@ -17,10 +17,11 @@ from src.domain.matching.types import (
 )
 from src.infrastructure.connectors._shared.failure_handling import (
     create_and_log_failure,
-    handle_track_processing_failure,
 )
 from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
+    IsrcThenArtistTitle,
+    MatchStrategy,
 )
 from src.infrastructure.connectors.musicbrainz.connector import MusicBrainzConnector
 from src.infrastructure.connectors.musicbrainz.models import MusicBrainzRecording
@@ -48,90 +49,49 @@ class MusicBrainzProvider(BaseMatchingProvider):
         return "musicbrainz"
 
     @override
+    def _match_strategy(self) -> MatchStrategy:
+        """ISRC first, artist/title for the rest and for ISRC misses."""
+        return IsrcThenArtistTitle(
+            match_by_isrc=self._match_by_isrc,
+            match_by_artist_title=self._match_by_artist_title,
+        )
+
     async def _match_by_isrc(
         self, tracks: list[Track]
     ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
-        """Match tracks using MusicBrainz batch ISRC lookup API.
+        """Match tracks via one connector batch ISRC lookup.
 
-        Args:
-            tracks: Tracks with ISRC to match (pre-validated by the base partition).
-
-        Returns:
-            Tuple of (matches dict, failures list).
+        The batch result carries only answered ISRCs: a code mapped to a
+        recording matches, a code mapped to ``None`` fails as ``NO_RESULTS``,
+        and a code ABSENT from the result went unanswered (its lookup
+        errored) — its tracks fail as ``API_ERROR``, never ``NO_RESULTS``.
         """
-        matches: dict[UUID, RawProviderMatch] = {}
-        failures: list[MatchFailure] = []
+        isrc_by_track: dict[UUID, str] = {
+            track.id: track.isrc for track in tracks if track.id and track.isrc
+        }
+        isrc_results = await self.connector_instance.batch_isrc_lookup(
+            list(dict.fromkeys(isrc_by_track.values()))
+        )
+        recording_by_isrc = {
+            code: recording for code, recording in isrc_results.items() if recording
+        }
+        failed_isrcs = {
+            code for code in isrc_by_track.values() if code not in isrc_results
+        }
 
-        valid_tracks = [track for track in tracks if track.id]
-        if valid_tracks:
-            try:
-                await self._lookup_isrc_batch(valid_tracks, matches, failures)
-            except Exception as e:
-                # Batch API failed, record failures for all tracks
-                failures.extend(
-                    handle_track_processing_failure(
-                        track.id, self.service_name, "isrc", e
-                    )
-                    for track in valid_tracks
-                    if track.id
-                )
+        return self._correlate_by_code(
+            tracks,
+            code_of=isrc_by_track,
+            candidates_by_code=recording_by_isrc,
+            failed_codes=failed_isrcs,
+            make_match=lambda _track, recording: self._create_isrc_raw_match(recording),
+            service_label="MusicBrainz",
+            method="isrc",
+            code_label="ISRC",
+            # One batch call carries every code, so its failure is theirs all.
+            batched=True,
+        )
 
-        return matches, failures
-
-    async def _lookup_isrc_batch(
-        self,
-        valid_tracks: list[Track],
-        matches: dict[UUID, RawProviderMatch],
-        failures: list[MatchFailure],
-    ) -> None:
-        """Perform batch ISRC lookup and map results into matches/failures."""
-        # Use MusicBrainz batch optimization
-        isrcs = [t.isrc for t in valid_tracks if t.isrc]
-        isrc_results = await self.connector_instance.batch_isrc_lookup(isrcs)
-
-        # Map results back to tracks
-        for track in valid_tracks:
-            track_id = track.id
-            if not track_id:
-                continue
-            if track.isrc and track.isrc in isrc_results:
-                recording = isrc_results[track.isrc]
-                if not recording:
-                    failures.append(
-                        create_and_log_failure(
-                            track_id,
-                            MatchFailureReason.NO_RESULTS,
-                            self.service_name,
-                            "isrc",
-                            f"No MusicBrainz MBID for ISRC: {track.isrc}",
-                        )
-                    )
-                    continue
-                raw_match = self._create_isrc_raw_match(recording)
-                if raw_match:
-                    matches[track_id] = raw_match
-                else:
-                    failures.append(
-                        create_and_log_failure(
-                            track_id,
-                            MatchFailureReason.INVALID_RESPONSE,
-                            self.service_name,
-                            "isrc",
-                            "Failed to create raw match from MusicBrainz response",
-                        )
-                    )
-            else:
-                failures.append(
-                    create_and_log_failure(
-                        track_id,
-                        MatchFailureReason.NO_RESULTS,
-                        self.service_name,
-                        "isrc",
-                        f"No MusicBrainz results for ISRC: {track.isrc}",
-                    )
-                )
-
-    @override
     async def _match_by_artist_title(
         self, tracks: list[Track]
     ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
@@ -139,7 +99,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
 
         Args:
             tracks: Tracks with artist and title to match (pre-validated by the
-                base partition).
+                strategy partition).
 
         Returns:
             Tuple of (matches dict, failures list).
@@ -176,8 +136,8 @@ class MusicBrainzProvider(BaseMatchingProvider):
 
     def _create_isrc_raw_match(
         self, recording: MusicBrainzRecording
-    ) -> RawProviderMatch | None:
-        """Create raw match data for ISRC-based matches.
+    ) -> RawProviderMatch:
+        """Create raw match data for an ISRC-based match — no business logic.
 
         The /isrc/{isrc} lookup already returns title/artist-credit/length —
         carry them into service_data so confidence scoring compares real
@@ -187,29 +147,23 @@ class MusicBrainzProvider(BaseMatchingProvider):
             recording: Validated MusicBrainz recording from the ISRC lookup
 
         Returns:
-            Raw provider match data or None if creation fails
+            Raw provider match data
         """
-        try:
-            artists: list[str] = [
-                credit.name for credit in recording.artist_credit if credit.name
-            ]
-            service_data: dict[str, JsonValue] = {
-                "mbid": recording.id,
-                "title": recording.title,
-                "artist": artists[0] if artists else "",
-                "artists": artists,
-                "duration_ms": recording.length,
-            }
-
-            return RawProviderMatch(
-                connector_id=recording.id,
-                match_method="isrc",
-                service_data=service_data,
-            )
-
-        except Exception as e:
-            logger.warning(f"Failed to create MusicBrainz ISRC raw match: {e}")
-            return None
+        artists: list[str] = [
+            credit.name for credit in recording.artist_credit if credit.name
+        ]
+        service_data: dict[str, JsonValue] = {
+            "mbid": recording.id,
+            "title": recording.title,
+            "artist": artists[0] if artists else "",
+            "artists": artists,
+            "duration_ms": recording.length,
+        }
+        return RawProviderMatch(
+            connector_id=recording.id,
+            match_method="isrc",
+            service_data=service_data,
+        )
 
     def _create_artist_title_raw_match(
         self, recording: MusicBrainzRecording

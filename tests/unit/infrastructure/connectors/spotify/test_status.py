@@ -1,0 +1,425 @@
+"""Unit tests for the Spotify connector status probe.
+
+``get_spotify_status`` scope read-back (v0.10.1): a stored grant narrower
+than ``SPOTIFY_SCOPES`` surfaces as ``auth_error="scope_missing"`` while the
+connection stays usable (``connected=True``), and ``refresh_failed`` keeps
+precedence.
+
+``fetch_spotify_profile`` (v0.11.2 P S4): parses ``GET /me`` into
+``(display_name, account_id)``. Development-mode payloads never carry
+``email``/``country``/``product`` (removed 2026-05) — parsing must not
+depend on them — and ``account_id`` (added 2026-05) may still be absent on
+an older captured payload shape, in which case it resolves to ``None``
+rather than raising. The fetch rides one pooled module-level client — built
+lazily, reused across probes, closed by ``aclose_profile_client``.
+"""
+
+import asyncio
+import time
+from unittest.mock import AsyncMock, patch
+
+import httpx2
+import pytest
+
+from src.domain.entities.connector import derive_status_state
+from src.infrastructure.connectors._shared.token_storage import StoredToken
+from src.infrastructure.connectors.spotify.auth import (
+    SPOTIFY_SCOPES,
+    SpotifyTokenManager,
+)
+import src.infrastructure.connectors.spotify.status as spotify_status
+from src.infrastructure.connectors.spotify.status import (
+    fetch_spotify_profile,
+    get_spotify_status,
+)
+
+FULL_SCOPE = " ".join(SPOTIFY_SCOPES)
+
+_SVC = "src.infrastructure.connectors.spotify.status"
+
+# Live-verified /me shape (2026-08-22 probe): email/country/product are
+# absent in development mode; account_id is Spotify's designated key for
+# external linkage (added 2026-05).
+_LIVE_ME_PAYLOAD: dict[str, object] = {
+    "account_id": "31l6exampleacct",
+    "display_name": "Test User",
+    "id": "spotifyuserid123",
+    "external_urls": {"spotify": "https://open.spotify.com/user/spotifyuserid123"},
+    "followers": {"href": None, "total": 0},
+    "href": "https://api.spotify.com/v1/me",
+    "images": [],
+    "type": "user",
+    "uri": "spotify:user:spotifyuserid123",
+}
+
+
+def _mock_me_client(payload: dict[str, object]) -> httpx2.AsyncClient:
+    transport = httpx2.MockTransport(
+        lambda _request: httpx2.Response(200, json=payload)
+    )
+    return httpx2.AsyncClient(transport=transport)
+
+
+class TestFetchSpotifyProfile:
+    async def test_parses_live_shaped_payload_without_email_country_product(
+        self,
+    ) -> None:
+        with patch(
+            f"{_SVC}._get_profile_client",
+            return_value=_mock_me_client(_LIVE_ME_PAYLOAD),
+        ):
+            display_name, account_id = await fetch_spotify_profile("token")
+
+        assert display_name == "Test User"
+        assert account_id == "31l6exampleacct"
+
+    async def test_missing_account_id_resolves_to_none(self) -> None:
+        payload = {k: v for k, v in _LIVE_ME_PAYLOAD.items() if k != "account_id"}
+        with patch(
+            f"{_SVC}._get_profile_client", return_value=_mock_me_client(payload)
+        ):
+            display_name, account_id = await fetch_spotify_profile("token")
+
+        assert display_name == "Test User"
+        assert account_id is None
+
+    async def test_http_failure_returns_both_none(self) -> None:
+        transport = httpx2.MockTransport(
+            lambda _request: httpx2.Response(500, json={"error": "boom"})
+        )
+        with patch(
+            f"{_SVC}._get_profile_client",
+            return_value=httpx2.AsyncClient(transport=transport),
+        ):
+            display_name, account_id = await fetch_spotify_profile("token")
+
+        assert display_name is None
+        assert account_id is None
+
+
+class TestProfileClientLifecycle:
+    """The pooled GET /me client: built lazily, reused across calls on the
+    same event loop, rebuilt when the loop changes, closed (and reset) by
+    ``aclose_profile_client`` on API shutdown."""
+
+    async def test_client_is_built_lazily_and_reused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(spotify_status, "_profile_client", None)
+        first = spotify_status._get_profile_client()
+        try:
+            assert spotify_status._get_profile_client() is first
+        finally:
+            await first.aclose()
+
+    async def test_aclose_closes_and_resets(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(spotify_status, "_profile_client", None)
+        client = spotify_status._get_profile_client()
+
+        await spotify_status.aclose_profile_client()
+
+        assert client.is_closed
+        assert spotify_status._profile_client is None
+        assert spotify_status._profile_client_loop is None
+
+    async def test_closed_client_is_rebuilt_on_next_use(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A probe racing shutdown must get a fresh open client, never the
+        # closed carcass.
+        monkeypatch.setattr(spotify_status, "_profile_client", None)
+        stale = spotify_status._get_profile_client()
+        await stale.aclose()
+
+        rebuilt = spotify_status._get_profile_client()
+        try:
+            assert rebuilt is not stale
+            assert not rebuilt.is_closed
+        finally:
+            await rebuilt.aclose()
+
+    def test_new_event_loop_gets_fresh_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A second in-process event loop (CLI action, per-user run_async
+        # script) must get a fresh client — reusing the first loop's pool
+        # would raise "Event loop is closed" on every fetch.
+        monkeypatch.setattr(spotify_status, "_profile_client", None)
+        monkeypatch.setattr(spotify_status, "_profile_client_loop", None)
+
+        async def build() -> httpx2.AsyncClient:
+            return spotify_status._get_profile_client()
+
+        async def rebuild_and_close() -> httpx2.AsyncClient:
+            rebuilt = spotify_status._get_profile_client()
+            await rebuilt.aclose()
+            return rebuilt
+
+        first = asyncio.run(build())
+        second = asyncio.run(rebuild_and_close())
+
+        assert second is not first
+        # The first-loop client is dropped, not closed — aclose() would have
+        # to await on its dead loop.
+        assert not first.is_closed
+        # Never used, so no loop-bound connections: safe to close elsewhere.
+        asyncio.run(first.aclose())
+
+
+def make_storage(token: StoredToken | None) -> AsyncMock:
+    storage = AsyncMock()
+    storage.load_token = AsyncMock(return_value=token)
+    storage.save_token = AsyncMock()
+    return storage
+
+
+def make_token(
+    *, expires_at: int | None = None, scope: str | None = None
+) -> StoredToken:
+    token = StoredToken(
+        access_token="access",
+        refresh_token="refresh",
+        expires_at=expires_at if expires_at is not None else int(time.time()) + 3600,
+        account_name="testuser",
+    )
+    if scope is not None:
+        token["scope"] = scope
+    return token
+
+
+class TestScopeGapDetection:
+    async def test_stale_scope_reports_scope_missing_but_stays_connected(self) -> None:
+        token = make_token(scope="user-library-read playlist-read-private")
+        status = await get_spotify_status("u1", storage=make_storage(token))
+
+        assert status.auth_error == "scope_missing"
+        assert status.connected is True
+        assert status.account_name == "testuser"
+
+    async def test_legacy_token_without_scope_key_reports_scope_missing(self) -> None:
+        status = await get_spotify_status("u1", storage=make_storage(make_token()))
+
+        assert status.auth_error == "scope_missing"
+        assert status.connected is True
+
+    async def test_full_scope_token_is_clean(self) -> None:
+        token = make_token(scope=FULL_SCOPE)
+        status = await get_spotify_status("u1", storage=make_storage(token))
+
+        assert status.auth_error is None
+        assert status.connected is True
+
+    async def test_no_token_is_disconnected_without_error(self) -> None:
+        status = await get_spotify_status("u1", storage=make_storage(None))
+
+        assert status.connected is False
+        assert status.auth_error is None
+
+    async def test_token_without_refresh_token_is_disconnected(self) -> None:
+        # No refresh_token means the connection can't be sustained.
+        token = StoredToken(access_token="access", expires_at=int(time.time()) + 3600)
+        status = await get_spotify_status("u1", storage=make_storage(token))
+
+        assert status.connected is False
+
+
+class TestRefreshInteraction:
+    async def test_expired_grant_surfaces_reauth_required(self) -> None:
+        # Spotify's 6-month refresh grant aged out: the silent refresh raises
+        # SpotifyReauthRequiredError (token already deleted at the detection
+        # site). Mirrors Apple Music's convention for expected credential
+        # aging — connected=True + reauth_required derives to needs_reauth
+        # ("one click to fix"), never refresh_failed or "expired".
+        from src.domain.exceptions import SpotifyReauthRequiredError
+
+        token = make_token(expires_at=int(time.time()) - 3600, scope=FULL_SCOPE)
+        with patch.object(
+            SpotifyTokenManager,
+            "try_silent_refresh",
+            AsyncMock(side_effect=SpotifyReauthRequiredError()),
+        ):
+            status = await get_spotify_status("u1", storage=make_storage(token))
+
+        assert status.auth_error == "reauth_required"
+        assert status.connected is True
+        assert derive_status_state(status) == "needs_reauth"
+
+    async def test_refresh_failure_takes_precedence_over_scope_gap(self) -> None:
+        token = make_token(expires_at=int(time.time()) - 3600, scope="old-scope")
+        with patch.object(
+            SpotifyTokenManager, "try_silent_refresh", AsyncMock(return_value=None)
+        ):
+            status = await get_spotify_status("u1", storage=make_storage(token))
+
+        assert status.auth_error == "refresh_failed"
+        assert status.connected is False
+
+    async def test_refreshed_scope_is_authoritative_for_gap_check(self) -> None:
+        # Stored token has a stale scope, but Spotify echoes the real grant
+        # on refresh — the refreshed scope must win the comparison.
+        token = make_token(expires_at=int(time.time()) - 3600, scope="old-scope")
+        refreshed = {
+            "access_token": "new-access",
+            "refresh_token": "refresh",
+            "expires_at": int(time.time()) + 3600,
+            "scope": FULL_SCOPE,
+        }
+        with patch.object(
+            SpotifyTokenManager, "try_silent_refresh", AsyncMock(return_value=refreshed)
+        ):
+            status = await get_spotify_status("u1", storage=make_storage(token))
+
+        assert status.auth_error is None
+        assert status.connected is True
+
+
+class TestAccountIdBackfill:
+    """The status probe writes ``extra_data.account_id`` back onto the stored
+    token when it's missing — mirrors the Apple storefront best-effort
+    write-back pattern. It only fetches when something is actually missing."""
+
+    async def test_backfills_account_id_on_a_token_with_no_cached_name(self) -> None:
+        token = StoredToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=int(time.time()) + 3600,
+        )
+        storage = make_storage(token)
+        with patch(
+            f"{_SVC}.fetch_spotify_profile",
+            AsyncMock(return_value=("Fresh Name", "acct-999")),
+        ):
+            status = await get_spotify_status("u1", storage=storage)
+
+        assert status.account_name == "Fresh Name"
+        # Narrow write: only the delta travels, token columns untouched.
+        storage.update_extra_data.assert_awaited_once_with(
+            "spotify", "u1", {"account_id": "acct-999"}, account_name="Fresh Name"
+        )
+        storage.save_token.assert_not_awaited()
+
+    async def test_backfills_account_id_when_name_already_cached(self) -> None:
+        # A pre-v0.11.2 token already has account_name cached — only
+        # account_id is missing from extra_data.
+        token = StoredToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=int(time.time()) + 3600,
+            account_name="testuser",
+        )
+        storage = make_storage(token)
+        with patch(
+            f"{_SVC}.fetch_spotify_profile",
+            AsyncMock(return_value=("testuser", "acct-abc")),
+        ) as mock_fetch:
+            status = await get_spotify_status("u1", storage=storage)
+
+        mock_fetch.assert_awaited_once_with("access")
+        assert status.account_name == "testuser"
+        # The name is already cached, so only account_id is written.
+        storage.update_extra_data.assert_awaited_once_with(
+            "spotify", "u1", {"account_id": "acct-abc"}, account_name=None
+        )
+        storage.save_token.assert_not_awaited()
+
+    async def test_no_fetch_when_name_and_account_id_already_cached(self) -> None:
+        token = StoredToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=int(time.time()) + 3600,
+            account_name="testuser",
+            extra_data={"account_id": "acct-already-there"},
+        )
+        storage = make_storage(token)
+        with patch(f"{_SVC}.fetch_spotify_profile", AsyncMock()) as mock_fetch:
+            status = await get_spotify_status("u1", storage=storage)
+
+        mock_fetch.assert_not_awaited()
+        storage.save_token.assert_not_awaited()
+        storage.update_extra_data.assert_not_awaited()
+        assert status.account_name == "testuser"
+
+    async def test_marker_short_circuits_probe_with_cached_name(self) -> None:
+        # A prior probe already asked /me and got no account_id back — the
+        # unavailable marker must stop every later probe from re-fetching
+        # (and re-upserting) on a token that will never yield one.
+        token = StoredToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=int(time.time()) + 3600,
+            account_name="testuser",
+            extra_data={"account_id_unavailable": True},
+        )
+        storage = make_storage(token)
+        with patch(f"{_SVC}.fetch_spotify_profile", AsyncMock()) as mock_fetch:
+            status = await get_spotify_status("u1", storage=storage)
+
+        mock_fetch.assert_not_awaited()
+        storage.save_token.assert_not_awaited()
+        storage.update_extra_data.assert_not_awaited()
+        assert status.account_name == "testuser"
+
+    async def test_fetch_without_account_id_stamps_unavailable_marker(self) -> None:
+        # /me answered but carried no account_id (older payload shape): stamp
+        # the marker in the one save so the next probe short-circuits.
+        token = StoredToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=int(time.time()) + 3600,
+            account_name="testuser",
+        )
+        storage = make_storage(token)
+        with patch(
+            f"{_SVC}.fetch_spotify_profile",
+            AsyncMock(return_value=("testuser", None)),
+        ):
+            _ = await get_spotify_status("u1", storage=storage)
+
+        storage.update_extra_data.assert_awaited_once_with(
+            "spotify", "u1", {"account_id_unavailable": True}, account_name=None
+        )
+        storage.save_token.assert_not_awaited()
+
+    async def test_failed_fetch_saves_nothing(self) -> None:
+        # A network failure teaches nothing — no marker, no upsert; the next
+        # probe simply tries again.
+        token = StoredToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=int(time.time()) + 3600,
+        )
+        storage = make_storage(token)
+        with patch(
+            f"{_SVC}.fetch_spotify_profile",
+            AsyncMock(return_value=(None, None)),
+        ) as mock_fetch:
+            status = await get_spotify_status("u1", storage=storage)
+
+        mock_fetch.assert_awaited_once()
+        storage.save_token.assert_not_awaited()
+        storage.update_extra_data.assert_not_awaited()
+        assert status.account_name is None
+
+    async def test_backfill_sends_only_the_delta(self) -> None:
+        # Sibling extra_data keys (authorized_at, ...) are preserved by the
+        # storage-level jsonb merge — the probe must send ONLY the delta so
+        # the narrow write can never clobber concurrent state.
+        token = StoredToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=int(time.time()) + 3600,
+            account_name="testuser",
+            extra_data={"authorized_at": 1_700_000_000},
+        )
+        storage = make_storage(token)
+        with patch(
+            f"{_SVC}.fetch_spotify_profile",
+            AsyncMock(return_value=("testuser", "acct-xyz")),
+        ):
+            _ = await get_spotify_status("u1", storage=storage)
+
+        storage.update_extra_data.assert_awaited_once_with(
+            "spotify", "u1", {"account_id": "acct-xyz"}, account_name=None
+        )

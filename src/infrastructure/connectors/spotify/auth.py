@@ -25,7 +25,6 @@ import urllib.parse
 from attrs import define, field
 
 from src.config import get_logger, settings
-from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import (
     SpotifyAuthRequiredError,
     SpotifyReauthRequiredError,
@@ -39,8 +38,11 @@ from src.infrastructure.connectors._shared.http_client import (
 from src.infrastructure.connectors._shared.oauth import (
     BearerAuth,
     capture_loopback_redirect,
+    carry_forward_token_fields,
     compute_pkce_challenge,
+    delete_grant_if_unchanged,
     is_invalid_grant,
+    token_expired,
 )
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
@@ -174,16 +176,6 @@ class SpotifyTokenManager:
             "spotify", self.user_id, cast(StoredToken, token_info)
         )
 
-    @staticmethod
-    def _is_expired(token_info: SpotifyTokenCache) -> bool:
-        """Return True if token will expire within 300 seconds (5 minutes).
-
-        The 300-second buffer gives ample headroom against Spotify's server
-        clock skew or early invalidation — tokens are valid for 3600s, so
-        we still use each token for ~55 minutes before proactively refreshing.
-        """
-        return int(time.time()) > token_info.get("expires_at", 0) - 300
-
     # -------------------------------------------------------------------------
     # OAUTH FLOWS
     # -------------------------------------------------------------------------
@@ -221,62 +213,27 @@ class SpotifyTokenManager:
                     "Spotify refresh rejected with invalid_grant — refresh "
                     "grant expired or revoked; reauthorization required"
                 )
-                # Delete-if-unchanged: a stale manager (long-lived worker, or
-                # a race with the connect flow) may hold a refresh token that
-                # was already superseded. Only delete the stored row if it
-                # still carries the refresh token that just failed — deleting
-                # on a mismatch would destroy a NEWER, working grant.
-                stored = await self.storage.load_token("spotify", self.user_id)
-                if stored is not None and stored.get("refresh_token") == refresh_token:
-                    await self.storage.delete_token("spotify", self.user_id)
-                else:
-                    logger.info(
-                        "Skipping dead-token deletion — stored refresh token "
-                        "differs from the one that failed (a newer grant exists)"
-                    )
+                await delete_grant_if_unchanged(
+                    self.storage, "spotify", self.user_id, refresh_token
+                )
                 self._token_info = None
                 raise SpotifyReauthRequiredError
             _ = response.raise_for_status()
             raw = parse_json_response(response)
 
-        # Spotify sometimes omits refresh_token in refresh responses — preserve the old one
-        if "refresh_token" not in raw:
-            raw["refresh_token"] = refresh_token
-
-        # It may omit `scope` for the same reason, and this response is persisted
-        # verbatim. Losing the key reads downstream as "the grant covers nothing"
-        # — a bogus re-consent prompt on the connector card, and a 409
-        # CONNECTOR_SCOPE_MISSING on the scope-gated routes, for a user whose
-        # authorization is entirely intact. Carry the known grant forward.
-        previous_scope = self._token_info.get("scope") if self._token_info else None
-        if "scope" not in raw and previous_scope:
-            raw["scope"] = previous_scope
-
-        # extra_data is ours, never Spotify's — carry it forward verbatim so
-        # authorized_at (the anchor of the 6-month refresh-grant window, which
-        # a refresh does not extend) survives every refresh.
-        previous_extra = (
-            self._token_info.get("extra_data") if self._token_info else None
-        )
-        if previous_extra is not None:
-            raw["extra_data"] = cast("dict[str, JsonValue]", previous_extra)
-
-        # account_name is likewise ours (the status probe's /me backfill),
-        # never in Spotify's response — without the carry-forward every silent
-        # refresh nulls the connector card's display name until the next probe
-        # re-fetches it.
-        previous_name = (
-            self._token_info.get("account_name") if self._token_info else None
-        )
-        if previous_name is not None:
-            raw["account_name"] = previous_name
-
         expires_in = raw.get("expires_in", 3600)
         raw["expires_at"] = int(time.time()) + (
             expires_in if isinstance(expires_in, int) else 3600
         )
+        # Spotify may omit refresh_token and scope from a refresh response, and
+        # extra_data/account_name are ours (authorized_at anchors the 6-month
+        # refresh-grant window; account_name is the status probe's /me
+        # backfill) — carry all four forward from the cached token.
+        merged = carry_forward_token_fields(
+            cast("StoredToken", raw), cast("StoredToken | None", self._token_info)
+        )
         logger.debug("Spotify access token refreshed successfully")
-        return cast(SpotifyTokenCache, raw)
+        return cast("SpotifyTokenCache", merged)
 
     def run_browser_auth(self) -> str:
         """Run Authorization Code flow: open browser, capture redirect code.
@@ -381,7 +338,9 @@ class SpotifyTokenManager:
                 self._token_info = await self._load_from_storage()
 
             # Refresh expired token
-            if self._token_info and self._is_expired(self._token_info):
+            if self._token_info and token_expired(
+                cast("StoredToken", self._token_info)
+            ):
                 logger.debug("Spotify access token expired — refreshing")
                 self._token_info = await self._refresh_token(
                     self._token_info["refresh_token"]
@@ -419,7 +378,7 @@ class SpotifyTokenManager:
                 self._token_info = await self._load_from_storage()
             if self._token_info is None:
                 return None
-            if not self._is_expired(self._token_info):
+            if not token_expired(cast("StoredToken", self._token_info)):
                 return self._token_info
             try:
                 self._token_info = await self._refresh_token(

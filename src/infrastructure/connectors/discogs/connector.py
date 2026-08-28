@@ -90,14 +90,11 @@ class DiscogsConnector:
 
 def get_connector_config() -> ConnectorConfig:
     """Discogs connector configuration."""
-    from src.infrastructure.connectors._shared.connector_status import (
-        get_discogs_status,
-    )
+    from src.infrastructure.connectors.discogs.status import get_discogs_status
 
     return {
-        "dependencies": [],
-        "factory": lambda _params: DiscogsConnector(),
-        # No register_metrics — enrichment is out of scope this cycle.
+        "factory": DiscogsConnector,
+        # No metrics — enrichment is out of scope this cycle.
         "metrics": {},
         "display_name": "Discogs",
         "category": "physical",

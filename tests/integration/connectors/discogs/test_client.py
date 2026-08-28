@@ -279,16 +279,26 @@ class TestRateHeaderSelfCorrection:
     ):
         # The client must run apply_rate_headers on every API response —
         # a low X-Discogs-Ratelimit-Remaining pauses the shared limiter.
-        from src.infrastructure.connectors.discogs import pacer
+        from contextlib import asynccontextmanager
+
+        from src.infrastructure.connectors._shared import rate_limiting
 
         pauses: list[float] = []
 
         class RecordingLimiter:
+            rate_per_second: float | None = 1.0
+
             def pause_for(self, seconds: float) -> None:
                 pauses.append(seconds)
 
+            @asynccontextmanager
+            async def hold_call_slot(self):
+                yield
+
         monkeypatch.setattr(
-            pacer, "get_connector_rate_limiter", lambda _name: RecordingLimiter()
+            rate_limiting,
+            "get_connector_rate_limiter",
+            lambda _name: RecordingLimiter(),
         )
 
         def low_headroom(_request: httpx2.Request) -> httpx2.Response:
@@ -302,7 +312,7 @@ class TestRateHeaderSelfCorrection:
 
         _ = await client.get_identity()
 
-        assert pauses == [4.0]  # (LOW_WATER 5 - 2 + 1) * 1.0
+        assert pauses == [4.0]  # (rate_low_water 5 - 2 + 1) / rate 1.0
 
 
 class TestInstanceWideSerialization:
@@ -334,7 +344,9 @@ class TestImageClient:
         from src.infrastructure.connectors._shared.http_client import (
             make_discogs_image_client,
         )
-        from src.infrastructure.connectors.discogs.pacer import get_discogs_queue
+        from src.infrastructure.connectors._shared.rate_limiting import (
+            connector_call_slot,
+        )
 
         requests: list[httpx2.Request] = []
 
@@ -345,8 +357,8 @@ class TestImageClient:
         image_client = make_discogs_image_client()
         image_client._transport = httpx2.MockTransport(handler)
 
-        # Held API queue must not block an image fetch — separate bucket.
-        async with get_discogs_queue():
+        # A held API call slot must not block an image fetch — separate bucket.
+        async with connector_call_slot("discogs"):
             async with image_client:
                 response = await image_client.get("/rel/1477251.jpg")
 

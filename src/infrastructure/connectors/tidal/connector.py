@@ -105,15 +105,12 @@ class TidalConnector:
 
 def get_connector_config() -> ConnectorConfig:
     """Tidal connector configuration."""
-    from src.infrastructure.connectors._shared.connector_status import (
-        get_tidal_status,
-    )
     from src.infrastructure.connectors.tidal.auth import build_auth_url
+    from src.infrastructure.connectors.tidal.status import get_tidal_status
 
     return {
-        "dependencies": [],
-        "factory": lambda _params: TidalConnector(),
-        # No register_metrics — enrichment is out of scope this cycle.
+        "factory": TidalConnector,
+        # No metrics — enrichment is out of scope this cycle.
         "metrics": {},
         "display_name": "TIDAL",
         "category": "streaming",

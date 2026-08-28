@@ -1,15 +1,16 @@
 """Tests for AppleMusicMatchingProvider — conservative ISRC-only matching.
 
 Validates the provider's ISRC batch lookup (chunking delegated to the client),
-the ``supports_artist_title_matching = False`` contract (no artist/title
-funnel, ever), the no-storefront failure path, and the failed-chunk path
-(unanswered ISRCs fail as API_ERROR, never NO_RESULTS).
+the ``IsrcOnly`` strategy contract (no artist/title funnel, ever), the
+no-storefront failure path, and the failed-chunk path (unanswered ISRCs fail
+as API_ERROR, never NO_RESULTS).
 """
 
 from unittest.mock import AsyncMock, patch
 
 from src.domain.entities import Artist, Track
 from src.domain.matching.types import MatchFailureReason
+from src.infrastructure.connectors._shared.matching_provider import IsrcOnly
 from src.infrastructure.connectors.apple_music.client import CatalogSongsLookup
 from src.infrastructure.connectors.apple_music.matching_provider import (
     AppleMusicMatchingProvider,
@@ -40,17 +41,10 @@ class TestServiceContract:
         provider, _, _ = _make_provider()
         assert provider.service_name == "apple"
 
-    def test_artist_title_matching_unsupported(self):
-        assert AppleMusicMatchingProvider.supports_artist_title_matching is False
-
-    async def test_match_by_artist_title_raises_not_implemented(self):
+    def test_strategy_is_isrc_only(self):
+        """No artist/title phase exists — the strategy has no such hook."""
         provider, _, _ = _make_provider()
-        try:
-            await provider._match_by_artist_title([_isrc_track()])
-        except NotImplementedError:
-            pass
-        else:
-            raise AssertionError("expected NotImplementedError")
+        assert isinstance(provider._match_strategy(), IsrcOnly)
 
 
 class TestIsrcMatching:
@@ -92,15 +86,11 @@ class TestIsrcMatching:
         assert len(result.matches) == 30
 
     async def test_isrc_miss_fails_without_artist_title_fallback(self):
-        """ISRC miss → NO_RESULTS failure; the fallback funnel never fires."""
+        """ISRC miss → NO_RESULTS failure; no second-chance search runs."""
         provider, client, _ = _make_provider(songs=[])
         track = _isrc_track("USUM72309818")
 
-        at_mock = AsyncMock()
-        with (
-            patch(STOREFRONT_PATCH, AsyncMock(return_value="us")),
-            patch.object(AppleMusicMatchingProvider, "_match_by_artist_title", at_mock),
-        ):
+        with patch(STOREFRONT_PATCH, AsyncMock(return_value="us")):
             result = await provider.fetch_raw_matches_for_tracks([track])
 
         assert not result.matches
@@ -110,24 +100,19 @@ class TestIsrcMatching:
         assert failure.reason == MatchFailureReason.NO_RESULTS
         assert failure.method == "isrc"
         assert failure.service == "apple"
-        at_mock.assert_not_awaited()
+        client.get_songs_by_isrc.assert_awaited_once()
 
     async def test_track_without_isrc_fails_without_artist_title_call(self):
-        """No ISRC → NO_ISRC failure from the base template, no funnel."""
+        """No ISRC → NO_ISRC failure from the IsrcOnly strategy, no lookup."""
         provider, client, _ = _make_provider()
         track = Track(title="No Code", artists=[Artist(name="Someone")])
 
-        at_mock = AsyncMock()
-        with (
-            patch(STOREFRONT_PATCH, AsyncMock(return_value="us")),
-            patch.object(AppleMusicMatchingProvider, "_match_by_artist_title", at_mock),
-        ):
+        with patch(STOREFRONT_PATCH, AsyncMock(return_value="us")):
             result = await provider.fetch_raw_matches_for_tracks([track])
 
         assert not result.matches
         assert len(result.failures) == 1
         assert result.failures[0].reason == MatchFailureReason.NO_ISRC
-        at_mock.assert_not_awaited()
         client.get_songs_by_isrc.assert_not_awaited()
 
     async def test_no_storefront_fails_batch_cleanly(self):

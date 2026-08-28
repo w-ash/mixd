@@ -6,9 +6,23 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.5] — 2026-08-28
+
+**Big imports run faster, and adding the seventh connector no longer means writing the seventh copy.** Apple catalog lookups fetch concurrently instead of one round trip at a time, Last.fm cross-discovery batches what it used to ask one identifier at a time, playlist sync drops pure sleep time stacked on an already-paced client, and every service's rate budget is enforced by exactly one mechanism. Behavior-preserving except where the duplication itself was the bug.
+
+- **One write pipeline.** The inward-resolver persist path (collision reviews → creates → mappings → substitution events) existed three times with drift — Apple lacked Tidal's duplicate-creation guard and misfiled rolled-back writes as dead identifiers. It now lives once in `_shared` (`WritePlanningResolver`), with Apple/Tidal/Spotify as adapters; `write_failed` is reported correctly by every resolver.
+- **One match workflow.** A `MatchStrategy` protocol (ISRC-then-artist/title, ISRC-only, single-batch) replaced the template's escape hatches and Last.fm's hand-copied shell; a progress double-count that failed whole web matching runs on ISRC-miss fallback is fixed in the now-single ISRC phase.
+- **One request pacer.** The 429-line single-caller batch processor, the hand-rolled MusicBrainz limiter, and four redundant pacing sleeps are gone; the shared limiter gains config-driven concurrency caps and the Discogs header brake (generalized from `pacer.py`, now deleted), and rate-less services hold a shared pause on 429 — closing the hole where four of five concurrent Tidal calls kept firing into a limited window.
+- **Connectors wire themselves.** Importers, play resolvers, cross-discovery, disconnect cleanup, and polling support are declared in each connector's own config; the hand-maintained registry table and the `if service == "spotify"` route checks are deleted.
+- **ListenBrainz actually works now.** The lookup's request/response contract was provably broken (every request 400'd on a missing required field); it's rebuilt on a real client with its own rate budget, boundary-validated, batch-deduplicated, and wired live for the first time.
+- **Leak-free teardown.** The Last.fm resolver chain closes all the connection pools it owns; MusicBrainz outages classify as API errors instead of being persisted as permanent "no results"; malformed Spotify bodies surface as connector-flavored errors like every other service.
+- Net −1,100 source lines across 150+ files; Apple's resolver shrank 491→279, Tidal's 589→398, Spotify's 1310→1085.
+
+→ [details](docs/backlog/v0.11.x.md#v0115-connector-quality-sweep)
+
 ## [0.11.4] — 2026-08-27
 
-**Whatever you just did, the screen showing it is already true.** Connect a service, finish an import, save a workflow, remove a track, run a schedule — every surface displaying the result refreshes itself, without a reload and without the wrong one refreshing instead. What an action changed is now declared once, in one vocabulary shared by the server and the browser, rather than guessed at each of ~40 call sites where a forgotten query key shipped as a stale page.
+**Pages stay up to date automatically.** Connect a service, finish an import, save a workflow, remove a track, or run a schedule — every page showing the result updates without a reload. Each action declares what it changed in one place, using the same names on the server and in the browser, replacing ~40 separate spots that each guessed which pages to refresh and showed stale data when the guess was wrong.
 
 - **One vocabulary, derived not registered.** Cache tags name resource families (`playlists`, `checkpoints`, `connectors`, …) and are derived from the request path by an ordered rule table, so a new endpoint under an existing family needs no bookkeeping and a new path family fails a parity test until a rule exists. Read-side dependency declarations (a tag list depends on tracks) removed the need for a separate write-fanout map.
 - **One mechanism, two triggers.** A global mutation handler invalidates from the tags a write carries, and long-operation terminal events carry tags the *server* names — so a button click and a finished import stale the cache through identical code. The per-page key lists each trigger used to guess are gone.

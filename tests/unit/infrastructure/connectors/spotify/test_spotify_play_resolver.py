@@ -96,6 +96,11 @@ def _resolver_and_uow(duration_ms: int = 300000):
     return resolver, uow
 
 
+def _ids_by_play(resolver, plays):
+    """The chunk's once-parsed id map ``resolve_connector_plays`` builds."""
+    return {cp.id: resolver._extract_spotify_id_from_connector_play(cp) for cp in plays}
+
+
 def _ids_and_hints(resolver, plays):
     """Call the extraction seam the way an all-eligible chunk does.
 
@@ -103,7 +108,9 @@ def _ids_and_hints(resolver, plays):
     only matters when a chunk carries incognito plays (see the pre-filter
     tests).
     """
-    return resolver._extract_ids_and_hints(plays, evidence_plays=plays)
+    return resolver._extract_ids_and_hints(
+        plays, evidence_plays=plays, ids_by_play=_ids_by_play(resolver, plays)
+    )
 
 
 class TestShouldIncludeSpotifyPlay:
@@ -962,9 +969,29 @@ class TestResolverMetrics:
             "fallback_resolved",
             "redirect_resolved",
             "dead_ids_unresolved",
+            "reused_tracks",
+            "suppressed",
+            "degraded_persists",
+            "write_failed",
             "isrc_suspect_deferred",
         }
         assert expected_keys == set(metrics.keys())
+
+    async def test_empty_and_resolved_chunks_report_the_same_key_set(self):
+        """The empty case builds through the same key list as the main path.
+
+        Pins out the drift where the hand-rolled empty dict omitted the
+        reused/suppressed/persist keys the main path reported.
+        """
+        resolver, uow = _resolver_and_uow()
+        play = _make_connector_play(ms_played=300000)
+
+        resolved = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
+        empty = await resolver.resolve_connector_plays([], uow, user_id="test-user")
+
+        assert set(empty.metrics.keys()) == set(resolved.metrics.keys())
 
     async def test_mixed_play_metrics_correct(self):
         """Multiple plays with different outcomes should produce correct aggregate metrics."""
@@ -1068,7 +1095,7 @@ class TestIncognitoPreFilter:
 
         requested_ids = inward.resolve_to_canonical_tracks.await_args.args[0]
         assert requested_ids == ["4iV5W9uYEdYUVa79Axb7Rh"]
-        hints = inward.resolve_to_canonical_tracks.await_args.kwargs["fallback_hints"]
+        hints = inward.resolve_to_canonical_tracks.await_args.kwargs["hints"]
         assert set(hints) == {"4iV5W9uYEdYUVa79Axb7Rh"}
         assert outcome.metrics["incognito_excluded"] == 1
         assert outcome.metrics["accepted_plays"] == 1
@@ -1098,6 +1125,7 @@ class TestIncognitoPreFilter:
         _ids, hints = resolver._extract_ids_and_hints(
             [eligible_skip],
             evidence_plays=[eligible_skip, incognito_completed],
+            ids_by_play=_ids_by_play(resolver, [eligible_skip, incognito_completed]),
         )
 
         assert hints["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 216_000

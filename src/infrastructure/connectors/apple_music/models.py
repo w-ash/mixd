@@ -17,7 +17,8 @@ Endpoint coverage:
 - GET /v1/catalog/{storefront}/songs        → AppleMusicSongsResponse
   (ids=, filter[isrc]=, filter[equivalents]= all share the envelope)
 - GET /v1/me/recent/played/tracks           → AppleMusicRecentlyPlayedResponse
-- JSON:API error bodies                     → AppleMusicErrorResponse
+
+JSON:API error bodies parse via the shared ``_shared.json_api`` models.
 """
 
 from typing import ClassVar
@@ -95,19 +96,3 @@ class AppleMusicRecentlyPlayedResponse(AppleMusicBaseModel):
 
     data: list[AppleMusicSong] = Field(default_factory=list)
     next: str | None = Field(default=None)
-
-
-class AppleMusicError(AppleMusicBaseModel):
-    """One JSON:API error object. Every field defensive — shapes unverified."""
-
-    id: str | None = Field(default=None)
-    title: str | None = Field(default=None)
-    detail: str | None = Field(default=None)
-    status: str | None = Field(default=None)
-    code: str | None = Field(default=None)
-
-
-class AppleMusicErrorResponse(AppleMusicBaseModel):
-    """JSON:API error envelope: ``{"errors": [...]}``."""
-
-    errors: list[AppleMusicError] = Field(default_factory=list)

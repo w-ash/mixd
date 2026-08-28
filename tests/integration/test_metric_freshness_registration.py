@@ -1,32 +1,38 @@
-"""Integration test: end-to-end freshness propagation from settings → connectors → registry.
+"""Integration test: settings → connector config → discovery → metric registry.
 
-Validates that importing a connector module populates the metric registry
-with freshness values derived from FreshnessConfig in settings.
+Validates that connector discovery registers each connector's declared
+metrics with field mappings and freshness values derived from
+FreshnessConfig in settings.
 """
 
 import pytest
 
 from src.config.settings import settings
+from src.infrastructure.connectors import discovery
 from src.infrastructure.connectors._shared.metric_registry import (
     _connector_metrics,
     _field_mappings,
     _metric_freshness,
+    get_connector_metrics,
+    get_field_name,
     get_metric_freshness,
 )
 
 
 @pytest.fixture(autouse=True)
-def _clean_registries():
-    """Snapshot and restore global registries between tests.
+def _fresh_discovery(monkeypatch: pytest.MonkeyPatch):
+    """Force a fresh discovery run and restore all global state afterwards.
 
-    Connector modules run register_metrics() at import time, so the registries
-    may already be populated. We snapshot, let the test run, then restore.
+    Discovery caches its registry process-wide and registers metrics only on
+    a fresh run, so the cache is reset before each test and the metric
+    registries are snapshotted and restored.
     """
     saved = (
         dict(_connector_metrics),
         dict(_field_mappings),
         dict(_metric_freshness),
     )
+    monkeypatch.setattr(discovery, "_connectors_cache", None)
     yield
     _connector_metrics.clear()
     _connector_metrics.update(saved[0])
@@ -36,46 +42,39 @@ def _clean_registries():
     _metric_freshness.update(saved[2])
 
 
-class TestLastFMFreshnessRegistration:
-    """After importing lastfm connector, freshness matches settings."""
+class TestDiscoveryRegistersLastFmMetrics:
+    """After discovery, Last.fm metrics and freshness match declarations."""
 
-    def test_lastfm_user_playcount_freshness(self):
-        # Force re-import to trigger registration (already imported at module level)
-        from src.infrastructure.connectors.lastfm.connector import (
-            LastFmMetricResolver,  # ruff:ignore[unused-import]
-        )
+    def test_metrics_registered_for_connector(self):
+        discovery.discover_connectors()
 
-        assert (
-            get_metric_freshness("lastfm_user_playcount")
-            == settings.freshness.lastfm_hours
-        )
+        assert set(get_connector_metrics("lastfm")) >= {
+            "lastfm_user_playcount",
+            "lastfm_global_playcount",
+            "lastfm_listeners",
+        }
 
-    def test_lastfm_global_playcount_freshness(self):
-        from src.infrastructure.connectors.lastfm.connector import (
-            LastFmMetricResolver,  # ruff:ignore[unused-import]
-        )
+    def test_freshness_matches_settings(self):
+        discovery.discover_connectors()
 
-        assert (
-            get_metric_freshness("lastfm_global_playcount")
-            == settings.freshness.lastfm_hours
-        )
-
-    def test_lastfm_listeners_freshness(self):
-        from src.infrastructure.connectors.lastfm.connector import (
-            LastFmMetricResolver,  # ruff:ignore[unused-import]
-        )
-
-        assert (
-            get_metric_freshness("lastfm_listeners") == settings.freshness.lastfm_hours
-        )
+        for metric in (
+            "lastfm_user_playcount",
+            "lastfm_global_playcount",
+            "lastfm_listeners",
+        ):
+            assert get_metric_freshness(metric) == settings.freshness.lastfm_hours
 
 
-class TestSpotifyFreshnessRegistration:
-    """After importing spotify connector, freshness matches settings."""
+class TestDiscoveryRegistersSpotifyMetrics:
+    """After discovery, Spotify metrics and freshness match declarations."""
+
+    def test_explicit_flag_registered(self):
+        discovery.discover_connectors()
+
+        assert "explicit_flag" in get_connector_metrics("spotify")
+        assert get_field_name("explicit_flag") == "explicit"
 
     def test_explicit_flag_freshness(self):
-        from src.infrastructure.connectors.spotify.connector import (
-            SpotifyMetricResolver,  # ruff:ignore[unused-import]
-        )
+        discovery.discover_connectors()
 
         assert get_metric_freshness("explicit_flag") == settings.freshness.spotify_hours

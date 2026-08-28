@@ -1,7 +1,9 @@
 """MusicBrainz API client — native async httpx2 wrapper.
 
 Provides a thin wrapper around the MusicBrainz JSON API with:
-- Rate limiting (1 request/second per API policy)
+- Process-wide pacing via the shared ``ConnectorRateLimiter``
+  (``settings.api.musicbrainz.rate_limit``, the documented 1 req/s policy),
+  applied by ``BaseAPIClient._api_call``
 - Centralized retry policy via tenacity
 - ISRC lookup via dedicated ``/isrc/{isrc}`` endpoint
 - Recording search via Lucene query syntax
@@ -9,8 +11,6 @@ Provides a thin wrapper around the MusicBrainz JSON API with:
 No authentication required — MusicBrainz read-only endpoints are public.
 """
 
-import asyncio
-import time
 from typing import ClassVar, override
 
 from attrs import define, field
@@ -33,10 +33,11 @@ logger = get_logger(__name__).bind(service="musicbrainz_client")
 
 @define(slots=True)
 class MusicBrainzAPIClient(BaseAPIClient):
-    """Pure MusicBrainz API client with rate limiting and centralized retry policy.
+    """Pure MusicBrainz API client with centralized retry policy.
 
     Uses native httpx2 AsyncClient instead of musicbrainzngs, providing true
-    async I/O and consistent httpx2 error types for classification.
+    async I/O and consistent httpx2 error types for classification. Pacing
+    comes from the shared per-service rate limiter inside ``_api_call``.
     """
 
     _SUPPRESS_ERRORS: ClassVar[tuple[type[BaseException], ...]] = (
@@ -45,8 +46,6 @@ class MusicBrainzAPIClient(BaseAPIClient):
     )
 
     _client: httpx2.AsyncClient = field(init=False, repr=False)
-    _last_request_time: float = field(default=0.0, init=False, repr=False)
-    _request_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
@@ -95,7 +94,7 @@ class MusicBrainzAPIClient(BaseAPIClient):
         if not isrc:
             return None
 
-        response = await self._rate_limited_request(
+        response = await self._client.get(
             f"/isrc/{isrc}",
             params={"inc": "artist-credits+releases"},
         )
@@ -137,7 +136,7 @@ class MusicBrainzAPIClient(BaseAPIClient):
             return None
 
         query = f'recording:"{title}" AND artist:"{artist}"'
-        response = await self._rate_limited_request(
+        response = await self._client.get(
             "/recording",
             params={"query": query, "limit": "1"},
         )
@@ -148,24 +147,3 @@ class MusicBrainzAPIClient(BaseAPIClient):
         if isinstance(recordings_val, list) and recordings_val:
             return MusicBrainzRecording.model_validate(recordings_val[0])
         return None
-
-    # ── Rate Limiting ────────────────────────────────────────────────────
-
-    async def _rate_limited_request(
-        self, path: str, *, params: dict[str, str] | None = None
-    ) -> httpx2.Response:
-        """Execute GET request with 1-request-per-second rate limiting."""
-        async with self._request_lock:
-            current_time = time.time()
-            time_since_last = current_time - self._last_request_time
-
-            if time_since_last < 1.0:
-                sleep_time = 1.0 - time_since_last
-                logger.debug(f"Rate limiting: sleeping {sleep_time:.2f}s")
-                await asyncio.sleep(sleep_time)
-
-            # Update timestamp inside lock before releasing to prevent
-            # concurrent requests from bypassing the rate limit.
-            self._last_request_time = time.time()
-
-        return await self._client.get(path, params=params)

@@ -62,7 +62,7 @@ class ConnectorRegistryImpl:
         if name not in self._connectors:
             raise ValueError(f"Unknown connector: {name}")
 
-        instance = self._connectors[name]["factory"]({})
+        instance = self._connectors[name]["factory"]()
         self._cache[name] = instance
         return instance
 

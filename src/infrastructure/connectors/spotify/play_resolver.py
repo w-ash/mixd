@@ -4,7 +4,6 @@ Handles Spotify's comprehensive metadata including behavioral data, technical me
 and sophisticated duration-based filtering.
 """
 
-from collections.abc import Callable
 from statistics import median
 from typing import Final
 from uuid import UUID
@@ -16,7 +15,6 @@ from src.domain.entities import (
     ConnectorTrackPlay,
     PlayExclusionReason,
     Track,
-    TrackPlay,
 )
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.play_projection import (
@@ -26,6 +24,13 @@ from src.domain.matching.play_projection import (
 )
 from src.domain.repositories.play import PlayResolutionOutcome, ResolutionMetrics
 from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.infrastructure.connectors._shared.connector_play_resolver import (
+    build_play_outcome,
+    empty_play_metrics,
+)
+from src.infrastructure.connectors._shared.inward_track_resolver import (
+    TrackResolutionMetrics,
+)
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.inward_resolver import (
     FallbackHint,
@@ -154,7 +159,6 @@ class SpotifyConnectorPlayResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> PlayResolutionOutcome:
         """Resolve Spotify connector plays with full metadata preservation.
 
@@ -166,9 +170,19 @@ class SpotifyConnectorPlayResolver:
         ``duration_excluded``) — the duration rule needs the canonical
         ``duration_ms`` an excluded play no longer resolves.
         """
-        _ = progress_callback  # Keep for future progress tracking integration
         if not connector_plays:
             return self._empty_outcome()
+
+        # Each play's Spotify id, parsed exactly once for the whole pass —
+        # the evidence pass, the hint pass, the island check, the accept
+        # loop, and the failure records all read this map.
+        ids_by_play: dict[UUID, str | None] = {
+            cp.id: self._extract_spotify_id_from_connector_play(cp)
+            for cp in connector_plays
+        }
+
+        def _spotify_id_detail(connector_play: ConnectorTrackPlay) -> dict[str, str]:
+            return {"spotify_id": ids_by_play[connector_play.id] or ""}
 
         # Step 1: Partition out incognito plays, then extract unique Spotify
         # track IDs + fallback hints from the eligible ones. Completed-play
@@ -176,26 +190,19 @@ class SpotifyConnectorPlayResolver:
         # duration from an incognito play is evidence about the track's
         # length, not about the play's eligibility.
         eligible: list[ConnectorTrackPlay] = []
-        # Every play dropped below records why, so the ledger can distinguish
-        # a deliberate skip from a failure to identify the track.
-        exclusions: list[tuple[ConnectorTrackPlay, PlayExclusionReason]] = []
+        # Every play excluded before handoff to the shared builder records
+        # why, so the ledger can distinguish a deliberate skip from a failure
+        # to identify the track.
+        pre_exclusions: list[tuple[ConnectorTrackPlay, PlayExclusionReason]] = []
         for connector_play in connector_plays:
             if _is_incognito(connector_play):
-                exclusions.append((connector_play, "incognito"))
+                pre_exclusions.append((connector_play, "incognito"))
             else:
                 eligible.append(connector_play)
-
-        filtering_stats: ResolutionMetrics = {
-            "raw_plays": len(connector_plays),
-            "accepted_plays": 0,
-            "duration_excluded": 0,
-            "incognito_excluded": len(exclusions),
-            "error_count": 0,
-            "resolution_failures": [],
-        }
+        incognito_excluded = len(pre_exclusions)
 
         unique_spotify_ids, fallback_hints = self._extract_ids_and_hints(
-            eligible, evidence_plays=connector_plays
+            eligible, evidence_plays=connector_plays, ids_by_play=ids_by_play
         )
         if not unique_spotify_ids:
             if eligible:
@@ -203,49 +210,61 @@ class SpotifyConnectorPlayResolver:
             # No inward-resolver call, but the chunk's counts are real —
             # ``_empty_outcome()`` would zero raw_plays/incognito_excluded
             # and under-report an excluded-only chunk. Eligible plays that
-            # reached here carry no extractable id (malformed URIs): they are
-            # errors, exactly as the main loop records them — without this
-            # the sums stop reconciling (raw = accepted + excluded + errors).
-            for connector_play in eligible:
-                self._record_resolution_failure(filtering_stats, connector_play, None)
-                exclusions.append((connector_play, "unresolved"))
-            return PlayResolutionOutcome(
-                track_plays=[],
-                metrics={**self._create_empty_metrics(), **filtering_stats},
-                resolutions=(),
-                exclusions=tuple(exclusions),
+            # reached here carry no extractable id (malformed URIs): handed
+            # to the shared builder as unresolved pairs, they are errors,
+            # exactly as the main path records them — without this the sums
+            # stop reconciling (raw = accepted + excluded + errors).
+            return build_play_outcome(
+                [(connector_play, None) for connector_play in eligible],
+                service="spotify",
+                user_id=user_id,
+                default_import_source="spotify_export",
+                resolution_metrics=TrackResolutionMetrics(),
+                failure_detail=_spotify_id_detail,
+                extra_exclusions=pre_exclusions,
+                extra_metrics=self._assemble_metrics(
+                    TrackResolutionMetrics(),
+                    unique_ids_count=0,
+                    tracks_resolved=0,
+                    duration_excluded=0,
+                    incognito_excluded=incognito_excluded,
+                    isrc_suspect_deferred=0,
+                ),
             )
 
-        # Step 2: Resolve Spotify track IDs to canonical tracks
+        # Step 2: Resolve Spotify track IDs to canonical tracks. The inward
+        # resolver handles bulk mapping lookup, batch API fetch for missing
+        # tracks, and fallback search for dead IDs using artist+title hints.
         (
             canonical_tracks_map,
             canonical_track_metrics,
-        ) = await self._resolve_spotify_ids_to_canonical_tracks(
-            unique_spotify_ids, uow, user_id=user_id, fallback_hints=fallback_hints
+        ) = await self._inward_resolver.resolve_to_canonical_tracks(
+            unique_spotify_ids, uow, user_id=user_id, hints=fallback_hints
         )
 
-        # Step 3: Decide which listens clear the duration threshold, then
-        # create TrackPlay objects with Spotify's rich metadata.
-        listened_enough = self._listened_enough(eligible, canonical_tracks_map)
-        track_plays: list[TrackPlay] = []
-        resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
+        # Step 3: Decide which listens clear the duration threshold. Plays
+        # that fall short are excluded here, before handoff — the shared
+        # builder then records unresolved plays and builds the TrackPlay
+        # rows for the rest.
+        listened_enough = self._listened_enough(
+            eligible, canonical_tracks_map, ids_by_play
+        )
+        resolved: list[tuple[ConnectorTrackPlay, Track | None]] = []
+        duration_excluded = 0
 
         for connector_play in eligible:
-            spotify_id = self._extract_spotify_id_from_connector_play(connector_play)
+            spotify_id = ids_by_play[connector_play.id]
             canonical_track = (
                 canonical_tracks_map.get(spotify_id) if spotify_id else None
             )
 
             if not canonical_track or not canonical_track.id:
-                self._record_resolution_failure(
-                    filtering_stats, connector_play, spotify_id
-                )
-                exclusions.append((connector_play, "unresolved"))
+                resolved.append((connector_play, None))
                 continue
 
             if connector_play.id not in listened_enough:
-                filtering_stats["duration_excluded"] += 1
-                exclusions.append((connector_play, "too_short"))
+                duration_excluded += 1
+                pre_exclusions.append((connector_play, "too_short"))
                 duration_info = (
                     f"{canonical_track.duration_ms / 60000:.2f}"
                     if canonical_track.duration_ms
@@ -261,27 +280,29 @@ class SpotifyConnectorPlayResolver:
                 )
                 continue
 
-            filtering_stats["accepted_plays"] += 1
-            resolutions.append((connector_play, canonical_track.id))
-            track_plays.append(
-                TrackPlay(
-                    track_id=canonical_track.id,
-                    service="spotify",
-                    played_at=connector_play.played_at,
-                    user_id=user_id,
-                    ms_played=connector_play.ms_played,
-                    context=self._build_context(connector_play, spotify_id),
-                    import_timestamp=connector_play.import_timestamp,
-                    import_source=connector_play.import_source or "spotify_export",
-                    import_batch_id=connector_play.import_batch_id,
-                )
-            )
+            resolved.append((connector_play, canonical_track))
 
-        spotify_metrics = self._assemble_metrics(
-            filtering_stats,
-            canonical_track_metrics,
-            unique_ids_count=len(unique_spotify_ids),
-            tracks_resolved=len(canonical_tracks_map),
+        outcome = build_play_outcome(
+            resolved,
+            service="spotify",
+            user_id=user_id,
+            default_import_source="spotify_export",
+            resolution_metrics=canonical_track_metrics,
+            failure_detail=_spotify_id_detail,
+            build_context=lambda connector_play: self._build_context(
+                connector_play, ids_by_play[connector_play.id]
+            ),
+            extra_exclusions=pre_exclusions,
+            extra_metrics=self._assemble_metrics(
+                canonical_track_metrics,
+                unique_ids_count=len(unique_spotify_ids),
+                tracks_resolved=len(canonical_tracks_map),
+                duration_excluded=duration_excluded,
+                incognito_excluded=incognito_excluded,
+                isrc_suspect_deferred=len(
+                    self._inward_resolver.isrc_suspect_deferred_ids
+                ),
+            ),
         )
 
         logger.info(
@@ -289,54 +310,22 @@ class SpotifyConnectorPlayResolver:
             total_plays=len(connector_plays),
             unique_tracks=len(unique_spotify_ids),
             resolved_tracks=len(canonical_tracks_map),
-            accepted_plays=filtering_stats["accepted_plays"],
-            duration_excluded=filtering_stats["duration_excluded"],
-            incognito_excluded=filtering_stats["incognito_excluded"],
-            error_count=filtering_stats["error_count"],
-            new_tracks=canonical_track_metrics["new_tracks_count"],
-            updated_tracks=canonical_track_metrics["updated_tracks_count"],
+            accepted_plays=outcome.metrics.get("accepted_plays", 0),
+            duration_excluded=duration_excluded,
+            incognito_excluded=incognito_excluded,
+            error_count=outcome.metrics.get("error_count", 0),
+            new_tracks=canonical_track_metrics.created,
+            updated_tracks=canonical_track_metrics.existing,
         )
 
-        return PlayResolutionOutcome(
-            track_plays=track_plays,
-            metrics=spotify_metrics,
-            resolutions=tuple(resolutions),
-            exclusions=tuple(exclusions),
-        )
-
-    @staticmethod
-    def _record_resolution_failure(
-        filtering_stats: ResolutionMetrics,
-        connector_play: ConnectorTrackPlay,
-        spotify_id: str | None,
-    ) -> None:
-        """Count one eligible play that produced no canonical track.
-
-        The single failure-record shape for both paths that drop an eligible
-        play: an id that resolved to nothing in the main loop, and an id-less
-        play (malformed URI) — including the all-id-less chunk's early
-        return, which previously vanished such plays from the metrics
-        entirely. The orchestrator caps the accumulated list downstream
-        (``_MAX_RECORDED_RESOLUTION_FAILURES``); per-chunk lists stay whole.
-        """
-        # .get/.setdefault rather than [] — the TypedDict's keys are
-        # not-required, and this helper sees the dict without the literal
-        # construction the call sites narrow from.
-        filtering_stats["error_count"] = filtering_stats.get("error_count", 0) + 1
-        filtering_stats.setdefault("resolution_failures", []).append({
-            "track": f"{connector_play.artist_name} - {connector_play.track_name}",
-            "spotify_id": spotify_id or "",
-            "reason": "track_resolution_failed",
-        })
-        logger.warning(
-            f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
-        )
+        return outcome
 
     def _extract_ids_and_hints(
         self,
         connector_plays: list[ConnectorTrackPlay],
         *,
         evidence_plays: list[ConnectorTrackPlay],
+        ids_by_play: dict[UUID, str | None],
     ) -> tuple[list[str], dict[str, FallbackHint]]:
         """Extract unique Spotify track IDs + fallback hints.
 
@@ -348,16 +337,18 @@ class SpotifyConnectorPlayResolver:
         come from the first eligible play in this chunk carrying the id; the
         length estimate is derived from the run's accumulator rather than
         from this chunk alone (see ``_accumulate_completed_ms``).
+        ``ids_by_play`` is the chunk's once-parsed id map and must cover
+        both play lists.
         """
         for cp in evidence_plays:
-            sid = self._extract_spotify_id_from_connector_play(cp)
+            sid = ids_by_play[cp.id]
             if sid:
                 self._accumulate_completed_ms(sid, cp)
 
         unique_ids_set: set[str] = set()
         fallback_hints: dict[str, FallbackHint] = {}
         for cp in connector_plays:
-            sid = self._extract_spotify_id_from_connector_play(cp)
+            sid = ids_by_play[cp.id]
             if not sid:
                 continue
             unique_ids_set.add(sid)
@@ -400,6 +391,7 @@ class SpotifyConnectorPlayResolver:
         self,
         eligible: list[ConnectorTrackPlay],
         canonical_tracks_map: dict[str, Track],
+        ids_by_play: dict[UUID, str | None],
     ) -> set[UUID]:
         """Ids of the plays whose *listen* clears the duration threshold.
 
@@ -428,13 +420,13 @@ class SpotifyConnectorPlayResolver:
         admitted: set[UUID] = set()
         for island in group_into_islands(eligible):
             listen = island.representative
-            spotify_id = self._extract_spotify_id_from_connector_play(listen)
+            spotify_id = ids_by_play[listen.id]
             canonical_track = (
                 canonical_tracks_map.get(spotify_id) if spotify_id else None
             )
             if canonical_track is None:
                 # Never identified, so it is a resolution failure rather than a
-                # short listen; the main loop records it as one.
+                # short listen; the shared builder records it as one.
                 continue
             # The representative carries the island's summed listened time, or
             # None when its channel reported none — nothing to weigh, which is
@@ -465,31 +457,40 @@ class SpotifyConnectorPlayResolver:
             )
         return context
 
+    @staticmethod
     def _assemble_metrics(
-        self,
-        filtering_stats: ResolutionMetrics,
-        canonical_track_metrics: dict[str, int],
+        resolution_metrics: TrackResolutionMetrics,
         *,
         unique_ids_count: int,
         tracks_resolved: int,
+        duration_excluded: int,
+        incognito_excluded: int,
+        isrc_suspect_deferred: int,
     ) -> ResolutionMetrics:
-        """Combine per-play filtering stats with canonical-resolution counts."""
+        """Spotify-specific tallies layered over the shared base metrics.
+
+        The one place the Spotify metric key list exists — the main path,
+        the excluded-only early return, and the empty outcome all pass
+        through it as ``extra_metrics``. Reuse/suppression/persist counts
+        are carried so a chunk's timings can be read against its shape: a
+        creation-heavy chunk and a reuse-heavy one cost very differently.
+        ``isrc_suspect_deferred`` is a parameter rather than a live read
+        because the inward resolver's set describes its most recent call —
+        a chunk that never called it reports 0.
+        """
         return {
-            **filtering_stats,
-            "new_tracks_count": canonical_track_metrics["new_tracks_count"],
-            "updated_tracks_count": canonical_track_metrics["updated_tracks_count"],
+            "duration_excluded": duration_excluded,
+            "incognito_excluded": incognito_excluded,
             "unique_tracks_processed": unique_ids_count,
             "tracks_resolved": tracks_resolved,
-            "fallback_resolved": canonical_track_metrics["fallback_resolved"],
-            "redirect_resolved": canonical_track_metrics["redirect_resolved"],
-            "dead_ids_unresolved": canonical_track_metrics["dead_ids_unresolved"],
-            "reused_tracks": canonical_track_metrics["reused_tracks"],
-            "suppressed": canonical_track_metrics["suppressed"],
-            "degraded_persists": canonical_track_metrics["degraded_persists"],
-            "write_failed": canonical_track_metrics["write_failed"],
-            "isrc_suspect_deferred": len(
-                self._inward_resolver.isrc_suspect_deferred_ids
-            ),
+            "fallback_resolved": resolution_metrics.fallbacks,
+            "redirect_resolved": resolution_metrics.redirects,
+            "dead_ids_unresolved": resolution_metrics.failed,
+            "reused_tracks": resolution_metrics.reused,
+            "suppressed": resolution_metrics.suppressed,
+            "degraded_persists": resolution_metrics.degraded_persists,
+            "write_failed": resolution_metrics.write_failed,
+            "isrc_suspect_deferred": isrc_suspect_deferred,
         }
 
     def _extract_spotify_id_from_connector_play(
@@ -513,60 +514,19 @@ class SpotifyConnectorPlayResolver:
         """Extract Spotify track ID from a Spotify URI (domain single source)."""
         return spotify_id_from_uri(spotify_uri) if spotify_uri else None
 
-    async def _resolve_spotify_ids_to_canonical_tracks(
-        self,
-        spotify_ids: list[str],
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-        fallback_hints: dict[str, FallbackHint] | None = None,
-    ) -> tuple[dict[str, Track], dict[str, int]]:
-        """Resolve Spotify track IDs to canonical tracks.
-
-        Delegates to SpotifyInwardResolver which handles:
-        - Bulk lookup of existing connector mappings
-        - Batch Spotify API fetch for missing tracks
-        - Fallback search for dead IDs using artist+title hints
-        """
-        tracks_map, metrics = await self._inward_resolver.resolve_to_canonical_tracks(
-            spotify_ids, uow, user_id=user_id, fallback_hints=fallback_hints
-        )
-        return tracks_map, {
-            "new_tracks_count": metrics.created,
-            "updated_tracks_count": metrics.existing,
-            "dead_ids_unresolved": metrics.failed,
-            "redirect_resolved": metrics.redirects,
-            "fallback_resolved": metrics.fallbacks,
-            # Carried so a chunk's timings can be read against its shape: a
-            # creation-heavy chunk and a reuse-heavy one cost very differently.
-            "reused_tracks": metrics.reused,
-            "suppressed": metrics.suppressed,
-            "degraded_persists": metrics.degraded_persists,
-            "write_failed": metrics.write_failed,
-        }
-
-    def _create_empty_metrics(self) -> ResolutionMetrics:
-        """Create empty metrics dictionary."""
-        return {
-            "raw_plays": 0,
-            "accepted_plays": 0,
-            "duration_excluded": 0,
-            "incognito_excluded": 0,
-            "error_count": 0,
-            "resolution_failures": [],
-            "new_tracks_count": 0,
-            "updated_tracks_count": 0,
-            "unique_tracks_processed": 0,
-            "tracks_resolved": 0,
-            "fallback_resolved": 0,
-            "redirect_resolved": 0,
-            "dead_ids_unresolved": 0,
-            "isrc_suspect_deferred": 0,
-        }
-
     def _empty_outcome(self) -> PlayResolutionOutcome:
+        """Outcome for a chunk that held nothing at all."""
         return PlayResolutionOutcome(
             track_plays=[],
-            metrics=self._create_empty_metrics(),
+            metrics=empty_play_metrics(
+                self._assemble_metrics(
+                    TrackResolutionMetrics(),
+                    unique_ids_count=0,
+                    tracks_resolved=0,
+                    duration_excluded=0,
+                    incognito_excluded=0,
+                    isrc_suspect_deferred=0,
+                )
+            ),
             resolutions=(),
         )

@@ -2,24 +2,21 @@
 
 This module handles complex business logic for Spotify operations that require
 multiple API calls, batch processing, or sophisticated coordination. It uses
-the SpotifyAPIClient for individual API calls and delegates differential
-playlist synchronization to SpotifyPlaylistSyncOperations.
+the SpotifyAPIClient for individual API calls.
 
 Key components:
 - SpotifyOperations: High-level business workflows
 - Playlist creation and management with batch processing
 - Bulk track operations with intelligent batching
-- Differential playlist sync (delegated to playlist_sync_operations module)
 - Complex multi-step operations requiring coordination
 
 The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
-from typing import Never, TypedDict
+from typing import TypedDict
 from uuid import UUID
 
 import attrs
@@ -34,8 +31,6 @@ from src.domain.entities import (
     Track,
 )
 from src.domain.entities.shared import JsonValue
-from src.domain.playlist import PlaylistOperation, PlaylistOpsOutcome
-from src.domain.repositories.track import TrackRepositoryProtocol
 from src.infrastructure.connectors.spotify.client import (
     SpotifyAPIClient,
     SpotifyTracksFetch,
@@ -49,9 +44,6 @@ from src.infrastructure.connectors.spotify.conversions import (
     validate_non_empty,
 )
 from src.infrastructure.connectors.spotify.models import SpotifyPlaylist
-from src.infrastructure.connectors.spotify.playlist_sync_operations import (
-    SpotifyPlaylistSyncOperations,
-)
 
 # Get contextual logger for operations
 logger = get_logger(__name__).bind(service="spotify_operations")
@@ -88,9 +80,7 @@ class SpotifyOperations:
     """Business logic service for complex Spotify operations.
 
     Handles multi-step workflows, batch processing, and coordination of
-    multiple API calls. Delegates differential playlist synchronization
-    to SpotifyPlaylistSyncOperations for complex URI resolution and
-    operation execution.
+    multiple API calls.
 
     Example:
         >>> client = SpotifyAPIClient()
@@ -101,11 +91,6 @@ class SpotifyOperations:
     """
 
     client: SpotifyAPIClient = field()
-    _sync_ops: SpotifyPlaylistSyncOperations = field(init=False, repr=False)
-
-    def __attrs_post_init__(self) -> None:
-        """Initialize playlist sync operations helper."""
-        self._sync_ops = SpotifyPlaylistSyncOperations(self.client)
 
     # Bulk Track Operations
 
@@ -284,33 +269,9 @@ class SpotifyOperations:
         tracks: list[Track],
         description: str | None = None,
     ) -> str:
-        """Create a new Spotify playlist with tracks using batch processing."""
-
-        try:
-            playlist_id = await self._create_playlist_with_tracks(
-                name, tracks, description
-            )
-        except Exception as e:
-            logger.error(f"Error creating playlist '{name}': {e}")
-            raise
-        else:
-            return playlist_id
-
-    async def _create_playlist_with_tracks(
-        self,
-        name: str,
-        tracks: list[Track],
-        description: str | None,
-    ) -> str:
         """Create an empty Spotify playlist and batch-add tracks; return its id."""
-
-        def _raise_playlist_creation_error() -> Never:
-            raise ValueError("Failed to create playlist, received None")
-
-        # Extract Spotify track URIs
         spotify_track_uris = extract_spotify_track_uris(tracks)
 
-        # Create empty playlist
         logger.info(
             f"Creating Spotify playlist: {name} with {len(spotify_track_uris)} tracks"
         )
@@ -319,15 +280,12 @@ class SpotifyOperations:
         )
 
         if not playlist:
-            _raise_playlist_creation_error()
+            raise ValueError("Failed to create playlist, received None")
 
-        playlist_id = playlist.id
-
-        # Add tracks in batches if any
         if spotify_track_uris:
-            await self._add_tracks_to_playlist_batched(playlist_id, spotify_track_uris)
+            await self._add_tracks_to_playlist_batched(playlist.id, spotify_track_uris)
 
-        return playlist_id
+        return playlist.id
 
     async def update_playlist_content(
         self,
@@ -344,17 +302,10 @@ class SpotifyOperations:
             f"with {len(spotify_track_uris)} tracks"
         )
 
-        try:
-            if replace:
-                await self._replace_playlist_content(playlist_id, spotify_track_uris)
-            else:
-                await self._add_tracks_to_playlist_batched(
-                    playlist_id, spotify_track_uris
-                )
-
-        except Exception as e:
-            logger.error(f"Error updating playlist {playlist_id}: {e}")
-            raise
+        if replace:
+            await self._replace_playlist_content(playlist_id, spotify_track_uris)
+        else:
+            await self._add_tracks_to_playlist_batched(playlist_id, spotify_track_uris)
 
     async def _replace_playlist_content(
         self, playlist_id: str, track_uris: list[str]
@@ -404,29 +355,6 @@ class SpotifyOperations:
                 logger.error(
                     f"Failed to add batch {i // large_batch_size + 1}/{total_batches}: {e}"
                 )
-                continue
-
-            # Brief delay between requests if configured
-            if settings.api.spotify.request_delay > 0:
-                await asyncio.sleep(settings.api.spotify.request_delay)
-
-    # Differential Playlist Operations
-
-    async def execute_playlist_operations(
-        self,
-        playlist_id: str,
-        operations: list[PlaylistOperation],
-        snapshot_id: str | None = None,
-        track_repo: TrackRepositoryProtocol | None = None,
-    ) -> PlaylistOpsOutcome:
-        """Execute a list of differential playlist operations.
-
-        Delegates to SpotifyPlaylistSyncOperations for complex sync logic
-        including canonical URI resolution and operation execution.
-        """
-        return await self._sync_ops.execute_playlist_operations(
-            playlist_id, operations, snapshot_id, track_repo
-        )
 
     # User Library Operations
 
@@ -444,13 +372,9 @@ class SpotifyOperations:
             except ValueError:
                 logger.warning(f"Invalid cursor format: {cursor}, using offset=0")
 
-        try:
-            saved_tracks = await self.client.get_saved_tracks(
-                limit=min(limit, 50), offset=offset
-            )
-        except Exception as e:
-            logger.error(f"Error fetching liked tracks: {e}")
-            raise
+        saved_tracks = await self.client.get_saved_tracks(
+            limit=min(limit, 50), offset=offset
+        )
 
         if saved_tracks is None:
             msg = f"Spotify API returned no response at offset {offset} (likely rate-limited or network error after retries)"
@@ -517,23 +441,18 @@ class SpotifyOperations:
             updates=metadata_updates,
         )
 
-        try:
-            # Extract supported metadata fields
-            name = metadata_updates.get("name")
-            description = metadata_updates.get("description")
+        # Extract supported metadata fields
+        name = metadata_updates.get("name")
+        description = metadata_updates.get("description")
 
-            if name is not None or description is not None:
-                await self.client.playlist_change_details(
-                    playlist_id=playlist_id, name=name, description=description
-                )
-                logger.info(
-                    f"Successfully updated playlist {playlist_id} metadata",
-                    updates=metadata_updates,
-                )
-
-        except Exception as e:
-            logger.error(f"Error updating playlist metadata: {e}")
-            raise
+        if name is not None or description is not None:
+            await self.client.playlist_change_details(
+                playlist_id=playlist_id, name=name, description=description
+            )
+            logger.info(
+                f"Successfully updated playlist {playlist_id} metadata",
+                updates=metadata_updates,
+            )
 
     async def get_playlist_details(self, playlist_id: str) -> SpotifyPlaylistDetails:
         """Get comprehensive Spotify playlist metadata.
@@ -547,37 +466,26 @@ class SpotifyOperations:
         Raises:
             ValueError: If playlist not found
         """
-
-        def _raise_playlist_not_found_error(playlist_id: str) -> Never:
-            raise ValueError(f"Playlist {playlist_id} not found")
-
         logger.debug(f"Fetching Spotify playlist details for {playlist_id}")
 
-        try:
-            playlist_info = await self.client.get_playlist(playlist_id)
+        playlist_info = await self.client.get_playlist(playlist_id)
+        if not playlist_info:
+            raise ValueError(f"Playlist {playlist_id} not found")
 
-            if not playlist_info:
-                _raise_playlist_not_found_error(playlist_id)
+        owner_name = playlist_info.owner.display_name or playlist_info.owner.id
 
-            # Extract owner information
-            owner_name = playlist_info.owner.display_name or playlist_info.owner.id
-
-        except Exception as e:
-            logger.error(f"Error fetching playlist details: {e}")
-            raise
-        else:
-            return {
-                "id": playlist_info.id,
-                "name": playlist_info.name,
-                "description": playlist_info.description or "",
-                "owner_name": owner_name,
-                "owner_id": playlist_info.owner.id,
-                "is_public": playlist_info.public or False,
-                "collaborative": playlist_info.collaborative,
-                "follower_count": playlist_info.followers.total
-                if playlist_info.followers
-                else None,
-            }
+        return {
+            "id": playlist_info.id,
+            "name": playlist_info.name,
+            "description": playlist_info.description or "",
+            "owner_name": owner_name,
+            "owner_id": playlist_info.owner.id,
+            "is_public": playlist_info.public or False,
+            "collaborative": playlist_info.collaborative,
+            "follower_count": playlist_info.followers.total
+            if playlist_info.followers
+            else None,
+        }
 
     # Bulk Operations Support
 
@@ -611,27 +519,22 @@ class SpotifyOperations:
             f"Appending {len(spotify_track_uris)} tracks to playlist {playlist_id}"
         )
 
-        try:
-            # Add tracks using batched method
-            await self._add_tracks_to_playlist_batched(playlist_id, spotify_track_uris)
+        # Add tracks using batched method
+        await self._add_tracks_to_playlist_batched(playlist_id, spotify_track_uris)
 
-            # Calculate API calls made
-            large_batch_size = settings.api.spotify_large_batch_size
-            api_calls_made = (
-                len(spotify_track_uris) + large_batch_size - 1
-            ) // large_batch_size
+        # Calculate API calls made
+        large_batch_size = settings.api.spotify_large_batch_size
+        api_calls_made = (
+            len(spotify_track_uris) + large_batch_size - 1
+        ) // large_batch_size
 
-            # Get updated playlist info for snapshot_id
-            playlist_info = await self.client.get_playlist(playlist_id)
-            api_calls_made += 1
+        # Get updated playlist info for snapshot_id
+        playlist_info = await self.client.get_playlist(playlist_id)
+        api_calls_made += 1
 
-            return {
-                "tracks_added": len(spotify_track_uris),
-                "api_calls_made": api_calls_made,
-                "snapshot_id": playlist_info.snapshot_id if playlist_info else None,
-                "last_modified": datetime.now(UTC).isoformat(),
-            }
-
-        except Exception as e:
-            logger.error(f"Error appending tracks to playlist: {e}")
-            raise
+        return {
+            "tracks_added": len(spotify_track_uris),
+            "api_calls_made": api_calls_made,
+            "snapshot_id": playlist_info.snapshot_id if playlist_info else None,
+            "last_modified": datetime.now(UTC).isoformat(),
+        }

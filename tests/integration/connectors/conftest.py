@@ -1,10 +1,13 @@
 """Shared fixtures for connector integration tests.
 
-Every suite under this directory runs with the process-global connector
-rate limiter disabled — pacing sleeps and cross-test pause state would make
-transport-boundary tests nondeterministic. The limiter is resolved through
-three module bindings, and all three are patched so no suite depends on a
-leaked pacing path.
+Every suite under this directory runs with the connector rate limiter's
+pacing paths disabled — pacing sleeps would make transport-boundary tests
+nondeterministic. Only the two paths that sleep are patched: per-attempt
+token acquisition (base) and the 429 pause (retry_policies). The limiter
+resolved inside ``rate_limiting`` itself stays real so ``connector_call_slot``
+keeps its serialization semantics; it cannot sleep with acquisition patched
+off, and the limiter cache is per-event-loop, so no pause state crosses
+tests.
 """
 
 import pytest
@@ -19,13 +22,6 @@ def no_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         "src.infrastructure.connectors._shared.retry_policies.get_connector_rate_limiter",
-        lambda _service_name: None,
-    )
-    # pacer.apply_rate_headers resolves the limiter through its own module
-    # binding — without this patch, a canned low-remaining rate header would
-    # pause the process-global Discogs limiter and brake later tests.
-    monkeypatch.setattr(
-        "src.infrastructure.connectors.discogs.pacer.get_connector_rate_limiter",
         lambda _service_name: None,
     )
 

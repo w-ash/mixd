@@ -178,7 +178,7 @@ class TestAuthSpotifyCommand:
                 return_value=storage,
             ),
             patch(
-                "src.infrastructure.connectors._shared.connector_status.fetch_spotify_profile",
+                "src.infrastructure.connectors.spotify.status.fetch_spotify_profile",
                 AsyncMock(return_value=("Real Name", "acct-cli-123")),
             ),
             patch(

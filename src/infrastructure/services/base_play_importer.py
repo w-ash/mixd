@@ -1,12 +1,13 @@
 """Base class for importing music listening data from external sources."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from attrs import define
 
+from src.application.connector_protocols import Closeable
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
 from src.domain.entities.progress import (
@@ -103,6 +104,16 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
 
     operation_name: str = "Base Import"  # Override in subclasses
 
+    # The concrete params type the inherited :meth:`import_plays` narrows to.
+    # Assigned at class level by subclasses that use the shared shell;
+    # subclasses that override import_plays never read it.
+    _params_type: type[TParams]
+
+    # An API client this importer built for itself — its own to close. An
+    # injected client belongs to the caller and is never stored here. See
+    # :meth:`_adopt_client`.
+    _owned_client: Closeable | None = None
+
     # Whether :meth:`_fetch_data` already wrote its rows to the ledger.
     #
     # A source that commits a resume cursor mid-fetch MUST set this and persist
@@ -136,6 +147,87 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         if self._fetch_write_totals is None:
             self._fetch_write_totals = LedgerWriteTotals()
         return self._fetch_write_totals
+
+    def _adopt_client[TClient: Closeable](
+        self, injected: TClient | None, build: Callable[[], TClient]
+    ) -> TClient:
+        """Return the injected client, or build one this importer owns.
+
+        A client the importer builds is its own to close; an injected one
+        belongs to the caller (tests supply doubles). Importers are created
+        per import (never cached on the UoW), so an owned client left open
+        would strand an httpx2 connection pool on every poll.
+        """
+        if injected is not None:
+            return injected
+        owned = build()
+        self._owned_client = owned
+        return owned
+
+    async def _aclose_owned_client(self) -> None:
+        """Release the HTTP pool when this importer created its client."""
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
+
+    async def import_plays(
+        self,
+        uow: UnitOfWorkProtocol,
+        params: PlayImportParams,
+        *,
+        user_id: str,
+        progress_emitter: ProgressEmitter | None = None,
+    ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
+        """Import plays through the shared shell (``PlayImporterProtocol``).
+
+        Narrows ``params`` to :attr:`_params_type`, runs the
+        :meth:`_before_import` hook, then :meth:`import_data` — and releases
+        an owned client even on failure. Subclasses with a different shape
+        (mid-run resolution steps, file sources) override this instead.
+
+        Args:
+            uow: Unit of work for database operations.
+            params: Source-specific import selectors.
+            user_id: The mixd user the ledger rows and checkpoints belong to.
+            progress_emitter: Optional progress emitter.
+
+        Returns:
+            Tuple of (operation result, connector plays saved this run).
+
+        Raises:
+            TypeError: If ``params`` is not this importer's params type (the
+                importer registry is stringly-typed; this check restores the
+                type boundary at runtime).
+        """
+        if not isinstance(params, self._params_type):
+            raise TypeError(
+                f"{type(self).__name__} requires {self._params_type.__name__}, "
+                f"got {type(params).__name__}"
+            )
+
+        try:
+            await self._before_import(params, user_id=user_id)
+            result, connector_plays = await self.import_data(
+                params,
+                uow=uow,
+                user_id=user_id,
+                progress_emitter=progress_emitter,
+            )
+        finally:
+            await self._aclose_owned_client()
+
+        logger.info(
+            f"{self.operation_name} complete",
+            connector_plays_ingested=len(connector_plays),
+        )
+        return result, connector_plays
+
+    async def _before_import(self, params: TParams, *, user_id: str) -> None:
+        """Hook before :meth:`import_data` inside the client-closing shell.
+
+        Default no-op. Subclasses use it for prechecks that must fail with a
+        precise diagnosis before any pipeline work (the Spotify grant check).
+        """
+        _ = params, user_id
 
     async def import_data(
         self,

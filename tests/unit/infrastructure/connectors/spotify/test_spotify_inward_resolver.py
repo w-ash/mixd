@@ -6,6 +6,7 @@ and delegates bulk lookup to the base class.
 """
 
 import itertools
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from attrs import evolve
@@ -21,6 +22,7 @@ from src.infrastructure.connectors.spotify.client import (
 from src.infrastructure.connectors.spotify.inward_resolver import (
     VERSION_MISMATCH_TOLERANCE_MS,
     FallbackHint,
+    Provenance,
     SpotifyInwardResolver,
 )
 from src.infrastructure.connectors.spotify.models import (
@@ -385,7 +387,7 @@ class TestFallbackSearch:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [dead_id],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -417,7 +419,7 @@ class TestFallbackSearch:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [dead_id],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -442,7 +444,7 @@ class TestFallbackSearch:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [dead_id],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -463,7 +465,7 @@ class TestFallbackSearch:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [dead_id],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -482,7 +484,7 @@ class TestFallbackSearch:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["dead_id"],
             uow,
-            fallback_hints=None,
+            hints=None,
             user_id="test-user",
         )
 
@@ -511,7 +513,7 @@ class TestFallbackSearch:
         result, _ = await resolver.resolve_to_canonical_tracks(
             ["dead_id"],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -540,7 +542,7 @@ class TestFallbackSearch:
         await resolver.resolve_to_canonical_tracks(
             ["id1", "id2"],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -576,7 +578,7 @@ class TestRedirectAndFallbackMetrics:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [old_id, dead_id],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -632,7 +634,7 @@ class TestCanonicalReuse:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["sp_id_1"],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -663,7 +665,7 @@ class TestCanonicalReuse:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["sp_id_1"],
             uow,
-            fallback_hints=None,
+            hints=None,
             user_id="test-user",
         )
 
@@ -689,7 +691,7 @@ class TestCanonicalReuse:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["sp_id_1"],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -724,7 +726,7 @@ class TestCanonicalReuse:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["id1", "id2"],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -740,14 +742,14 @@ class TestResolutionMethod:
     async def test_resolution_method_returns_redirect(self):
         connector = AsyncMock()
         resolver = SpotifyInwardResolver(spotify_connector=connector)
-        resolver._redirect_resolved_ids = {"old_id"}
+        resolver._provenance = {"old_id": Provenance.REDIRECT}
 
         assert resolver.get_resolution_method("old_id") == MatchMethod.SPOTIFY_REDIRECT
 
     async def test_resolution_method_returns_fallback(self):
         connector = AsyncMock()
         resolver = SpotifyInwardResolver(spotify_connector=connector)
-        resolver._fallback_resolved_ids = {"dead_id"}
+        resolver._provenance = {"dead_id": Provenance.FALLBACK}
 
         assert resolver.get_resolution_method("dead_id") == MatchMethod.SEARCH_FALLBACK
 
@@ -1325,7 +1327,7 @@ class TestFallbackDoesNotClearItsOwnBackoff:
 
         hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
         result, _ = await resolver.resolve_to_canonical_tracks(
-            [live_id, dead_id], uow, fallback_hints=hints, user_id="test-user"
+            [live_id, dead_id], uow, hints=hints, user_id="test-user"
         )
 
         assert set(result) == {live_id, dead_id}
@@ -1348,7 +1350,7 @@ class TestFallbackDoesNotClearItsOwnBackoff:
 
         hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
         _ = await resolver.resolve_to_canonical_tracks(
-            [dead_id], uow, fallback_hints=hints, user_id="test-user"
+            [dead_id], uow, hints=hints, user_id="test-user"
         )
 
         recorder.clear_negatives.assert_not_awaited()
@@ -1438,7 +1440,7 @@ class TestWriteFailureIsolation:
 
         hints = {"bad_id": FallbackHint(artist_name="Artist", track_name="My Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["bad_id"], uow, fallback_hints=hints, user_id="test-user"
+            ["bad_id"], uow, hints=hints, user_id="test-user"
         )
 
         connector.search_track.assert_not_called()
@@ -1590,7 +1592,7 @@ class TestFallbackSaveFailureIsolation:
             good_id: FallbackHint(artist_name="Artist", track_name="My Song"),
         }
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            [bad_id, good_id], uow, fallback_hints=hints, user_id="test-user"
+            [bad_id, good_id], uow, hints=hints, user_id="test-user"
         )
 
         assert result == {good_id: found}
@@ -1642,7 +1644,7 @@ class TestUnansweredIsNotDeath:
             self.UNANSWERED: FallbackHint(artist_name="Artist", track_name="My Song")
         }
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            [self.UNANSWERED], uow, fallback_hints=hints, user_id="test-user"
+            [self.UNANSWERED], uow, hints=hints, user_id="test-user"
         )
 
         connector.search_track.assert_not_called()
@@ -1665,7 +1667,7 @@ class TestUnansweredIsNotDeath:
 
         hints = {self.DEAD: FallbackHint(artist_name="Artist", track_name="My Song")}
         _ = await resolver.resolve_to_canonical_tracks(
-            [self.DEAD], uow, fallback_hints=hints, user_id="test-user"
+            [self.DEAD], uow, hints=hints, user_id="test-user"
         )
 
         recorder.remember_no_match.assert_awaited_once()
@@ -1832,7 +1834,7 @@ class TestSearchIsStrictlyAFallback:
         # A hint is present, so only the probe's answer keeps search away.
         hints = {alive_id: FallbackHint(artist_name="Artist", track_name="My Song")}
         result, _ = await resolver.resolve_to_canonical_tracks(
-            [alive_id], uow, fallback_hints=hints, user_id="test-user"
+            [alive_id], uow, hints=hints, user_id="test-user"
         )
 
         assert alive_id in result
@@ -1862,7 +1864,7 @@ class TestSearchIsStrictlyAFallback:
             restricted_id: FallbackHint(artist_name="Artist", track_name="My Song")
         }
         result, _ = await resolver.resolve_to_canonical_tracks(
-            [restricted_id], uow, fallback_hints=hints, user_id="test-user"
+            [restricted_id], uow, hints=hints, user_id="test-user"
         )
 
         assert restricted_id in result
@@ -1901,7 +1903,7 @@ class TestSearchIsStrictlyAFallback:
         _ = await resolver.resolve_to_canonical_tracks(
             [alive_id, restricted_id, absent_id],
             uow,
-            fallback_hints=hints,
+            hints=hints,
             user_id="test-user",
         )
 
@@ -1938,7 +1940,7 @@ class TestDeadIdSearchWidening:
             self.DEAD_ID: FallbackHint(artist_name=self.ARTIST, track_name=self.TITLE)
         }
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            [self.DEAD_ID], uow, fallback_hints=hints, user_id="test-user"
+            [self.DEAD_ID], uow, hints=hints, user_id="test-user"
         )
 
         assert self.DEAD_ID in result
@@ -1970,7 +1972,7 @@ class TestDeadIdSearchWidening:
             self.DEAD_ID: FallbackHint(artist_name=self.ARTIST, track_name=self.TITLE)
         }
         _ = await resolver.resolve_to_canonical_tracks(
-            [self.DEAD_ID], uow, fallback_hints=hints, user_id="test-user"
+            [self.DEAD_ID], uow, hints=hints, user_id="test-user"
         )
 
         assert connector.search_track.await_args_list == [
@@ -2040,7 +2042,7 @@ class TestFallbackRejectsTheWrongRecording:
             result, metrics = await resolver.resolve_to_canonical_tracks(
                 [self.DEAD_ID],
                 uow,
-                fallback_hints={self.DEAD_ID: self._hint()},
+                hints={self.DEAD_ID: self._hint()},
                 user_id="test-user",
             )
 
@@ -2065,7 +2067,7 @@ class TestFallbackRejectsTheWrongRecording:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [self.DEAD_ID],
             uow,
-            fallback_hints={self.DEAD_ID: self._hint()},
+            hints={self.DEAD_ID: self._hint()},
             user_id="test-user",
         )
 
@@ -2112,7 +2114,7 @@ class TestFallbackDurationVeto:
         result, _metrics = await resolver.resolve_to_canonical_tracks(
             [self.DEAD_ID],
             uow,
-            fallback_hints={self.DEAD_ID: self._hint(estimate)},
+            hints={self.DEAD_ID: self._hint(estimate)},
             user_id="test-user",
         )
         return result
@@ -2175,7 +2177,7 @@ class TestUnresolvableFallbackTelemetry:
             "src.infrastructure.connectors.spotify.inward_resolver.logger"
         ) as mock_logger:
             _ = await resolver.resolve_to_canonical_tracks(
-                [dead_id], uow, fallback_hints=hints, user_id="test-user"
+                [dead_id], uow, hints=hints, user_id="test-user"
             )
 
         mock_logger.warning.assert_called_once()
@@ -2205,7 +2207,7 @@ class TestUnresolvableFallbackTelemetry:
             "src.infrastructure.connectors.spotify.inward_resolver.logger"
         ) as mock_logger:
             _ = await resolver.resolve_to_canonical_tracks(
-                [dead_id], uow, fallback_hints=hints, user_id="test-user"
+                [dead_id], uow, hints=hints, user_id="test-user"
             )
 
         mock_logger.warning.assert_not_called()
@@ -2413,7 +2415,7 @@ class TestCanonicalPayloadTenancy:
 
         hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
         result, _metrics = await resolver.resolve_to_canonical_tracks(
-            [dead_id], uow, fallback_hints=hints, user_id="TENANT_A"
+            [dead_id], uow, hints=hints, user_id="TENANT_A"
         )
 
         assert dead_id in result
@@ -2424,3 +2426,148 @@ class TestCanonicalPayloadTenancy:
         ]
         assert saved
         assert {track.user_id for track in saved} == {"TENANT_A"}
+
+
+class TestIdentityFoldBucketing:
+    """Bucketing leaders by identity key decides the same folds the linear scan did.
+
+    Identity-key equality is a necessary condition of the same-recording
+    predicate, so a leader in another bucket can never claim a fold; within a
+    bucket the duration guard still separates different versions. A mixed
+    chunk — two compatible pressings, a longer master of the same name, its
+    own close pressing, and an unrelated title — must fold pairwise and
+    nothing else.
+    """
+
+    IDS: ClassVar[dict[str, tuple[str, int]]] = {
+        "chan_a": ("Chan Chan", 257_213),
+        "chan_b": ("Chan Chan", 257_500),
+        "chan_long_a": ("Chan Chan", 285_506),
+        "chan_long_b": ("Chan Chan", 285_900),
+        "other": ("Other Song", 257_213),
+    }
+
+    async def test_folds_happen_within_buckets_and_duration_groups_only(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                spotify_id: make_spotify_track(
+                    spotify_id,
+                    title,
+                    "Buena Vista Social Club",
+                    duration_ms=duration_ms,
+                )
+                for spotify_id, (title, duration_ms) in self.IDS.items()
+            }
+        )
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.save_track.side_effect = [
+            make_track(1),
+            make_track(2),
+            make_track(3),
+        ]
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            list(self.IDS), uow, user_id="test-user"
+        )
+
+        # Three recordings, three canonicals — the compatible pairs share one.
+        # All five ids resolve through creation-step metrics; the folds show
+        # in the save count and the shared track ids, not in ``reused``.
+        assert track_repo.save_track.call_count == 3
+        assert metrics.created == 5
+        assert metrics.failed == 0
+        assert result["chan_a"].id == result["chan_b"].id
+        assert result["chan_long_a"].id == result["chan_long_b"].id
+        assert len({result[sid].id for sid in self.IDS}) == 3
+
+        # Each id maps under its own method: one creation per leader, one
+        # reuse per follower.
+        methods = sorted(spec.match_method for spec in _mapping_specs(connector_repo))
+        assert methods == sorted(
+            [MatchMethod.DIRECT_IMPORT] * 3 + [MatchMethod.CANONICAL_REUSE] * 2
+        )
+
+
+class TestProvenanceDrivesMetricsAndMethods:
+    """One provenance record per id feeds the metrics and the method tags alike."""
+
+    OLD_ID = "old_stale_id_0000000000"
+    NEW_ID = "new_canonical_id_000000"
+    DEAD_ID = "dead_id_000000000000000"
+    PLAIN_ID = "plain_id_00000000000000"
+
+    def _connector(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                self.OLD_ID: make_spotify_track(self.NEW_ID, "Redirected Song"),
+                self.PLAIN_ID: make_spotify_track(self.PLAIN_ID, "Plain Song"),
+            }
+        )
+        connector.search_track.return_value = [
+            make_spotify_track("found_id_00000000000000", "My Song"),
+        ]
+        return connector
+
+    async def test_one_mixed_pass_reports_each_provenance_consistently(self):
+        resolver = SpotifyInwardResolver(spotify_connector=self._connector())
+        uow, track_repo, _ = _make_uow_with_repos()
+        track_repo.save_track.side_effect = [make_track(n) for n in range(1, 4)]
+
+        hints = {self.DEAD_ID: FallbackHint(artist_name="Artist", track_name="My Song")}
+        _, metrics = await resolver.resolve_to_canonical_tracks(
+            [self.OLD_ID, self.DEAD_ID, self.PLAIN_ID],
+            uow,
+            hints=hints,
+            user_id="test-user",
+        )
+
+        assert resolver.redirect_resolved_ids == {self.OLD_ID}
+        assert resolver.fallback_resolved_ids == {self.DEAD_ID}
+        assert metrics.redirects == len(resolver.redirect_resolved_ids) == 1
+        assert metrics.fallbacks == len(resolver.fallback_resolved_ids) == 1
+        assert metrics.write_failed == 0
+        assert (
+            resolver.get_resolution_method(self.OLD_ID) == MatchMethod.SPOTIFY_REDIRECT
+        )
+        assert (
+            resolver.get_resolution_method(self.DEAD_ID) == MatchMethod.SEARCH_FALLBACK
+        )
+        assert (
+            resolver.get_resolution_method(self.PLAIN_ID) == MatchMethod.PLAY_RESOLVER
+        )
+
+    async def test_a_second_pass_resets_tracking_and_stale_hints(self):
+        """The hints seam owns the per-pass reset: neither the previous pass's
+        provenance nor its hints may leak into the next one."""
+        connector = self._connector()
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, _ = _make_uow_with_repos()
+        track_repo.save_track.side_effect = [make_track(n) for n in range(1, 4)]
+
+        hints = {self.DEAD_ID: FallbackHint(artist_name="Artist", track_name="My Song")}
+        _ = await resolver.resolve_to_canonical_tracks(
+            [self.OLD_ID, self.DEAD_ID], uow, hints=hints, user_id="test-user"
+        )
+        assert resolver.redirect_resolved_ids == {self.OLD_ID}
+
+        # Second pass: a plain id, no hints. The dead id from pass one is
+        # asked about again but must not be searched — its hint is gone.
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={self.PLAIN_ID: make_spotify_track(self.PLAIN_ID, "Plain Song")}
+        )
+        connector.search_track.reset_mock()
+        _, metrics = await resolver.resolve_to_canonical_tracks(
+            [self.PLAIN_ID, self.DEAD_ID], uow, user_id="test-user"
+        )
+
+        assert resolver.redirect_resolved_ids == set()
+        assert resolver.fallback_resolved_ids == set()
+        assert metrics.redirects == 0
+        assert metrics.fallbacks == 0
+        assert resolver.get_resolution_method(self.OLD_ID) == MatchMethod.PLAY_RESOLVER
+        connector.search_track.assert_not_called()

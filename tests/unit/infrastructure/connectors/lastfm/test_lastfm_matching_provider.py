@@ -1,7 +1,7 @@
 """Tests for LastFMProvider matching provider.
 
-Tests batch lookup, raw match creation, failure classification,
-and the fact that LastFM does NOT use _match_by_isrc/_match_by_artist_title.
+Tests batch lookup, raw match creation, failure classification, and the
+``SingleBatch`` strategy shape (no ISRC / artist-title partitioning).
 """
 
 from unittest.mock import AsyncMock

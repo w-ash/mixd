@@ -3,14 +3,13 @@
 Handles minimal playlist updates (add/remove/move) with canonical URI resolution.
 """
 
-import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from attrs import define, evolve, field
 
-from src.config import get_logger, settings
+from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities.shared import JsonDict
 from src.domain.playlist import (
@@ -32,6 +31,20 @@ type _OperationExecutor = Callable[
     [str, list[PlaylistOperation], str | None],
     Awaitable[tuple[str | None, int, int]],
 ]
+
+
+@define(frozen=True, slots=True)
+class _ValidOp:
+    """A validated operation with its guaranteed Spotify URI.
+
+    ``uri`` is the non-optional ``spotify:track:`` URI. ``old_position`` is
+    None only where the op type permits it (ADD, position-less REMOVE);
+    MOVE validation guarantees an int.
+    """
+
+    uri: str
+    old_position: int | None
+    operation: PlaylistOperation
 
 
 @define(slots=True)
@@ -236,11 +249,11 @@ class SpotifyPlaylistSyncOperations:
 
     def _validate_operations(
         self, operations: list[PlaylistOperation], operation_type: PlaylistOperationType
-    ) -> list[tuple[int, PlaylistOperation]]:
-        """Validate operations and return list of (index, operation) tuples."""
-        valid: list[tuple[int, PlaylistOperation]] = []
+    ) -> list[_ValidOp]:
+        """Filter operations safe to submit; wrap each with its Spotify URI."""
+        valid: list[_ValidOp] = []
 
-        for i, op in enumerate(operations):
+        for op in operations:
             # Common validation
             if not op.spotify_uri:
                 continue
@@ -248,20 +261,15 @@ class SpotifyPlaylistSyncOperations:
                 continue
 
             # Type-specific validation
-            if operation_type == PlaylistOperationType.REMOVE:
-                valid.append((i, op))
-
-            elif operation_type == PlaylistOperationType.ADD:
-                if op.position < 0:
-                    continue
-                valid.append((i, op))
-
-            elif operation_type == PlaylistOperationType.MOVE:
+            if operation_type == PlaylistOperationType.ADD and op.position < 0:
+                continue
+            if operation_type == PlaylistOperationType.MOVE:
                 if op.old_position is None:
                     continue
                 if op.old_position < 0 or op.position < 0:
                     continue
-                valid.append((i, op))
+
+            valid.append(_ValidOp(op.spotify_uri, op.old_position, op))
 
         if len(valid) < len(operations):
             logger.info(
@@ -284,16 +292,14 @@ class SpotifyPlaylistSyncOperations:
             return snapshot_id, 0, 0
 
         # Group by URI with positions using defaultdict
-        tracks_to_remove: defaultdict[str | None, list[int]] = defaultdict(list)
-        for _, op in valid_ops:
+        tracks_to_remove: defaultdict[str, list[int]] = defaultdict(list)
+        for op in valid_ops:
             if op.old_position is not None:
-                tracks_to_remove[op.spotify_uri].append(op.old_position)
+                tracks_to_remove[op.uri].append(op.old_position)
 
         # Build items list
         items: list[JsonDict] = [
-            {"uri": uri or "", "positions": positions}
-            if positions
-            else {"uri": uri or ""}
+            {"uri": uri, "positions": positions}
             for uri, positions in tracks_to_remove.items()
         ]
 
@@ -346,8 +352,44 @@ class SpotifyPlaylistSyncOperations:
         else:
             batch_failed = 1
 
-        await asyncio.sleep(settings.api.spotify.request_delay)
         return current_snapshot, batch_failed
+
+    async def _execute_individually[T](
+        self,
+        name: str,
+        playlist_id: str,
+        ops: list[T],
+        submit: Callable[[T], Awaitable[bool]],
+    ) -> tuple[int, int]:
+        """Submit ops one by one; return (successful, failed).
+
+        Raises RuntimeError when every submitted op failed.
+        """
+        successful = 0
+        failed = 0
+
+        for op in ops:
+            try:
+                op_ok = await submit(op)
+            except Exception as e:
+                failed += 1
+                logger.error(f"{name.capitalize()} operation failed: {e}")
+                continue
+            if op_ok:
+                successful += 1
+            else:
+                failed += 1
+
+        logger.info(
+            f"{name.capitalize()} operations: {successful} succeeded, {failed} failed"
+        )
+
+        if failed > 0 and successful == 0:
+            raise RuntimeError(
+                f"All {len(ops)} {name} operations failed for playlist {playlist_id}"
+            )
+
+        return successful, failed
 
     async def _execute_add_operations(
         self,
@@ -360,48 +402,30 @@ class SpotifyPlaylistSyncOperations:
         if not valid_ops:
             return snapshot_id, 0, 0
 
-        successful = 0
-        failed = 0
-
-        for _, op in valid_ops:
-            if op.spotify_uri is None:
-                raise RuntimeError(
-                    "BUG: add op passed validation with None spotify_uri"
-                )
-            try:
-                result = await self.client.playlist_add_items(
-                    playlist_id=playlist_id,
-                    items=[op.spotify_uri],
-                    position=op.position,
-                )
-            except Exception as e:
-                failed += 1
-                logger.error(f"Add operation failed: {e}")
-                continue
-
+        async def submit(op: _ValidOp) -> bool:
+            result = await self.client.playlist_add_items(
+                playlist_id=playlist_id,
+                items=[op.uri],
+                position=op.operation.position,
+            )
             # A falsy result means the client suppressed an HTTP/network error
             # (_api_call returns None for _SUPPRESS_ERRORS) rather than raising —
             # count it as failed, mirroring remove/move.
-            if result:
-                successful += 1
-            else:
-                failed += 1
+            if not result:
                 logger.error(
                     "Add operation returned no snapshot (suppressed API error)",
-                    spotify_uri=op.spotify_uri,
+                    spotify_uri=op.uri,
                 )
-            await asyncio.sleep(settings.api.spotify.request_delay)
+                return False
+            return True
+
+        successful, failed = await self._execute_individually(
+            "add", playlist_id, valid_ops, submit
+        )
 
         # Fetch updated snapshot after successful adds
         if successful > 0:
             snapshot_id = await self._get_updated_snapshot(playlist_id, snapshot_id)
-
-        logger.info(f"Add operations: {successful} succeeded, {failed} failed")
-
-        if failed > 0 and successful == 0:
-            raise RuntimeError(
-                f"All {len(valid_ops)} add operations failed for playlist {playlist_id}"
-            )
 
         return snapshot_id, failed, len(valid_ops)
 
@@ -412,7 +436,11 @@ class SpotifyPlaylistSyncOperations:
         snapshot_id: str | None,
     ) -> tuple[str | None, int, int]:
         """Execute move operations individually; return (snapshot, failed, attempted)."""
-        # Get current playlist size for validation
+        valid_ops = self._validate_operations(move_ops, PlaylistOperationType.MOVE)
+        if not valid_ops:
+            return snapshot_id, 0, 0
+
+        # Get current playlist size for bounds checking
         try:
             playlist_info = await self.client.get_playlist(playlist_id)
             current_track_count = playlist_info.items.total if playlist_info else None
@@ -420,63 +448,44 @@ class SpotifyPlaylistSyncOperations:
             logger.warning(f"Could not fetch playlist size: {e}")
             current_track_count = None
 
-        # Validate operations
-        valid_ops: list[tuple[int, PlaylistOperation]] = []
-        for i, op in enumerate(move_ops):
-            if op.old_position is None:
-                continue
-            if op.old_position < 0 or op.position < 0:
-                continue
+        # (old_position, position) pairs inside the playlist's bounds. The
+        # None check narrows the type — MOVE validation guarantees an int.
+        moves: list[tuple[int, int]] = [
+            (op.old_position, op.operation.position)
+            for op in valid_ops
+            if op.old_position is not None
+            and (
+                current_track_count is None
+                or (
+                    op.old_position < current_track_count
+                    and op.operation.position <= current_track_count
+                )
+            )
+        ]
 
-            # Bounds checking
-            if current_track_count is not None:
-                if op.old_position >= current_track_count:
-                    continue
-                if op.position > current_track_count:
-                    continue
-
-            valid_ops.append((i, op))
-
-        if not valid_ops:
+        if not moves:
             return snapshot_id, 0, 0
 
-        if len(valid_ops) < len(move_ops):
+        if len(moves) < len(valid_ops):
             logger.info(
-                "Filtered move operations",
-                valid=len(valid_ops),
-                invalid=len(move_ops) - len(valid_ops),
+                "Filtered out-of-bounds move operations",
+                valid=len(moves),
+                invalid=len(valid_ops) - len(moves),
             )
 
-        successful = 0
-        failed = 0
         current_snapshot = snapshot_id
 
-        for _, op in valid_ops:
-            if op.old_position is None:
-                raise RuntimeError(
-                    "BUG: move op passed validation with None old_position"
-                )
-            try:
-                current_snapshot, op_ok = await self._submit_move_operation(
-                    playlist_id, op.old_position, op.position, current_snapshot
-                )
-                if op_ok:
-                    successful += 1
-                else:
-                    failed += 1
-
-            except Exception as e:
-                failed += 1
-                logger.error(f"Move operation failed: {e}")
-
-        logger.info(f"Move operations: {successful} succeeded, {failed} failed")
-
-        if failed > 0 and successful == 0:
-            raise RuntimeError(
-                f"All {len(valid_ops)} move operations failed for playlist {playlist_id}"
+        async def submit(move: tuple[int, int]) -> bool:
+            nonlocal current_snapshot
+            old_position, new_position = move
+            current_snapshot, op_ok = await self._submit_move_operation(
+                playlist_id, old_position, new_position, current_snapshot
             )
+            return op_ok
 
-        return current_snapshot, failed, len(valid_ops)
+        _, failed = await self._execute_individually("move", playlist_id, moves, submit)
+
+        return current_snapshot, failed, len(moves)
 
     async def _submit_move_operation(
         self,
@@ -500,7 +509,6 @@ class SpotifyPlaylistSyncOperations:
         else:
             op_ok = False
 
-        await asyncio.sleep(settings.api.spotify.request_delay)
         return current_snapshot, op_ok
 
     async def _get_updated_snapshot(

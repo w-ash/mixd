@@ -230,6 +230,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         from src.infrastructure.chat.anthropic_adapter import aclose_all_adapters
 
         await aclose_all_adapters()
+        # Same teardown for the Spotify status probe's pooled GET /me client.
+        from src.infrastructure.connectors.spotify.status import aclose_profile_client
+
+        await aclose_profile_client()
 
 
 def create_app() -> FastAPI:

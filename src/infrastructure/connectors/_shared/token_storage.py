@@ -10,7 +10,10 @@ token storage is a pure infrastructure concern with no business logic.
 from collections.abc import Mapping
 from typing import Protocol, TypedDict
 
+from src.config import get_logger
 from src.domain.services.oauth_grant import grant_scopes
+
+logger = get_logger(__name__).bind(service="token_storage")
 
 
 class StoredToken(TypedDict, total=False):
@@ -117,6 +120,28 @@ class TokenStorageGrantProvider:
         """Scopes on the stored token for ``service``/``user_id``."""
         token = await self._storage.load_token(service, user_id)
         return grant_scopes(token.get("scope") if token else None)
+
+
+async def load_required_access_token(
+    storage: TokenStorage,
+    service: str,
+    user_id: str,
+    *,
+    missing_error: BaseException | type[BaseException],
+) -> str:
+    """Load the stored ``access_token`` for a service, raising when absent.
+
+    For connectors whose credential cannot be minted on demand (Apple Music's
+    Music User Token, Discogs's personal access token): no stored token, or a
+    row without an ``access_token``, raises ``missing_error`` — the
+    connector's auth-required exception (instance or class).
+    """
+    stored = await storage.load_token(service, user_id)
+    token = stored.get("access_token") if stored else None
+    if not token:
+        logger.info(f"No {service} token found — auth required")
+        raise missing_error
+    return token
 
 
 def get_token_storage() -> TokenStorage:

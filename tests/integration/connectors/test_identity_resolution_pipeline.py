@@ -20,6 +20,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyTrack,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import discover_one
 
 
 class TestLastfmCanonicalParentheticalReuse:
@@ -240,8 +241,8 @@ class TestCrossDiscoveryISRCCollision:
         connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        outcome = await provider.discover(
-            probe, "Radiohead", "Creep", uow, user_id="default"
+        outcome = await discover_one(
+            provider, probe, "Radiohead", "Creep", uow, user_id="default"
         )
 
         # Reuse the ISRC owner (Track A), with the found Spotify id to map onto it.

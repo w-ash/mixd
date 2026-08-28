@@ -10,21 +10,22 @@ Key components:
 - Market-aware API calls with configurable timeouts
 """
 
-import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from http import HTTPStatus
 from typing import ClassVar, cast, override
 
 from attrs import define, field
 import httpx2
+from pydantic import BaseModel
 from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
-from src.config.logging import logging_context
-from src.domain.entities.shared import JsonDict
+from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import SpotifyQuotaExhaustedError
 from src.domain.repositories.play import RECENTLY_PLAYED_PAGE_LIMIT
+from src.infrastructure.connectors._shared.boundary import validated
+from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.http_client import parse_json_response
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryPolicyFactory,
@@ -45,6 +46,13 @@ from src.infrastructure.connectors.spotify.models import (
 )
 
 logger = get_logger(__name__).bind(service="spotify_client")
+
+
+def _validated[ModelT: BaseModel](
+    model: type[ModelT], data: JsonDict, subject: str
+) -> ModelT:
+    """Boundary-validate a response body, or raise the connector-flavored error."""
+    return validated(model, data, service="spotify", subject=subject)
 
 
 def sanitize_search_value(value: str) -> str:
@@ -201,6 +209,42 @@ class SpotifyAPIClient(BaseAPIClient):
         return None
 
     # -------------------------------------------------------------------------
+    # Shared request plumbing
+    # -------------------------------------------------------------------------
+
+    async def _json(
+        self,
+        operation: str,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+        json: Mapping[str, JsonValue] | None = None,
+    ) -> JsonDict | None:
+        """Issue one JSON API request through ``_api_call``.
+
+        Composes the retry policy, rate-limit pacing, context propagation,
+        and error suppression of ``_api_call`` with the single-attempt
+        request in ``_request_json``. Returns the parsed JSON object, or
+        ``None`` when ``_api_call`` suppressed the failure.
+        """
+        return await self._api_call(
+            operation, self._request_json, method, path, params, json
+        )
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        params: Mapping[str, str | int] | None,
+        json: Mapping[str, JsonValue] | None,
+    ) -> JsonDict:
+        """One HTTP attempt: send, check status, parse the JSON object body."""
+        response = await self._client.request(method, path, params=params, json=json)
+        _ = response.raise_for_status()
+        return parse_json_response(response)
+
+    # -------------------------------------------------------------------------
     # Track API Methods
     # -------------------------------------------------------------------------
 
@@ -244,7 +288,6 @@ class SpotifyAPIClient(BaseAPIClient):
             track_ids[i : i + SpotifyConstants.TRACKS_BATCH_SIZE]
             for i in range(0, len(track_ids), SpotifyConstants.TRACKS_BATCH_SIZE)
         ]
-        semaphore = asyncio.Semaphore(settings.api.spotify.concurrency)
         tracks: dict[str, SpotifyTrack] = {}
         unanswered: set[str] = set()
         total = len(track_ids)
@@ -252,26 +295,25 @@ class SpotifyAPIClient(BaseAPIClient):
 
         async def _fetch_chunk(chunk: list[str]) -> None:
             nonlocal completed
-            async with semaphore:
-                try:
-                    fetched = await self._get_tracks_chunk(chunk)
-                except SpotifyQuotaExhaustedError:
-                    # The pooled developer-account quota is empty (PDR-003):
-                    # every remaining chunk is doomed identically, and
-                    # "unanswered" would hide the outage. Abort the batch.
-                    raise
-                except Exception as e:
-                    # Anything that escapes ``_api_call``'s suppression — a
-                    # response that will not parse, most likely — told us just
-                    # as little about this chunk's ids as a 5xx did.
-                    logger.warning(
-                        f"Failed to fetch batch of {len(chunk)} tracks: {e}",
-                        exc_info=True,
-                    )
-                    unanswered.update(chunk)
-                else:
-                    tracks.update(fetched.tracks)
-                    unanswered.update(fetched.unanswered)
+            try:
+                fetched = await self._get_tracks_chunk(chunk)
+            except SpotifyQuotaExhaustedError:
+                # The pooled developer-account quota is empty (PDR-003):
+                # every remaining chunk is doomed identically, and
+                # "unanswered" would hide the outage. Abort the batch.
+                raise
+            except Exception as e:
+                # Anything that escapes ``_api_call``'s suppression — a
+                # response that will not parse, most likely — told us just
+                # as little about this chunk's ids as a 5xx did.
+                logger.warning(
+                    f"Failed to fetch batch of {len(chunk)} tracks: {e}",
+                    exc_info=True,
+                )
+                unanswered.update(chunk)
+            else:
+                tracks.update(fetched.tracks)
+                unanswered.update(fetched.unanswered)
             completed += len(chunk)
             if progress_callback is not None:
                 await progress_callback(
@@ -280,15 +322,15 @@ class SpotifyAPIClient(BaseAPIClient):
                     f"Fetched {completed}/{total} from Spotify",
                 )
 
-        try:
-            async with asyncio.TaskGroup() as tg:
-                for chunk in chunks:
-                    _ = tg.create_task(_fetch_chunk(chunk))
-        except* SpotifyQuotaExhaustedError as group:
-            # TaskGroup wraps task failures in an ExceptionGroup; re-raise the
-            # typed error bare so every catch site (the middleware's 503, the
-            # importers' propagate lists) sees the exception type it knows.
-            raise group.exceptions[0] from None
+        # ``unwrap`` re-raises the typed quota error bare so every catch site
+        # (the middleware's 503, the importers' propagate lists) sees the
+        # exception type it knows, not an ExceptionGroup.
+        _ = await bounded_fan_out(
+            chunks,
+            _fetch_chunk,
+            concurrency=settings.api.spotify.concurrency,
+            unwrap=(SpotifyQuotaExhaustedError,),
+        )
 
         return SpotifyTracksFetch(tracks=tracks, unanswered=frozenset(unanswered))
 
@@ -309,7 +351,7 @@ class SpotifyAPIClient(BaseAPIClient):
             )
             return SpotifyTracksFetch(unanswered=frozenset(track_ids))
 
-        returned = SpotifyTracksResponse.model_validate(data).tracks
+        returned = _validated(SpotifyTracksResponse, data, "a tracks batch").tracks
         if len(returned) != len(track_ids):
             # Positional alignment is the only correlation this endpoint
             # offers; a length mismatch means it stops holding partway. The
@@ -331,7 +373,12 @@ class SpotifyAPIClient(BaseAPIClient):
         )
 
     async def _get_tracks_batch_impl(self, track_ids: list[str]) -> JsonDict | None:
-        """Pure implementation without retry logic."""
+        """One GET /tracks?ids= attempt, with the PDR-003 403 signature logged.
+
+        Kept as a dedicated impl (not routed through ``_json``) because the
+        403 detection below needs the raw response before ``raise_for_status``
+        converts it into an exception.
+        """
         response = await self._client.get(
             "/tracks",
             params={"ids": ",".join(track_ids), "market": self.market},
@@ -357,15 +404,10 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def search_by_isrc(self, isrc: str) -> SpotifyTrack | None:
         """Search for a track using ISRC identifier."""
-        data = await self._api_call(
-            "search_spotify_by_isrc", self._search_by_isrc_impl, isrc
-        )
-        return SpotifyTrack.model_validate(data) if data else None
-
-    async def _search_by_isrc_impl(self, isrc: str) -> JsonDict | None:
-        """Pure implementation without retry logic."""
         logger.debug(f"Searching Spotify for ISRC: {isrc}")
-        response = await self._client.get(
+        data = await self._json(
+            "search_spotify_by_isrc",
+            "GET",
             "/search",
             params={
                 "q": f"isrc:{isrc}",
@@ -374,8 +416,8 @@ class SpotifyAPIClient(BaseAPIClient):
                 "market": self.market,
             },
         )
-        _ = response.raise_for_status()
-        data = parse_json_response(response)
+        if data is None:
+            return None
         tracks_wrapper = data.get("tracks")
         if not isinstance(tracks_wrapper, dict):
             logger.warning("Spotify search by ISRC returned no results", isrc=isrc)
@@ -385,7 +427,9 @@ class SpotifyAPIClient(BaseAPIClient):
             logger.warning("Spotify search by ISRC returned no results", isrc=isrc)
             return None
         first = items[0]
-        return dict(first) if isinstance(first, dict) else None
+        if not isinstance(first, dict) or not first:
+            return None
+        return _validated(SpotifyTrack, first, "a search result")
 
     async def search_track(
         self, query: str, limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT
@@ -401,22 +445,10 @@ class SpotifyAPIClient(BaseAPIClient):
         one this method assembled can print a string that never went on the
         wire, which is worse than no telemetry at all.
         """
-        result = await self._api_call(
-            "search_spotify_track",
-            self._search_track_impl,
-            query,
-            limit,
-        )
-        if not result:
-            return []
-        return [SpotifyTrack.model_validate(t) for t in result]
-
-    async def _search_track_impl(
-        self, query: str, limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT
-    ) -> list[JsonDict]:
-        """Pure implementation without retry logic."""
         logger.debug(f"Searching Spotify with query: {query}")
-        response = await self._client.get(
+        data = await self._json(
+            "search_spotify_track",
+            "GET",
             "/search",
             params={
                 "q": query,
@@ -425,15 +457,19 @@ class SpotifyAPIClient(BaseAPIClient):
                 "market": self.market,
             },
         )
-        _ = response.raise_for_status()
-        data = parse_json_response(response)
+        if data is None:
+            return []
         tracks_wrapper = data.get("tracks")
         if not isinstance(tracks_wrapper, dict):
             return []
         items = tracks_wrapper.get("items")
         if not isinstance(items, list):
             return []
-        return [dict(item) for item in items if isinstance(item, dict)]
+        return [
+            _validated(SpotifyTrack, item, "a search result")
+            for item in items
+            if isinstance(item, dict)
+        ]
 
     # -------------------------------------------------------------------------
     # Playlist Read Methods
@@ -441,41 +477,32 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def get_playlist(self, playlist_id: str) -> SpotifyPlaylist | None:
         """Fetch a Spotify playlist with basic metadata."""
-        data = await self._api_call(
-            "get_spotify_playlist", self._get_playlist_impl, playlist_id
-        )
-        return SpotifyPlaylist.model_validate(data) if data else None
-
-    async def _get_playlist_impl(self, playlist_id: str) -> JsonDict | None:
-        """Pure implementation without retry logic."""
-        response = await self._client.get(
+        data = await self._json(
+            "get_spotify_playlist",
+            "GET",
             f"/playlists/{playlist_id}",
             params={"market": self.market},
         )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        return _validated(SpotifyPlaylist, data, "a playlist") if data else None
 
     async def get_next_page(
         self, current_page: SpotifyPaginatedPlaylistItems
     ) -> SpotifyPaginatedPlaylistItems | None:
-        """Fetch next page of paginated Spotify API results."""
+        """Fetch next page of paginated Spotify API results.
+
+        Spotify's "next" cursor is an absolute URL. httpx2 uses absolute URLs
+        as-is when a base_url is set, so the pooled client handles them
+        correctly.
+        """
         if not current_page.next:
             return None
 
-        data = await self._api_call(
-            "get_spotify_next_page", self._get_next_page_impl, current_page.next
+        data = await self._json("get_spotify_next_page", "GET", current_page.next)
+        return (
+            _validated(SpotifyPaginatedPlaylistItems, data, "a playlist page")
+            if data
+            else None
         )
-        return SpotifyPaginatedPlaylistItems.model_validate(data) if data else None
-
-    async def _get_next_page_impl(self, next_url: str) -> JsonDict | None:
-        """Pure implementation without retry logic.
-
-        Spotify's "next" cursor is an absolute URL. httpx2 uses absolute URLs
-        as-is when a base_url is set, so self._client handles them correctly.
-        """
-        response = await self._client.get(next_url)
-        _ = response.raise_for_status()
-        return parse_json_response(response)
 
     async def get_current_user_playlists(
         self, limit: int = 50, offset: int = 0
@@ -486,24 +513,17 @@ class SpotifyAPIClient(BaseAPIClient):
         not a full tracks list. Scope: `playlist-read-private`. Pagination
         caps: limit max 50 (Spotify default 20), offset max 100,000.
         """
-        data = await self._api_call(
+        data = await self._json(
             "get_current_user_playlists",
-            self._get_current_user_playlists_impl,
-            limit,
-            offset,
-        )
-        return SpotifyUserPlaylistsResponse.model_validate(data) if data else None
-
-    async def _get_current_user_playlists_impl(
-        self, limit: int = 50, offset: int = 0
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic."""
-        response = await self._client.get(
+            "GET",
             "/me/playlists",
             params={"limit": min(limit, 50), "offset": offset},
         )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        return (
+            _validated(SpotifyUserPlaylistsResponse, data, "a playlists page")
+            if data
+            else None
+        )
 
     # -------------------------------------------------------------------------
     # Playlist Write Methods
@@ -512,29 +532,17 @@ class SpotifyAPIClient(BaseAPIClient):
     async def create_playlist(
         self, name: str, description: str = "", public: bool = False
     ) -> SpotifyPlaylist | None:
-        """Create a new empty Spotify playlist for the current user."""
-        data = await self._api_call(
-            "create_spotify_playlist",
-            self._create_playlist_impl,
-            name,
-            description,
-            public,
-        )
-        return SpotifyPlaylist.model_validate(data) if data else None
-
-    async def _create_playlist_impl(
-        self, name: str, description: str = "", public: bool = False
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic.
+        """Create a new empty Spotify playlist for the current user.
 
         Uses POST /me/playlists — no user ID prefetch required.
         """
-        response = await self._client.post(
+        data = await self._json(
+            "create_spotify_playlist",
+            "POST",
             "/me/playlists",
             json={"name": name, "public": public, "description": description},
         )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        return _validated(SpotifyPlaylist, data, "a playlist") if data else None
 
     async def playlist_add_items(
         self, playlist_id: str, items: list[str], position: int | None = None
@@ -549,29 +557,17 @@ class SpotifyAPIClient(BaseAPIClient):
         Returns:
             Validated snapshot response, None if error
         """
-        data = await self._api_call(
-            "add_spotify_playlist_items",
-            self._playlist_add_items_impl,
-            playlist_id,
-            items,
-            position,
-        )
-        return SpotifySnapshotResponse.model_validate(data) if data else None
-
-    async def _playlist_add_items_impl(
-        self, playlist_id: str, items: list[str], position: int | None = None
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic."""
         body: JsonDict = {"uris": items}
         if position is not None:
             body["position"] = position
 
-        response = await self._client.post(
+        data = await self._json(
+            "add_spotify_playlist_items",
+            "POST",
             f"/playlists/{playlist_id}/items",
             json=body,
         )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        return _validated(SpotifySnapshotResponse, data, "a snapshot") if data else None
 
     async def playlist_remove_specific_occurrences_of_items(
         self,
@@ -589,33 +585,17 @@ class SpotifyAPIClient(BaseAPIClient):
         Returns:
             Validated snapshot response, None if error
         """
-        data = await self._api_call(
-            "remove_specific_spotify_playlist_items",
-            self._playlist_remove_specific_occurrences_of_items_impl,
-            playlist_id,
-            items,
-            snapshot_id,
-        )
-        return SpotifySnapshotResponse.model_validate(data) if data else None
-
-    async def _playlist_remove_specific_occurrences_of_items_impl(
-        self,
-        playlist_id: str,
-        items: list[JsonDict],
-        snapshot_id: str | None = None,
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic."""
         body: JsonDict = {"items": items}
         if snapshot_id is not None:
             body["snapshot_id"] = snapshot_id
 
-        response = await self._client.request(
+        data = await self._json(
+            "remove_specific_spotify_playlist_items",
             "DELETE",
             f"/playlists/{playlist_id}/items",
             json=body,
         )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        return _validated(SpotifySnapshotResponse, data, "a snapshot") if data else None
 
     async def playlist_reorder_items(
         self,
@@ -637,26 +617,6 @@ class SpotifyAPIClient(BaseAPIClient):
         Returns:
             Validated snapshot response, None if error
         """
-        data = await self._api_call(
-            "reorder_spotify_playlist_items",
-            self._playlist_reorder_items_impl,
-            playlist_id,
-            range_start,
-            insert_before,
-            range_length,
-            snapshot_id,
-        )
-        return SpotifySnapshotResponse.model_validate(data) if data else None
-
-    async def _playlist_reorder_items_impl(
-        self,
-        playlist_id: str,
-        range_start: int,
-        insert_before: int,
-        range_length: int = 1,
-        snapshot_id: str | None = None,
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic."""
         body: JsonDict = {
             "range_start": range_start,
             "insert_before": insert_before,
@@ -665,12 +625,13 @@ class SpotifyAPIClient(BaseAPIClient):
         if snapshot_id is not None:
             body["snapshot_id"] = snapshot_id
 
-        response = await self._client.put(
+        data = await self._json(
+            "reorder_spotify_playlist_items",
+            "PUT",
             f"/playlists/{playlist_id}/items",
             json=body,
         )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        return _validated(SpotifySnapshotResponse, data, "a snapshot") if data else None
 
     async def playlist_replace_items(
         self, playlist_id: str, items: list[str]
@@ -684,44 +645,28 @@ class SpotifyAPIClient(BaseAPIClient):
         Returns:
             Validated snapshot response, None if error
         """
-        data = await self._api_call(
+        data = await self._json(
             "replace_spotify_playlist_items",
-            self._playlist_replace_items_impl,
-            playlist_id,
-            items,
-        )
-        return SpotifySnapshotResponse.model_validate(data) if data else None
-
-    async def _playlist_replace_items_impl(
-        self, playlist_id: str, items: list[str]
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic."""
-        response = await self._client.put(
+            "PUT",
             f"/playlists/{playlist_id}/items",
             json={"uris": items},
         )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        return _validated(SpotifySnapshotResponse, data, "a snapshot") if data else None
 
     async def playlist_change_details(
         self, playlist_id: str, name: str | None = None, description: str | None = None
     ) -> None:
         """Update Spotify playlist metadata.
 
+        Not routed through ``_json``: the 200 response carries no body to
+        parse, and errors must propagate to the caller (``suppress=()``)
+        instead of dissolving into an indistinguishable ``None``.
+
         Args:
             playlist_id: Spotify playlist ID
             name: Optional new playlist name
             description: Optional new playlist description
         """
-        with logging_context(operation="update_spotify_playlist_metadata"):
-            await self._retry_policy(
-                self._playlist_change_details_impl, playlist_id, name, description
-            )
-
-    async def _playlist_change_details_impl(
-        self, playlist_id: str, name: str | None = None, description: str | None = None
-    ) -> None:
-        """Pure implementation without retry logic."""
         body: JsonDict = {}
         if name is not None:
             body["name"] = name
@@ -731,8 +676,11 @@ class SpotifyAPIClient(BaseAPIClient):
         if not body:
             return
 
-        response = await self._client.put(f"/playlists/{playlist_id}", json=body)
-        _ = response.raise_for_status()
+        async def _put() -> None:
+            response = await self._client.put(f"/playlists/{playlist_id}", json=body)
+            _ = response.raise_for_status()
+
+        _ = await self._api_call("update_spotify_playlist_metadata", _put, suppress=())
 
     # -------------------------------------------------------------------------
     # User Library Methods
@@ -763,7 +711,11 @@ class SpotifyAPIClient(BaseAPIClient):
         return results
 
     async def _check_library_contains_impl(self, uris: list[str]) -> list[bool]:
-        """Pure implementation — GET /me/library/contains."""
+        """One GET /me/library/contains attempt.
+
+        Kept as a dedicated impl (not routed through ``_json``): the endpoint
+        answers with a JSON array, not an object.
+        """
         response = await self._client.get(
             "/me/library/contains",
             params={"uris": ",".join(uris)},
@@ -783,15 +735,9 @@ class SpotifyAPIClient(BaseAPIClient):
         Returns:
             Saved tracks response, None if error
         """
-        return await self._api_call(
-            "get_spotify_saved_tracks", self._get_saved_tracks_impl, limit, offset
-        )
-
-    async def _get_saved_tracks_impl(
-        self, limit: int = 50, offset: int = 0
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic."""
-        response = await self._client.get(
+        return await self._json(
+            "get_spotify_saved_tracks",
+            "GET",
             "/me/tracks",
             params={
                 "limit": min(limit, 50),
@@ -799,8 +745,6 @@ class SpotifyAPIClient(BaseAPIClient):
                 "market": self.market,
             },
         )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
 
     async def get_recently_played(
         self, *, after_ms: int | None = None, limit: int = RECENTLY_PLAYED_PAGE_LIMIT
@@ -825,24 +769,20 @@ class SpotifyAPIClient(BaseAPIClient):
             swallows the status code, so callers cannot distinguish causes — an
             empty ``items`` list is the only reliable "nothing new" signal).
         """
-        data = await self._api_call(
-            "get_spotify_recently_played",
-            self._get_recently_played_impl,
-            after_ms,
-            limit,
-        )
-        return SpotifyRecentlyPlayedResponse.model_validate(data) if data else None
-
-    async def _get_recently_played_impl(
-        self, after_ms: int | None = None, limit: int = RECENTLY_PLAYED_PAGE_LIMIT
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic."""
         params: dict[str, int] = {"limit": min(limit, RECENTLY_PLAYED_PAGE_LIMIT)}
         if after_ms is not None:
             params["after"] = after_ms
-        response = await self._client.get("/me/player/recently-played", params=params)
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        data = await self._json(
+            "get_spotify_recently_played",
+            "GET",
+            "/me/player/recently-played",
+            params=params,
+        )
+        return (
+            _validated(SpotifyRecentlyPlayedResponse, data, "a recently-played page")
+            if data
+            else None
+        )
 
     async def get_current_user(self) -> JsonDict | None:
         """Get current Spotify user information.
@@ -850,15 +790,7 @@ class SpotifyAPIClient(BaseAPIClient):
         Returns:
             User data if authenticated, None otherwise
         """
-        return await self._api_call(
-            "get_spotify_current_user", self._get_current_user_impl
-        )
-
-    async def _get_current_user_impl(self) -> JsonDict | None:
-        """Pure implementation without retry logic."""
-        response = await self._client.get("/me")
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        return await self._json("get_spotify_current_user", "GET", "/me")
 
     async def get_current_user_id(self) -> str | None:
         """Get (and cache) the current user's Spotify ID."""

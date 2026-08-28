@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.4
+ * OpenAPI spec version: 0.11.5
  */
 import {
   useMutation,
@@ -307,7 +307,11 @@ export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteUrl = (serv
  *
  * Only connectors that store a per-user credential
  * (``CREDENTIAL_AUTH_METHODS``) can be disconnected; anything else
- * (public APIs, coming-soon stubs) returns 400.
+ * (public APIs, coming-soon stubs) returns 400. Cleanup is config-driven:
+ * the connector's ``on_disconnect`` hook runs when declared, and a polled
+ * play channel (``supports_play_polling``) gets its heartbeat stopped here
+ * because that teardown is application-owned — connector configs cannot
+ * reference it.
  * @summary Delete Connector Token
  */
 export const deleteConnectorTokenApiV1ConnectorsServiceTokenDelete = async (service: string, options?: Parameters<typeof customFetch>[1]): Promise<deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse> => {

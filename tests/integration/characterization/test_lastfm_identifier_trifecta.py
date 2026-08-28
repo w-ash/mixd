@@ -28,6 +28,7 @@ from src.infrastructure.connectors.spotify.cross_discovery import (
 )
 from src.infrastructure.persistence.database.db_models import DBConnectorTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import discover_one
 
 _URL = "https://www.last.fm/music/Neon+Priest/_/Gold+Rush"
 _MBID = "0198a4b6-1111-7222-8333-444455556666"
@@ -104,14 +105,18 @@ class TestAllMintSchemesConvergeOnOneRow:
             MatchMethod.DIRECT_IMPORT,
             confidence=100,
         )
+        # Keyed by the release-aware triple — the probe's album ("Debut")
+        # rides from the getInfo enrichment above.
         lb_lookup = AsyncMock()
-        lb_lookup.spotify_id_from_metadata.return_value = "sp_lb_001"
+        lb_lookup.spotify_ids_from_metadata.return_value = {
+            ("Neon Priest", "Debut", "Gold Rush"): "sp_lb_001"
+        }
         provider = SpotifyCrossDiscoveryProvider(
             spotify_connector=AsyncMock(),
             listenbrainz_lookup=lb_lookup,
         )
-        discovered = await provider.discover(
-            resolver_track, "Neon Priest", "Gold Rush", uow, user_id="default"
+        discovered = await discover_one(
+            provider, resolver_track, "Neon Priest", "Gold Rush", uow, user_id="default"
         )
         # Reuse decision points at the existing Spotify canonical; no mint.
         assert isinstance(discovered, ReuseExisting)

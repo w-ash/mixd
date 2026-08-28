@@ -7,8 +7,7 @@ to ``LastfmInwardResolver``, map canonical tracks back to input order, and
 build ``TrackPlay`` objects with preserved metadata.
 """
 
-from collections.abc import Callable
-
+from src.application.connector_protocols import Closeable
 from src.config import get_logger
 from src.domain.entities import (
     ConnectorTrackPlay,
@@ -43,6 +42,8 @@ class LastfmConnectorPlayResolver:
 
     lastfm_client: LastFMAPIClient
     _inward_resolver: LastfmInwardResolver
+    _cross_discovery: CrossDiscoveryProvider | None
+    _owns_lastfm_client: bool
 
     def __init__(
         self,
@@ -51,11 +52,30 @@ class LastfmConnectorPlayResolver:
         inward_resolver: LastfmInwardResolver | None = None,
     ):
         """Initialize with an inward resolver (constructed if not injected)."""
+        self._owns_lastfm_client = lastfm_client is None
         self.lastfm_client = lastfm_client or LastFMAPIClient()
+        self._cross_discovery = cross_discovery
         self._inward_resolver = inward_resolver or LastfmInwardResolver(
             lastfm_client=self.lastfm_client,
             cross_discovery=cross_discovery,
         )
+
+    async def aclose(self) -> None:
+        """Release the httpx2 pools this factory-built chain owns.
+
+        The orchestrator closes factory-built resolvers when the resolution
+        phase ends — without this, every import strands the Last.fm client's
+        pool plus whatever the cross-discovery provider owns. A client built
+        here is closed (shared with the inward resolver, so exactly once);
+        an injected client belongs to the caller and stays open. The
+        cross-discovery provider is adopted: ``create_play_resolver()``
+        builds it solely for this chain and keeps no reference, so this is
+        its only teardown.
+        """
+        if self._owns_lastfm_client:
+            await self.lastfm_client.aclose()
+        if isinstance(self._cross_discovery, Closeable):
+            await self._cross_discovery.aclose()
 
     async def resolve_connector_plays(
         self,
@@ -63,7 +83,6 @@ class LastfmConnectorPlayResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> PlayResolutionOutcome:
         """Resolve Last.fm connector plays using existing infrastructure."""
         if not connector_plays:
@@ -78,7 +97,7 @@ class LastfmConnectorPlayResolver:
             resolved_tracks,
             resolution_metrics,
         ) = await self._resolve_plays_to_canonical_tracks(
-            connector_plays, uow, user_id=user_id, progress_callback=progress_callback
+            connector_plays, uow, user_id=user_id
         )
 
         # Last.fm carries no ms_played and no private-session flag, so its only
@@ -99,7 +118,6 @@ class LastfmConnectorPlayResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> tuple[list[Track | None], TrackResolutionMetrics]:
         """Resolve plays to canonical tracks, preserving input order.
 
@@ -108,9 +126,6 @@ class LastfmConnectorPlayResolver:
         3. Map resolved tracks back to the original play order (``None`` when
            a play's identifier did not resolve).
         """
-        if progress_callback:
-            progress_callback(10, 100, "Extracting unique Last.fm track identifiers...")
-
         unique_identifiers = self._extract_unique_lastfm_identifiers(connector_plays)
         if not unique_identifiers:
             logger.warning("No valid Last.fm track identifiers found in play records")
@@ -119,20 +134,12 @@ class LastfmConnectorPlayResolver:
             # report the dropped plays out of existence.
             return [None] * len(connector_plays), TrackResolutionMetrics()
 
-        if progress_callback:
-            progress_callback(
-                30, 100, f"Resolving {len(unique_identifiers)} unique tracks..."
-            )
-
         (
             canonical_tracks_map,
             resolution_metrics,
         ) = await self._inward_resolver.resolve_to_canonical_tracks(
             list(unique_identifiers), uow, user_id=user_id
         )
-
-        if progress_callback:
-            progress_callback(80, 100, "Creating resolved track list...")
 
         resolved_tracks: list[Track | None] = []
         for connector_play in connector_plays:
@@ -150,13 +157,6 @@ class LastfmConnectorPlayResolver:
                 resolved_tracks.append(None)
 
         resolved_count = sum(1 for t in resolved_tracks if t is not None)
-
-        if progress_callback:
-            progress_callback(
-                100,
-                100,
-                f"Resolution complete: {resolved_count}/{len(resolved_tracks)} tracks resolved",
-            )
 
         logger.info(
             f"Last.fm resolution complete: {resolved_count}/{len(connector_plays)} tracks resolved"

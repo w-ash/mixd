@@ -1,97 +1,25 @@
-"""Dynamic metrics system for connector metrics.
+"""Dynamic registry for connector metrics.
 
-This module provides a fully dynamic approach to connector metrics registration,
-supporting the modular connector architecture where each service registers its own metrics.
-
-Key Components:
-- MetricResolverProtocol: Interface for metric resolver implementations
-- Dynamic registration functions for runtime metric configuration
-- Helper functions for metric configuration access
-- No hardcoded service-specific configuration
-
-Each connector registers its own metrics, field mappings, and freshness policies
-through the registration functions. This eliminates static dependencies between
-shared utilities and specific service implementations.
+Holds the process-wide mapping of connectors to their metrics, metric-to-field
+mappings, and per-metric freshness. Connector discovery
+(``src.infrastructure.connectors.discovery.discover_connectors``) registers
+each connector's metrics from its ``ConnectorConfig["metrics"]`` declaration;
+this module holds no service-specific configuration of its own.
 """
 
-from typing import ClassVar, Protocol, runtime_checkable
-
-from src.config import get_logger
-from src.domain.entities.shared import MetricValue
-from src.domain.repositories.uow import UnitOfWorkProtocol
-
-logger = get_logger(__name__).bind(service="connectors")
+from collections.abc import Mapping
 
 # ============================================================================
 # DYNAMIC METRIC REGISTRIES
 # ============================================================================
 
-# Dynamic registries populated by connectors at runtime
+# Dynamic registries populated by connector discovery
 _connector_metrics: dict[str, list[str]] = {}
 _field_mappings: dict[str, str] = {}
 _metric_freshness: dict[str, float] = {}
 
 # Default freshness period in hours
 DEFAULT_METRIC_FRESHNESS = 24.0
-
-# ============================================================================
-# DYNAMIC REGISTRATION SYSTEM
-# ============================================================================
-
-
-class MetricResolveFn(Protocol):
-    """Typed callback for metric resolution, injected by the application layer.
-
-    Replaces the previous ``Callable[..., Awaitable[dict[int, Any]]]`` — callers
-    now see exact parameter names and types.
-    """
-
-    async def __call__(
-        self,
-        *,
-        track_ids: list[int],
-        metric_name: str,
-        connector: str,
-        field_map: dict[str, str],
-        uow: UnitOfWorkProtocol,
-    ) -> dict[int, MetricValue]: ...
-
-
-@runtime_checkable
-class MetricResolverProtocol(Protocol):
-    """Protocol for metric resolver implementations.
-
-    Defines the interface that all metric resolvers must implement to be
-    registered with the metrics registry. Enforces a consistent pattern for
-    resolving metrics across different connectors.
-
-    Attributes:
-        CONNECTOR: Class variable identifying the connector name
-    """
-
-    CONNECTOR: ClassVar[str]
-
-    async def resolve(
-        self,
-        track_ids: list[int],
-        metric_name: str,
-        uow: UnitOfWorkProtocol,
-        resolve_fn: MetricResolveFn,
-    ) -> dict[int, MetricValue]:
-        """Resolve metrics for tracks.
-
-        Args:
-            track_ids: List of internal track IDs to resolve metrics for
-            metric_name: Name of the metric to resolve
-            uow: UnitOfWork for database access
-            resolve_fn: Callback provided by the application layer to perform
-                the actual metric resolution (cache lookup, API fetch, persistence).
-
-        Returns:
-            Dictionary mapping track IDs to their metric values
-        """
-        ...
-
 
 # ============================================================================
 # CONFIGURATION ACCESS FUNCTIONS
@@ -135,44 +63,32 @@ def get_connector_metrics(connector_name: str) -> list[str]:
 
 
 # ============================================================================
-# REGISTRATION FUNCTIONS
+# REGISTRATION
 # ============================================================================
 
 
-def register_metric_resolver(
-    metric_name: str, resolver: MetricResolverProtocol
-) -> None:
-    """Register a metric resolver and update the connector→metrics index.
-
-    Args:
-        metric_name: Name of the metric to register
-        resolver: Implementation of MetricResolverProtocol that can resolve this metric
-    """
-    if hasattr(resolver, "CONNECTOR") and resolver.CONNECTOR:
-        connector = resolver.CONNECTOR
-        if connector not in _connector_metrics:
-            _connector_metrics[connector] = []
-        if metric_name not in _connector_metrics[connector]:
-            _connector_metrics[connector].append(metric_name)
-
-
-def register_metric_config(
-    metric_name: str,
-    field_name: str | None = None,
+def register_metrics(
+    connector: str,
+    field_map: Mapping[str, str],
     freshness_hours: float | None = None,
 ) -> None:
-    """Register metric configuration including field mapping and freshness.
+    """Register a connector's metrics: names, field mappings, and freshness.
+
+    Idempotent — re-registration with the same values is a no-op.
 
     Args:
-        metric_name: Name of the metric to configure
-        field_name: API field name for this metric (defaults to metric_name)
-        freshness_hours: Hours after which metric is stale (defaults to 24.0)
+        connector: Connector name the metrics belong to (e.g. "lastfm")
+        field_map: Maps metric names to connector metadata field names
+        freshness_hours: Staleness threshold applied to every metric in
+            ``field_map``; ``None`` keeps ``DEFAULT_METRIC_FRESHNESS``
     """
-    if field_name is not None:
+    for metric_name, field_name in field_map.items():
+        metrics = _connector_metrics.setdefault(connector, [])
+        if metric_name not in metrics:
+            metrics.append(metric_name)
         _field_mappings[metric_name] = field_name
-
-    if freshness_hours is not None:
-        _metric_freshness[metric_name] = freshness_hours
+        if freshness_hours is not None:
+            _metric_freshness[metric_name] = freshness_hours
 
 
 def get_all_connectors_metrics() -> dict[str, list[str]]:
@@ -198,8 +114,15 @@ class MetricConfigProviderImpl:
 
     Wraps the module-level registry functions so that application code
     can receive this via dependency injection instead of importing the
-    infrastructure functions directly.
+    infrastructure functions directly. Construction runs connector
+    discovery (cached after the first call), which populates the
+    registries — a provider never reads before registration.
     """
+
+    def __init__(self) -> None:
+        from src.infrastructure.connectors.discovery import discover_connectors
+
+        discover_connectors()
 
     def get_connector_metrics(self, connector: str) -> list[str]:
         return get_connector_metrics(connector)

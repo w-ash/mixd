@@ -7,7 +7,7 @@ SpotifyAPIClient, SpotifyOperations, and conversion utilities.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
-from typing import ClassVar, cast, override
+from typing import cast, override
 from uuid import UUID
 
 from attrs import define, field
@@ -23,11 +23,7 @@ from src.domain.entities import (
 from src.domain.entities.shared import JsonValue
 from src.domain.playlist.diff_engine import PlaylistOperation, PlaylistOpsOutcome
 from src.domain.repositories.track import TrackRepositoryProtocol
-from src.infrastructure.connectors.base import (
-    BaseAPIConnector,
-    BaseMetricResolver,
-    register_metrics,
-)
+from src.infrastructure.connectors.base import BaseAPIConnector
 from src.infrastructure.connectors.protocols import ConnectorConfig
 from src.infrastructure.connectors.spotify.client import (
     SpotifyAPIClient,
@@ -41,6 +37,9 @@ from src.infrastructure.connectors.spotify.operations import (
     AppendTracksResult,
     SpotifyOperations,
     SpotifyPlaylistDetails,
+)
+from src.infrastructure.connectors.spotify.playlist_sync_operations import (
+    SpotifyPlaylistSyncOperations,
 )
 
 # Track conversion registry removed - conversions handled directly in modules
@@ -60,6 +59,7 @@ class SpotifyConnector(BaseAPIConnector):
     Components:
     - SpotifyAPIClient: Pure API wrapper for individual Spotify API calls
     - SpotifyOperations: Business logic for complex workflows and batch processing
+    - SpotifyPlaylistSyncOperations: Differential playlist synchronization
     - Conversion utilities: Data transformation between Spotify and domain models
 
     All public methods preserve exact same signatures and behavior for
@@ -69,6 +69,7 @@ class SpotifyConnector(BaseAPIConnector):
     # Internal components (not exposed publicly)
     _client: SpotifyAPIClient = field(init=False, repr=False)
     _operations: SpotifyOperations = field(init=False, repr=False)
+    _sync_ops: SpotifyPlaylistSyncOperations = field(init=False, repr=False)
 
     @property
     @override
@@ -94,6 +95,7 @@ class SpotifyConnector(BaseAPIConnector):
         # Initialize client and operations
         self._client = SpotifyAPIClient()
         self._operations = SpotifyOperations(self._client)
+        self._sync_ops = SpotifyPlaylistSyncOperations(self._client)
 
     async def aclose(self) -> None:
         """Close underlying API client."""
@@ -192,7 +194,7 @@ class SpotifyConnector(BaseAPIConnector):
         track_repo: TrackRepositoryProtocol | None = None,
     ) -> PlaylistOpsOutcome:
         """Execute a list of differential playlist operations."""
-        return await self._operations.execute_playlist_operations(
+        return await self._sync_ops.execute_playlist_operations(
             playlist_id, operations, snapshot_id, track_repo
         )
 
@@ -268,30 +270,22 @@ class SpotifyConnector(BaseAPIConnector):
         return convert_spotify_track_to_connector(track_data)
 
 
-@define(frozen=True, slots=True)
-class SpotifyMetricResolver(BaseMetricResolver):
-    """Resolves Spotify metrics from persistence layer."""
-
-    # Map metric names to connector metadata fields
-    FIELD_MAP: ClassVar[dict[str, str]] = {
-        "explicit_flag": "explicit",
-    }
-
-    # Connector name for database operations
-    CONNECTOR: ClassVar[str] = "spotify"
+# Metric name → connector metadata field, registered by connector discovery
+_METRIC_FIELD_MAP: dict[str, str] = {
+    "explicit_flag": "explicit",
+}
 
 
 def get_connector_config() -> ConnectorConfig:
     """Spotify connector configuration."""
-    from src.infrastructure.connectors._shared.connector_status import (
-        get_spotify_status,
-    )
+    from src.infrastructure.connectors.spotify import factory as play_factory
     from src.infrastructure.connectors.spotify.auth import build_auth_url
+    from src.infrastructure.connectors.spotify.status import get_spotify_status
 
     return {
-        "dependencies": ["auth"],
-        "factory": lambda _params: SpotifyConnector(),
-        "metrics": SpotifyMetricResolver.FIELD_MAP,
+        "factory": SpotifyConnector,
+        "metrics": _METRIC_FIELD_MAP,
+        "metric_freshness_hours": settings.freshness.spotify_hours,
         "display_name": "Spotify",
         "category": "streaming",
         "auth_method": "oauth",
@@ -305,13 +299,13 @@ def get_connector_config() -> ConnectorConfig:
         }),
         "status_fn": get_spotify_status,
         "build_auth_url": build_auth_url,
+        "play_importer_factories": {
+            "file": play_factory.create_play_importer,
+            "api": play_factory.create_recently_played_importer,
+        },
+        "play_resolver_factory": play_factory.create_play_resolver,
+        "cross_discovery_factory": play_factory.create_cross_discovery_provider,
+        # The recently-played channel has an adaptive poll heartbeat; the
+        # policy (application-owned) still targets spotify:plays only.
+        "supports_play_polling": True,
     }
-
-
-# Register all metric resolvers with freshness from settings
-_spotify_freshness = dict.fromkeys(
-    SpotifyMetricResolver.FIELD_MAP, settings.freshness.spotify_hours
-)
-register_metrics(
-    SpotifyMetricResolver(), SpotifyMetricResolver.FIELD_MAP, _spotify_freshness
-)

@@ -123,6 +123,7 @@ class TestAuthFailures:
             lambda _request: httpx2.Response(403, json=invalid_mut_error_body())
         )
         client = make_client(handler)
+        client.cached_storefront = "us"
 
         with pytest.raises(AppleMusicAuthRequiredError):
             _ = await client.get_storefront()
@@ -134,6 +135,8 @@ class TestAuthFailures:
         assert extra_data["reauth_required"] is True
         # Narrow write: token columns never rewritten from a stale load.
         assert storage.saved == []
+        # The storefront memo rides on the rejected MUT — dropped with it.
+        assert client.cached_storefront is None
 
     async def test_403_without_parseable_body_still_marks_reauth(
         self, make_client, storage: FakeTokenStorage

@@ -38,22 +38,14 @@ def _playlist_item(spot_id: str, name: str, snapshot: str = "snap") -> dict:
 
 
 class TestGetCurrentUserPlaylistsClient:
-    async def test_single_page_parses(self) -> None:
+    async def test_single_page_parses(self, spotify_client) -> None:
         from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
         payload = _page([_playlist_item("a", "A"), _playlist_item("b", "B")], total=2)
-        mock_impl = AsyncMock(return_value=payload)
+        mock_request = AsyncMock(return_value=payload)
 
-        async def passthrough_retry(impl, *args):
-            return await impl(*args)
-
-        with patch.object(
-            SpotifyAPIClient, "_get_current_user_playlists_impl", mock_impl
-        ):
-            with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-                client = SpotifyAPIClient()
-                client._retry_policy = passthrough_retry
-                result = await client.get_current_user_playlists(limit=50, offset=0)
+        with patch.object(SpotifyAPIClient, "_request_json", mock_request):
+            result = await spotify_client.get_current_user_playlists(limit=50, offset=0)
 
         assert result is not None
         assert result.total == 2
@@ -61,23 +53,16 @@ class TestGetCurrentUserPlaylistsClient:
         # Snapshot_id threads through the model.
         assert result.items[0].snapshot_id == "snap"
 
-    async def test_limit_clamped_to_50(self) -> None:
+    async def test_limit_clamped_to_50(self, spotify_client) -> None:
         """Caller passing 1000 gets clamped to Spotify's hard max of 50."""
         from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
-        get_mock = AsyncMock()
-        get_mock.return_value.raise_for_status = lambda: None
-        get_mock.return_value.json = lambda: _page([])
+        mock_request = AsyncMock(return_value=_page([]))
 
-        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-            client = SpotifyAPIClient()
-            client._client = AsyncMock()
-            client._client.get = get_mock
+        with patch.object(SpotifyAPIClient, "_request_json", mock_request):
+            _ = await spotify_client.get_current_user_playlists(limit=1000, offset=0)
 
-            _ = await client._get_current_user_playlists_impl(limit=1000, offset=0)
-
-        call_kwargs = get_mock.call_args
-        assert call_kwargs.kwargs["params"]["limit"] == 50
+        assert mock_request.await_args.args[2] == {"limit": 50, "offset": 0}
 
 
 class TestFetchAllUserPlaylists:

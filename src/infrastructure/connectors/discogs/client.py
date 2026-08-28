@@ -3,9 +3,14 @@
 Thin async wrappers around the Discogs API on ``BaseAPIClient``: every
 public method runs through ``_api_call`` (rate limiting, centralized
 tenacity retry policy, logging context, error suppression) while holding the
-instance-wide serialization queue (``pacer.get_discogs_queue``) — Discogs
-throttles by source IP, so the whole instance shares one 60/min budget and
-calls must not interleave across users.
+shared limiter's call slot (``connector_call_slot``, ``max_concurrent=1``) —
+Discogs throttles by source IP, so the whole instance shares one 60/min
+budget and calls must not interleave across users. Every response feeds
+``apply_rate_headers``, the success-path brake on
+``X-Discogs-Ratelimit-Remaining``. Image fetches (i.discogs.com) ride a
+separate, undocumented bucket: build them with
+``make_discogs_image_client()`` (no auth, no slot, no limiter) and never
+feed their responses to ``apply_rate_headers``.
 
 Authentication is an injected ``httpx2.Auth`` strategy seam:
 
@@ -38,10 +43,17 @@ from src.infrastructure.connectors._shared.http_client import (
     make_discogs_client,
     parse_json_response,
 )
+from src.infrastructure.connectors._shared.rate_limiting import (
+    apply_rate_headers,
+    connector_call_slot,
+)
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryPolicyFactory,
 )
-from src.infrastructure.connectors._shared.token_storage import TokenStorage
+from src.infrastructure.connectors._shared.token_storage import (
+    TokenStorage,
+    load_required_access_token,
+)
 from src.infrastructure.connectors.base import BaseAPIClient
 from src.infrastructure.connectors.discogs.auth import DiscogsTokenAuth
 from src.infrastructure.connectors.discogs.error_classifier import (
@@ -53,10 +65,6 @@ from src.infrastructure.connectors.discogs.models import (
     DiscogsIdentity,
     DiscogsMaster,
     DiscogsRelease,
-)
-from src.infrastructure.connectors.discogs.pacer import (
-    apply_rate_headers,
-    get_discogs_queue,
 )
 
 logger = get_logger(__name__).bind(service="discogs_client")
@@ -132,11 +140,12 @@ class DiscogsAPIClient(BaseAPIClient):
         """
         auth = self._auth
         if auth is None:
-            stored = await self._storage.load_token(DISCOGS_SERVICE, self._user_id)
-            token = stored.get("access_token") if stored else None
-            if not token:
-                logger.info("No Discogs token found — auth required")
-                raise DiscogsAuthRequiredError
+            token = await load_required_access_token(
+                self._storage,
+                DISCOGS_SERVICE,
+                self._user_id,
+                missing_error=DiscogsAuthRequiredError,
+            )
             auth = DiscogsTokenAuth(token)
             self._auth = auth
         return auth
@@ -189,13 +198,13 @@ class DiscogsAPIClient(BaseAPIClient):
         *args: object,
         suppress: tuple[type[BaseException], ...] | None = None,
     ) -> T | None:
-        """``_api_call`` while holding the instance-wide Discogs queue.
+        """``_api_call`` while holding the shared Discogs call slot.
 
-        The lock wraps the whole retry loop: retries of one logical call must
+        The slot wraps the whole retry loop: retries of one logical call must
         not interleave with another user's calls into the shared per-IP
         budget.
         """
-        async with get_discogs_queue():
+        async with connector_call_slot(DISCOGS_SERVICE):
             return await self._api_call(operation, impl, *args, suppress=suppress)
 
     async def _get_json(
@@ -210,7 +219,7 @@ class DiscogsAPIClient(BaseAPIClient):
         response = await self._client.get(
             path, params=params, auth=await self._resolve_auth()
         )
-        apply_rate_headers(response)
+        apply_rate_headers(response, DISCOGS_SERVICE)
         if response.status_code == HTTPStatus.UNAUTHORIZED:
             raise DiscogsAuthRequiredError(
                 "Discogs rejected the personal access token (401) — "

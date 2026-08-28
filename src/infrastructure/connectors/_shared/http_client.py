@@ -39,6 +39,13 @@ DISCOGS_IMAGE_BASE = "https://i.discogs.com"
 TIDAL_API_BASE = "https://openapi.tidal.com/v2"
 TIDAL_AUTH_BASE = "https://auth.tidal.com"
 TIDAL_LOGIN_BASE = "https://login.tidal.com"
+# ListenBrainz splits its surface across two hosts: the main API (documented
+# X-RateLimit-* client-steered limiting) and the MetaBrainz Labs Dataset
+# Hoster (spotify-id-from-metadata lives HERE, not on the main host; no rate
+# headers at all). Both route through the one "listenbrainz" limiter — see
+# make_listenbrainz_client.
+LISTENBRAINZ_API_BASE = "https://api.listenbrainz.org"
+LISTENBRAINZ_LABS_BASE = "https://labs.api.listenbrainz.org"
 
 _http_logger = get_logger(__name__).bind(service="http_client")
 
@@ -339,6 +346,25 @@ def make_tidal_auth_client() -> httpx2.AsyncClient:
         base_url=TIDAL_AUTH_BASE,
         headers={"User-Agent": _build_user_agent()},
         timeout=_read_timeout(float(settings.api.tidal.request_timeout)),
+    )
+
+
+def make_listenbrainz_client(
+    base_url: str = LISTENBRAINZ_API_BASE,
+) -> httpx2.AsyncClient:
+    """Return a configured AsyncClient for ListenBrainz calls on either host.
+
+    Defaults to the main API; pass ``LISTENBRAINZ_LABS_BASE`` for Labs
+    (Dataset Hoster) endpoints. One factory rather than one per host because
+    both hosts share every setting and the one ``listenbrainz`` limiter —
+    uniform pacing protects a free shared MetaBrainz service whose Labs host
+    sends no rate headers to self-correct from. No authentication. Caller
+    owns lifecycle. Timeouts sourced from settings.api.listenbrainz.
+    """
+    return _make_client(
+        base_url=base_url,
+        headers={"User-Agent": _build_user_agent()},
+        timeout=_read_timeout(float(settings.api.listenbrainz.request_timeout)),
     )
 
 

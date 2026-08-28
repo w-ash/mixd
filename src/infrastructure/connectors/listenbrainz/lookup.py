@@ -1,90 +1,83 @@
-"""ListenBrainz Labs API client for Spotify ID resolution.
+"""ListenBrainz Labs Spotify-id resolution built on the shared client.
 
-Lightweight utility (not a full connector) that queries ListenBrainz's
-metadata lookup API to resolve artist+title → Spotify track ID. This
-complements the Spotify search API by providing an independent matching
-source based on MusicBrainz's linked data graph.
-
-No authentication required. Uses shared httpx2 client patterns with
-event hooks for structured logging.
+Lightweight utility (not a full connector) that resolves
+(artist, release, track) metadata triples → Spotify track ids via the Labs
+``spotify-id-from-metadata`` endpoint. Complements the Spotify search API
+with an independent matching source based on MusicBrainz's linked data
+graph. The endpoint requires all three fields, so callers without a release
+name must skip the lookup entirely.
 """
 
-from typing import cast
+from collections.abc import Sequence
 
-import httpx2
-
-from src.config import get_logger
-from src.domain.entities.shared import JsonValue
+from src.config import get_logger, settings
+from src.infrastructure.connectors.listenbrainz.client import ListenBrainzAPIClient
+from src.infrastructure.connectors.listenbrainz.models import SpotifyIdLookupQuery
 
 logger = get_logger(__name__)
 
+# (artist_name, release_name, track_name) — the endpoint's required fields.
+type MetadataTriple = tuple[str, str, str]
+
 
 class ListenBrainzLookup:
-    """Targeted ListenBrainz Labs API for Spotify ID resolution."""
+    """Targeted ListenBrainz Labs lookup for Spotify ID resolution."""
 
-    _client: httpx2.AsyncClient
+    _client: ListenBrainzAPIClient
 
-    def __init__(self, client: httpx2.AsyncClient) -> None:
-        self._client = client
+    def __init__(self, client: ListenBrainzAPIClient | None = None) -> None:
+        self._client = client if client is not None else ListenBrainzAPIClient()
 
-    async def spotify_id_from_metadata(
-        self, artist_name: str, recording_name: str
-    ) -> str | None:
-        """Look up Spotify track ID via ListenBrainz metadata matching.
+    async def spotify_ids_from_metadata(
+        self, triples: Sequence[MetadataTriple]
+    ) -> dict[MetadataTriple, str]:
+        """Resolve (artist, release, track) triples to Spotify track ids.
 
-        Queries the ListenBrainz Labs spotify-id-from-metadata endpoint
-        which uses MusicBrainz linked data to find the canonical Spotify
-        track ID for a given artist + recording name.
+        Chunks at ``settings.api.listenbrainz.batch_size`` — one POST per
+        chunk. Results key by the caller's original triple: each echoed row
+        is matched back to its query casefolded (the echo is the documented
+        join key; casefolding keeps a server-normalized echo from stranding
+        a hit) and the first entry of its ``spotify_track_ids`` wins.
 
         Returns:
-            Spotify track ID string, or None if no match found.
+            triple → bare Spotify track id for the triples that resolved.
+            Misses are absent; a chunk whose call failed contributes only
+            misses — the lookup degrades, it never raises.
         """
-        try:
-            spotify_id = await self._request_spotify_id(artist_name, recording_name)
-        except httpx2.HTTPStatusError as e:
-            logger.debug(
-                f"ListenBrainz lookup HTTP error for {artist_name} - {recording_name}: {e.response.status_code}"
-            )
-            return None
-        except (httpx2.RequestError, KeyError, IndexError, TypeError) as e:
-            logger.debug(
-                f"ListenBrainz lookup failed for {artist_name} - {recording_name}: {e}"
-            )
-            return None
-        else:
-            return spotify_id
-
-    async def _request_spotify_id(
-        self, artist_name: str, recording_name: str
-    ) -> str | None:
-        """Post the metadata query and extract the Spotify track ID."""
-        response = await self._client.post(
-            "/spotify-id-from-metadata/json",
-            json=[
-                {
-                    "artist_name": artist_name,
-                    "recording_name": recording_name,
-                }
-            ],
-        )
-        response.raise_for_status()
-        raw = cast("object", response.json())
-        if not isinstance(raw, list) or not raw:
-            return None
-        data = cast("list[dict[str, JsonValue]]", raw)
-
-        if not data:
-            return None
-
-        result: dict[str, JsonValue] = data[0]
-        spotify_id_val: JsonValue = result.get("spotify_track_id")
-        if not spotify_id_val or not isinstance(spotify_id_val, str):
-            return None
-        spotify_id: str = spotify_id_val
-
-        # Strip "spotify:track:" prefix if present
-        return spotify_id.removeprefix("spotify:track:")
+        resolved: dict[MetadataTriple, str] = {}
+        batch_size = settings.api.listenbrainz.batch_size
+        for start in range(0, len(triples), batch_size):
+            chunk = triples[start : start + batch_size]
+            rows = await self._client.lookup_spotify_ids([
+                SpotifyIdLookupQuery(
+                    artist_name=artist, release_name=release, track_name=track
+                )
+                for artist, release, track in chunk
+            ])
+            if rows is None:
+                logger.debug(
+                    f"ListenBrainz lookup failed for a chunk of {len(chunk)} "
+                    "triple(s); treating as misses"
+                )
+                continue
+            hits = {
+                _folded((row.artist_name, row.release_name, row.track_name)): (
+                    row.spotify_track_ids[0]
+                )
+                for row in rows
+                if row.spotify_track_ids
+            }
+            for triple in chunk:
+                if spotify_id := hits.get(_folded(triple)):
+                    resolved[triple] = spotify_id
+        return resolved
 
     async def aclose(self) -> None:
-        """Close the underlying HTTP client."""
+        """Close the underlying API client."""
         await self._client.aclose()
+
+
+def _folded(triple: MetadataTriple) -> MetadataTriple:
+    """Case-insensitive echo-matching key for one triple."""
+    artist, release, track = triple
+    return (artist.casefold(), release.casefold(), track.casefold())

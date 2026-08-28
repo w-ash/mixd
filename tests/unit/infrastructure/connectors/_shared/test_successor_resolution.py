@@ -160,9 +160,6 @@ class TestStaleIdMappingSpec:
             connector="spotify",
             requested_id="stale-id",
             primary_method=MatchMethod.DIRECT_IMPORT,
-            stale_method_map={
-                MatchMethod.DIRECT_IMPORT: MatchMethod.DIRECT_IMPORT_STALE_ID
-            },
             confidence=100,
         )
 
@@ -180,23 +177,32 @@ class TestStaleIdMappingSpec:
             connector="apple_music",
             requested_id="old",
             primary_method=MatchMethod.DIRECT_IMPORT,
-            stale_method_map={
-                MatchMethod.DIRECT_IMPORT: MatchMethod.DIRECT_IMPORT_STALE_ID
-            },
             confidence=90,
             metadata={"source": "equivalents"},
         )
 
         assert spec.metadata == {"source": "equivalents"}
 
-    def test_unmapped_primary_method_raises(self):
+    def test_isrc_match_maps_to_its_stale_variant(self):
+        spec = stale_id_mapping_spec(
+            track=make_track(),
+            connector="tidal",
+            requested_id="old",
+            primary_method=MatchMethod.ISRC_MATCH,
+            confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
+        )
+
+        assert spec.match_method == MatchMethod.ISRC_MATCH_STALE_ID
+
+    def test_method_without_stale_variant_raises(self):
+        # ``STALE_ID_FOR`` is authoritative: a primary method with no stale
+        # variant is a caller bug, not a silent pass-through.
         with pytest.raises(KeyError):
             _ = stale_id_mapping_spec(
                 track=make_track(),
                 connector="spotify",
                 requested_id="old",
-                primary_method="isrc",
-                stale_method_map={},
+                primary_method=MatchMethod.CANONICAL_REUSE,
                 confidence=100,
             )
 

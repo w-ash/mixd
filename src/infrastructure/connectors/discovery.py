@@ -11,12 +11,10 @@ import sys
 from typing import cast
 
 from src.config import get_logger
+from src.infrastructure.connectors._shared.metric_registry import register_metrics
 from src.infrastructure.connectors.protocols import ConnectorConfig
 
 logger = get_logger(__name__)
-
-# Internal connector registry
-_connectors: dict[str, ConnectorConfig] = {}
 
 # Lazy-initialized connector registry cache (initialized on first access)
 _connectors_cache: dict[str, ConnectorConfig] | None = None
@@ -41,23 +39,19 @@ def _load_connector_config(name: str) -> ConnectorConfig | None:
 
 
 def discover_connectors() -> dict[str, ConnectorConfig]:
-    """Discover and register connector configurations.
+    """Discover connector configs and register their metric declarations.
 
-    Dynamically loads connector modules from the integrations package
-    that implement the `get_connector_config()` interface. This creates a
-    clean extension point for new connectors without factory code changes.
-
-    Returns:
-        dict[str, ConnectorConfig]: Dictionary mapping connector names to their configurations
+    Loads every package exposing ``get_connector_config()`` — the extension
+    point for new connectors. Discovery is the single point where connector
+    metrics reach the registry (idempotent), keyed by connector name.
     """
-    global _connectors, _connectors_cache
+    global _connectors_cache
 
     # Return cached registry if already populated
     if _connectors_cache is not None:
         return _connectors_cache
 
-    # Clear internal cache for fresh discovery
-    _connectors = {}
+    discovered: dict[str, ConnectorConfig] = {}
 
     # Get the connectors package for introspection
     connectors_package = sys.modules["src.infrastructure.connectors"]
@@ -82,13 +76,21 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
             # Non-fallible registration — kept out of the try so the ImportError
             # guard covers only the import/config resolution, as before.
             if config is not None:
-                _connectors[module_name] = config
+                discovered[module_name] = config
                 logger.debug(f"Registered connector: {module_name}")
 
     logger.info(
-        f"Discovered {len(_connectors)} connectors: {', '.join(_connectors.keys())}",
+        f"Discovered {len(discovered)} connectors: {', '.join(discovered.keys())}",
     )
 
+    # Register each connector's declared metrics with the metric registry
+    for connector_name, config in discovered.items():
+        register_metrics(
+            connector_name,
+            config["metrics"],
+            config.get("metric_freshness_hours"),
+        )
+
     # Cache the results for subsequent calls
-    _connectors_cache = _connectors.copy()
+    _connectors_cache = discovered
     return _connectors_cache

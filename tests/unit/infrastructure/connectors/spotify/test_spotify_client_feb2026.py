@@ -228,22 +228,16 @@ class TestGetTracksBatched:
 class TestSearchLimitClamped:
     """Search limit should be clamped to SEARCH_MAX_LIMIT (10)."""
 
-    async def test_search_limit_clamped_to_10(self):
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+    async def test_search_limit_clamped_to_10(self, spotify_client):
+        mock_request = AsyncMock(return_value={"tracks": {"items": []}})
 
-        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-            client = SpotifyAPIClient()
-            client._client = AsyncMock()
-            mock_response = MagicMock()
-            mock_response.json.return_value = {"tracks": {"items": []}}
-            mock_response.raise_for_status.return_value = None
-            client._client.get = AsyncMock(return_value=mock_response)
+        with patch.object(SpotifyAPIClient, "_request_json", mock_request):
+            _ = await spotify_client.search_track(
+                'artist:"Artist" track:"Title"', limit=50
+            )
 
-            await client._search_track_impl('artist:"Artist" track:"Title"', limit=50)
-
-            # Verify the limit param was clamped to 10
-            call_kwargs = client._client.get.call_args
-            assert call_kwargs.kwargs["params"]["limit"] == 10
+        # Verify the limit param was clamped to 10
+        assert mock_request.call_args.args[2]["limit"] == 10
 
 
 class TestPlaylistItemsFieldRename:

@@ -92,15 +92,15 @@ def auth_spotify() -> None:
     async def _auth():
         import asyncio
 
-        from src.infrastructure.connectors._shared.connector_status import (
-            fetch_spotify_profile,
-            stamp_account_id,
-        )
         from src.infrastructure.connectors._shared.token_storage import (
             StoredToken,
             get_token_storage,
         )
         from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
+        from src.infrastructure.connectors.spotify.status import (
+            fetch_spotify_profile,
+            stamp_account_id,
+        )
 
         user_id = get_cli_user_id()
         storage = get_token_storage()

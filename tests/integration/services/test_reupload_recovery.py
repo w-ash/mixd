@@ -97,9 +97,8 @@ class _FixedTrackResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_callback: object = None,
     ) -> PlayResolutionOutcome:
-        _ = uow, user_id, progress_callback
+        _ = uow, user_id
         self.resolved_plays.extend(connector_plays)
         return PlayResolutionOutcome(
             track_plays=[

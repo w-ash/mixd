@@ -3,9 +3,10 @@
 Parses REDACTED live captures (probe 2026-08-22, ``fixtures/``) into the
 typed models: catalog song resources, the 1:N ISRC envelope (one ISRC → many
 releases), the ISRC miss (200 with empty data — not an error), storefront,
-recently-played page with its ``next`` cursor, and the verbatim error
-envelopes (403 invalid MUT, 400 limit-over-max). Redaction: artwork URLs are
-placeholders and ``previews`` is dropped; all structural keys are real.
+and the recently-played page with its ``next`` cursor. Redaction: artwork
+URLs are placeholders and ``previews`` is dropped; all structural keys are
+real. The verbatim error envelopes parse via the shared JSON:API models —
+covered in ``test_error_classifier.py``.
 
 Two payloads remain HAND-MADE because reality did not produce them: a song
 without ISRC/releaseDate (every probed catalog song carried both), and a
@@ -18,8 +19,6 @@ import json
 from pathlib import Path
 
 from src.infrastructure.connectors.apple_music.models import (
-    AppleMusicError,
-    AppleMusicErrorResponse,
     AppleMusicRecentlyPlayedResponse,
     AppleMusicSong,
     AppleMusicSongsResponse,
@@ -174,36 +173,3 @@ class TestEnvelopes:
         assert len(page.data) == 3
         assert page.next == "/v1/me/recent/played/tracks?offset=30&types=songs"
         assert all(song.attributes.play_params is not None for song in page.data)
-
-
-class TestErrorEnvelope:
-    def test_verbatim_invalid_mut_403_body_parses(self):
-        envelope = AppleMusicErrorResponse.model_validate(
-            load_fixture("error_403_invalid_mut.json")
-        )
-
-        assert len(envelope.errors) == 1
-        first = envelope.errors[0]
-        assert first.code == "40300"
-        assert first.status == "403"
-        assert first.title == "Forbidden"
-        assert first.detail == "Invalid authentication"
-
-    def test_verbatim_limit_over_max_400_body_parses(self):
-        envelope = AppleMusicErrorResponse.model_validate(
-            load_fixture("error_400_limit_over_max.json")
-        )
-
-        first = envelope.errors[0]
-        assert first.code == "40005"
-        assert first.status == "400"
-        assert first.detail is not None
-        assert "less than or equal to 30" in first.detail
-
-    def test_error_fields_are_all_optional(self):
-        error = AppleMusicError.model_validate({})
-
-        assert error.code is None
-        assert error.status is None
-        assert error.title is None
-        assert error.detail is None

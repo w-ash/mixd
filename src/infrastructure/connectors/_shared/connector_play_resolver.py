@@ -16,6 +16,7 @@ from src.domain.entities import (
     Track,
     TrackPlay,
 )
+from src.domain.entities.shared import JsonValue
 from src.domain.matching.play_projection import build_play_context
 from src.domain.repositories.play import PlayResolutionOutcome, ResolutionMetrics
 from src.infrastructure.connectors._shared.inward_track_resolver import (
@@ -47,6 +48,8 @@ def build_play_outcome(
     default_import_source: str,
     resolution_metrics: TrackResolutionMetrics,
     failure_detail: Callable[[ConnectorTrackPlay], dict[str, str]] | None = None,
+    build_context: Callable[[ConnectorTrackPlay], dict[str, JsonValue]] | None = None,
+    extra_exclusions: Sequence[tuple[ConnectorTrackPlay, PlayExclusionReason]] = (),
     extra_metrics: ResolutionMetrics | None = None,
 ) -> PlayResolutionOutcome:
     """Turn resolved (play, track) pairs into the outcome the importer records.
@@ -56,11 +59,18 @@ def build_play_outcome(
     and a later re-resolution pass can promote it.
 
     ``failure_detail`` adds connector-specific keys to a failure record (Apple
-    names the catalog song id); ``extra_metrics`` adds connector-specific tallies.
+    names the catalog song id); ``build_context`` replaces the domain context
+    builder (Spotify tags the per-run resolution method); ``extra_exclusions``
+    carries plays the connector excluded before handoff (Spotify's incognito
+    and too-short arms) — they lead the outcome's exclusions and count into
+    ``raw_plays``; ``extra_metrics`` adds connector-specific tallies.
     """
+    make_context = build_context if build_context is not None else build_play_context
     track_plays: list[TrackPlay] = []
     resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
-    exclusions: list[tuple[ConnectorTrackPlay, PlayExclusionReason]] = []
+    exclusions: list[tuple[ConnectorTrackPlay, PlayExclusionReason]] = list(
+        extra_exclusions
+    )
     failures: list[dict[str, str]] = []
     accepted = 0
 
@@ -87,7 +97,7 @@ def build_play_outcome(
                 played_at=connector_play.played_at,
                 user_id=user_id,
                 ms_played=connector_play.ms_played,
-                context=build_play_context(connector_play),
+                context=make_context(connector_play),
                 import_timestamp=connector_play.import_timestamp,
                 import_source=connector_play.import_source or default_import_source,
                 import_batch_id=connector_play.import_batch_id,
@@ -95,7 +105,9 @@ def build_play_outcome(
         )
 
     metrics: ResolutionMetrics = {
-        "raw_plays": len(resolved),
+        # Pre-decided exclusions are raw plays too: the connector saw them,
+        # judged them, and handed over only the rest.
+        "raw_plays": len(resolved) + len(extra_exclusions),
         "accepted_plays": accepted,
         "error_count": len(failures),
         "resolution_failures": failures,
@@ -106,7 +118,7 @@ def build_play_outcome(
 
     logger.info(
         f"Processed {service} connector plays",
-        total_plays=len(resolved),
+        total_plays=len(resolved) + len(extra_exclusions),
         accepted_plays=accepted,
         error_count=len(failures),
         new_tracks=resolution_metrics.created,

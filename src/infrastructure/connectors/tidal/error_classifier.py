@@ -16,7 +16,7 @@ and text-pattern fallbacks. The hook adds the Tidal-specific rules:
   arm covers any path without that conversion (Discogs precedent: keep the
   status arm beside the client-side raise).
 - The JSON:API ``errors[]`` body (Tidal's v2 API is JSON:API-shaped) is
-  parsed defensively from the real ``httpx2.HTTPStatusError.response`` — an
+  parsed defensively via the shared ``_shared.json_api`` helpers — an
   unparseable body never blocks the actionable 401 message, it just loses
   the upstream detail string.
 - 429 deliberately falls through to the template's ``rate_limit`` — Tidal
@@ -26,52 +26,18 @@ and text-pattern fallbacks. The hook adds the Tidal-specific rules:
 """
 
 from http import HTTPStatus
-from typing import cast, override
+from typing import override
 
 import httpx2
 
-from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import TidalAuthRequiredError, TokenRefreshContendedError
 from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
 )
-from src.infrastructure.connectors._shared.http_client import (
-    parse_json_body,
-    response_text,
+from src.infrastructure.connectors._shared.json_api import (
+    error_detail,
+    first_json_api_error,
 )
-
-
-def first_json_api_error(response: httpx2.Response) -> dict[str, JsonValue] | None:
-    """Parse the first JSON:API error object from a response body, if any.
-
-    Defensive at every step — an absent, non-JSON, or unexpectedly-shaped
-    body all read as "no error object", never raise. No Pydantic model here
-    (deferred to the connector's ``models.py`` in a later packet); this is
-    scaffold-only dict parsing mirroring Apple's ``first_json_api_error``.
-    """
-    if not response_text(response):
-        return None
-    body = parse_json_body(response)
-    if body is None:
-        return None
-    errors = body.get("errors")
-    if not isinstance(errors, list) or not errors:
-        return None
-    first = cast("object", errors[0])
-    return cast("dict[str, JsonValue]", first) if isinstance(first, dict) else None
-
-
-def _error_detail(error: dict[str, JsonValue] | None) -> str | None:
-    """The most useful human-readable string on a JSON:API error object."""
-    if error is None:
-        return None
-    detail = error.get("detail")
-    if isinstance(detail, str) and detail:
-        return detail
-    title = error.get("title")
-    if isinstance(title, str) and title:
-        return title
-    return None
 
 
 class TidalErrorClassifier(HTTPErrorClassifier):
@@ -108,7 +74,7 @@ class TidalErrorClassifier(HTTPErrorClassifier):
             and exception.response.status_code == HTTPStatus.UNAUTHORIZED
         ):
             error = first_json_api_error(exception.response)
-            upstream_detail = _error_detail(error)
+            upstream_detail = error_detail(error)
             message = upstream_detail or "Tidal rejected the access token (401)"
             return (
                 "permanent",

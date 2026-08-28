@@ -43,14 +43,14 @@ class AppleMusicConnector:
 
 def get_connector_config() -> ConnectorConfig:
     """Apple Music connector configuration."""
-    from src.infrastructure.connectors._shared.connector_status import (
+    from src.infrastructure.connectors.apple_music import factory as play_factory
+    from src.infrastructure.connectors.apple_music.status import (
         get_apple_music_status,
     )
 
     return {
-        "dependencies": [],
-        "factory": lambda _params: AppleMusicConnector(),
-        # No register_metrics yet — enrichment is out of scope this cycle.
+        "factory": AppleMusicConnector,
+        # No metrics yet — enrichment is out of scope this cycle.
         "metrics": {},
         "display_name": "Apple Music",
         "category": "streaming",
@@ -59,4 +59,10 @@ def get_connector_config() -> ConnectorConfig:
         "status_fn": get_apple_music_status,
         # In-app MusicKit connect — no redirect URL exists for this method.
         "build_auth_url": None,
+        # Data-plane rows (plays, mappings, checkpoints) key on "apple".
+        "play_service_name": "apple",
+        "play_importer_factories": {
+            "api": play_factory.create_recently_played_importer
+        },
+        "play_resolver_factory": play_factory.create_play_resolver,
     }

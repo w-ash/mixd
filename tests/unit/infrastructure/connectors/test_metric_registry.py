@@ -1,9 +1,8 @@
-"""Characterization tests for the dynamic connector metric registry.
+"""Tests for the dynamic connector metric registry.
 
-Locks down registration, lookup, and configuration behavior before renaming.
+Covers register_metrics() (connector index, field mappings, freshness,
+idempotency) and the lookup functions.
 """
-
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -15,7 +14,7 @@ from src.infrastructure.connectors._shared.metric_registry import (
     get_connector_metrics,
     get_field_name,
     get_metric_freshness,
-    register_metric_resolver,
+    register_metrics,
 )
 
 
@@ -36,31 +35,52 @@ def _clean_registries():
     _metric_freshness.update(saved[2])
 
 
-class TestRegisterMetricResolver:
-    """Tests for register_metric_resolver."""
+class TestRegisterMetrics:
+    """Tests for register_metrics."""
 
     def test_populates_connector_metrics(self):
-        resolver = MagicMock()
-        resolver.CONNECTOR = "test_svc"
-        register_metric_resolver("test_metric", resolver)
+        register_metrics("test_svc", {"test_metric": "test_field"})
         assert "test_metric" in _connector_metrics["test_svc"]
 
-    def test_no_duplicate_in_connector_metrics(self):
-        resolver = MagicMock()
-        resolver.CONNECTOR = "test_svc"
-        register_metric_resolver("test_metric", resolver)
-        register_metric_resolver("test_metric", resolver)
+    def test_registers_field_mappings(self):
+        register_metrics("test_svc", {"metric_x": "api_field_x"})
+        assert get_field_name("metric_x") == "api_field_x"
+
+    def test_registers_freshness_for_every_metric(self):
+        register_metrics(
+            "test_svc", {"metric_a": "field_a", "metric_b": "field_b"}, 2.0
+        )
+        assert get_metric_freshness("metric_a") == 2.0
+        assert get_metric_freshness("metric_b") == 2.0
+
+    def test_no_freshness_leaves_default(self):
+        register_metrics("test_svc", {"metric_c": "field_c"})
+        assert get_metric_freshness("metric_c") == DEFAULT_METRIC_FRESHNESS
+
+    def test_reregistration_is_idempotent(self):
+        register_metrics("test_svc", {"test_metric": "test_field"}, 6.0)
+        register_metrics("test_svc", {"test_metric": "test_field"}, 6.0)
         assert _connector_metrics["test_svc"].count("test_metric") == 1
+        assert get_field_name("test_metric") == "test_field"
+        assert get_metric_freshness("test_metric") == 6.0
+
+    def test_later_registration_overwrites_freshness(self):
+        register_metrics("test_svc", {"overwrite_metric": "field_c"}, 12.0)
+        assert get_metric_freshness("overwrite_metric") == 12.0
+
+        register_metrics("test_svc", {"overwrite_metric": "field_c"}, 48.0)
+        assert get_metric_freshness("overwrite_metric") == 48.0
+
+    def test_empty_field_map_registers_nothing(self):
+        register_metrics("metric_less_svc", {})
+        assert "metric_less_svc" not in _connector_metrics
 
 
 class TestGetConnectorMetrics:
     """Tests for get_connector_metrics."""
 
     def test_returns_registered_metrics(self):
-        resolver = MagicMock()
-        resolver.CONNECTOR = "my_svc"
-        register_metric_resolver("my_metric_a", resolver)
-        register_metric_resolver("my_metric_b", resolver)
+        register_metrics("my_svc", {"my_metric_a": "field_a", "my_metric_b": "field_b"})
         result = get_connector_metrics("my_svc")
         assert set(result) == {"my_metric_a", "my_metric_b"}
 
@@ -88,37 +108,3 @@ class TestGetMetricFreshness:
 
     def test_returns_default_for_unregistered(self):
         assert get_metric_freshness("unregistered_metric") == DEFAULT_METRIC_FRESHNESS
-
-
-class TestFreshnessRegistration:
-    """Tests for freshness propagation through register_metric_config."""
-
-    def test_register_metric_config_with_freshness(self):
-        """register_metric_config with freshness_hours stores it in registry."""
-        from src.infrastructure.connectors._shared.metric_registry import (
-            register_metric_config,
-        )
-
-        register_metric_config("fresh_metric", "field_a", freshness_hours=6.0)
-        assert get_metric_freshness("fresh_metric") == 6.0
-
-    def test_register_metric_config_without_freshness_leaves_default(self):
-        """register_metric_config without freshness_hours leaves default."""
-        from src.infrastructure.connectors._shared.metric_registry import (
-            register_metric_config,
-        )
-
-        register_metric_config("no_fresh_metric", "field_b")
-        assert get_metric_freshness("no_fresh_metric") == DEFAULT_METRIC_FRESHNESS
-
-    def test_later_registration_overwrites_freshness(self):
-        """Later registration overwrites earlier freshness value."""
-        from src.infrastructure.connectors._shared.metric_registry import (
-            register_metric_config,
-        )
-
-        register_metric_config("overwrite_metric", "field_c", freshness_hours=12.0)
-        assert get_metric_freshness("overwrite_metric") == 12.0
-
-        register_metric_config("overwrite_metric", "field_c", freshness_hours=48.0)
-        assert get_metric_freshness("overwrite_metric") == 48.0

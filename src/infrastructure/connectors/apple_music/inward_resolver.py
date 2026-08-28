@@ -25,34 +25,31 @@ Catalog ids are asked about in chunks via ``GET /catalog/{sf}/songs?ids=``
 Unlike Spotify there is no artist/title search fallback of any kind: an id
 Apple cannot account for stays unresolved (``resolved_track_id = NULL`` in
 the plays ledger) until a later import or the re-resolution drain retries it.
+
+Persistence runs through the shared planned-write pipeline
+(``WritePlanningResolver``); this module owns payload extraction and the
+``playparams_catalog_id`` detection label only.
 """
 
-from collections.abc import Mapping, Sequence
-from typing import ClassVar, override
+from collections.abc import Mapping
+from typing import override
 
-from attrs import define, evolve
+from attrs import evolve
 
 from src.config import get_logger
-from src.config.constants import MatchMethod
 from src.config.telemetry import phase
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.isrc_validation import (
-    assess_isrc_match_reliability,
-    compute_duration_diff_ms,
-)
-from src.domain.repositories.connector import ConnectorMappingSpec, IsrcCollisionSpec
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
-    InwardTrackResolver,
-    persist_bulk_with_item_fallback,
+    PlannedWrite,
+    WritePlanningResolver,
+    plan_isrc_write,
 )
 from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
-    record_substitutions,
-    stale_id_mapping_spec,
 )
 from src.infrastructure.connectors.apple_music.client import AppleMusicAPIClient
 from src.infrastructure.connectors.apple_music.conversions import (
@@ -79,58 +76,8 @@ def _current_id(song: AppleMusicSong) -> str:
     return song.id
 
 
-@define(frozen=True, slots=True)
-class _IsrcCollisionReview:
-    """A suspect ISRC collision to queue against the canonical that owns it."""
-
-    owner: Track
-    service_data: dict[str, JsonValue]
-
-
-@define(frozen=True, slots=True)
-class _PlannedWrite:
-    """One requested id's persist, decided before anything is written."""
-
-    requested_id: str
-    song: AppleMusicSong
-    match_method: str
-    confidence: int
-    # An existing canonical already holds this recording's ISRC — map onto it.
-    reuse_track: Track | None = None
-    # Suspect collision: the ISRC is claimed by an owner whose duration
-    # disagrees, so a review is queued and the contested ISRC withheld.
-    review: _IsrcCollisionReview | None = None
-
-    @property
-    def current_id(self) -> str:
-        return _current_id(self.song)
-
-    @property
-    def requested_id_is_stale(self) -> bool:
-        return self.current_id != self.requested_id
-
-    @property
-    def creates_canonical(self) -> bool:
-        return self.reuse_track is None
-
-    @property
-    def is_substitution(self) -> bool:
-        """Did Apple hand back a successor id for the requested one?
-
-        Only creations qualify: a reuse maps the requested id directly onto
-        its canonical and records no successor assertion.
-        """
-        return self.creates_canonical and self.requested_id_is_stale
-
-
-class AppleMusicInwardResolver(InwardTrackResolver):
+class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
     """Resolves Apple Music catalog ids → canonical tracks (ISRC-only)."""
-
-    # Substitutions only occur on creations (see ``_PlannedWrite.is_substitution``),
-    # and creations always carry DIRECT_IMPORT — no search fallback exists here.
-    _STALE_ID_METHODS: ClassVar[dict[str, str]] = {
-        MatchMethod.DIRECT_IMPORT: MatchMethod.DIRECT_IMPORT_STALE_ID,
-    }
 
     _client: AppleMusicAPIClient
 
@@ -211,7 +158,9 @@ class AppleMusicInwardResolver(InwardTrackResolver):
             self._plan_write(aid, songs_by_id[aid], with_isrc[aid], existing_by_isrc)
             for aid in with_isrc
         ]
-        result, failed_ids = await self._persist_writes(writes, uow, user_id=user_id)
+        result, failed_ids = await self._persist_planned_writes(
+            writes, uow, user_id=user_id
+        )
         if failed_ids:
             logger.warning(
                 f"{len(failed_ids)} Apple Music ids answered but failed to "
@@ -261,230 +210,70 @@ class AppleMusicInwardResolver(InwardTrackResolver):
             duration_ms=song.attributes.duration_in_millis or None,
         )
 
-    @staticmethod
     def _plan_write(
+        self,
         apple_id: str,
         song: AppleMusicSong,
         isrc: str,
         existing_by_isrc: Mapping[str, Track],
-    ) -> _PlannedWrite:
-        """Decide what one answered, ISRC-carrying id persists as. Pure.
-
-        Three outcomes (Spotify's shape minus the relink-lookup arm): reuse
-        the canonical that owns this ISRC, defer a suspect collision to
-        review and create a distinct canonical without the contested ISRC,
-        or create a plain new canonical.
-        """
-        existing = existing_by_isrc.get(isrc)
-        if existing is not None:
-            duration_diff_ms = compute_duration_diff_ms(
-                song.attributes.duration_in_millis, existing.duration_ms
-            )
-            if not assess_isrc_match_reliability(duration_diff_ms).suspect:
-                return _PlannedWrite(
-                    requested_id=apple_id,
-                    song=song,
-                    match_method=MatchMethod.ISRC_MATCH,
-                    confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
-                    reuse_track=existing,
-                )
-
-            service_data: dict[str, JsonValue] = {
-                "title": song.attributes.name,
-                "artist": song.attributes.artist_name,
-                "duration_ms": song.attributes.duration_in_millis or None,
-                "isrc": isrc,
-            }
-            logger.info(
-                f"ISRC suspect: queueing review for apple:{apple_id} vs canonical "
-                f"{existing.id} (ISRC={isrc}, duration_diff_ms={duration_diff_ms})"
-            )
-            return _PlannedWrite(
-                requested_id=apple_id,
-                song=song,
-                match_method=MatchMethod.DIRECT_IMPORT,
-                confidence=100,
-                review=_IsrcCollisionReview(owner=existing, service_data=service_data),
-            )
-
-        return _PlannedWrite(
+    ) -> PlannedWrite[AppleMusicSong]:
+        """One answered, ISRC-carrying id's persist — the shared ISRC arms."""
+        service_data: dict[str, JsonValue] = {
+            "title": song.attributes.name,
+            "artist": song.attributes.artist_name,
+            "duration_ms": song.attributes.duration_in_millis or None,
+            "isrc": isrc,
+        }
+        return plan_isrc_write(
+            connector=self.connector_name,
             requested_id=apple_id,
-            song=song,
-            match_method=MatchMethod.DIRECT_IMPORT,
-            confidence=100,
+            current_id=_current_id(song),
+            payload=song,
+            duration_ms=song.attributes.duration_in_millis,
+            isrc=isrc,
+            existing_by_isrc=existing_by_isrc,
+            service_data=service_data,
         )
 
-    async def _persist_writes(
-        self,
-        writes: list[_PlannedWrite],
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> tuple[dict[str, Track], set[str]]:
-        """Write a chunk's resolutions — one savepoint for all, per id on failure."""
-
-        def _log_failed_write(write: _PlannedWrite, e: Exception) -> None:
-            logger.error(
-                f"Failed to create track for apple:{write.requested_id}: {e}",
-                exc_info=e,
-            )
-
-        return await persist_bulk_with_item_fallback(
-            writes,
-            uow,
-            persist=lambda chunk: self._persist_writes_bulk(
-                chunk, uow, user_id=user_id
-            ),
-            write_key=lambda write: write.requested_id,
-            describe="resolved Apple Music tracks",
-            on_item_failure=_log_failed_write,
-        )
-
-    def _canonical_payload(self, write: _PlannedWrite, *, user_id: str) -> Track:
+    @override
+    def _canonical_payload(
+        self, write: PlannedWrite[AppleMusicSong], *, user_id: str
+    ) -> Track:
         """The canonical this write creates, keyed on the *current* id.
 
         A suspect ISRC is stripped — the owner keeps it, and the queued
         review decides later whether the two are one recording.
         """
         track = create_track_from_apple_song(
-            write.current_id, write.song, user_id=user_id
+            write.current_id, write.payload, user_id=user_id
         )
         if write.review is not None and track.isrc:
             track = evolve(track, isrc=None)
         return track
 
-    async def _persist_writes_bulk(
-        self,
-        writes: Sequence[_PlannedWrite],
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> dict[str, Track]:
-        """Write every resolution in the chunk through the batch primitives."""
-        connector_repo = uow.get_connector_repository()
+    @override
+    def _mapping_metadata(
+        self, write: PlannedWrite[AppleMusicSong]
+    ) -> dict[str, object]:
+        return write.payload.model_dump()
 
-        collisions = [
-            IsrcCollisionSpec(
-                owner=write.review.owner,
-                connector_id=write.requested_id,
-                service_data=write.review.service_data,
-            )
-            for write in writes
-            if write.review is not None
-        ]
-        if collisions:
-            _ = await connector_repo.queue_isrc_collision_reviews(
-                collisions, self.connector_name, user_id=user_id
-            )
+    @override
+    def _successor_assertion(
+        self, write: PlannedWrite[AppleMusicSong], track: Track
+    ) -> SuccessorAssertion | None:
+        """Apple's successor assertion — creations only.
 
-        created = [write for write in writes if write.creates_canonical]
-        saved = await uow.get_track_repository().save_tracks([
-            self._canonical_payload(write, user_id=user_id) for write in created
-        ])
-        canonicals: dict[str, Track] = {
-            write.requested_id: track
-            for write, track in zip(created, saved, strict=True)
-        }
-        canonicals.update({
-            write.requested_id: write.reuse_track
-            for write in writes
-            if write.reuse_track is not None
-        })
-
-        _ = await connector_repo.map_tracks_to_connectors(
-            self._mapping_batch(writes, canonicals)
-        )
-
-        await self._record_substitutions(
-            [write for write in writes if write.is_substitution],
-            canonicals,
-            uow,
-            user_id=user_id,
-        )
-        return canonicals
-
-    def _mapping_batch(
-        self,
-        writes: Sequence[_PlannedWrite],
-        canonicals: Mapping[str, Track],
-    ) -> list[ConnectorMappingSpec]:
-        """Every mapping the chunk owes, each saying whether it holds primacy.
-
-        A creation maps the *current* id with primacy, plus a non-primary
-        stale-id mapping on the requested id when they diverge (cache for
-        future imports). An ISRC reuse maps the requested id with primacy.
-        One spec per connector id — two requested ids can share a successor.
+        A reuse maps the requested id directly onto its canonical and
+        records no successor. The successor arrives as the playParams
+        catalog id of the fetched song, hence ``"playparams_catalog_id"``;
+        the shared seam owns the batching and the streak-reset rationale
+        for keying each event to the *requested* id's connector track.
         """
-        specs: list[ConnectorMappingSpec] = []
-        claimed: set[str] = set()
-
-        def claim(spec: ConnectorMappingSpec) -> None:
-            if spec.connector_id in claimed:
-                return
-            claimed.add(spec.connector_id)
-            specs.append(spec)
-
-        for write in writes:
-            track = canonicals[write.requested_id]
-            claim(
-                ConnectorMappingSpec(
-                    track=track,
-                    connector=self.connector_name,
-                    connector_id=(
-                        write.requested_id
-                        if write.reuse_track is not None
-                        else write.current_id
-                    ),
-                    match_method=write.match_method,
-                    confidence=write.confidence,
-                    metadata=write.song.model_dump(),
-                    primary=True,
-                )
-            )
-            if write.is_substitution:
-                claim(
-                    stale_id_mapping_spec(
-                        track=track,
-                        connector=self.connector_name,
-                        requested_id=write.requested_id,
-                        primary_method=write.match_method,
-                        stale_method_map=self._STALE_ID_METHODS,
-                        confidence=write.confidence,
-                    )
-                )
-        return specs
-
-    async def _record_substitutions(
-        self,
-        writes: list[_PlannedWrite],
-        canonicals: Mapping[str, Track],
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> None:
-        """Record successor-id detections as ``substituted`` events.
-
-        THE single substitution-recording seam for this connector, delegating
-        to the shared successor seam
-        (``_shared/successor_resolution.record_substitutions``), which owns
-        the batching and the streak-reset rationale for keying each event to
-        the *requested* id's connector track. Detection stays here: the
-        successor arrives as the playParams catalog id of the fetched song,
-        hence ``"playparams_catalog_id"``.
-        """
-        if not writes:
-            return
-        await record_substitutions(
-            uow.get_resolution_recorder(),
-            connector_name=self.connector_name,
-            assertions=[
-                SuccessorAssertion(
-                    requested_id=write.requested_id,
-                    returned_id=write.current_id,
-                    detection="playparams_catalog_id",
-                    track_id=canonicals[write.requested_id].id,
-                )
-                for write in writes
-            ],
-            user_id=user_id,
+        if not (write.creates_canonical and write.requested_id_is_stale):
+            return None
+        return SuccessorAssertion(
+            requested_id=write.requested_id,
+            returned_id=write.current_id,
+            detection="playparams_catalog_id",
+            track_id=track.id,
         )

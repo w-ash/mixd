@@ -1,8 +1,13 @@
-"""``TokenStorageGrantProvider`` — scopes out, secrets never."""
+"""``TokenStorageGrantProvider`` — scopes out, secrets never — and the
+required-access-token loader connectors without a mint-on-demand credential
+share (Apple Music's MUT, Discogs's personal access token)."""
+
+import pytest
 
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     TokenStorageGrantProvider,
+    load_required_access_token,
 )
 
 
@@ -58,3 +63,47 @@ class TestTokenStorageGrantProvider:
         )
 
         assert await provider.granted_scopes("lastfm", "user-1") == frozenset()
+
+
+class _AuthNeededError(Exception):
+    """Stand-in for a connector's auth-required exception."""
+
+
+class TestLoadRequiredAccessToken:
+    """Load-or-raise for credentials that cannot be minted on demand."""
+
+    async def test_returns_the_stored_access_token(self) -> None:
+        storage = StubTokenStorage(StoredToken(access_token="the-token"))
+
+        token = await load_required_access_token(
+            storage, "apple_music", "user-1", missing_error=_AuthNeededError
+        )
+
+        assert token == "the-token"
+        assert storage.calls == [("apple_music", "user-1")]
+
+    async def test_no_stored_token_raises_the_missing_error(self) -> None:
+        storage = StubTokenStorage(None)
+
+        with pytest.raises(_AuthNeededError):
+            _ = await load_required_access_token(
+                storage, "discogs", "user-1", missing_error=_AuthNeededError
+            )
+
+    async def test_row_without_access_token_raises(self) -> None:
+        """A row holding only e.g. a session key is not a usable access token."""
+        storage = StubTokenStorage(StoredToken(session_key="abc"))
+
+        with pytest.raises(_AuthNeededError):
+            _ = await load_required_access_token(
+                storage, "lastfm", "user-1", missing_error=_AuthNeededError
+            )
+
+    async def test_exception_instance_is_raised_as_given(self) -> None:
+        error = _AuthNeededError("reconnect from the Integrations page")
+        storage = StubTokenStorage(None)
+
+        with pytest.raises(_AuthNeededError, match="Integrations page"):
+            _ = await load_required_access_token(
+                storage, "discogs", "user-1", missing_error=error
+            )

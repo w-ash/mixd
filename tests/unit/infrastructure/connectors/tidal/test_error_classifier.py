@@ -14,10 +14,7 @@ import httpx2
 import pytest
 
 from src.domain.exceptions import TidalAuthRequiredError
-from src.infrastructure.connectors.tidal.error_classifier import (
-    TidalErrorClassifier,
-    first_json_api_error,
-)
+from src.infrastructure.connectors.tidal.error_classifier import TidalErrorClassifier
 from src.infrastructure.persistence.repositories.token_refresh_lock import (
     TokenRefreshContendedError,
 )
@@ -121,38 +118,3 @@ class TestAuthClassification:
         assert error_type == "permanent"
         assert error_code == "auth"
         assert "reconnect Tidal" in description
-
-
-class TestJsonApiErrorParsing:
-    def test_first_error_extracted_from_errors_array(self):
-        request = httpx2.Request("GET", "https://openapi.tidal.com/v2/tracks")
-        body = {
-            "errors": [
-                {"status": "400", "title": "Bad Request", "detail": "Missing filter"},
-                {"status": "400", "title": "Second", "detail": "Ignored"},
-            ]
-        }
-        response = httpx2.Response(400, request=request, json=body)
-
-        error = first_json_api_error(response)
-
-        assert error is not None
-        assert error["detail"] == "Missing filter"
-
-    def test_no_errors_array_returns_none(self):
-        request = httpx2.Request("GET", "https://openapi.tidal.com/v2/tracks")
-        response = httpx2.Response(400, request=request, json={"data": []})
-
-        assert first_json_api_error(response) is None
-
-    def test_unparseable_body_returns_none(self):
-        request = httpx2.Request("GET", "https://openapi.tidal.com/v2/tracks")
-        response = httpx2.Response(400, request=request, text="<html></html>")
-
-        assert first_json_api_error(response) is None
-
-    def test_empty_body_returns_none(self):
-        request = httpx2.Request("GET", "https://openapi.tidal.com/v2/tracks")
-        response = httpx2.Response(400, request=request, text="")
-
-        assert first_json_api_error(response) is None

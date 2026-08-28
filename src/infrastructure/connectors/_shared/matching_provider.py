@@ -1,13 +1,25 @@
-"""Base class for track matching providers using Template Method pattern.
+"""Workflow shell + partition strategies for track matching providers.
 
 This module provides workflow orchestration for matching providers WITHOUT
 business logic. All business decisions (confidence, thresholds, acceptance)
 remain in the domain layer.
+
+The split: ``BaseMatchingProvider.fetch_raw_matches_for_tracks`` is the one
+workflow shell every provider shares (empty-batch guard, logging context,
+failure summary, result assembly). How a provider partitions tracks and
+sequences its match phases is its ``MatchStrategy``:
+
+- ``IsrcThenArtistTitle`` — ISRC first, artist/title for the rest and for
+  ISRC misses (Spotify, MusicBrainz).
+- ``IsrcOnly`` — ISRC exclusively; ISRC-less tracks fail as ``NO_ISRC``
+  (Apple Music, Tidal).
+- ``SingleBatch`` — one batch call over the whole list, no partitioning
+  (Last.fm).
 """
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Container, Mapping
-from typing import ClassVar
+from typing import NamedTuple, Protocol
 from uuid import UUID
 
 from src.config import get_logger
@@ -25,8 +37,12 @@ from src.infrastructure.connectors._shared.failure_handling import (
     handle_track_processing_failure,
     log_failure_summary,
 )
+from src.infrastructure.connectors._shared.isrc import normalize_isrc
 
 logger = get_logger(__name__)
+
+type MatchOutcome = tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]
+type MatchPhase = Callable[[list[Track]], Awaitable[MatchOutcome]]
 
 
 def _lookup_failure_detail(
@@ -42,8 +58,321 @@ def _lookup_failure_detail(
     return f"{service_label} catalog lookup failed for {scope}: {code}"
 
 
+def _has_isrc(track: Track) -> bool:
+    """True if the track carries an ISRC."""
+    return bool(track.isrc)
+
+
+def _has_artist_and_title(track: Track) -> bool:
+    """True if the track carries both artist and title."""
+    return bool(track.artists and track.title)
+
+
+def _partition_tracks(
+    tracks: list[Track],
+) -> tuple[list[Track], list[Track], list[Track]]:
+    """Partition tracks by matching method — the single validation point.
+
+    Tracks in the ISRC partition are guaranteed to carry an ISRC and tracks
+    in the artist/title partition a valid artist/title, so phase hooks must
+    not re-validate.
+
+    Returns:
+        Tuple of (isrc_tracks, artist_title_tracks, unprocessable_tracks).
+    """
+    isrc_tracks: list[Track] = []
+    artist_title_tracks: list[Track] = []
+    unprocessable_tracks: list[Track] = []
+
+    for track in tracks:
+        if _has_isrc(track):
+            # ISRC takes priority
+            isrc_tracks.append(track)
+        elif _has_artist_and_title(track):
+            # Fallback to artist/title
+            artist_title_tracks.append(track)
+        else:
+            # Cannot process
+            unprocessable_tracks.append(track)
+
+    return isrc_tracks, artist_title_tracks, unprocessable_tracks
+
+
+def _unprocessable_failures(
+    tracks: list[Track], service_name: str
+) -> list[MatchFailure]:
+    """Failures for tracks with no usable matching metadata.
+
+    Id-less tracks emit a failure too (track_id=None): they cannot be
+    addressed per-track but must not vanish — same doctrine as the
+    ISRC-only skip path.
+    """
+    return [
+        create_and_log_failure(
+            track_id=t.id,
+            reason=MatchFailureReason.NO_METADATA,
+            service=service_name,
+            method="unknown",
+            details="Track missing artist or title data"
+            if t.id
+            else "Track has no database id and no usable metadata",
+        )
+        for t in tracks
+    ]
+
+
+def _no_isrc_skip_failures(
+    tracks: list[Track], service_name: str
+) -> list[MatchFailure]:
+    """Failures for the ISRC-less partition of an ISRC-only provider.
+
+    Tracks with an id fail as ``NO_ISRC``; id-less ones as ``NO_METADATA``
+    with ``track_id=None`` — they cannot be addressed per-track but must
+    not vanish from the failure surface.
+    """
+    return [
+        create_and_log_failure(
+            track_id=t.id,
+            reason=MatchFailureReason.NO_ISRC,
+            service=service_name,
+            method="isrc",
+            details="Track has no ISRC and this provider matches by ISRC only",
+        )
+        if t.id
+        else create_and_log_failure(
+            track_id=None,
+            reason=MatchFailureReason.NO_METADATA,
+            service=service_name,
+            method="unknown",
+            details="Track has no database id and no ISRC",
+        )
+        for t in tracks
+    ]
+
+
+class _IsrcPhaseOutcome(NamedTuple):
+    """What the shared ISRC phase decided and what it left for the tail."""
+
+    matches: dict[UUID, RawProviderMatch]
+    failures: list[MatchFailure]
+    remainder: list[Track]
+    completed: int
+
+
+async def _run_isrc_phase(
+    tracks: list[Track],
+    *,
+    match_by_isrc: MatchPhase,
+    service_name: str,
+    progress_callback: ProgressCallback | None,
+    retry_misses: bool,
+) -> _IsrcPhaseOutcome:
+    """Partition, fail unprocessable tracks, and run the guarded ISRC phase.
+
+    ``completed`` counts each track exactly once, when its final workflow
+    outcome is decided — ``remainder`` tracks stay uncounted until the
+    strategy tail decides them. With ``retry_misses``, ISRC misses that
+    carry a valid artist/title join the remainder for a second-chance
+    search instead of counting here.
+    """
+    total = len(tracks)
+    isrc_tracks, rest_tracks, unprocessable_tracks = _partition_tracks(tracks)
+    failures = _unprocessable_failures(unprocessable_tracks, service_name)
+    completed = len(unprocessable_tracks)
+
+    matches: dict[UUID, RawProviderMatch] = {}
+    fallback_tracks: list[Track] = []
+    if isrc_tracks:
+        matches, isrc_failures = await match_by_isrc(isrc_tracks)
+        failures = isrc_failures + failures
+        if retry_misses:
+            fallback_tracks = [
+                t
+                for t in isrc_tracks
+                if t.id not in matches and _has_artist_and_title(t)
+            ]
+            if fallback_tracks:
+                logger.info(
+                    f"Falling back to artist/title for "
+                    f"{len(fallback_tracks)} failed ISRC tracks"
+                )
+        completed += len(isrc_tracks) - len(fallback_tracks)
+        if progress_callback is not None:
+            await progress_callback(
+                completed,
+                total,
+                f"ISRC matching complete ({len(matches)} matched)",
+            )
+
+    remainder = [t for t in rest_tracks if t.id not in matches] + fallback_tracks
+    return _IsrcPhaseOutcome(matches, failures, remainder, completed)
+
+
+class MatchStrategy(Protocol):
+    """How one provider partitions tracks and sequences its match phases.
+
+    A strategy owns partitioning, phase order, per-phase progress reports,
+    and phase-failure records. The universal workflow shell
+    (``BaseMatchingProvider.fetch_raw_matches_for_tracks``) stays outside.
+    """
+
+    async def run(
+        self,
+        tracks: list[Track],
+        *,
+        service_name: str,
+        progress_callback: ProgressCallback | None,
+    ) -> MatchOutcome:
+        """Run the match phases over a non-empty track list."""
+        ...
+
+
+class IsrcThenArtistTitle:
+    """ISRC first, then artist/title for the rest and for ISRC misses.
+
+    ISRC misses with a valid artist/title get a second-chance search;
+    tracks with neither ISRC nor artist/title fail as ``NO_METADATA``.
+    """
+
+    _match_by_isrc: MatchPhase
+    _match_by_artist_title: MatchPhase
+
+    def __init__(
+        self, *, match_by_isrc: MatchPhase, match_by_artist_title: MatchPhase
+    ) -> None:
+        """Wire the provider's ISRC and artist/title phase hooks."""
+        self._match_by_isrc = match_by_isrc
+        self._match_by_artist_title = match_by_artist_title
+
+    async def run(
+        self,
+        tracks: list[Track],
+        *,
+        service_name: str,
+        progress_callback: ProgressCallback | None,
+    ) -> MatchOutcome:
+        """Run the ISRC phase, then artist/title over the undecided remainder."""
+        phase = await _run_isrc_phase(
+            tracks,
+            match_by_isrc=self._match_by_isrc,
+            service_name=service_name,
+            progress_callback=progress_callback,
+            retry_misses=True,
+        )
+
+        artist_title_matches: dict[UUID, RawProviderMatch] = {}
+        artist_title_failures: list[MatchFailure] = []
+        if phase.remainder:
+            (
+                artist_title_matches,
+                artist_title_failures,
+            ) = await self._match_by_artist_title(phase.remainder)
+            if progress_callback is not None:
+                await progress_callback(
+                    phase.completed + len(phase.remainder),
+                    len(tracks),
+                    f"Artist/title matching complete ({len(artist_title_matches)} matched)",
+                )
+
+        return (
+            {**phase.matches, **artist_title_matches},
+            phase.failures + artist_title_failures,
+        )
+
+
+class IsrcOnly:
+    """ISRC exclusively — no artist/title phase exists at all.
+
+    Conservative providers (Apple Music, Tidal) use this: ISRC-less tracks
+    fail as ``NO_ISRC`` instead of entering a name search, and ISRC misses
+    keep the failure the ISRC hook already reported — no second-chance
+    search, so no double-counted failures.
+    """
+
+    _match_by_isrc: MatchPhase
+
+    def __init__(self, *, match_by_isrc: MatchPhase) -> None:
+        """Wire the provider's ISRC phase hook."""
+        self._match_by_isrc = match_by_isrc
+
+    async def run(
+        self,
+        tracks: list[Track],
+        *,
+        service_name: str,
+        progress_callback: ProgressCallback | None,
+    ) -> MatchOutcome:
+        """Run the ISRC phase; fail the ISRC-less remainder without a search."""
+        phase = await _run_isrc_phase(
+            tracks,
+            match_by_isrc=self._match_by_isrc,
+            service_name=service_name,
+            progress_callback=progress_callback,
+            retry_misses=False,
+        )
+
+        no_isrc_failures = _no_isrc_skip_failures(phase.remainder, service_name)
+        if progress_callback is not None and phase.remainder:
+            await progress_callback(
+                phase.completed + len(phase.remainder),
+                len(tracks),
+                f"Skipped {len(phase.remainder)} tracks without "
+                "ISRC (ISRC-only provider)",
+            )
+
+        return phase.matches, phase.failures + no_isrc_failures
+
+
+class SingleBatch:
+    """One batch call over the whole track list — no partitioning.
+
+    A batch API answers every track at once (Last.fm), so there are no
+    phases: the hook runs once, a hook exception fails every id-bearing
+    track, and one progress report closes the workflow.
+    """
+
+    _match_batch: MatchPhase
+    _label: str
+
+    def __init__(self, *, match_batch: MatchPhase, label: str) -> None:
+        """Wire the provider's batch hook and its progress display label."""
+        self._match_batch = match_batch
+        self._label = label
+
+    async def run(
+        self,
+        tracks: list[Track],
+        *,
+        service_name: str,
+        progress_callback: ProgressCallback | None,
+    ) -> MatchOutcome:
+        """Run the one batch phase; a hook exception fails the whole batch."""
+        matches: dict[UUID, RawProviderMatch] = {}
+        failures: list[MatchFailure] = []
+        try:
+            matches, failures = await self._match_batch(tracks)
+        except Exception as e:
+            # Batch API failed - all tracks failed
+            failures = [
+                handle_track_processing_failure(
+                    track.id, service_name, "batch_lookup", e
+                )
+                for track in tracks
+                if track.id
+            ]
+
+        if progress_callback is not None:
+            await progress_callback(
+                len(tracks),
+                len(tracks),
+                f"{self._label} batch matching complete ({len(matches)} matched)",
+            )
+
+        return matches, failures
+
+
 class BaseMatchingProvider(ABC):
-    """Base class for matching providers - TECHNICAL concerns only.
+    """Shared workflow shell for matching providers — TECHNICAL concerns only.
 
     This class contains workflow orchestration and technical utilities.
     NO business logic (confidence, thresholds, acceptance decisions).
@@ -53,27 +382,11 @@ class BaseMatchingProvider(ABC):
     - Domain layer: Business logic (confidence, thresholds, evaluation)
     - Application layer: Orchestration of infrastructure → domain flow
 
-    Validation happens once, in ``_partition_tracks`` (the single validation
-    point): tracks handed to ``_match_by_isrc`` are guaranteed to carry an
-    ISRC and tracks handed to ``_match_by_artist_title`` a valid artist/title,
-    so subclass hooks must not re-validate.
-
     Subclasses must implement:
     - service_name: Service identifier property
-    - _match_by_isrc(): Service-specific ISRC matching
-    - _match_by_artist_title(): Service-specific artist/title matching —
-      unless ``supports_artist_title_matching`` is False, in which case the
-      base default (raising NotImplementedError) is never reached.
+    - _match_strategy(): the partition/phase strategy wired to the
+      provider's own phase hook methods
     """
-
-    # Does this provider match by artist/title at all? Conservative providers
-    # (Apple Music) set this False: tracks without an ISRC fail with NO_ISRC
-    # instead of entering the artist/title partition, ISRC misses are not
-    # funneled into a second-chance search, and ``_match_by_artist_title`` is
-    # never called. Failures for ISRC *misses* stay with ``_match_by_isrc`` —
-    # the hook already reports its own misses, and a second base-level failure
-    # for the same track would double-count it.
-    supports_artist_title_matching: ClassVar[bool] = True
 
     @property
     @abstractmethod
@@ -82,42 +395,9 @@ class BaseMatchingProvider(ABC):
         ...
 
     @abstractmethod
-    async def _match_by_isrc(
-        self, tracks: list[Track]
-    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
-        """Service-specific ISRC matching.
-
-        Args:
-            tracks: Tracks with ISRC to match.
-
-        Returns:
-            Tuple of (matches dict, failures list).
-        """
+    def _match_strategy(self) -> MatchStrategy:
+        """The partition/phase strategy for this provider's workflow."""
         ...
-
-    async def _match_by_artist_title(
-        self, tracks: list[Track]
-    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
-        """Service-specific artist/title matching.
-
-        Default: unimplemented. The flag contract — providers that set
-        ``supports_artist_title_matching = False`` (Apple Music, Tidal)
-        never have this hook called: ISRC-less tracks fail via
-        ``_isrc_only_skip_failures`` instead. The hook stays as the v0.12.1
-        alias-aware-comparator plug point: when that lands, a provider
-        implements this with catalog search + alias-aware evaluation and
-        flips its class flag to True.
-
-        Args:
-            tracks: Tracks with artist and title to match.
-
-        Returns:
-            Tuple of (matches dict, failures list).
-        """
-        raise NotImplementedError(
-            f"{self.service_name} does not implement artist/title matching — "
-            "it lands with the v0.12.1 alias-aware comparator"
-        )
 
     async def fetch_raw_matches_for_tracks(
         self,
@@ -125,14 +405,11 @@ class BaseMatchingProvider(ABC):
         progress_callback: ProgressCallback | None = None,
         **additional_options: object,
     ) -> ProviderMatchResult:
-        """Orchestrate matching workflow using template method pattern.
+        """Run the matching workflow shell around the provider's strategy.
 
-        This method coordinates the matching process:
-        1. Partition tracks by method (ISRC vs artist/title vs unprocessable)
-        2. Call service-specific matching methods
-        3. Filter already-matched tracks from fallback method
-        4. Merge all results
-        5. Log summary
+        The shell owns what every provider does identically: the empty-batch
+        guard, the logging context, the failure summary, and result assembly.
+        Partitioning and phase sequencing belong to ``_match_strategy()``.
 
         Args:
             tracks: Tracks to match against external service.
@@ -149,107 +426,16 @@ class BaseMatchingProvider(ABC):
         if not tracks:
             return ProviderMatchResult()
 
-        total = len(tracks)
-
-        with logging_context(operation=f"match_{self.service_name}", track_count=total):
-            # Partition tracks by matching method
-            isrc_tracks, artist_title_tracks, unprocessable_tracks = (
-                self._partition_tracks(tracks)
+        with logging_context(
+            operation=f"match_{self.service_name}", track_count=len(tracks)
+        ):
+            matches, failures = await self._match_strategy().run(
+                tracks,
+                service_name=self.service_name,
+                progress_callback=progress_callback,
             )
 
-            # Create failures for unprocessable tracks. Id-less tracks emit a
-            # failure too (track_id=None): they cannot be addressed per-track
-            # but must not vanish — same doctrine as the ISRC-only skip path.
-            unprocessable_failures = [
-                create_and_log_failure(
-                    track_id=t.id,
-                    reason=MatchFailureReason.NO_METADATA,
-                    service=self.service_name,
-                    method="unknown",
-                    details="Track missing artist or title data"
-                    if t.id
-                    else "Track has no database id and no usable metadata",
-                )
-                for t in unprocessable_tracks
-            ]
-
-            completed = len(unprocessable_tracks)
-
-            # Process ISRC tracks
-            isrc_matches: dict[UUID, RawProviderMatch] = {}
-            isrc_failures: list[MatchFailure] = []
-            if isrc_tracks:
-                isrc_matches, isrc_failures = await self._match_by_isrc(isrc_tracks)
-                completed += len(isrc_tracks)
-                if progress_callback is not None:
-                    await progress_callback(
-                        completed,
-                        total,
-                        f"ISRC matching complete ({len(isrc_matches)} matched)",
-                    )
-
-            # ISRC-only providers never reach artist/title: ISRC-less tracks
-            # fail as NO_ISRC here (id-less ones as NO_METADATA — they cannot
-            # be addressed per-track but must not vanish), ISRC misses keep
-            # the failure their _match_by_isrc already reported, and no
-            # fallback list is built.
-            no_isrc_failures: list[MatchFailure] = []
-            if not self.supports_artist_title_matching:
-                no_isrc_failures = self._isrc_only_skip_failures(artist_title_tracks)
-                completed += len(artist_title_tracks)
-                if progress_callback is not None and artist_title_tracks:
-                    await progress_callback(
-                        completed,
-                        total,
-                        f"Skipped {len(artist_title_tracks)} tracks without "
-                        "ISRC (ISRC-only provider)",
-                    )
-                remaining_tracks: list[Track] = []
-            else:
-                # Fallback: failed ISRC tracks with valid artist/title get a second chance
-                failed_isrc_tracks = [
-                    t
-                    for t in isrc_tracks
-                    if t.id not in isrc_matches and self._has_artist_and_title(t)
-                ]
-                if failed_isrc_tracks:
-                    logger.info(
-                        f"Falling back to artist/title for {len(failed_isrc_tracks)} failed ISRC tracks"
-                    )
-
-                # Filter out tracks already matched by ISRC, then add failed ISRC fallbacks
-                remaining_tracks = [
-                    t for t in artist_title_tracks if t.id not in isrc_matches
-                ] + failed_isrc_tracks
-
-            # Process remaining tracks by artist/title
-            artist_title_matches: dict[UUID, RawProviderMatch] = {}
-            artist_title_failures: list[MatchFailure] = []
-            if remaining_tracks:
-                (
-                    artist_title_matches,
-                    artist_title_failures,
-                ) = await self._match_by_artist_title(remaining_tracks)
-                completed += len(remaining_tracks)
-                if progress_callback is not None:
-                    await progress_callback(
-                        completed,
-                        total,
-                        f"Artist/title matching complete ({len(artist_title_matches)} matched)",
-                    )
-
-            # Merge all results
-            all_matches = {**isrc_matches, **artist_title_matches}
-            all_failures = (
-                isrc_failures
-                + artist_title_failures
-                + no_isrc_failures
-                + unprocessable_failures
-            )
-
-            final_result = ProviderMatchResult(
-                matches=all_matches, failures=all_failures
-            )
+            final_result = ProviderMatchResult(matches=matches, failures=failures)
 
             # Log summary
             log_failure_summary(
@@ -261,31 +447,19 @@ class BaseMatchingProvider(ABC):
 
             return final_result
 
-    def _isrc_only_skip_failures(self, tracks: list[Track]) -> list[MatchFailure]:
-        """Failures for the artist/title partition of an ISRC-only provider.
+    def _normalized_isrc_by_track(self, tracks: list[Track]) -> dict[UUID, str]:
+        """Map track id -> normalized ISRC for a pre-partitioned ISRC batch.
 
-        Tracks with an id fail as ``NO_ISRC``; id-less ones as ``NO_METADATA``
-        with ``track_id=None`` — they cannot be addressed per-track but must
-        not vanish from the failure surface.
+        Skips id-less tracks and codes that normalize to nothing.
         """
-        return [
-            create_and_log_failure(
-                track_id=t.id,
-                reason=MatchFailureReason.NO_ISRC,
-                service=self.service_name,
-                method="isrc",
-                details="Track has no ISRC and this provider matches by ISRC only",
-            )
-            if t.id
-            else create_and_log_failure(
-                track_id=None,
-                reason=MatchFailureReason.NO_METADATA,
-                service=self.service_name,
-                method="unknown",
-                details="Track has no database id and no ISRC",
-            )
-            for t in tracks
-        ]
+        isrc_by_track: dict[UUID, str] = {}
+        for track in tracks:
+            if not track.id:
+                continue
+            normalized = normalize_isrc(track.isrc or "")
+            if normalized:
+                isrc_by_track[track.id] = normalized
+        return isrc_by_track
 
     def _correlate_by_code[CandidateT](
         self,
@@ -367,7 +541,7 @@ class BaseMatchingProvider(ABC):
 
         Owns the per-track loop shell shared by subclass hooks: the
         ``track.id`` guard and the exception → ``handle_track_processing_failure``
-        classification. Tracks are already validated by ``_partition_tracks``
+        classification. Tracks are already validated by the strategy partition
         (the single validation point), so this does not re-check ISRC /
         artist / title.
 
@@ -401,53 +575,3 @@ class BaseMatchingProvider(ABC):
                     failures.append(failure)
 
         return matches, failures
-
-    def _partition_tracks(
-        self, tracks: list[Track]
-    ) -> tuple[list[Track], list[Track], list[Track]]:
-        """Partition tracks by matching method.
-
-        Args:
-            tracks: All tracks to partition.
-
-        Returns:
-            Tuple of (isrc_tracks, artist_title_tracks, unprocessable_tracks).
-        """
-        isrc_tracks: list[Track] = []
-        artist_title_tracks: list[Track] = []
-        unprocessable_tracks: list[Track] = []
-
-        for track in tracks:
-            if self._has_isrc(track):
-                # ISRC takes priority
-                isrc_tracks.append(track)
-            elif self._has_artist_and_title(track):
-                # Fallback to artist/title
-                artist_title_tracks.append(track)
-            else:
-                # Cannot process
-                unprocessable_tracks.append(track)
-
-        return isrc_tracks, artist_title_tracks, unprocessable_tracks
-
-    def _has_isrc(self, track: Track) -> bool:
-        """Check if track has ISRC for matching.
-
-        Args:
-            track: Track to validate.
-
-        Returns:
-            True if track has ISRC.
-        """
-        return bool(track.isrc)
-
-    def _has_artist_and_title(self, track: Track) -> bool:
-        """Check if track has artist and title for matching.
-
-        Args:
-            track: Track to validate.
-
-        Returns:
-            True if track has both artist and title.
-        """
-        return bool(track.artists and track.title)

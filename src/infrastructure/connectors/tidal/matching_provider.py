@@ -1,10 +1,10 @@
 """Tidal provider for track matching — conservative, ISRC-only.
 
-Matches tracks against the Tidal catalog by ISRC exclusively.
-``supports_artist_title_matching = False`` keeps the base template from ever
-funneling ISRC-less tracks (or ISRC misses) into a name search — the same
-conservative contract as Apple's provider; the artist/title hook stays as
-the v0.12.1 plug point.
+Matches tracks against the Tidal catalog by ISRC exclusively. The
+``IsrcOnly`` strategy keeps the workflow from ever funneling ISRC-less
+tracks (or ISRC misses) into a name search — the same conservative
+contract as Apple's provider; artist/title matching lands with the v0.12.1
+alias-aware comparator.
 
 The lookup is ``GET /tracks?filter[isrc]=`` — ONE code per request, looped
 here, because the client rejects multi-code batching (Tidal returns one
@@ -12,8 +12,7 @@ match per code for batched filters: a silent partial answer for a 1:N
 lookup).
 """
 
-import asyncio
-from typing import ClassVar, override
+from typing import override
 from uuid import UUID
 
 from src.config import get_logger, settings
@@ -27,9 +26,12 @@ from src.domain.matching.types import (
     MatchFailure,
     RawProviderMatch,
 )
+from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
+    IsrcOnly,
+    MatchStrategy,
 )
 from src.infrastructure.connectors.tidal.client import (
     TIDAL_COUNTRY_CODE,
@@ -46,8 +48,6 @@ logger = get_logger(__name__)
 
 class TidalMatchingProvider(BaseMatchingProvider):
     """Tidal track matching provider (ISRC only)."""
-
-    supports_artist_title_matching: ClassVar[bool] = False
 
     _client: TidalAPIClient
 
@@ -67,6 +67,10 @@ class TidalMatchingProvider(BaseMatchingProvider):
         return "tidal"
 
     @override
+    def _match_strategy(self) -> MatchStrategy:
+        """ISRC exclusively — ISRC-less tracks fail without a name search."""
+        return IsrcOnly(match_by_isrc=self._match_by_isrc)
+
     async def _match_by_isrc(
         self, tracks: list[Track]
     ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
@@ -79,42 +83,35 @@ class TidalMatchingProvider(BaseMatchingProvider):
         request failed is UNANSWERED, not absent — its tracks fail as
         ``API_ERROR``, never ``NO_RESULTS``.
         """
-        isrc_by_track: dict[UUID, str] = {}
-        for track in tracks:
-            if not track.id:
-                continue
-            normalized = normalize_isrc(track.isrc or "")
-            if normalized:
-                isrc_by_track[track.id] = normalized
+        isrc_by_track = self._normalized_isrc_by_track(tracks)
 
-        candidates_by_isrc: dict[str, list[TidalTrack]] = {}
-        failed_isrcs: set[str] = set()
         # Multi-ISRC batching returns one match per code, so each code is its own
         # request — bounded concurrency is what keeps a large batch off a serial
         # round trip per track. The shared rate limiter still paces each call.
-        semaphore = asyncio.Semaphore(settings.api.tidal.concurrency)
+        async def _lookup(code: str) -> tuple[str, list[TidalTrack] | None]:
+            try:
+                resources = await self._client.get_tracks_by_isrc(
+                    code, TIDAL_COUNTRY_CODE
+                )
+            except Exception:
+                logger.warning(
+                    f"Tidal ISRC lookup failed for {code} — "
+                    f"its tracks fail as API_ERROR",
+                    exc_info=True,
+                )
+                return code, None
+            return code, [tidal_track_from_resource(resource) for resource in resources]
 
-        async def _lookup(code: str) -> None:
-            async with semaphore:
-                try:
-                    resources = await self._client.get_tracks_by_isrc(
-                        code, TIDAL_COUNTRY_CODE
-                    )
-                except Exception:
-                    logger.warning(
-                        f"Tidal ISRC lookup failed for {code} — "
-                        f"its tracks fail as API_ERROR",
-                        exc_info=True,
-                    )
-                    failed_isrcs.add(code)
-                else:
-                    candidates_by_isrc[code] = [
-                        tidal_track_from_resource(resource) for resource in resources
-                    ]
-
-        async with asyncio.TaskGroup() as tg:
-            for code in dict.fromkeys(isrc_by_track.values()):
-                _ = tg.create_task(_lookup(code))
+        lookups = await bounded_fan_out(
+            dict.fromkeys(isrc_by_track.values()),
+            _lookup,
+            concurrency=settings.api.tidal.concurrency,
+        )
+        candidates_by_isrc = {
+            code: candidates for code, candidates in lookups if candidates is not None
+        }
+        # A None answer marks a raised lookup: the code is UNANSWERED, not absent.
+        failed_isrcs = {code for code, candidates in lookups if candidates is None}
 
         return self._correlate_by_code(
             tracks,

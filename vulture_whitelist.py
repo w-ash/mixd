@@ -204,3 +204,17 @@ SuccessorHook  # _shared/successor_resolution.py — dead-id successor consult p
 # the ``back_populates`` string on the other side.
 resolved_track  # DBConnectorPlay relationship — paired via back_populates="resolved_track"
 self_managed  # SyncTargetSchema field — serialized to /sync/targets, read by Sync.tsx
+
+# --- 2026-08 connectors quality sweep ---
+# metric_freshness_hours is a ConnectorConfig TypedDict key read only via
+# config.get("metric_freshness_hours") in discovery.py — a string reference
+# vulture cannot see. redirect_resolved_ids is the healing observability seam
+# asserted by tests/integration/characterization/test_healing_and_promotion.py.
+metric_freshness_hours  # ConnectorConfig key — read by string in discovery.py
+cross_discovery_factory  # ConnectorConfig key — read by string in lastfm/factory.py
+play_service_name  # ConnectorConfig key — read by string in play_import_registry.py
+play_importer_factories  # ConnectorConfig key — read by string in play_import_registry.py
+play_resolver_factory  # ConnectorConfig key — read by string in play_import_registry.py
+supports_play_polling  # ConnectorConfig key — read by string in routes/connectors.py
+redirect_resolved_ids  # SpotifyInwardResolver property — test-asserted seam
+fallback_resolved_ids  # SpotifyInwardResolver property — test-asserted seam

@@ -8,7 +8,7 @@ LastFMAPIClient, LastFMOperations, and conversion utilities.
 
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
-from typing import ClassVar, cast, override
+from typing import cast, override
 from uuid import UUID
 
 import attrs
@@ -17,11 +17,7 @@ from attrs import define, field
 from src.config import get_logger, settings
 from src.domain.entities import ConnectorTrack, PlayRecord, Track
 from src.domain.entities.shared import JsonValue
-from src.infrastructure.connectors.base import (
-    BaseAPIConnector,
-    BaseMetricResolver,
-    register_metrics,
-)
+from src.infrastructure.connectors.base import BaseAPIConnector
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import (
     LastFMTrackInfo,
@@ -203,32 +199,24 @@ class LastFMConnector(BaseAPIConnector):
         return play_records
 
 
-@define(frozen=True, slots=True)
-class LastFmMetricResolver(BaseMetricResolver):
-    """Resolves Last.fm metrics from persistence layer."""
-
-    # Map metric names to connector metadata fields
-    FIELD_MAP: ClassVar[dict[str, str]] = {
-        "lastfm_user_playcount": "lastfm_user_playcount",
-        "lastfm_global_playcount": "lastfm_global_playcount",
-        "lastfm_listeners": "lastfm_listeners",
-    }
-
-    # Connector name for database operations
-    CONNECTOR: ClassVar[str] = "lastfm"
+# Metric name → connector metadata field, registered by connector discovery
+_METRIC_FIELD_MAP: dict[str, str] = {
+    "lastfm_user_playcount": "lastfm_user_playcount",
+    "lastfm_global_playcount": "lastfm_global_playcount",
+    "lastfm_listeners": "lastfm_listeners",
+}
 
 
 def get_connector_config() -> ConnectorConfig:
     """Last.fm connector configuration."""
-    from src.infrastructure.connectors._shared.connector_status import (
-        get_lastfm_status,
-    )
+    from src.infrastructure.connectors.lastfm import factory as play_factory
     from src.infrastructure.connectors.lastfm.auth import build_auth_url
+    from src.infrastructure.connectors.lastfm.status import get_lastfm_status
 
     return {
-        "dependencies": ["musicbrainz"],
-        "factory": lambda _params: LastFMConnector(),
-        "metrics": LastFmMetricResolver.FIELD_MAP,
+        "factory": LastFMConnector,
+        "metrics": _METRIC_FIELD_MAP,
+        "metric_freshness_hours": settings.freshness.lastfm_hours,
         "display_name": "Last.fm",
         "category": "history",
         "auth_method": "oauth",
@@ -239,13 +227,6 @@ def get_connector_config() -> ConnectorConfig:
         }),
         "status_fn": get_lastfm_status,
         "build_auth_url": build_auth_url,
+        "play_importer_factories": {"api": play_factory.create_play_importer},
+        "play_resolver_factory": play_factory.create_play_resolver,
     }
-
-
-# Register all metric resolvers with freshness from settings
-_lastfm_freshness = dict.fromkeys(
-    LastFmMetricResolver.FIELD_MAP, settings.freshness.lastfm_hours
-)
-register_metrics(
-    LastFmMetricResolver(), LastFmMetricResolver.FIELD_MAP, _lastfm_freshness
-)

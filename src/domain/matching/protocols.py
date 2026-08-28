@@ -4,6 +4,7 @@ These protocols define contracts for matching services without depending on
 external implementations, following the dependency inversion principle.
 """
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from attrs import define, field
@@ -103,6 +104,20 @@ type DiscoveryOutcome = ReuseExisting | NewMapping | Nothing
 """What a :class:`CrossDiscoveryProvider` tells its caller to do."""
 
 
+@define(frozen=True, slots=True)
+class DiscoveryRequest:
+    """One cross-discovery question: an unsaved probe and its search names.
+
+    ``probe_track`` is the in-memory canonical the caller has NOT persisted
+    yet; ``artist_name``/``track_name`` are the names the provider searches
+    the other service with.
+    """
+
+    probe_track: Track
+    artist_name: str
+    track_name: str
+
+
 class CrossDiscoveryProvider(Protocol):
     """Contract for cross-service track discovery.
 
@@ -111,23 +126,25 @@ class CrossDiscoveryProvider(Protocol):
     implementation. The wiring happens at the composition root.
     """
 
-    async def discover(
+    async def discover_batch(
         self,
-        probe_track: Track,
-        artist_name: str,
-        track_name: str,
+        requests: Sequence[DiscoveryRequest],
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-    ) -> DiscoveryOutcome:
-        """Decide how an unsaved probe track should be mapped cross-service.
+    ) -> list[DiscoveryOutcome]:
+        """Decide every request in one batched pass.
 
-        ``probe_track`` is an in-memory canonical the caller has NOT persisted
-        yet — reuse-before-create means discovery runs before any row is
-        written. Returns a :data:`DiscoveryOutcome`: reuse an existing canonical
-        (:class:`ReuseExisting`), create a new Spotify mapping + backfill
-        (:class:`NewMapping`), or do nothing (:class:`Nothing`). The provider
-        does not mutate the caller's canonical; it may perform its own side
-        effects (e.g. queuing an ISRC review).
+        Each request carries an in-memory probe canonical the caller has NOT
+        persisted yet — reuse-before-create means discovery runs before any
+        row is written. Returns one :data:`DiscoveryOutcome` per request, in
+        input order: reuse an existing canonical (:class:`ReuseExisting`),
+        create a new mapping + backfill (:class:`NewMapping`), or do nothing
+        (:class:`Nothing`). The provider never mutates a caller's canonical;
+        it may perform its own side effects (e.g. queuing an ISRC review).
+        Decisions stay per-request: one request's failure degrades that
+        request to :class:`Nothing`, and every ``uow`` touchpoint stays
+        sequential and savepoint-isolated so a swallowed SQL failure never
+        aborts the caller's transaction.
         """
         ...

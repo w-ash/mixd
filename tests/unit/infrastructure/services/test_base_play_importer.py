@@ -7,7 +7,10 @@ import pytest
 
 from src.domain.entities import ConnectorTrackPlay
 from src.domain.entities.progress import ProgressEmitter
-from src.domain.repositories.play import LastfmImportParams
+from src.domain.repositories.play import (
+    LastfmImportParams,
+    SpotifyRecentImportParams,
+)
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.services.base_play_importer import (
     BasePlayImporter,
@@ -70,6 +73,7 @@ class _StubImporter(BasePlayImporter[ConnectorTrackPlay, LastfmImportParams]):
     """Minimal importer whose fetch optionally persists its own chunk."""
 
     operation_name = "Stub Import"
+    _params_type = LastfmImportParams
 
     def __init__(self, *, persists_during_fetch: bool, user_id: str = "u1") -> None:
         self.persists_plays_during_fetch = persists_during_fetch
@@ -250,3 +254,80 @@ class TestReportedCountsComeFromTheLedger:
         )
 
         assert result.summary_metrics.get("imported") == 1
+
+
+class _FakeClient:
+    """Client double recording whether its HTTP pool was released."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _ClientedImporter(_StubImporter):
+    """Stub importer with the client-adoption pattern the poll importers use."""
+
+    def __init__(self, client: _FakeClient | None = None) -> None:
+        super().__init__(persists_during_fetch=False)
+        self._client = self._adopt_client(client, _FakeClient)
+
+
+class TestImportPlaysShell:
+    """The shared shell: params narrowing, hook ordering, client release."""
+
+    async def test_wrong_params_type_raises(self) -> None:
+        importer = _ClientedImporter()
+
+        with pytest.raises(TypeError, match="requires LastfmImportParams"):
+            _ = await importer.import_plays(
+                _uow_with_ledger(inserted=0, duplicates=0),
+                SpotifyRecentImportParams(),
+                user_id="u1",
+            )
+
+    async def test_owned_client_is_closed_after_import(self) -> None:
+        importer = _ClientedImporter()
+
+        _ = await importer.import_plays(
+            _uow_with_ledger(inserted=1, duplicates=0),
+            LastfmImportParams(),
+            user_id="u1",
+        )
+
+        assert importer._client.closed is True
+
+    async def test_injected_client_is_left_open(self) -> None:
+        """An injected client belongs to the caller — never closed here."""
+        client = _FakeClient()
+        importer = _ClientedImporter(client=client)
+
+        _ = await importer.import_plays(
+            _uow_with_ledger(inserted=1, duplicates=0),
+            LastfmImportParams(),
+            user_id="u1",
+        )
+
+        assert client.closed is False
+
+    async def test_owned_client_is_closed_when_the_precheck_raises(self) -> None:
+        """The finally covers _before_import failures, not only the pipeline."""
+
+        class _FailingPrecheck(_ClientedImporter):
+            @override
+            async def _before_import(
+                self, params: LastfmImportParams, *, user_id: str
+            ) -> None:
+                raise RuntimeError("precheck failed")
+
+        importer = _FailingPrecheck()
+
+        with pytest.raises(RuntimeError, match="precheck failed"):
+            _ = await importer.import_plays(
+                _uow_with_ledger(inserted=0, duplicates=0),
+                LastfmImportParams(),
+                user_id="u1",
+            )
+
+        assert importer._client.closed is True

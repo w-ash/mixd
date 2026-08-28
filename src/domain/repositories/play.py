@@ -3,7 +3,7 @@
 Split from the former monolithic ``interfaces.py``.
 """
 
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Iterable, Mapping, Sequence
 from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
@@ -474,15 +474,12 @@ class PlayResolverProtocol(Protocol):
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> PlayResolutionOutcome:
         """Resolve connector plays to canonical track plays.
 
-        Args:
-            connector_plays: Raw plays from external service.
-            uow: Unit of work for database operations.
-            user_id: Authenticated user ID for data scoping.
-            progress_callback: Optional progress reporting.
+        Progress is the orchestrator's concern: it emits per-chunk events
+        through its ``ProgressEmitter`` after each resolver call, so the
+        resolver reports none itself.
 
         Returns:
             PlayResolutionOutcome with track plays, metrics, and the

@@ -2,11 +2,11 @@
 
 Validates the three-phase creation path: concurrent track.getInfo enrichment
 into in-memory probes (corrected names mint the connector ids — v0.8.18 FM4a,
-with a raw-alias secondary when corrected differs from raw), sequential
-cross-service discovery via the CrossDiscoveryProvider protocol's ``discover``
-→ ``DiscoveryOutcome`` contract, and the pure plan → chunk-bulk persist
-(one ``save_tracks`` + one ``map_tracks_to_connectors``, per-item savepoint
-fallback on bulk failure).
+with a raw-alias secondary when corrected differs from raw), one batched
+cross-service discovery pass via the CrossDiscoveryProvider protocol's
+``discover_batch`` → ``DiscoveryOutcome`` contract, and the pure plan →
+chunk-bulk persist (one ``save_tracks`` + one ``map_tracks_to_connectors``,
+per-item savepoint fallback on bulk failure).
 """
 
 import asyncio
@@ -96,7 +96,7 @@ class TestCreatesEnrichedTrack:
         lastfm_client.get_track_info_comprehensive.return_value = _track_info()
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.return_value = Nothing()
+        cross_discovery.discover_batch.return_value = [Nothing()]
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -120,18 +120,20 @@ class TestCreatesEnrichedTrack:
 
 
 class TestCrossDiscovery:
-    """Cross-discovery provider should be called for each new track."""
+    """Cross-discovery runs once per chunk through ``discover_batch``."""
 
     async def test_successful_discovery_calls_provider(self):
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = _track_info()
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.return_value = NewMapping(
-            spotify_id="spotify123",
-            confidence=90,
-            match_method=MatchMethod.LASTFM_DISCOVERY,
-        )
+        cross_discovery.discover_batch.return_value = [
+            NewMapping(
+                spotify_id="spotify123",
+                confidence=90,
+                match_method=MatchMethod.LASTFM_DISCOVERY,
+            )
+        ]
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -144,14 +146,15 @@ class TestCrossDiscovery:
             ["radiohead::creep"], uow, user_id="test-user"
         )
 
-        # Should have called discover with the probe + artist/title positionally.
-        cross_discovery.discover.assert_called_once()
-        call_args = cross_discovery.discover.call_args
-        assert call_args.args[1] == "radiohead"  # artist_name
-        assert call_args.args[2] == "creep"  # track_name
-        # The first positional arg is the UNSAVED in-memory probe track.
-        probe = call_args.args[0]
-        assert isinstance(probe, Track)
+        # One batched call carrying the identifier's request.
+        cross_discovery.discover_batch.assert_called_once()
+        call_args = cross_discovery.discover_batch.call_args
+        requests = call_args.args[0]
+        assert len(requests) == 1
+        assert requests[0].artist_name == "radiohead"
+        assert requests[0].track_name == "creep"
+        # The request carries the UNSAVED in-memory probe track.
+        assert isinstance(requests[0].probe_track, Track)
         assert call_args.kwargs["user_id"] == "test-user"
 
         # The discovered Spotify id lands as a primary spec in the same batch.
@@ -159,6 +162,52 @@ class TestCrossDiscovery:
         assert [s.connector_id for s in spotify_specs] == ["spotify123"]
         assert spotify_specs[0].primary is True
         assert spotify_specs[0].match_method == MatchMethod.LASTFM_DISCOVERY
+
+    async def test_chunk_makes_one_batched_discovery_call(self):
+        """A multi-identifier chunk issues ONE ``discover_batch`` call carrying
+        every identifier's request in input order, and each outcome lands on
+        its own identifier."""
+
+        async def _get_info(artist, title):
+            return _track_info(
+                lastfm_artist_name=artist.title(), lastfm_title=title.title()
+            )
+
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.side_effect = _get_info
+
+        cross_discovery = AsyncMock()
+        cross_discovery.discover_batch.return_value = [
+            Nothing(),
+            NewMapping(
+                spotify_id="sp2",
+                confidence=90,
+                match_method=MatchMethod.LASTFM_DISCOVERY,
+            ),
+            Nothing(),
+        ]
+
+        resolver = LastfmInwardResolver(
+            lastfm_client=lastfm_client,
+            cross_discovery=cross_discovery,
+        )
+
+        uow = _make_uow(saved_track=make_track(id=7))
+        result = await resolver._create_tracks_batch(
+            ["aa::t1", "bb::t2", "cc::t3"], uow, user_id="test-user"
+        )
+
+        assert len(result) == 3
+        cross_discovery.discover_batch.assert_awaited_once()
+        requests = cross_discovery.discover_batch.call_args.args[0]
+        assert [(r.artist_name, r.track_name) for r in requests] == [
+            ("aa", "t1"),
+            ("bb", "t2"),
+            ("cc", "t3"),
+        ]
+        # Only the second identifier owes a Spotify mapping.
+        spotify_specs = [s for s in _mapping_specs(uow) if s.connector == "spotify"]
+        assert [s.connector_id for s in spotify_specs] == ["sp2"]
 
     async def test_no_discovery_when_provider_is_none(self):
         lastfm_client = AsyncMock()
@@ -180,14 +229,14 @@ class TestCrossDiscovery:
         assert metrics.created == 1
 
     async def test_failed_discovery_degrades_to_nothing_and_still_creates(self):
-        """A discovery failure is not a failed identifier: its savepoint rolls
-        back alone and the identifier proceeds to creation without a Spotify
-        mapping."""
+        """A discovery failure is not a failed identifier: the chunk degrades
+        to ``Nothing()`` and every identifier proceeds to creation without a
+        Spotify mapping."""
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = _track_info()
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.side_effect = RuntimeError(
+        cross_discovery.discover_batch.side_effect = RuntimeError(
             "current transaction is aborted"
         )
 
@@ -218,7 +267,7 @@ class TestDiscoveryRejected:
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.return_value = Nothing()
+        cross_discovery.discover_batch.return_value = [Nothing()]
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -245,7 +294,7 @@ class TestTrackInfoFailure:
         lastfm_client.get_track_correction.return_value = None
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.return_value = Nothing()
+        cross_discovery.discover_batch.return_value = [Nothing()]
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -285,7 +334,7 @@ class TestMBIDEnrichment:
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.return_value = Nothing()
+        cross_discovery.discover_batch.return_value = [Nothing()]
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -316,7 +365,7 @@ class TestMBIDEnrichment:
         lastfm_client.get_track_info_comprehensive.return_value = _track_info()
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.return_value = Nothing()
+        cross_discovery.discover_batch.return_value = [Nothing()]
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -541,7 +590,7 @@ class TestCorrectedNameDualMapping:
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.return_value = Nothing()
+        cross_discovery.discover_batch.return_value = [Nothing()]
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -586,7 +635,7 @@ class TestCorrectedNameDualMapping:
         lastfm_client.get_track_info_comprehensive.return_value = _track_info()
 
         cross_discovery = AsyncMock()
-        cross_discovery.discover.return_value = Nothing()
+        cross_discovery.discover_batch.return_value = [Nothing()]
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(

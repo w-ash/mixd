@@ -21,24 +21,25 @@ and text-pattern fallbacks. The hook adds the Apple-specific rules:
 - ``x-rate-limit`` signals in the message/body → rate_limit.
 
 The JSON:API ``errors[]`` body is parsed from the real
-``httpx2.HTTPStatusError.response``, defensively — an unparseable body never
-exempts a 403 from the user-token read.
+``httpx2.HTTPStatusError.response`` via the shared ``_shared.json_api``
+helpers, defensively — an unparseable body never exempts a 403 from the
+user-token read.
 """
 
 from http import HTTPStatus
 from typing import override
 
 import httpx2
-from pydantic import ValidationError
 
 from src.domain.exceptions import AppleMusicAuthRequiredError
 from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
 )
 from src.infrastructure.connectors._shared.http_client import response_text
-from src.infrastructure.connectors.apple_music.models import (
-    AppleMusicError,
-    AppleMusicErrorResponse,
+from src.infrastructure.connectors._shared.json_api import (
+    JsonApiError,
+    error_detail,
+    first_json_api_error,
 )
 
 
@@ -53,19 +54,7 @@ def is_music_user_token_request(request: httpx2.Request) -> bool:
     return request.url.path.startswith("/v1/me/")
 
 
-def first_json_api_error(response: httpx2.Response) -> AppleMusicError | None:
-    """Parse the first JSON:API error object from a response body, if any."""
-    text = response_text(response)
-    if not text:
-        return None
-    try:
-        envelope = AppleMusicErrorResponse.model_validate_json(text)
-    except ValidationError:
-        return None
-    return envelope.errors[0] if envelope.errors else None
-
-
-def indicates_user_token_rejection(error: AppleMusicError | None) -> bool:
+def indicates_user_token_rejection(error: JsonApiError | None) -> bool:
     """Whether a MUT-bearing request's 403 reads as a rejected token.
 
     Apple uses 403 for MUT problems (401 covers the developer token), and
@@ -102,7 +91,7 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
             return ("permanent", "auth", str(exception))
 
         error_text = str(exception).lower()
-        parsed_error: AppleMusicError | None = None
+        parsed_error: JsonApiError | None = None
         status: int | None = None
         mut_request = False
         if isinstance(exception, httpx2.HTTPStatusError):
@@ -130,9 +119,7 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
             and mut_request
             and indicates_user_token_rejection(parsed_error)
         ):
-            detail = (
-                (parsed_error.detail or parsed_error.title) if parsed_error else None
-            )
+            detail = error_detail(parsed_error)
             return ("permanent", "auth", detail or "Music User Token rejected (403)")
 
         if "x-rate-limit" in error_text:

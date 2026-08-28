@@ -8,9 +8,7 @@ return as a failure — otherwise a silently-dropped add is reported as a clean
 sync. Remove/move already guarded on the return; these tests pin the add path.
 """
 
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import AsyncMock
 
 from src.domain.playlist import PlaylistOperation, PlaylistOperationType
 from src.infrastructure.connectors.spotify.playlist_sync_operations import (
@@ -29,17 +27,10 @@ def _add_op(position: int, uri: str) -> PlaylistOperation:
     )
 
 
-@pytest.fixture
-def no_sleep():
-    """Skip the inter-request delay so the executor runs instantly."""
-    with patch("asyncio.sleep", new_callable=AsyncMock):
-        yield
-
-
 class TestAddOperationOutcomeAccounting:
     """A suppressed add error must surface as failed, not as a phantom success."""
 
-    async def test_suppressed_add_error_counts_as_failed(self, no_sleep):
+    async def test_suppressed_add_error_counts_as_failed(self):
         """One add succeeds, one returns None (suppressed error) → not fully applied.
 
         This is the false-SYNCED scenario: with ``successful > 0`` the group-level
@@ -62,7 +53,7 @@ class TestAddOperationOutcomeAccounting:
         assert outcome.failed == 1
         assert outcome.fully_applied is False
 
-    async def test_all_adds_succeed_is_fully_applied(self, no_sleep):
+    async def test_all_adds_succeed_is_fully_applied(self):
         """Every add returns a snapshot → failed == 0, fully applied."""
         client = AsyncMock()
         client.playlist_add_items = AsyncMock(return_value=AsyncMock())
@@ -81,7 +72,7 @@ class TestAddOperationOutcomeAccounting:
 class TestDroppedOperationAccounting:
     """Ops requested but never submitted are reported as dropped, not failed."""
 
-    async def test_validation_filtered_op_counts_as_dropped(self, no_sleep):
+    async def test_validation_filtered_op_counts_as_dropped(self):
         """An add with an unresolved URI is filtered out → dropped, still SYNCED.
 
         ``fully_applied`` stays True (no submitted op failed), but ``dropped``

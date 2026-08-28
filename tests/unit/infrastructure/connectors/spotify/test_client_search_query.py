@@ -6,7 +6,7 @@ word plus loose free text. These tests pin the quoting, the sanitizing of raw
 GDPR-export values, and which query each mode actually puts on the wire.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from src.infrastructure.connectors.spotify.client import (
     SpotifyAPIClient,
@@ -105,33 +105,33 @@ class TestBothBuildersSanitizeAlike:
         )
 
 
-def _client_with_mock_transport() -> tuple[SpotifyAPIClient, AsyncMock]:
-    with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-        client = SpotifyAPIClient()
+def _mock_transport(client: SpotifyAPIClient) -> AsyncMock:
     response = MagicMock()
     response.json.return_value = {"tracks": {"items": []}}
     response.raise_for_status.return_value = None
     transport = AsyncMock()
-    transport.get = AsyncMock(return_value=response)
+    transport.request = AsyncMock(return_value=response)
     client._client = transport
-    return client, transport
+    return transport
 
 
 class TestQueryOnTheWire:
     """The client sends its caller's query verbatim — it builds nothing itself."""
 
-    async def test_the_field_filtered_query_reaches_the_wire_unchanged(self):
-        client, transport = _client_with_mock_transport()
+    async def test_the_field_filtered_query_reaches_the_wire_unchanged(
+        self, spotify_client
+    ):
+        transport = _mock_transport(spotify_client)
         query = field_filtered_search_query("Robert Johnson", "Come On in My Kitchen")
 
-        _ = await client._search_track_impl(query)
+        _ = await spotify_client.search_track(query)
 
-        assert transport.get.call_args.kwargs["params"]["q"] == query
+        assert transport.request.call_args.kwargs["params"]["q"] == query
 
-    async def test_the_free_text_query_reaches_the_wire_unchanged(self):
-        client, transport = _client_with_mock_transport()
+    async def test_the_free_text_query_reaches_the_wire_unchanged(self, spotify_client):
+        transport = _mock_transport(spotify_client)
         query = free_text_search_query("Robert Johnson", "Come On in My Kitchen")
 
-        _ = await client._search_track_impl(query)
+        _ = await spotify_client.search_track(query)
 
-        assert transport.get.call_args.kwargs["params"]["q"] == query
+        assert transport.request.call_args.kwargs["params"]["q"] == query

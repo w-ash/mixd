@@ -23,16 +23,16 @@ from sqlalchemy import delete
 
 from src.application.services.play_poll_policy import sync_play_polling_after_auth
 from src.config import get_logger, settings
-from src.infrastructure.connectors._shared.connector_status import (
-    fetch_spotify_profile,
-    stamp_account_id,
-)
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     get_token_storage,
 )
 from src.infrastructure.connectors.discovery import discover_connectors
 from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
+from src.infrastructure.connectors.spotify.status import (
+    fetch_spotify_profile,
+    stamp_account_id,
+)
 from src.infrastructure.connectors.tidal.auth import (
     exchange_code as tidal_exchange_code,
 )

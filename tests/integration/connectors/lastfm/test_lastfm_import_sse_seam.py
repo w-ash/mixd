@@ -57,7 +57,6 @@ class _FakeResolver:
         uow: object,
         *,
         user_id: str,
-        progress_callback: object = None,
     ) -> PlayResolutionOutcome:
         plays = [
             TrackPlay(

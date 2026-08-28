@@ -12,6 +12,7 @@ from tests.fixtures.db_seeds import (
     seed_db_track,
 )
 from tests.fixtures.factories import (
+    discover_one,
     make_apple_song,
     make_connector_playlist,
     make_connector_playlist_item,
@@ -65,6 +66,7 @@ from tests.fixtures.pending_actions import InMemoryPendingActionStore
 __all__ = [
     "InMemoryPendingActionStore",
     "attach_resolution_recorder",
+    "discover_one",
     "fake_run_async",
     "make_apple_song",
     "make_connector_playlist",

@@ -37,7 +37,7 @@ class TestClientRaisesOnQuota429:
         async def _impl(*_args: object) -> None:
             raise _quota_429()
 
-        monkeypatch.setattr(SpotifyAPIClient, "_search_track_impl", _impl)
+        monkeypatch.setattr(SpotifyAPIClient, "_request_json", _impl)
 
         with pytest.raises(SpotifyQuotaExhaustedError):
             _ = await spotify_client.search_track("artist:x track:y")
@@ -48,7 +48,7 @@ class TestClientRaisesOnQuota429:
         async def _impl(*_args: object) -> None:
             raise _quota_429()
 
-        monkeypatch.setattr(SpotifyAPIClient, "_search_track_impl", _impl)
+        monkeypatch.setattr(SpotifyAPIClient, "_request_json", _impl)
 
         with pytest.raises(SpotifyQuotaExhaustedError, match="PDR-003"):
             _ = await spotify_client.search_track("artist:x track:y")
@@ -59,7 +59,7 @@ class TestClientRaisesOnQuota429:
         async def _impl(*_args: object) -> None:
             raise _make_429()
 
-        monkeypatch.setattr(SpotifyAPIClient, "_search_track_impl", _impl)
+        monkeypatch.setattr(SpotifyAPIClient, "_request_json", _impl)
 
         assert await spotify_client.search_track("artist:x track:y") == []
 
@@ -69,7 +69,7 @@ class TestClientRaisesOnQuota429:
         async def _impl(*_args: object) -> None:
             raise _make_429({"reason": "SOMETHING_ELSE"})
 
-        monkeypatch.setattr(SpotifyAPIClient, "_search_track_impl", _impl)
+        monkeypatch.setattr(SpotifyAPIClient, "_request_json", _impl)
 
         assert await spotify_client.search_track("artist:x track:y") == []
 

@@ -232,9 +232,7 @@ class TestResolverLifecycle:
         """Closing is opt-in: a resolver exposing no aclose is left alone."""
 
         class _PlainResolver:
-            async def resolve_connector_plays(
-                self, chunk, uow, *, user_id, progress_callback=None
-            ):
+            async def resolve_connector_plays(self, chunk, uow, *, user_id):
                 return PlayResolutionOutcome(
                     track_plays=[], metrics={"error_count": 0}, resolutions=()
                 )

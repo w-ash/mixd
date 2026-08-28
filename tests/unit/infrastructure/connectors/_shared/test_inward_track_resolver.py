@@ -1,18 +1,28 @@
 """Tests for InwardTrackResolver base class.
 
 Validates the shared 'resolve inward' pattern: mapping lookup for existing,
-canonical reuse for unresolved, and batch creation for the rest.
+canonical reuse for unresolved, and batch creation for the rest — plus the
+planned-write persist pipeline (``WritePlanningResolver``): ISRC planning
+arms, ordered write path, claim dedupe, and write-failure accounting.
 """
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
+    IsrcCollisionReview,
+    PlannedWrite,
     ReuseMetadata,
     TrackResolutionMetrics,
+    WritePlanningResolver,
+    plan_isrc_write,
+)
+from src.infrastructure.connectors._shared.successor_resolution import (
+    SuccessorAssertion,
 )
 from tests.fixtures import attach_resolution_recorder, make_track
 
@@ -651,3 +661,286 @@ class TestCanonicalReuseHook:
 
         assert metrics.reused == 0
         assert metrics.created == 1
+
+
+class PipelineResolver(WritePlanningResolver[str]):
+    """Minimal planned-write pipeline implementor; payload is a bare string."""
+
+    def __init__(self, writes: list[PlannedWrite[str]] | None = None):
+        super().__init__()
+        self.writes = writes or []
+        self.persisted_batches: list[list[str]] = []
+
+    @property
+    def connector_name(self) -> str:
+        return "fake"
+
+    def _normalize_id(self, raw_id: str) -> str:
+        return raw_id
+
+    async def _create_tracks_batch(
+        self,
+        missing_ids: list[str],
+        uow,
+        *,
+        user_id: str,
+    ) -> dict[str, Track]:
+        result, _failed = await self._persist_planned_writes(
+            self.writes, uow, user_id=user_id
+        )
+        return result
+
+    def _canonical_payload(self, write: PlannedWrite[str], *, user_id: str) -> Track:
+        return make_track(1, title=write.payload)
+
+    def _mapping_metadata(self, write: PlannedWrite[str]) -> dict[str, object]:
+        return {"payload": write.payload}
+
+    def _successor_assertion(
+        self, write: PlannedWrite[str], track: Track
+    ) -> SuccessorAssertion | None:
+        if not (write.creates_canonical and write.requested_id_is_stale):
+            return None
+        return SuccessorAssertion(
+            requested_id=write.requested_id,
+            returned_id=write.current_id,
+            detection="fake_pointer",
+            track_id=track.id,
+        )
+
+    def _on_writes_persisted(self, writes) -> None:
+        self.persisted_batches.append([write.requested_id for write in writes])
+
+
+def _pipeline_uow():
+    """UoW mock with track/connector repos and a permissive recorder wired."""
+    uow = MagicMock()
+    recorder = attach_resolution_recorder(uow)
+
+    track_repo = AsyncMock()
+    track_repo.find_tracks_by_isrcs.return_value = {}
+    track_repo.save_track.return_value = make_track(1)
+
+    async def _save_tracks(tracks):
+        return [await track_repo.save_track(track) for track in tracks]
+
+    track_repo.save_tracks.side_effect = _save_tracks
+    uow.get_track_repository.return_value = track_repo
+
+    connector_repo = AsyncMock()
+    connector_repo.find_tracks_by_connectors.return_value = {}
+    uow.get_connector_repository.return_value = connector_repo
+    return uow, track_repo, connector_repo, recorder
+
+
+def _create_write(
+    requested_id: str, current_id: str | None = None
+) -> PlannedWrite[str]:
+    return PlannedWrite(
+        requested_id=requested_id,
+        current_id=current_id or requested_id,
+        payload=f"payload:{requested_id}",
+        match_method=MatchMethod.DIRECT_IMPORT,
+        confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+    )
+
+
+class TestPlanIsrcWrite:
+    """The shared three-outcome ISRC arm: reuse / suspect review / create."""
+
+    @staticmethod
+    def _plan(existing_by_isrc, duration_ms=200_000):
+        return plan_isrc_write(
+            connector="fake",
+            requested_id="id-1",
+            current_id="id-1",
+            payload="payload",
+            duration_ms=duration_ms,
+            isrc="USUM72309818",
+            existing_by_isrc=existing_by_isrc,
+            service_data={"title": "T", "isrc": "USUM72309818"},
+        )
+
+    def test_unclaimed_isrc_plans_a_plain_creation(self):
+        write = self._plan({})
+
+        assert write.creates_canonical
+        assert write.review is None
+        assert write.match_method == MatchMethod.DIRECT_IMPORT
+        assert write.confidence == MatchMethod.DIRECT_IMPORT_CONFIDENCE
+        assert write.primary is True
+
+    def test_claimed_isrc_with_agreeing_duration_plans_a_reuse(self):
+        owner = make_track(7, duration_ms=200_000)
+        write = self._plan({"USUM72309818": owner})
+
+        assert write.reuse_track is owner
+        assert write.review is None
+        assert write.match_method == MatchMethod.ISRC_MATCH
+        assert write.confidence == MatchMethod.ISRC_MATCH_CONFIDENCE
+
+    def test_suspect_duration_plans_a_review_creation(self):
+        owner = make_track(7, duration_ms=200_000)
+        write = self._plan({"USUM72309818": owner}, duration_ms=260_000)
+
+        assert write.creates_canonical
+        assert write.review is not None
+        assert write.review.owner is owner
+        assert write.review.service_data["isrc"] == "USUM72309818"
+        assert write.match_method == MatchMethod.DIRECT_IMPORT
+        assert write.confidence == MatchMethod.DIRECT_IMPORT_CONFIDENCE
+
+
+class TestPlannedWritePipeline:
+    """The shared ordered write path and its claim dedupe."""
+
+    async def test_write_path_order_reviews_saves_mappings_events(self):
+        order: list[str] = []
+        review_write = PlannedWrite(
+            requested_id="sus",
+            current_id="sus",
+            payload="payload:sus",
+            match_method=MatchMethod.DIRECT_IMPORT,
+            confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+            review=IsrcCollisionReview(owner=make_track(7), service_data={"isrc": "X"}),
+        )
+        substituting_write = _create_write("old", "new")
+        resolver = PipelineResolver([review_write, substituting_write])
+        uow, track_repo, connector_repo, recorder = _pipeline_uow()
+
+        connector_repo.queue_isrc_collision_reviews.side_effect = lambda *a, **k: (
+            order.append("reviews")
+        )
+
+        async def _save_tracks(tracks):
+            order.append("save_tracks")
+            return [make_track(i + 1, title=t.title) for i, t in enumerate(tracks)]
+
+        track_repo.save_tracks.side_effect = _save_tracks
+        connector_repo.map_tracks_to_connectors.side_effect = lambda *a, **k: (
+            order.append("mappings")
+        )
+        recorder.record.side_effect = lambda *a, **k: order.append("events")
+
+        result, _ = await resolver._persist_planned_writes(
+            resolver.writes, uow, user_id="test-user"
+        )
+
+        assert order == ["reviews", "save_tracks", "mappings", "events"]
+        assert set(result) == {"sus", "old"}
+        # The collision review names the current id.
+        collisions, service = (
+            connector_repo.queue_isrc_collision_reviews.await_args.args[:2]
+        )
+        assert service == "fake"
+        assert [c.connector_id for c in collisions] == ["sus"]
+        # Post-savepoint bookkeeping saw the whole chunk, once.
+        assert resolver.persisted_batches == [["sus", "old"]]
+
+    async def test_two_writes_sharing_a_successor_fan_in_to_one_canonical(self):
+        resolver = PipelineResolver([
+            _create_write("old1", "new"),
+            _create_write("old2", "new"),
+        ])
+        uow, track_repo, connector_repo, _ = _pipeline_uow()
+
+        result, failed = await resolver._persist_planned_writes(
+            resolver.writes, uow, user_id="test-user"
+        )
+
+        assert failed == set()
+        # One create for the shared successor — both requested ids fan in.
+        [payloads] = track_repo.save_tracks.await_args.args
+        assert len(payloads) == 1
+        assert result["old1"] is result["old2"]
+
+        [specs] = connector_repo.map_tracks_to_connectors.await_args.args
+        primaries = [s for s in specs if s.primary]
+        assert [s.connector_id for s in primaries] == ["new"]
+        stale_ids = sorted(s.connector_id for s in specs if not s.primary)
+        assert stale_ids == ["old1", "old2"]
+        assert all(
+            s.match_method == MatchMethod.DIRECT_IMPORT_STALE_ID
+            for s in specs
+            if not s.primary
+        )
+
+    async def test_reuse_write_maps_requested_id_and_creates_nothing(self):
+        held = make_track(7, title="Held Song")
+        reuse_write = PlannedWrite(
+            requested_id="id-1",
+            current_id="id-1",
+            payload="payload:id-1",
+            match_method=MatchMethod.ISRC_MATCH,
+            confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
+            reuse_track=held,
+        )
+        resolver = PipelineResolver([reuse_write])
+        uow, track_repo, connector_repo, recorder = _pipeline_uow()
+
+        result, _ = await resolver._persist_planned_writes(
+            resolver.writes, uow, user_id="test-user"
+        )
+
+        assert result["id-1"] is held
+        [saved] = track_repo.save_tracks.await_args.args
+        assert saved == []
+        [specs] = connector_repo.map_tracks_to_connectors.await_args.args
+        assert [s.connector_id for s in specs] == ["id-1"]
+        assert specs[0].primary is True
+        recorder.record.assert_not_awaited()
+
+
+class TestWriteFailedAccounting:
+    """Rolled-back writes are reported as ``write_failed``, not dead ids."""
+
+    async def test_persist_failure_fills_write_failed_from_the_base(self):
+        resolver = PipelineResolver([_create_write("id-1")])
+        uow, _, connector_repo, _ = _pipeline_uow()
+        connector_repo.map_tracks_to_connectors.side_effect = RuntimeError("boom")
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id-1"], uow, user_id="test-user"
+        )
+
+        assert result == {}
+        assert metrics.failed == 1
+        assert metrics.write_failed == 1
+        assert metrics.degraded_persists == 1
+
+    async def test_write_failed_stays_zero_on_success(self):
+        resolver = PipelineResolver([_create_write("id-1")])
+        uow, _, _, _ = _pipeline_uow()
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id-1"], uow, user_id="test-user"
+        )
+
+        assert set(result) == {"id-1"}
+        assert metrics.created == 1
+        assert metrics.write_failed == 0
+
+
+class TestResolutionHintsSeam:
+    """The base hint seam: hints flow to ``_begin_resolution``, inert by default."""
+
+    async def test_hints_are_handed_to_begin_resolution(self):
+        captured: dict[str, object] = {}
+
+        class HintedResolver(FakeInwardResolver):
+            def _begin_resolution(self, hints) -> None:
+                captured.update(hints)
+
+        track = make_track(1)
+        uow = MagicMock()
+        attach_resolution_recorder(uow)
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        uow.get_connector_repository.return_value = connector_repo
+
+        resolver = HintedResolver(batch_results={"id_a": track})
+        _ = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user", hints={"id_a": "evidence"}
+        )
+
+        assert captured == {"id_a": "evidence"}

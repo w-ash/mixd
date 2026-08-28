@@ -21,6 +21,7 @@ from src.infrastructure.connectors.apple_music.client import AppleMusicAPIClient
 from src.infrastructure.connectors.base import BaseAPIClient, service_name_for_client
 from src.infrastructure.connectors.discogs.client import DiscogsAPIClient
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
+from src.infrastructure.connectors.listenbrainz.client import ListenBrainzAPIClient
 from src.infrastructure.connectors.musicbrainz.client import MusicBrainzAPIClient
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.tidal.client import TidalAPIClient
@@ -150,6 +151,7 @@ class TestServiceNameResolution:
             (AppleMusicAPIClient, "apple_music"),
             (DiscogsAPIClient, "discogs"),
             (TidalAPIClient, "tidal"),
+            (ListenBrainzAPIClient, "listenbrainz"),
         ],
     )
     def test_client_resolves_to_its_settings_key(

@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.11.4"
+    "version": "0.11.5"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -3953,7 +3953,7 @@
           "connectors"
         ],
         "summary": "Delete Connector Token",
-        "description": "Remove a connector's stored credential, disconnecting it.\n\nOnly connectors that store a per-user credential\n(``CREDENTIAL_AUTH_METHODS``) can be disconnected; anything else\n(public APIs, coming-soon stubs) returns 400.",
+        "description": "Remove a connector's stored credential, disconnecting it.\n\nOnly connectors that store a per-user credential\n(``CREDENTIAL_AUTH_METHODS``) can be disconnected; anything else\n(public APIs, coming-soon stubs) returns 400. Cleanup is config-driven:\nthe connector's ``on_disconnect`` hook runs when declared, and a polled\nplay channel (``supports_play_polling``) gets its heartbeat stopped here\nbecause that teardown is application-owned \u2014 connector configs cannot\nreference it.",
         "operationId": "delete_connector_token_api_v1_connectors__service__token_delete",
         "parameters": [
           {

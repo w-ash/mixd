@@ -32,13 +32,13 @@ TEST_USERNAME = "example"
 
 
 @pytest.fixture(autouse=True)
-def fresh_queue():
-    """Each test gets a fresh instance-wide Discogs queue."""
-    from src.infrastructure.connectors.discogs.pacer import reset_discogs_queue
+def fresh_limiter_cache():
+    """Each test gets a fresh limiter cache (call slot + pause state)."""
+    from src.infrastructure.connectors._shared import rate_limiting
 
-    reset_discogs_queue()
+    rate_limiting._LIMITERS.clear()
     yield
-    reset_discogs_queue()
+    rate_limiting._LIMITERS.clear()
 
 
 @pytest.fixture

@@ -1,19 +1,27 @@
 """Unit tests for ConnectorRateLimiter and the per-service limiter registry.
 
-Pacing is driven by an injected clock + sleep, so nothing here waits on wall
-time or asserts against it.
+Covers pacing, the shared pause brake, the ``max_concurrent`` call slot, the
+success-path header brake (``apply_rate_headers``), and the loop-aware
+registry. Pacing is driven by an injected clock + sleep, so nothing here
+waits on wall time or asserts against it.
 """
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator, Iterator
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
+import httpx2
 from hypothesis import given, settings as hypothesis_settings, strategies as st
 import pytest
 
 from src.config import settings
+from src.config.settings import ConnectorAPIConfig
 from src.infrastructure.connectors._shared import rate_limiting
 from src.infrastructure.connectors._shared.rate_limiting import (
     ConnectorRateLimiter,
+    apply_rate_headers,
+    connector_call_slot,
     get_connector_rate_limiter,
 )
 
@@ -112,6 +120,10 @@ class TestBurstAndPacing:
     def test_non_positive_rate_is_rejected(self):
         with pytest.raises(ValueError, match="rate_per_second must be positive"):
             _ = ConnectorRateLimiter(rate_per_second=0.0)
+
+    def test_zero_max_concurrent_is_rejected(self):
+        with pytest.raises(ValueError, match="max_concurrent must be at least 1"):
+            _ = ConnectorRateLimiter(rate_per_second=1.0, max_concurrent=0)
 
 
 class TestPacingProperties:
@@ -291,7 +303,7 @@ def clean_registry() -> Iterator[None]:
 
 @pytest.mark.usefixtures("clean_registry")
 class TestLimiterRegistry:
-    """One shared limiter per configured service; None (cached) otherwise."""
+    """One shared limiter per configured service per loop; None (cached) otherwise."""
 
     def test_returns_same_instance_for_a_service(self):
         first = get_connector_rate_limiter("spotify")
@@ -306,14 +318,303 @@ class TestLimiterRegistry:
             "lastfm"
         )
 
-    def test_service_without_a_configured_rate_limit_is_unpaced(self):
-        assert settings.api.musicbrainz.rate_limit is None
-        assert get_connector_rate_limiter("musicbrainz") is None
-        assert rate_limiting._LIMITERS["musicbrainz"] is None
+    def test_service_without_a_rate_limit_gets_a_pause_only_limiter(self):
+        # rate_limit=None must not mean "no shared 429 brake": a pause-only
+        # limiter still holds every in-flight caller out of a declared window.
+        assert settings.api.tidal.rate_limit is None
+        limiter = get_connector_rate_limiter("tidal")
 
-    def test_unknown_service_is_unpaced(self):
+        assert limiter is not None
+        assert limiter.rate_per_second is None
+        assert limiter is get_connector_rate_limiter("tidal")
+
+    def test_discogs_limiter_serializes_calls(self):
+        limiter = get_connector_rate_limiter("discogs")
+
+        assert limiter is not None
+        assert limiter.max_concurrent == 1
+
+    def test_musicbrainz_paces_at_the_documented_one_per_second(self):
+        limiter = get_connector_rate_limiter("musicbrainz")
+
+        assert limiter is not None
+        assert limiter.rate_per_second == 1.0
+
+    def test_unknown_service_is_unmanaged(self):
         assert get_connector_rate_limiter("not_a_connector") is None
 
-    def test_non_connector_settings_attribute_is_unpaced(self):
+    def test_non_connector_settings_attribute_is_unmanaged(self):
         # settings.api also carries scalars like spotify_market.
         assert get_connector_rate_limiter("spotify_market") is None
+
+    async def test_same_limiter_within_one_event_loop(self):
+        assert get_connector_rate_limiter("discogs") is get_connector_rate_limiter(
+            "discogs"
+        )
+
+    def test_each_event_loop_gets_its_own_limiter(self):
+        # A limiter's asyncio primitives bind to the loop that first awaits
+        # them — a limiter must never be handed across loops.
+        async def in_loop() -> ConnectorRateLimiter | None:
+            return get_connector_rate_limiter("discogs")
+
+        first = asyncio.run(in_loop())
+        second = asyncio.run(in_loop())
+
+        assert first is not None
+        assert first is not second
+
+    def test_closed_loops_are_pruned_from_the_cache(self):
+        async def in_loop() -> None:
+            _ = get_connector_rate_limiter("discogs")
+
+        asyncio.run(in_loop())
+        asyncio.run(in_loop())
+        _ = get_connector_rate_limiter("discogs")  # no-loop scope; triggers prune
+
+        assert [loop for loop in rate_limiting._LIMITERS if loop is not None] == []
+
+
+class TestPauseOnlyLimiter:
+    """rate_per_second=None: no pacing, but the 429 brake still holds callers."""
+
+    async def test_acquire_never_sleeps_without_a_pause(self):
+        clock = FakeTime()
+        limiter = ConnectorRateLimiter(
+            rate_per_second=None, clock=clock.monotonic, sleep=clock.sleep
+        )
+
+        for _ in range(10):
+            await limiter.acquire()
+
+        assert clock.sleeps == []
+
+    async def test_pause_holds_every_acquirer_out_of_the_window(self):
+        clock = FakeTime()
+        limiter = ConnectorRateLimiter(
+            rate_per_second=None, clock=clock.monotonic, sleep=clock.yielding_sleep
+        )
+        issued_at: list[float] = []
+
+        async def acquire_one() -> None:
+            await limiter.acquire()
+            issued_at.append(clock.now)
+
+        limiter.pause_for(3.0)
+        async with asyncio.TaskGroup() as tg:
+            for _ in range(4):
+                _ = tg.create_task(acquire_one())
+
+        # One acquirer sleeps the window; the rest re-read the deadline and
+        # fall through. Past it there is no bucket, so nobody is paced.
+        assert clock.sleeps == pytest.approx([3.0])
+        assert issued_at == pytest.approx([3.0] * 4)
+
+
+@pytest.mark.usefixtures("clean_registry")
+class TestCallSlot:
+    """max_concurrent bounds in-flight calls; the slot spans a whole call."""
+
+    async def test_slot_of_one_serializes_holders(self):
+        limiter = ConnectorRateLimiter(rate_per_second=1.0, max_concurrent=1)
+        order: list[str] = []
+
+        async def hold(tag: str) -> None:
+            async with limiter.hold_call_slot():
+                order.append(f"{tag}-start")
+                await asyncio.sleep(0)
+                order.append(f"{tag}-end")
+
+        async with asyncio.TaskGroup() as tg:
+            _ = tg.create_task(hold("a"))
+            _ = tg.create_task(hold("b"))
+
+        assert order == ["a-start", "a-end", "b-start", "b-end"]
+
+    async def test_no_cap_means_no_serialization(self):
+        limiter = ConnectorRateLimiter(rate_per_second=1.0)
+        order: list[str] = []
+
+        async def hold(tag: str) -> None:
+            async with limiter.hold_call_slot():
+                order.append(f"{tag}-start")
+                await asyncio.sleep(0)
+                order.append(f"{tag}-end")
+
+        async with asyncio.TaskGroup() as tg:
+            _ = tg.create_task(hold("a"))
+            _ = tg.create_task(hold("b"))
+
+        assert order == ["a-start", "b-start", "a-end", "b-end"]
+
+    async def test_connector_call_slot_serializes_discogs(self):
+        # Resolved through the registry: both holders share the one per-loop
+        # limiter, whose configured max_concurrent=1 serializes them.
+        concurrency_seen: list[int] = []
+        in_flight = 0
+
+        async def hold() -> None:
+            nonlocal in_flight
+            async with connector_call_slot("discogs"):
+                in_flight += 1
+                concurrency_seen.append(in_flight)
+                await asyncio.sleep(0)
+                in_flight -= 1
+
+        async with asyncio.TaskGroup() as tg:
+            _ = tg.create_task(hold())
+            _ = tg.create_task(hold())
+
+        assert concurrency_seen == [1, 1]
+
+    async def test_connector_call_slot_is_a_no_op_for_unmanaged_services(self):
+        async with connector_call_slot("not_a_connector"):
+            pass  # must not raise or block
+
+
+class RecordingLimiter:
+    """pause_for-only stand-in for ConnectorRateLimiter."""
+
+    def __init__(self, rate_per_second: float | None = 1.0) -> None:
+        self.rate_per_second: float | None = rate_per_second
+        self.pauses: list[float] = []
+
+    def pause_for(self, seconds: float) -> None:
+        self.pauses.append(seconds)
+
+    @asynccontextmanager
+    async def hold_call_slot(self) -> AsyncGenerator[None]:
+        yield
+
+
+def response_with_header(name: str | None, value: str = "0") -> httpx2.Response:
+    headers = {} if name is None else {name: value}
+    return httpx2.Response(200, headers=headers)
+
+
+DISCOGS_HEADER = "X-Discogs-Ratelimit-Remaining"
+DISCOGS_LOW_WATER = 5  # pinned alongside the settings assertions below
+
+
+class TestApplyRateHeaders:
+    """Success-path brake: low remaining headroom pauses the shared limiter."""
+
+    @pytest.fixture
+    def limiter(self, monkeypatch: pytest.MonkeyPatch) -> RecordingLimiter:
+        recording = RecordingLimiter()
+        monkeypatch.setattr(
+            rate_limiting, "get_connector_rate_limiter", lambda _name: recording
+        )
+        return recording
+
+    def test_low_remaining_pauses_by_the_deficit_over_the_rate(
+        self, limiter: RecordingLimiter
+    ):
+        limiter.rate_per_second = 2.0
+
+        apply_rate_headers(response_with_header(DISCOGS_HEADER, "3"), "discogs")
+
+        assert limiter.pauses == [(DISCOGS_LOW_WATER - 3 + 1) / 2.0]
+
+    def test_remaining_at_low_water_pauses_one_token_interval(
+        self, limiter: RecordingLimiter
+    ):
+        apply_rate_headers(
+            response_with_header(DISCOGS_HEADER, str(DISCOGS_LOW_WATER)), "discogs"
+        )
+
+        assert limiter.pauses == [1.0]
+
+    def test_high_remaining_does_not_pause(self, limiter: RecordingLimiter):
+        apply_rate_headers(response_with_header(DISCOGS_HEADER, "40"), "discogs")
+
+        assert limiter.pauses == []
+
+    def test_missing_header_is_a_no_op(self, limiter: RecordingLimiter):
+        apply_rate_headers(response_with_header(None), "discogs")
+
+        assert limiter.pauses == []
+
+    def test_malformed_header_is_a_no_op(self, limiter: RecordingLimiter):
+        apply_rate_headers(
+            response_with_header(DISCOGS_HEADER, "not-a-number"), "discogs"
+        )
+
+        assert limiter.pauses == []
+
+    def test_real_lowercase_wire_header_is_read(self, limiter: RecordingLimiter):
+        # The real wire header arrives lowercase (2026-08-22 live probe);
+        # httpx2.Headers lookups are case-insensitive, so the configured
+        # constant-case name must still trip the brake.
+        apply_rate_headers(
+            response_with_header("x-discogs-ratelimit-remaining", "3"), "discogs"
+        )
+
+        assert limiter.pauses == [(DISCOGS_LOW_WATER - 3 + 1) / 1.0]
+
+    def test_pause_only_limiter_falls_back_to_one_second_per_deficit(
+        self, limiter: RecordingLimiter
+    ):
+        limiter.rate_per_second = None
+
+        apply_rate_headers(response_with_header(DISCOGS_HEADER, "0"), "discogs")
+
+        assert limiter.pauses == [(DISCOGS_LOW_WATER + 1) / 1.0]
+
+    def test_unconfigured_limiter_is_guarded(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            rate_limiting, "get_connector_rate_limiter", lambda _name: None
+        )
+
+        apply_rate_headers(
+            response_with_header(DISCOGS_HEADER, "0"), "discogs"
+        )  # must not raise
+
+    def test_service_without_brake_config_is_a_no_op(self, limiter: RecordingLimiter):
+        # Spotify names no rate_remaining_header — even a low-looking header
+        # on the wire must not brake it.
+        apply_rate_headers(
+            response_with_header("X-RateLimit-Remaining", "0"), "spotify"
+        )
+
+        assert limiter.pauses == []
+
+    def test_unknown_service_is_a_no_op(self, limiter: RecordingLimiter):
+        apply_rate_headers(response_with_header(DISCOGS_HEADER, "0"), "not_a_connector")
+
+        assert limiter.pauses == []
+
+    def test_custom_low_water_drives_threshold_and_pause(
+        self, monkeypatch: pytest.MonkeyPatch, limiter: RecordingLimiter
+    ):
+        fake_settings = SimpleNamespace(
+            api=SimpleNamespace(
+                svc=ConnectorAPIConfig(
+                    rate_limit=2.0, rate_remaining_header="X-Rem", rate_low_water=8
+                )
+            )
+        )
+        monkeypatch.setattr(rate_limiting, "settings", fake_settings)
+        limiter.rate_per_second = 2.0
+
+        apply_rate_headers(response_with_header("X-Rem", "9"), "svc")
+        apply_rate_headers(response_with_header("X-Rem", "6"), "svc")
+
+        assert limiter.pauses == [(8 - 6 + 1) / 2.0]
+
+
+class TestBrakeSettings:
+    """Pin the per-service brake/cap wiring the mechanism is driven by."""
+
+    def test_discogs_is_the_only_braked_service(self):
+        assert settings.api.discogs.rate_remaining_header == DISCOGS_HEADER
+        assert settings.api.discogs.rate_low_water == DISCOGS_LOW_WATER
+        assert settings.api.discogs.max_concurrent == 1
+        # MusicBrainz sends X-RateLimit-* but its `remaining` tracks a shared
+        # global bucket, not our per-IP headroom — wiring it would stall on
+        # strangers' traffic (see the settings comment). Nobody else has a
+        # success-path signal at all.
+        for service in ("musicbrainz", "spotify", "lastfm", "apple_music", "tidal"):
+            config = getattr(settings.api, service)
+            assert config.rate_remaining_header is None
+            assert config.max_concurrent is None

@@ -8,6 +8,9 @@ deliberately a single request rather than a paginate-to-completion loop.
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
+from src.domain.exceptions import ConnectorSyncError
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 _PLAYED_AT = "2026-07-20T12:00:00.123Z"
@@ -38,7 +41,7 @@ class TestGetRecentlyPlayedParsing:
     async def test_payload_parses_into_typed_history_items(self, spotify_client):
         mock_impl = AsyncMock(return_value=_payload())
 
-        with patch.object(SpotifyAPIClient, "_get_recently_played_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_request_json", mock_impl):
             response = await spotify_client.get_recently_played()
 
         assert response is not None
@@ -53,7 +56,7 @@ class TestGetRecentlyPlayedParsing:
         """Spotify's Feb 2026 nullability relaxation reaches this endpoint too."""
         mock_impl = AsyncMock(return_value={"items": None, "cursors": {}})
 
-        with patch.object(SpotifyAPIClient, "_get_recently_played_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_request_json", mock_impl):
             response = await spotify_client.get_recently_played()
 
         assert response is not None
@@ -64,7 +67,7 @@ class TestGetRecentlyPlayedParsing:
         del payload["items"][0]["context"]
         mock_impl = AsyncMock(return_value=payload)
 
-        with patch.object(SpotifyAPIClient, "_get_recently_played_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_request_json", mock_impl):
             response = await spotify_client.get_recently_played()
 
         assert response is not None
@@ -85,7 +88,7 @@ class TestGetRecentlyPlayedParsing:
         payload["items"] = [local_file, *payload["items"]]
         mock_impl = AsyncMock(return_value=payload)
 
-        with patch.object(SpotifyAPIClient, "_get_recently_played_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_request_json", mock_impl):
             response = await spotify_client.get_recently_played()
 
         assert response is not None
@@ -95,50 +98,51 @@ class TestGetRecentlyPlayedParsing:
         """_SUPPRESS_ERRORS turns transport failures into None, not an exception."""
         mock_impl = AsyncMock(return_value=None)
 
-        with patch.object(SpotifyAPIClient, "_get_recently_played_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_request_json", mock_impl):
             assert await spotify_client.get_recently_played() is None
+
+    async def test_malformed_body_surfaces_the_connector_flavored_error(
+        self, spotify_client
+    ):
+        """A body Spotify served but we cannot read is an upstream-contract
+        failure — it surfaces as ConnectorSyncError via the shared boundary
+        helper, never as a raw pydantic ValidationError."""
+        mock_impl = AsyncMock(return_value={"items": "not-a-list", "cursors": {}})
+
+        with (
+            patch.object(SpotifyAPIClient, "_request_json", mock_impl),
+            pytest.raises(ConnectorSyncError),
+        ):
+            await spotify_client.get_recently_played()
 
 
 class TestGetRecentlyPlayedParams:
-    async def test_cursor_and_limit_forwarded_to_impl(self, spotify_client):
-        mock_impl = AsyncMock(return_value=_payload())
+    async def test_cursor_and_limit_forwarded_to_request(self, spotify_client):
+        mock_request = AsyncMock(return_value=_payload())
 
-        with patch.object(SpotifyAPIClient, "_get_recently_played_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_request_json", mock_request):
             await spotify_client.get_recently_played(after_ms=1753012800000, limit=20)
 
-        mock_impl.assert_awaited_once_with(1753012800000, 20)
+        mock_request.assert_awaited_once_with(
+            "GET",
+            "/me/player/recently-played",
+            {"limit": 20, "after": 1753012800000},
+            None,
+        )
 
     async def test_after_omitted_from_query_on_a_first_poll(self, spotify_client):
         """No cursor means "give me the whole retained window"."""
-        http = AsyncMock()
-        http.get = AsyncMock(return_value=_FakeResponse(_payload()))
-        spotify_client._client = http
+        mock_request = AsyncMock(return_value=_payload())
 
-        await spotify_client._get_recently_played_impl(None, 50)
+        with patch.object(SpotifyAPIClient, "_request_json", mock_request):
+            await spotify_client.get_recently_played()
 
-        assert http.get.await_args.kwargs["params"] == {"limit": 50}
+        assert mock_request.await_args.args[2] == {"limit": 50}
 
     async def test_limit_clamped_to_endpoint_maximum(self, spotify_client):
-        http = AsyncMock()
-        http.get = AsyncMock(return_value=_FakeResponse(_payload()))
-        spotify_client._client = http
+        mock_request = AsyncMock(return_value=_payload())
 
-        await spotify_client._get_recently_played_impl(None, 500)
+        with patch.object(SpotifyAPIClient, "_request_json", mock_request):
+            await spotify_client.get_recently_played(limit=500)
 
-        assert http.get.await_args.kwargs["params"]["limit"] == 50
-
-
-class _FakeResponse:
-    """Minimal httpx2.Response stand-in for the _impl-level query assertions."""
-
-    def __init__(self, payload: dict) -> None:
-        self._payload = payload
-        self.status_code = 200
-        self.content = b"{}"
-        self.headers = {"content-type": "application/json"}
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self) -> dict:
-        return self._payload
+        assert mock_request.await_args.args[2]["limit"] == 50

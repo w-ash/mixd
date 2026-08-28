@@ -52,13 +52,12 @@ from attrs import evolve
 from pydantic import AwareDatetime, BaseModel, ValidationError
 
 from src.config import get_logger
-from src.domain.entities import ConnectorTrackPlay, OperationResult
+from src.domain.entities import ConnectorTrackPlay
 from src.domain.entities.progress import ProgressEmitter
 from src.domain.entities.shared import JsonValue
 from src.domain.repositories.play import (
     AppleRecentImportParams,
     PlayImporterProtocol,
-    PlayImportParams,
 )
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.apple_music.client import AppleMusicAPIClient
@@ -114,75 +113,23 @@ class AppleMusicRecentlyPlayedImporter(
 
     operation_name: str
 
+    # import_plays comes from BasePlayImporter's shared shell: it narrows
+    # params to this type, runs the pipeline, and closes an owned client.
+    # AppleMusicAuthRequiredError is raised through the client when no Music
+    # User Token is stored or Apple rejected it — there is no cheaper
+    # precheck than the call itself (MUTs carry no scopes).
+    _params_type = AppleRecentImportParams
+
     def __init__(self, client: AppleMusicAPIClient | None = None) -> None:
         """Initialize with an optional injected client (tests supply a double)."""
         self.operation_name = "Apple Music Recently Played Import"
-        self._client = client or AppleMusicAPIClient()
-        # A client we built is ours to close; an injected one belongs to the
-        # caller. The importer is created per import (never cached on the UoW),
-        # so without this every poll would strand an httpx2 connection pool.
-        self._owns_client = client is None
+        self._client = self._adopt_client(client, AppleMusicAPIClient)
         # Per-run fetch state, read by _process_data / _handle_checkpoints.
         # Safe as instance state: the registry mints a fresh importer per
         # import, and _fetch_data resets all three at its top.
         self._poll_time: datetime | None = None
         self._played_at: datetime | None = None
         self._pending_fingerprint: list[str] | None = None
-
-    @override
-    async def import_plays(
-        self,
-        uow: UnitOfWorkProtocol,
-        params: PlayImportParams,
-        *,
-        user_id: str,
-        progress_emitter: ProgressEmitter | None = None,
-    ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
-        """Poll recently-played and ingest the new plays as connector plays.
-
-        Args:
-            uow: Unit of work for database operations
-            params: Apple recently-played selectors (force re-seed)
-            user_id: The mixd user whose Music User Token is used and whose
-                checkpoint records the window fingerprint
-            progress_emitter: Optional progress emitter
-
-        Returns:
-            Tuple of (operation_result, connector_plays_list)
-
-        Raises:
-            TypeError: If params is not AppleRecentImportParams.
-            AppleMusicAuthRequiredError: Raised through the client when no
-                Music User Token is stored or Apple rejected it — there is no
-                cheaper precheck than the call itself (MUTs carry no scopes).
-        """
-        if not isinstance(params, AppleRecentImportParams):
-            raise TypeError(
-                f"AppleMusicRecentlyPlayedImporter requires AppleRecentImportParams, "
-                f"got {type(params).__name__}"
-            )
-
-        try:
-            logger.info("Starting Apple Music recently-played import")
-            result, connector_plays = await self.import_data(
-                params,
-                uow=uow,
-                user_id=user_id,
-                progress_emitter=progress_emitter,
-            )
-        finally:
-            await self._aclose_owned_client()
-
-        logger.info(
-            "Apple Music recently-played import complete",
-            connector_plays_ingested=len(connector_plays),
-        )
-        return result, connector_plays
-
-    async def _aclose_owned_client(self) -> None:
-        """Release the HTTP pool when this importer created the client."""
-        if self._owns_client:
-            await self._client.aclose()
 
     @override
     async def _fetch_data(

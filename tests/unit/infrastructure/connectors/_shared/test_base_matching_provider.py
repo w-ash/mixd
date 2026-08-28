@@ -1,6 +1,6 @@
-"""Tests for BaseMatchingProvider template method pattern.
+"""Tests for the matching workflow shell and its partition strategies.
 
-This test suite validates the base class workflow orchestration without
+This test suite validates the shared workflow orchestration without
 testing business logic (which stays in domain layer).
 """
 
@@ -17,12 +17,18 @@ from src.domain.matching.types import (
 )
 from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
+    IsrcOnly,
+    IsrcThenArtistTitle,
+    MatchStrategy,
+    _has_artist_and_title,
+    _has_isrc,
+    _partition_tracks,
 )
 
 
 # Test implementation of BaseMatchingProvider
 class ConcreteProvider(BaseMatchingProvider):
-    """Concrete provider for testing base class behavior."""
+    """Concrete provider for testing shell + strategy behavior."""
 
     def __init__(self) -> None:
         """Initialize with test data storage."""
@@ -37,6 +43,13 @@ class ConcreteProvider(BaseMatchingProvider):
     def service_name(self) -> str:
         """Test service name."""
         return "test_service"
+
+    def _match_strategy(self) -> MatchStrategy:
+        """ISRC-then-artist/title, wired to the recording hooks."""
+        return IsrcThenArtistTitle(
+            match_by_isrc=self._match_by_isrc,
+            match_by_artist_title=self._match_by_artist_title,
+        )
 
     async def _match_by_isrc(
         self, tracks: list[Track]
@@ -61,36 +74,16 @@ class TestBaseMatchingProviderAbstractEnforcement:
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
             BaseMatchingProvider()  # type: ignore[abstract]
 
-    def test_subclass_must_implement_match_by_isrc(self):
-        """Subclass must implement _match_by_isrc abstract method."""
+    def test_subclass_must_implement_match_strategy(self):
+        """Subclass must implement the _match_strategy abstract method."""
 
         class IncompleteProvider(BaseMatchingProvider):
             @property
             def service_name(self) -> str:
                 return "test"
 
-            async def _match_by_artist_title(self, tracks):
-                return {}, []
-
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
             IncompleteProvider()  # type: ignore[abstract]
-
-    async def test_artist_title_default_raises_not_implemented(self):
-        """The base _match_by_artist_title default raises NotImplementedError —
-        ISRC-only providers (flag False) inherit it and never reach it; a
-        provider that flips the flag must supply a real implementation."""
-
-        class IsrcOnlyHookless(BaseMatchingProvider):
-            @property
-            def service_name(self) -> str:
-                return "test"
-
-            async def _match_by_isrc(self, tracks):
-                return {}, []
-
-        provider = IsrcOnlyHookless()
-        with pytest.raises(NotImplementedError):
-            await provider._match_by_artist_title([])
 
 
 class TestBaseMatchingProviderTrackPartitioning:
@@ -98,7 +91,6 @@ class TestBaseMatchingProviderTrackPartitioning:
 
     def test_partition_tracks_with_isrc_only(self):
         """Tracks with ISRC should be partitioned to ISRC group."""
-        provider = ConcreteProvider()
         t1 = Track(
             title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
         )
@@ -107,8 +99,8 @@ class TestBaseMatchingProviderTrackPartitioning:
         )
         tracks = [t1, t2]
 
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = (
-            provider._partition_tracks(tracks)
+        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
+            tracks
         )
 
         assert len(isrc_tracks) == 2
@@ -119,13 +111,12 @@ class TestBaseMatchingProviderTrackPartitioning:
 
     def test_partition_tracks_with_artist_title_only(self):
         """Tracks with artist+title but no ISRC should be partitioned to artist/title group."""
-        provider = ConcreteProvider()
         t1 = Track(title="Song 1", artists=[Artist(name="Artist 1")])
         t2 = Track(title="Song 2", artists=[Artist(name="Artist 2")])
         tracks = [t1, t2]
 
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = (
-            provider._partition_tracks(tracks)
+        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
+            tracks
         )
 
         assert len(isrc_tracks) == 0
@@ -136,13 +127,12 @@ class TestBaseMatchingProviderTrackPartitioning:
 
     def test_partition_tracks_missing_title(self):
         """Tracks without title should be partitioned to unprocessable group."""
-        provider = ConcreteProvider()
         tracks = [
             Track(title="", artists=[Artist(name="Artist 1")]),
         ]
 
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = (
-            provider._partition_tracks(tracks)
+        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
+            tracks
         )
 
         assert len(isrc_tracks) == 0
@@ -151,7 +141,6 @@ class TestBaseMatchingProviderTrackPartitioning:
 
     def test_partition_mixed_tracks(self):
         """Mixed tracks should be partitioned to appropriate groups."""
-        provider = ConcreteProvider()
         t1 = Track(
             title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
         )  # ISRC
@@ -164,8 +153,8 @@ class TestBaseMatchingProviderTrackPartitioning:
         )  # ISRC
         tracks = [t1, t2, t3, t4]
 
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = (
-            provider._partition_tracks(tracks)
+        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
+            tracks
         )
 
         assert len(isrc_tracks) == 2
@@ -178,11 +167,10 @@ class TestBaseMatchingProviderTrackPartitioning:
 
     def test_partition_empty_list(self):
         """Empty track list should return empty partitions."""
-        provider = ConcreteProvider()
         tracks: list[Track] = []
 
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = (
-            provider._partition_tracks(tracks)
+        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
+            tracks
         )
 
         assert len(isrc_tracks) == 0
@@ -191,7 +179,6 @@ class TestBaseMatchingProviderTrackPartitioning:
 
     def test_partition_isrc_takes_priority(self):
         """Tracks with ISRC should go to ISRC group even if they have artist/title."""
-        provider = ConcreteProvider()
         tracks = [
             Track(
                 title="Song 1",
@@ -200,8 +187,8 @@ class TestBaseMatchingProviderTrackPartitioning:
             ),
         ]
 
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = (
-            provider._partition_tracks(tracks)
+        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
+            tracks
         )
 
         assert len(isrc_tracks) == 1
@@ -428,47 +415,41 @@ class TestBaseMatchingProviderValidation:
 
     def test_has_isrc_returns_true_for_track_with_isrc(self):
         """Track with ISRC should pass ISRC validation."""
-        provider = ConcreteProvider()
         track = Track(
             title="Song", isrc="USRC11111111", artists=[Artist(name="Artist")]
         )
 
-        assert provider._has_isrc(track) is True
+        assert _has_isrc(track) is True
 
     def test_has_isrc_returns_false_for_track_without_isrc(self):
         """Track without ISRC should fail ISRC validation."""
-        provider = ConcreteProvider()
         track = Track(title="Song", artists=[Artist(name="Artist")])
 
-        assert provider._has_isrc(track) is False
+        assert _has_isrc(track) is False
 
     def test_has_artist_and_title_returns_true_for_valid_track(self):
         """Track with artist and title should pass artist/title validation."""
-        provider = ConcreteProvider()
         track = Track(title="Song", artists=[Artist(name="Artist")])
 
-        assert provider._has_artist_and_title(track) is True
+        assert _has_artist_and_title(track) is True
 
     def test_has_artist_and_title_returns_false_without_title(self):
         """Track without title should fail artist/title validation."""
-        provider = ConcreteProvider()
         track = Track(title="", artists=[Artist(name="Artist")])
 
-        assert provider._has_artist_and_title(track) is False
+        assert _has_artist_and_title(track) is False
 
 
 class IsrcOnlyProvider(ConcreteProvider):
-    """Provider that opts out of artist/title matching (Apple Music shape)."""
+    """Provider on the IsrcOnly strategy (Apple Music / Tidal shape)."""
 
-    supports_artist_title_matching = False
+    def _match_strategy(self) -> MatchStrategy:
+        """ISRC exclusively — no artist/title phase exists."""
+        return IsrcOnly(match_by_isrc=self._match_by_isrc)
 
 
-class TestSupportsArtistTitleMatchingFlag:
-    """Flag-off path: ISRC-only providers never reach _match_by_artist_title."""
-
-    def test_flag_defaults_to_true(self):
-        assert BaseMatchingProvider.supports_artist_title_matching is True
-        assert ConcreteProvider().supports_artist_title_matching is True
+class TestIsrcOnlyStrategy:
+    """IsrcOnly path: providers never reach an artist/title phase."""
 
     async def test_no_isrc_track_fails_instead_of_artist_title(self):
         """A track without ISRC gets a NO_ISRC failure, not a fallback call."""
@@ -672,6 +653,32 @@ class TestBaseMatchingProviderProgressCallback:
         second_args = callback.call_args_list[1].args
         assert second_args[0] == 2  # completed (all tracks)
         assert second_args[1] == 2  # total
+
+    async def test_fallback_tracks_count_once_toward_total(self):
+        """ISRC misses that fall back to artist/title tick once, not twice —
+        every report stays within total and the terminal report equals it."""
+        from unittest.mock import AsyncMock
+
+        provider = ConcreteProvider()
+        callback = AsyncMock()
+        tracks = [
+            Track(
+                title=f"Song {i}",
+                isrc=f"USRC{i:08d}",
+                artists=[Artist(name="Artist")],
+            )
+            for i in range(5)
+        ]
+        # No isrc_results configured → every track misses and falls back.
+
+        await provider.fetch_raw_matches_for_tracks(tracks, progress_callback=callback)
+
+        reports = [c.args[:2] for c in callback.call_args_list]
+        assert all(current <= total for current, total in reports)
+        assert reports[-1] == (5, 5)
+        # The fallback phase received every miss exactly once.
+        assert len(provider.artist_title_calls) == 1
+        assert len(provider.artist_title_calls[0]) == 5
 
     async def test_no_callback_when_none(self):
         """No error when progress_callback is None."""

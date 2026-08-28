@@ -1,14 +1,15 @@
 """Apple Music provider for track matching — conservative, ISRC-only.
 
-Matches tracks against the Apple Music catalog by ISRC exclusively.
-``supports_artist_title_matching = False`` keeps the base template from ever
-funneling ISRC-less tracks (or ISRC misses) into a name search: Apple's
-catalog search has no field filters, and an unguarded free-text match would
-mint cross-service identities on title similarity alone. The artist/title
-hook stays as the v0.12.1 plug point.
+Matches tracks against the Apple Music catalog by ISRC exclusively. The
+``IsrcOnly`` strategy keeps the workflow from ever funneling ISRC-less
+tracks (or ISRC misses) into a name search: Apple's catalog search has no
+field filters, and an unguarded free-text match would mint cross-service
+identities on title similarity alone. Artist/title matching lands with the
+v0.12.1 alias-aware comparator, as a new hook wired into an
+``IsrcThenArtistTitle`` strategy.
 """
 
-from typing import ClassVar, override
+from typing import override
 from uuid import UUID
 
 from src.config import get_logger
@@ -25,6 +26,8 @@ from src.infrastructure.connectors._shared.failure_handling import (
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
+    IsrcOnly,
+    MatchStrategy,
 )
 from src.infrastructure.connectors.apple_music.client import AppleMusicAPIClient
 from src.infrastructure.connectors.apple_music.models import AppleMusicSong
@@ -35,8 +38,6 @@ logger = get_logger(__name__)
 
 class AppleMusicMatchingProvider(BaseMatchingProvider):
     """Apple Music track matching provider (ISRC only)."""
-
-    supports_artist_title_matching: ClassVar[bool] = False
 
     _client: AppleMusicAPIClient
 
@@ -59,6 +60,10 @@ class AppleMusicMatchingProvider(BaseMatchingProvider):
         return "apple"
 
     @override
+    def _match_strategy(self) -> MatchStrategy:
+        """ISRC exclusively — ISRC-less tracks fail without a name search."""
+        return IsrcOnly(match_by_isrc=self._match_by_isrc)
+
     async def _match_by_isrc(
         self, tracks: list[Track]
     ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
@@ -90,13 +95,7 @@ class AppleMusicMatchingProvider(BaseMatchingProvider):
                 if track.id
             ]
 
-        isrc_by_track: dict[UUID, str] = {}
-        for track in tracks:
-            if not track.id:
-                continue
-            normalized = normalize_isrc(track.isrc or "")
-            if normalized:
-                isrc_by_track[track.id] = normalized
+        isrc_by_track = self._normalized_isrc_by_track(tracks)
 
         lookup = await self._client.get_songs_by_isrc(
             storefront, list(dict.fromkeys(isrc_by_track.values()))

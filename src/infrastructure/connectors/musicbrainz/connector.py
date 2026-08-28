@@ -64,7 +64,12 @@ class MusicBrainzConnector(BaseAPIConnector):
     async def batch_isrc_lookup(
         self, isrcs: list[str], _progress_desc: str = "MusicBrainz ISRC lookup"
     ) -> dict[str, MusicBrainzRecording | None]:
-        """Sequential lookup of ISRCs to full recordings with rate limiting."""
+        """Sequential lookup of ISRCs to full recordings with rate limiting.
+
+        A code mapped to ``None`` is a genuine catalog miss. A code whose
+        lookup raised is OMITTED from the result so callers can tell an
+        unanswered code from an answered miss.
+        """
         if not isrcs:
             return {}
 
@@ -72,15 +77,12 @@ class MusicBrainzConnector(BaseAPIConnector):
 
         for i, isrc in enumerate(isrcs, 1):
             try:
-                recording = await self.get_recording_by_isrc(isrc)
-                results[isrc] = recording
-
-                if i % 10 == 0 or i == len(isrcs):
-                    logger.info(f"Processed {i}/{len(isrcs)} ISRCs")
-
+                results[isrc] = await self.get_recording_by_isrc(isrc)
             except Exception as e:
                 logger.error(f"Failed to lookup ISRC {isrc}: {e}")
-                results[isrc] = None
+
+            if i % 10 == 0 or i == len(isrcs):
+                logger.info(f"Processed {i}/{len(isrcs)} ISRCs")
 
         success_count = sum(1 for rec in results.values() if rec is not None)
         logger.info(
@@ -101,13 +103,12 @@ class MusicBrainzConnector(BaseAPIConnector):
 
 def get_connector_config() -> ConnectorConfig:
     """MusicBrainz connector configuration."""
-    from src.infrastructure.connectors._shared.connector_status import (
+    from src.infrastructure.connectors.musicbrainz.status import (
         get_musicbrainz_status,
     )
 
     return {
-        "dependencies": [],  # No dependencies on other connectors
-        "factory": lambda _params: MusicBrainzConnector(),
+        "factory": MusicBrainzConnector,
         "metrics": {},  # No specific metrics
         "display_name": "MusicBrainz",
         "category": "enrichment",
