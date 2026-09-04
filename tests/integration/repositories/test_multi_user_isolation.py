@@ -108,8 +108,8 @@ class TestLikeIsolation:
         repo = uow.get_track_repository()
         like_repo = uow.get_like_repository()
         track = await repo.save_track(_new_track(user_id))
-        await like_repo.save_track_like(
-            track.id, "spotify", user_id=user_id, is_liked=True
+        await like_repo.save_track_likes_batch(
+            [(track.id, "spotify", True, None, None)], user_id=user_id
         )
         return track
 

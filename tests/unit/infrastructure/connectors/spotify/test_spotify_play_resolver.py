@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
+from src.application.connector_protocols import Closeable
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.infrastructure.connectors._shared.inward_track_resolver import (
@@ -1129,3 +1130,31 @@ class TestIncognitoPreFilter:
         )
 
         assert hints["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 216_000
+
+
+class TestLifecycle:
+    """The orchestrator's Closeable teardown must release the connector pool."""
+
+    def test_resolver_satisfies_closeable(self):
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
+
+        assert isinstance(resolver, Closeable)
+
+    async def test_aclose_closes_owned_connector(self):
+        connector = AsyncMock()
+        resolver = SpotifyConnectorPlayResolver(
+            spotify_connector=connector, owns_connector=True
+        )
+
+        await resolver.aclose()
+
+        connector.aclose.assert_awaited_once()
+
+    async def test_aclose_leaves_injected_connector_open(self):
+        """An injected connector belongs to the caller."""
+        connector = AsyncMock()
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+
+        await resolver.aclose()
+
+        connector.aclose.assert_not_awaited()

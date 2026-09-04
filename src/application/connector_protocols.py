@@ -10,7 +10,7 @@ Separated from ``workflows.protocols`` to break a circular import chain:
 -> node factories -> use cases -> ``_shared``.
 """
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -21,6 +21,7 @@ from src.domain.playlist.diff_engine import PlaylistOperation, PlaylistOpsOutcom
 from src.domain.repositories.track import TrackRepositoryProtocol
 
 
+@runtime_checkable
 class TrackConversionConnector(Protocol):
     """Connector that can convert raw track data dicts to ConnectorTrack entities.
 
@@ -44,6 +45,7 @@ class Closeable(Protocol):
         ...
 
 
+@runtime_checkable
 class TrackMetadataConnector(Protocol):
     """Protocol for connectors that can fetch complete external track data.
 
@@ -61,6 +63,7 @@ class TrackMetadataConnector(Protocol):
         ...
 
 
+@runtime_checkable
 class LibraryContainsConnector(Protocol):
     """Connector that can check if items exist in a user's saved library."""
 
@@ -72,6 +75,7 @@ class LibraryContainsConnector(Protocol):
         ...
 
 
+@runtime_checkable
 class LikedTrackConnector(Protocol):
     """Connector that can read a user's liked/saved tracks."""
 
@@ -80,6 +84,7 @@ class LikedTrackConnector(Protocol):
     ) -> tuple[list[ConnectorTrack], str | None, int | None]: ...
 
 
+@runtime_checkable
 class DiscogsCollectionConnector(Protocol):
     """Connector exposing a raw, read-only view of a Discogs collection.
 
@@ -116,6 +121,7 @@ class DiscogsCollectionConnector(Protocol):
         ...
 
 
+@runtime_checkable
 class TidalFavoritesConnector(Protocol):
     """Connector exposing a raw, read-only view of Tidal favorites.
 
@@ -156,12 +162,20 @@ class TidalFavoritesConnector(Protocol):
         ...
 
 
+@runtime_checkable
 class LoveTrackConnector(Protocol):
     """Connector that can love/like tracks on behalf of a user."""
 
-    async def love_track(self, artist: str, title: str) -> bool: ...
+    async def love_tracks(self, items: Sequence[tuple[str, str]]) -> list[bool]:
+        """Love every ``(artist, title)`` pair, one result per input.
+
+        Results keep input order. A per-item failure is ``False``, not an
+        exception — a batch is never abandoned because one track failed.
+        """
+        ...
 
 
+@runtime_checkable
 class UserPlaylistsConnector(Protocol):
     """Connector that can enumerate the authenticated user's own playlists.
 
@@ -187,6 +201,7 @@ the emitter in a closure and passes it here.
 """
 
 
+@runtime_checkable
 class PlaylistConnector(Protocol):
     """Connector that supports playlist fetch and CRUD operations."""
 
@@ -228,3 +243,13 @@ class PlaylistConnector(Protocol):
         tracks: list[Track],
         description: str | None = None,
     ) -> str: ...
+
+    def parse_playlist_identifier(self, raw_input: str) -> str:
+        """Normalize a user-supplied playlist identifier to a raw service id.
+
+        Accepts whatever forms the service publishes (URL, URI, bare id).
+
+        Raises:
+            ValueError: If the input is empty or cannot be parsed.
+        """
+        ...

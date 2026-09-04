@@ -1,7 +1,7 @@
 """Tests for explicit content filter transform."""
 
-from src.application.metadata_transforms.metric_transforms import filter_by_explicit
 from src.domain.entities.track import TrackList
+from src.domain.transforms.metrics import filter_by_explicit
 from tests.fixtures.factories import make_track
 
 

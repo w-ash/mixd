@@ -398,3 +398,25 @@ class TestChatConfig:
         # Sonnet 5 — the documented override — 400s on it.
         assert ChatConfig(model_id="claude-opus-5").supports_operator_messages
         assert not ChatConfig(model_id="claude-sonnet-5").supports_operator_messages
+
+
+class TestForConnector:
+    """APIConfig.for_connector resolves a connector name to its tuning block."""
+
+    def test_direct_name_returns_declared_block(self):
+        config = APIConfig()
+        assert config.for_connector("spotify") is config.spotify
+
+    def test_alias_maps_apple_to_apple_music(self):
+        config = APIConfig()
+        assert config.for_connector("apple") is config.apple_music
+
+    def test_unknown_name_returns_defaults(self):
+        config = APIConfig()
+        result = config.for_connector("no_such_connector")
+        assert result == ConnectorAPIConfig()
+
+    def test_non_connector_attribute_returns_defaults(self):
+        """A settings field that is not a ConnectorAPIConfig never leaks through."""
+        config = APIConfig()
+        assert config.for_connector("spotify_market") == ConnectorAPIConfig()

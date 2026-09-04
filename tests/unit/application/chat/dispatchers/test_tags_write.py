@@ -218,3 +218,35 @@ class TestExecManageTags:
 
         with pytest.raises(ToolExecutionError, match="no longer exists"):
             await tags_write.exec_manage_tags(action, "default")
+
+    async def test_malformed_track_id_at_commit_is_actionable(
+        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Details the executor cannot parse raise a corrective error rather
+        # than a bare ValueError, and never reach the use case.
+        async def _raise(factory: object, user_id: str | None = None) -> object:
+            raise AssertionError("not reached")
+
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
+        action = await _pending(
+            fresh_store,
+            {"operation": "tag", "track_id": "not-a-uuid", "tag": "mood:chill"},
+        )
+
+        with pytest.raises(ToolExecutionError, match="must be a UUID string"):
+            await tags_write.exec_manage_tags(action, "default")
+
+    async def test_malformed_batch_track_ids_at_commit_is_actionable(
+        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _raise(factory: object, user_id: str | None = None) -> object:
+            raise AssertionError("not reached")
+
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
+        action = await _pending(
+            fresh_store,
+            {"operation": "batch_tag", "track_ids": "not-a-list", "tag": "gym"},
+        )
+
+        with pytest.raises(ToolExecutionError, match="non-empty list of UUID strings"):
+            await tags_write.exec_manage_tags(action, "default")

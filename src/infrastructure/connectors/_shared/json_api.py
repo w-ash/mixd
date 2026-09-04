@@ -11,7 +11,7 @@ rule, Tidal's 401 message) stays in each connector's classifier.
 from typing import ClassVar
 
 import httpx2
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from src.infrastructure.connectors._shared.http_client import response_text
 
@@ -26,6 +26,16 @@ class JsonApiError(BaseModel):
     code: str | None = Field(default=None)
     title: str | None = Field(default=None)
     detail: str | None = Field(default=None)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _status_as_string(cls, value: object) -> object:
+        """Accept a bare integer status: the spec says string, some bodies send 401.
+
+        Pydantic's lax mode does not coerce int → str, and one bad field would
+        otherwise fail the whole envelope and lose the upstream ``detail``.
+        """
+        return str(value) if isinstance(value, int) else value
 
 
 class JsonApiErrorResponse(BaseModel):

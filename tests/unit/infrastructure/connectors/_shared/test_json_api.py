@@ -26,6 +26,17 @@ def _response(
 
 
 class TestFirstJsonApiError:
+    def test_integer_status_is_coerced_not_fatal(self):
+        # JSON:API says status is a string; a body that sends 401 must still
+        # surface its detail instead of failing the whole envelope.
+        body = {"errors": [{"status": 401, "detail": "Token expired"}]}
+
+        error = first_json_api_error(_response(json_body=body))
+
+        assert error is not None
+        assert error.status == "401"
+        assert error.detail == "Token expired"
+
     def test_first_error_extracted_from_errors_array(self):
         body = {
             "errors": [

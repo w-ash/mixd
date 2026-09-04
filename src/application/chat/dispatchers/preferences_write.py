@@ -14,10 +14,10 @@ preference; ``sync_from_likes`` derives preferences from imported likes.
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
     propose_action,
     require_choice,
     require_uuid,
@@ -165,7 +165,7 @@ async def exec_set_preferences(action: PendingAction, user_id: str) -> JsonValue
         )
         command = SetTrackPreferenceCommand(
             user_id=user_id,
-            track_id=UUID(str(details["track_id"])),
+            track_id=require_uuid(details, "track_id"),
             state=state,
             source=_AGENT_SOURCE,
             preferred_at=datetime.now(UTC),
@@ -176,14 +176,13 @@ async def exec_set_preferences(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "description": action.description,
-            "track_id": str(result.track_id),
-            "state": result.state,
-            "changed": result.changed,
-        }
+        return confirmed(
+            action,
+            operation,
+            track_id=str(result.track_id),
+            state=result.state,
+            changed=result.changed,
+        )
 
     if operation == "sync_from_likes":
         sync_command = SyncPreferencesFromLikesCommand(user_id=user_id)
@@ -193,14 +192,13 @@ async def exec_set_preferences(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "description": action.description,
-            "created": synced.created,
-            "upgraded": synced.upgraded,
-            "skipped": synced.skipped,
-        }
+        return confirmed(
+            action,
+            operation,
+            created=synced.created,
+            upgraded=synced.upgraded,
+            skipped=synced.skipped,
+        )
 
     raise ToolExecutionError(f"Unknown set_preferences operation {operation!r}")
 

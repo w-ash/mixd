@@ -18,10 +18,10 @@ committed verbatim (never wrapped as ``<user_data>`` display text).
 """
 
 from collections.abc import Mapping
-from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
     opt_choice,
     propose_action,
     require_choice,
@@ -195,7 +195,7 @@ async def exec_manage_playlist_link(action: PendingAction, user_id: str) -> Json
     if operation == "create":
         command = CreatePlaylistLinkCommand(
             user_id=user_id,
-            playlist_id=UUID(str(details["playlist_id"])),
+            playlist_id=require_uuid(details, "playlist_id"),
             connector=str(details["connector"]),
             connector_playlist_identifier=ConnectorPlaylistIdentifier(
                 str(details["identifier"])
@@ -211,17 +211,12 @@ async def exec_manage_playlist_link(action: PendingAction, user_id: str) -> Json
             ),
             invalid_prefix="The link could not be created",
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "description": action.description,
-            "link": _project_link(created.link),
-        }
+        return confirmed(action, operation, link=_project_link(created.link))
 
     if operation == "update":
         update_command = UpdatePlaylistLinkCommand(
             user_id=user_id,
-            link_id=UUID(str(details["link_id"])),
+            link_id=require_uuid(details, "link_id"),
             sync_direction=_to_sync_direction(str(details["direction"])),
         )
         updated = await commit(
@@ -233,17 +228,12 @@ async def exec_manage_playlist_link(action: PendingAction, user_id: str) -> Json
             ),
             invalid_prefix="The link could not be updated",
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "description": action.description,
-            "link": _project_link(updated.link),
-        }
+        return confirmed(action, operation, link=_project_link(updated.link))
 
     if operation == "delete":
         delete_command = DeletePlaylistLinkCommand(
             user_id=user_id,
-            link_id=UUID(str(details["link_id"])),
+            link_id=require_uuid(details, "link_id"),
         )
         deleted = await commit(
             lambda uow: DeletePlaylistLinkUseCase().execute(delete_command, uow),
@@ -254,13 +244,12 @@ async def exec_manage_playlist_link(action: PendingAction, user_id: str) -> Json
             ),
             invalid_prefix="The link could not be deleted",
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "description": action.description,
-            "link_id": str(details["link_id"]),
-            "deleted": deleted.deleted,
-        }
+        return confirmed(
+            action,
+            operation,
+            link_id=str(delete_command.link_id),
+            deleted=deleted.deleted,
+        )
 
     raise ToolExecutionError(f"Unknown manage_playlist_link operation {operation!r}")
 

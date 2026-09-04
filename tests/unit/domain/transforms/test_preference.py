@@ -7,11 +7,11 @@ in dual-mode (passing `tracklist=` to get an immediate result).
 
 import pytest
 
-from src.application.metadata_transforms.preference import (
+from src.domain.entities.track import TrackList
+from src.domain.transforms.preference import (
     filter_by_preference,
     sort_by_preference,
 )
-from src.domain.entities.track import TrackList
 from tests.fixtures.factories import make_track_preference, make_tracks
 
 

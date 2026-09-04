@@ -7,9 +7,6 @@ the moment it runs. Pure domain logic — no I/O.
 """
 
 import bisect
-from typing import Final
-
-from structlog.stdlib import get_logger
 
 from src.domain.playlist.diff_engine import (
     PlaylistDiff,
@@ -17,10 +14,6 @@ from src.domain.playlist.diff_engine import (
     PlaylistOperationType,
     sequence_operations_for_spotify,
 )
-
-logger = get_logger(__name__)
-
-_DEBUG_TRUNCATION: Final = 10
 
 
 def plan_api_operations(diff: PlaylistDiff) -> list[PlaylistOperation]:
@@ -88,11 +81,6 @@ def simulate_position_shifts(
         adjusted_moves = _adjust_move_operations(move_ops, remove_ops_sorted)
         adjusted_operations.extend(adjusted_moves)
 
-    logger.debug(
-        "Position shift simulation complete: "
-        f"{len(remove_ops)} removes, {len(add_ops)} adds, {len(move_ops)} moves"
-    )
-
     return adjusted_operations
 
 
@@ -117,34 +105,16 @@ def _adjust_move_operations(
 
     if not remove_ops:
         # No removals, just sort by old_position in descending order for reverse execution
-        sorted_moves = sorted(
-            move_ops, key=lambda op: op.old_position or 0, reverse=True
-        )
-        logger.debug(
-            f"No removals to adjust for, using reverse-order execution for {len(move_ops)} moves"
-        )
-        return sorted_moves
+        return sorted(move_ops, key=lambda op: op.old_position or 0, reverse=True)
 
     # Extract removed positions and sort them for efficient lookup
     removed_positions = sorted([
         op.old_position for op in remove_ops if op.old_position is not None
     ])
 
-    logger.debug(
-        f"Adjusting {len(move_ops)} move operations for {len(removed_positions)} removals",
-        removed_positions=removed_positions[:_DEBUG_TRUNCATION]
-        if len(removed_positions) > _DEBUG_TRUNCATION
-        else removed_positions,
-    )
-
     adjusted_moves: list[PlaylistOperation] = []
     for move_op in move_ops:
         if move_op.old_position is None:
-            logger.warning(
-                "Move operation missing old_position data, skipping",
-                old_position=move_op.old_position,
-                position=move_op.position,
-            )
             continue
 
         # Calculate how many removals happened before old_position
@@ -158,15 +128,6 @@ def _adjust_move_operations(
 
         # Validate bounds - positions must be non-negative
         if adjusted_old_position < 0 or adjusted_new_position < 0:
-            logger.warning(
-                "Move operation would result in negative position after adjustment, skipping",
-                original_old_position=move_op.old_position,
-                original_new_position=move_op.position,
-                adjusted_old_position=adjusted_old_position,
-                adjusted_new_position=adjusted_new_position,
-                old_shift=old_shift,
-                new_shift=new_shift,
-            )
             continue
 
         # Create new operation with adjusted positions
@@ -180,25 +141,5 @@ def _adjust_move_operations(
 
         adjusted_moves.append(adjusted_op)
 
-        logger.debug(
-            "Adjusted move operation positions",
-            original_old=move_op.old_position,
-            original_new=move_op.position,
-            adjusted_old=adjusted_old_position,
-            adjusted_new=adjusted_new_position,
-            shift_old=old_shift,
-            shift_new=new_shift,
-        )
-
     # Sort adjusted moves by old_position in descending order for reverse execution
-    sorted_adjusted_moves = sorted(
-        adjusted_moves, key=lambda op: op.old_position or 0, reverse=True
-    )
-
-    logger.debug(
-        f"Position adjustment complete: {len(move_ops)} original moves, "
-        f"{len(adjusted_moves)} valid after adjustment, "
-        f"{len(move_ops) - len(adjusted_moves)} filtered out"
-    )
-
-    return sorted_adjusted_moves
+    return sorted(adjusted_moves, key=lambda op: op.old_position or 0, reverse=True)

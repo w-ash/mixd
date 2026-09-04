@@ -32,13 +32,13 @@ def registry() -> dict[str, tuple[ConfigFieldDef, ...]]:
 def test_every_registered_node_has_config_fields_entry(
     registry: dict[str, tuple[ConfigFieldDef, ...]],
 ) -> None:
-    """Every node in the node registry has a corresponding entry in _NODE_CONFIG_FIELDS."""
+    """Every node in the node registry has a corresponding entry in the config fields registry."""
     registered_node_ids = set(list_nodes().keys())
     config_field_ids = set(registry.keys())
 
     missing = registered_node_ids - config_field_ids
     assert not missing, (
-        f"Registered nodes missing from _NODE_CONFIG_FIELDS: {sorted(missing)}"
+        f"Registered nodes missing from the config fields registry: {sorted(missing)}"
     )
 
 
@@ -51,7 +51,7 @@ def test_no_extra_config_field_entries(
 
     extra = config_field_ids - registered_node_ids
     assert not extra, (
-        f"_NODE_CONFIG_FIELDS has entries for unregistered nodes: {sorted(extra)}"
+        f"the config fields registry has entries for unregistered nodes: {sorted(extra)}"
     )
 
 
@@ -129,12 +129,12 @@ def test_option_values_unique_within_field(
                 )
 
 
-# ── ENRICHER_METRIC_DEFS consistency tests ─────────────────────────
+# ── Enricher metric-def consistency tests ──────────────────────────
 
 
 def test_enricher_metric_defs_covers_all_enrichers() -> None:
-    """Every metric-providing enricher in the registry has an entry in ENRICHER_METRIC_DEFS."""
-    from src.application.workflows.nodes.config_fields import ENRICHER_METRIC_DEFS
+    """Every metric-providing enricher in the registry has a metric-def entry."""
+    from src.application.workflows.nodes.config_fields import get_enricher_metric_defs
 
     registered_enrichers = {
         node_id
@@ -151,23 +151,65 @@ def test_enricher_metric_defs_covers_all_enrichers() -> None:
     }
     expected = registered_enrichers - non_metric_enrichers
 
-    metric_enrichers = set(ENRICHER_METRIC_DEFS.keys())
+    metric_enrichers = set(get_enricher_metric_defs())
     assert metric_enrichers == expected, (
-        f"ENRICHER_METRIC_DEFS out of sync with registry. "
+        f"Enricher metric defs out of sync with registry. "
         f"Missing: {sorted(expected - metric_enrichers)}, "
         f"Extra: {sorted(metric_enrichers - expected)}"
     )
 
 
 def test_metric_options_matches_enricher_metric_defs() -> None:
-    """METRIC_OPTIONS is the flattened union of ENRICHER_METRIC_DEFS."""
+    """The metric options are the flattened union of the enricher metric defs."""
     from src.application.workflows.nodes.config_fields import (
-        ENRICHER_METRIC_DEFS,
-        METRIC_OPTIONS,
+        get_enricher_metric_defs,
+        get_metric_options,
     )
 
     expected_values = {
-        opt.value for opts in ENRICHER_METRIC_DEFS.values() for opt in opts
+        opt.value for opts in get_enricher_metric_defs().values() for opt in opts
     }
-    actual_values = {opt.value for opt in METRIC_OPTIONS}
+    actual_values = {opt.value for opt in get_metric_options()}
     assert actual_values == expected_values
+
+
+def test_connector_options_come_from_the_connector_catalog() -> None:
+    """Service pickers list exactly the connectors declaring the capability."""
+    from src.application.use_cases._shared.connector_catalog import (
+        default_connector_catalog,
+    )
+    from src.application.workflows.nodes.config_fields import get_node_config_fields
+
+    descriptors = default_connector_catalog().list_descriptors()
+    expected = {d.name for d in descriptors if "playlist_sync" in d.capabilities}
+
+    connector_field = next(
+        f for f in get_node_config_fields()["source.playlist"] if f.key == "connector"
+    )
+    assert {opt.value for opt in connector_field.options} == expected
+
+
+def test_required_select_with_no_options_fails_the_build() -> None:
+    """A connector picker with nothing to pick is a build error, not an empty dropdown.
+
+    ``filter.by_liked_status.service`` is required and its options come from the
+    connector catalog; if the catalog yields no likes-import connector the
+    registry must refuse to build rather than serve an unsatisfiable field.
+    """
+    from unittest.mock import patch
+
+    from src.application.workflows.nodes import config_fields
+
+    with (
+        patch.object(config_fields, "_service_options", return_value=()),
+        pytest.raises(RuntimeError, match=r"filter\.by_liked_status\.service"),
+    ):
+        _ = config_fields._build_node_config_fields()
+
+
+def test_full_catalog_builds_without_error() -> None:
+    """The live catalog satisfies every required select."""
+    from src.application.workflows.nodes import config_fields
+
+    registry = config_fields._build_node_config_fields()
+    assert "filter.by_liked_status" in registry

@@ -69,7 +69,7 @@ _RATIONALE: dict[str, str] = {
         "app mid-conversation is a surprise, not a capability."
     ),
     # Mechanically excluded (no chat file channel).
-    "ExportLastFmLikesUseCase": (
+    "ExportLovesUseCase": (
         "Produces a file export; chat has no file input/output channel."
     ),
     # Internal plumbing (no direct human surface; reached via workflows/tools).

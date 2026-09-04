@@ -4,7 +4,7 @@ from src.application.use_cases._shared.connector_playlist_factories import (
     create_connector_playlist_items_from_tracks,
 )
 from src.application.use_cases._shared.connector_resolver import (
-    resolve_connector,
+    resolve_capability,
     resolve_liked_track_connector,
     resolve_love_track_connector,
     resolve_playlist_connector,
@@ -26,7 +26,7 @@ __all__ = [
     "count_operation_types",
     "create_connector_playlist_items_from_tracks",
     "require_playlist_link",
-    "resolve_connector",
+    "resolve_capability",
     "resolve_liked_track_connector",
     "resolve_love_track_connector",
     "resolve_playlist",

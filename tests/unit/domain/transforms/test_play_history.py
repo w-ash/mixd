@@ -4,11 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.application.metadata_transforms.play_history import (
+from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.transforms.play_history import (
     filter_by_play_history,
     sort_by_play_history,
 )
-from src.domain.entities.track import Artist, Track, TrackList
 
 
 class TestFilterByPlayHistory:
@@ -321,7 +321,7 @@ class TestGetPlayMetricsDateSource:
     """get_play_metrics selects first- vs last-played map by date_source."""
 
     def test_returns_requested_date_map(self):
-        from src.application.metadata_transforms._helpers import get_play_metrics
+        from src.domain.transforms._metadata_helpers import get_play_metrics
 
         first = {1: "2020-01-01T00:00:00+00:00"}
         last = {1: "2024-01-01T00:00:00+00:00"}

@@ -1,39 +1,33 @@
 """Metric-based transformations for track collections.
 
-This module contains transformations that operate on tracks using external metrics
-stored in TrackList metadata. These transforms coordinate between domain entities
-and application-layer metric enrichment.
+Transforms tracks using metrics stored in ``TrackList.metadata["metrics"]``.
+Enrichment happens upstream — these functions only read what is already on the
+entity, so a metric that was never enriched degrades gracefully rather than
+raising.
 
-Unlike pure domain transforms, these functions:
-- Access metadata structures (metadata["metrics"][metric_name])
-- Use logging for debugging
-- Depend on external metric enrichment having occurred first
+Purity: No side effects, logging, or external dependencies.
 """
 
 from datetime import UTC, datetime
+from operator import itemgetter
 from typing import cast
 from uuid import UUID
 
-from src.config import get_logger
 from src.domain.entities.shared import MetricValue, SortKey
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import Transform, dual_mode
 from src.domain.transforms.filtering import filter_by_predicate
 
-from ._helpers import DATE_SOURCE_METRIC_KEYS, parse_datetime_safe
-
-logger = get_logger(__name__)
+from ._metadata_helpers import DATE_SOURCE_METRIC_KEYS, parse_datetime_safe
 
 
-def _warn_missing_metrics(
-    operation: str, metric_name: str, tracklist: TrackList
-) -> None:
-    """Log a warning when a metric operation has no metric data."""
-    if tracklist.tracks:
-        logger.warning(
-            f"{operation} '{metric_name}' has no metric data — "
-            "ensure an upstream enricher for this metric is configured"
-        )
+def has_metric_values(tracklist: TrackList, metric_name: str) -> bool:
+    """Report whether the tracklist carries any value for ``metric_name``.
+
+    Callers use this to detect a missing upstream enricher before applying a
+    metric transform — the transforms themselves degrade gracefully.
+    """
+    return bool(tracklist.metadata.get("metrics", {}).get(metric_name, {}))
 
 
 def filter_by_metric_range(
@@ -62,9 +56,6 @@ def filter_by_metric_range(
         metrics = t.metadata.get("metrics", {})
         metric_values: dict[UUID, MetricValue] = metrics.get(metric_name, {})
 
-        if not metric_values:
-            _warn_missing_metrics("Filter by", metric_name, t)
-
         def is_in_range(track: Track) -> bool:
             """Check if track's metric is within the specified range."""
             if not track.id:
@@ -83,20 +74,7 @@ def filter_by_metric_range(
             return not (max_value is not None and value > max_value)
 
         filter_func = cast(Transform, filter_by_predicate(is_in_range))
-        result = filter_func(t)
-
-        logger.debug(
-            "Metric range filter applied",
-            metric_name=metric_name,
-            min_value=min_value,
-            max_value=max_value,
-            include_missing=include_missing,
-            original_count=len(t.tracks),
-            filtered_count=len(result.tracks),
-            removed_count=len(t.tracks) - len(result.tracks),
-        )
-
-        return result
+        return filter_func(t)
 
     return dual_mode(transform, tracklist)
 
@@ -123,27 +101,25 @@ def sort_by_external_metrics(
 
     def transform(t: TrackList) -> TrackList:
         """Apply external metrics sorting."""
-        # Get metrics from tracklist metadata
         metrics_dict = t.metadata.get("metrics", {}).get(metric_name, {})
 
-        if not metrics_dict:
-            _warn_missing_metrics("Sort by", metric_name, t)
+        def value_of(track: Track) -> SortKey | None:
+            """Metric value for the track, or None when unenriched."""
+            if not track.id:
+                return None
+            return metrics_dict.get(track.id)
 
-        def external_metrics_key(track: Track) -> SortKey:
-            """Extract metric value for sorting."""
-            if not track.id or track.id not in metrics_dict:
-                # Tracks without metrics sort to end
-                return float("-inf") if reverse else float("inf")
-
-            value = metrics_dict[track.id]
-            # Metric values are populated by enrichers (int/float/datetime);
-            # None means the enricher skipped this track → sort to end
-            if value is None:
-                return float("-inf") if reverse else float("inf")
-            return value
-
-        sorted_tracks = sorted(t.tracks, key=external_metrics_key, reverse=reverse)
-        return t.with_tracks(sorted_tracks)
+        # Sort only the tracks that carry a value, so values of one metric
+        # type are never compared against a sentinel of another. Tracks
+        # without a value keep their order at the end in both directions.
+        present = [
+            (value, track)
+            for track in t.tracks
+            if (value := value_of(track)) is not None
+        ]
+        missing = [track for track in t.tracks if value_of(track) is None]
+        present.sort(key=itemgetter(0), reverse=reverse)
+        return t.with_tracks([track for _, track in present] + missing)
 
     return dual_mode(transform, tracklist)
 
@@ -194,17 +170,6 @@ def sort_by_date(
             return sentinel
 
         sorted_tracks = sorted(t.tracks, key=date_key, reverse=not ascending)
-
-        logger.debug(
-            "Date sort applied",
-            date_source=date_source,
-            ascending=ascending,
-            track_count=len(sorted_tracks),
-            tracks_with_dates=sum(
-                1 for track in t.tracks if track.id and track.id in date_map
-            ),
-        )
-
         return t.with_tracks(sorted_tracks)
 
     return dual_mode(transform, tracklist)
@@ -238,15 +203,6 @@ def filter_by_explicit(
                 return not want_explicit  # Missing data = assume clean
             return bool(metrics[track.id]) == want_explicit
 
-        result = cast(Transform, filter_by_predicate(matches))(t)
-
-        logger.debug(
-            "Explicit filter applied",
-            keep=keep,
-            original_count=len(t.tracks),
-            filtered_count=len(result.tracks),
-        )
-
-        return result
+        return cast(Transform, filter_by_predicate(matches))(t)
 
     return dual_mode(transform, tracklist)

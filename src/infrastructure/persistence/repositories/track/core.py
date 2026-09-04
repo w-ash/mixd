@@ -59,6 +59,9 @@ from src.infrastructure.persistence.database.live_rows import (
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
+from src.infrastructure.persistence.repositories.track.ingest_lock import (
+    acquire_user_track_ingest_lock,
+)
 from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 
 logger = get_logger(__name__)
@@ -646,6 +649,14 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         """
         if not tracks:
             return []
+
+        # Before the identity pre-probe: the probe's answer is only durable
+        # while no competing writer can claim a key behind it. Sorted so two
+        # multi-user batches can never take the same pair in opposite orders.
+        # This method is also called inside larger transactions; the lock is
+        # transaction-scoped, so it is simply held to that transaction's end.
+        for user_id in sorted({track.user_id for track in tracks}):
+            await acquire_user_track_ingest_lock(self.session, user_id)
 
         values_by_index = {
             index: self._track_column_values(track)

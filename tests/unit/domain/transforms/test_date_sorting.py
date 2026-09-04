@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime
 
-from src.application.metadata_transforms.metric_transforms import sort_by_date
 from src.domain.entities.track import TrackList
+from src.domain.transforms.metrics import sort_by_date
 from tests.fixtures.factories import make_track
 
 

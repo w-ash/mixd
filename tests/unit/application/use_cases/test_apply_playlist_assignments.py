@@ -86,7 +86,7 @@ class TestTagApplication:
         uow.get_playlist_assignment_repository().list_for_user.return_value = [
             assignment
         ]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_a"): track_a,
             ("spotify", "sp_b"): track_b,
@@ -127,7 +127,7 @@ class TestPreferenceApplication:
         uow.get_playlist_assignment_repository().list_for_user.return_value = [
             assignment
         ]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_t"): track,
         }
@@ -150,7 +150,7 @@ class TestPreferenceApplication:
         uow.get_playlist_assignment_repository().list_for_user.return_value = [
             assignment
         ]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_t"): track,
         }
@@ -181,7 +181,7 @@ class TestConflictDetection:
             assignment_nah,  # logged first but lower priority
             assignment_star,
         ]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_t"): track,
         }
@@ -224,7 +224,7 @@ class TestRemovalTracking:
                 ),
             ]
         }
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_a"): track_a,
         }
@@ -267,7 +267,7 @@ class TestRemovalTracking:
                 ),
             ]
         }
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_a"): track_a,
         }
@@ -293,7 +293,7 @@ class TestMembershipSnapshot:
         uow = make_mock_uow()
         assignment_repo = uow.get_playlist_assignment_repository()
         assignment_repo.list_for_user.return_value = [assignment]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_t"): track,
         }
@@ -322,7 +322,7 @@ class TestAssignmentIdsFilter:
         uow = make_mock_uow()
         assignment_repo = uow.get_playlist_assignment_repository()
         assignment_repo.list_for_ids.side_effect = lambda ids, **kw: [target]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_t"): track,
         }
@@ -354,7 +354,7 @@ class TestUnresolvedTracksSkipped:
         uow.get_playlist_assignment_repository().list_for_user.return_value = [
             assignment
         ]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_playlist_repository().find_by_ids.return_value = [cp]
         # Only one track resolves; sp_unknown is missing from the library.
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_a"): track_a,

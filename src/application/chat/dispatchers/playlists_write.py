@@ -16,17 +16,17 @@ case the web UI calls through ``execute_use_case`` — so RLS scoping and
 validation are identical to a human doing it.
 
 Two of the canonical-playlist constructors (``create``/``update``) require a
-``MetricConfigProvider``. The executors import the concrete
-``MetricConfigProviderImpl`` function-scoped (the sanctioned application→
-infrastructure bridge, mirroring ``sync_playlist_link.py``) so the module's
+``MetricConfigProvider``. The executors take it from
+``use_cases/_shared/metric_config.py::default_metric_config()`` — the single
+home for that sanctioned application→infrastructure bridge — so this module's
 import graph stays inward-only.
 """
 
 from collections.abc import Mapping
-from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
     opt_int,
     opt_str,
     project_playlist,
@@ -38,6 +38,7 @@ from src.application.chat.dispatchers._common import (
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
+from src.application.use_cases._shared.metric_config import default_metric_config
 from src.application.use_cases.add_playlist_tracks import (
     AddPlaylistTracksCommand,
     AddPlaylistTracksUseCase,
@@ -219,12 +220,10 @@ async def handle_manage_playlist(
     return await _propose_delete(tool_input, ctx)
 
 
-async def _exec_create(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_create(action: PendingAction, user_id: str) -> JsonValue:
     from src.domain.entities.track import TrackList
-    from src.infrastructure.connectors._shared.metric_registry import (
-        MetricConfigProviderImpl,
-    )
 
+    d = action.details
     description = d["description"]
     command = CreateCanonicalPlaylistCommand(
         user_id=user_id,
@@ -232,26 +231,20 @@ async def _exec_create(d: JsonDict, user_id: str) -> JsonValue:
         tracklist=TrackList(),
         description=str(description) if description is not None else None,
     )
-    use_case = CreateCanonicalPlaylistUseCase(metric_config=MetricConfigProviderImpl())
+    use_case = CreateCanonicalPlaylistUseCase(metric_config=default_metric_config())
     result = await commit(
         lambda uow: use_case.execute(command, uow),
         user_id,
         not_found=_PLAYLIST_NOT_FOUND,
         invalid_prefix=_PLAYLIST_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "create",
-        "playlist": project_playlist(result.playlist),
-    }
+    return confirmed(action, "create", playlist=project_playlist(result.playlist))
 
 
-async def _exec_update(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_update(action: PendingAction, user_id: str) -> JsonValue:
     from src.domain.entities.track import TrackList
-    from src.infrastructure.connectors._shared.metric_registry import (
-        MetricConfigProviderImpl,
-    )
 
+    d = action.details
     name = d["name"]
     description = d["description"]
     # Empty tracklist + name/description → the use case takes its metadata-only
@@ -263,21 +256,18 @@ async def _exec_update(d: JsonDict, user_id: str) -> JsonValue:
         playlist_name=str(name) if name is not None else None,
         playlist_description=str(description) if description is not None else None,
     )
-    use_case = UpdateCanonicalPlaylistUseCase(metric_config=MetricConfigProviderImpl())
+    use_case = UpdateCanonicalPlaylistUseCase(metric_config=default_metric_config())
     result = await commit(
         lambda uow: use_case.execute(command, uow),
         user_id,
         not_found=_PLAYLIST_NOT_FOUND,
         invalid_prefix=_PLAYLIST_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "update",
-        "playlist": project_playlist(result.playlist),
-    }
+    return confirmed(action, "update", playlist=project_playlist(result.playlist))
 
 
-async def _exec_delete(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_delete(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     # The chat two-phase confirm IS the gate, so force_delete bypasses the
     # external-connection warning the use case would otherwise raise.
     command = DeleteCanonicalPlaylistCommand(
@@ -291,13 +281,13 @@ async def _exec_delete(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_PLAYLIST_NOT_FOUND,
         invalid_prefix=_PLAYLIST_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "delete",
-        "deleted_playlist_id": str(result.deleted_playlist_id),
-        "deleted_playlist_name": result.deleted_playlist_name,
-        "tracks_count": result.tracks_count,
-    }
+    return confirmed(
+        action,
+        "delete",
+        deleted_playlist_id=str(result.deleted_playlist_id),
+        deleted_playlist_name=result.deleted_playlist_name,
+        tracks_count=result.tracks_count,
+    )
 
 
 async def exec_manage_playlist(action: PendingAction, user_id: str) -> JsonValue:
@@ -311,10 +301,10 @@ async def exec_manage_playlist(action: PendingAction, user_id: str) -> JsonValue
     d = action.details
     operation = str(d["operation"])
     if operation == "create":
-        return await _exec_create(d, user_id)
+        return await _exec_create(action, user_id)
     if operation == "update":
-        return await _exec_update(d, user_id)
-    return await _exec_delete(d, user_id)
+        return await _exec_update(action, user_id)
+    return await _exec_delete(action, user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -491,12 +481,13 @@ async def handle_manage_playlist_entries(
     return await _propose_repair(tool_input, ctx)
 
 
-async def _exec_add(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_add(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     raw_position = d.get("position")
     command = AddPlaylistTracksCommand(
         user_id=user_id,
-        playlist_id=UUID(str(d["playlist_id"])),
-        track_ids=[UUID(str(t)) for t in _as_list(d["track_ids"])],
+        playlist_id=require_uuid(d, "playlist_id"),
+        track_ids=require_uuid_list(d, "track_ids"),
         position=int(raw_position) if isinstance(raw_position, int) else None,
     )
     result = await commit(
@@ -505,19 +496,20 @@ async def _exec_add(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_ENTRY_NOT_FOUND,
         invalid_prefix=_ENTRY_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "add",
-        "added": result.added,
-        "playlist": project_playlist(result.playlist),
-    }
+    return confirmed(
+        action,
+        "add",
+        added=result.added,
+        playlist=project_playlist(result.playlist),
+    )
 
 
-async def _exec_remove(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_remove(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     command = RemovePlaylistEntriesCommand(
         user_id=user_id,
-        playlist_id=UUID(str(d["playlist_id"])),
-        entry_ids=[UUID(str(e)) for e in _as_list(d["entry_ids"])],
+        playlist_id=require_uuid(d, "playlist_id"),
+        entry_ids=require_uuid_list(d, "entry_ids"),
     )
     result = await commit(
         lambda uow: RemovePlaylistEntriesUseCase().execute(command, uow),
@@ -525,19 +517,20 @@ async def _exec_remove(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_ENTRY_NOT_FOUND,
         invalid_prefix=_ENTRY_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "remove",
-        "removed": result.removed,
-        "playlist": project_playlist(result.playlist),
-    }
+    return confirmed(
+        action,
+        "remove",
+        removed=result.removed,
+        playlist=project_playlist(result.playlist),
+    )
 
 
-async def _exec_reorder(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_reorder(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     command = ReorderPlaylistEntriesCommand(
         user_id=user_id,
-        playlist_id=UUID(str(d["playlist_id"])),
-        entry_ids=[UUID(str(e)) for e in _as_list(d["entry_ids"])],
+        playlist_id=require_uuid(d, "playlist_id"),
+        entry_ids=require_uuid_list(d, "entry_ids"),
     )
     result = await commit(
         lambda uow: ReorderPlaylistEntriesUseCase().execute(command, uow),
@@ -545,17 +538,14 @@ async def _exec_reorder(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_ENTRY_NOT_FOUND,
         invalid_prefix=_ENTRY_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "reorder",
-        "playlist": project_playlist(result.playlist),
-    }
+    return confirmed(action, "reorder", playlist=project_playlist(result.playlist))
 
 
-async def _exec_repair(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_repair(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     command = RepairUnresolvedEntriesCommand(
         user_id=user_id,
-        playlist_id=UUID(str(d["playlist_id"])),
+        playlist_id=require_uuid(d, "playlist_id"),
     )
     result = await commit(
         lambda uow: RepairUnresolvedEntriesUseCase().execute(command, uow),
@@ -563,19 +553,12 @@ async def _exec_repair(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_ENTRY_NOT_FOUND,
         invalid_prefix=_ENTRY_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "repair",
-        "repaired": result.repaired,
-        "still_unresolved": result.still_unresolved,
-    }
-
-
-def _as_list(value: JsonValue) -> list[JsonValue]:
-    """Narrow a details value back to the id list a propose step stored."""
-    if not isinstance(value, list):
-        raise ToolExecutionError("Pending action is missing its id list")
-    return value
+    return confirmed(
+        action,
+        "repair",
+        repaired=result.repaired,
+        still_unresolved=result.still_unresolved,
+    )
 
 
 async def exec_manage_playlist_entries(
@@ -591,12 +574,12 @@ async def exec_manage_playlist_entries(
     d = action.details
     operation = str(d["operation"])
     if operation == "add":
-        return await _exec_add(d, user_id)
+        return await _exec_add(action, user_id)
     if operation == "remove":
-        return await _exec_remove(d, user_id)
+        return await _exec_remove(action, user_id)
     if operation == "reorder":
-        return await _exec_reorder(d, user_id)
-    return await _exec_repair(d, user_id)
+        return await _exec_reorder(action, user_id)
+    return await _exec_repair(action, user_id)
 
 
 SPECS: list[dict[str, object]] = [

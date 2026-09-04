@@ -12,6 +12,7 @@ from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.entities.connector import ConnectorDescriptor
 from src.domain.repositories.admin import AdminRepositoryProtocol
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
@@ -262,6 +263,19 @@ class DatabaseUnitOfWork:
                 instance = connectors[service_name]["factory"]()
                 cache[service_name] = instance
                 return instance
+
+            def describe(self, service_name: str) -> ConnectorDescriptor:
+                connectors = discover_connectors()
+                config = connectors.get(service_name)
+                if config is None:
+                    raise ValueError(f"Unknown connector: {service_name}")
+                return ConnectorDescriptor(
+                    name=service_name,
+                    display_name=config["display_name"],
+                    category=config["category"],
+                    auth_method=config["auth_method"],
+                    capabilities=config["capabilities"],
+                )
 
         return CachingConnectorProvider()
 

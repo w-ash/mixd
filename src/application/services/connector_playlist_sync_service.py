@@ -121,7 +121,7 @@ async def get_current_connector_playlists(
     dimension exists because the caller can't act on one; they need data.
 
     Pass a pre-loaded ``cached_by_id`` when the caller already has it
-    (saves a redundant ``list_by_connector`` query). Pass ``on_page_factory``
+    (saves a redundant cache lookup). Pass ``on_page_factory``
     to emit per-page progress during network fetches — cache hits never
     invoke it.
 
@@ -132,13 +132,14 @@ async def get_current_connector_playlists(
     Does NOT commit — caller owns the transaction boundary.
     """
     cp_repo = uow.get_connector_playlist_repository()
+    unique_ids = list(dict.fromkeys(connector_playlist_identifiers))
     if cached_by_id is None:
+        # Only the requested ids — a whole-connector scan pulled every cached
+        # playlist's items JSONB to answer a question about a handful of them.
         cached_by_id = {
             cp.connector_playlist_identifier: cp
-            for cp in await cp_repo.list_by_connector(connector_name)
+            for cp in await cp_repo.find_by_identifiers(connector_name, unique_ids)
         }
-
-    unique_ids = list(dict.fromkeys(connector_playlist_identifiers))
 
     by_id: dict[str, ConnectorPlaylist] = {}
     to_fetch: list[ConnectorPlaylistIdentifier] = []
@@ -179,13 +180,13 @@ async def ensure_connector_playlist_cache(
     Does NOT commit — caller owns the transaction boundary.
     """
     cp_repo = uow.get_connector_playlist_repository()
+    unique_ids = list(dict.fromkeys(connector_playlist_identifiers))
     if cached_by_id is None:
+        # Only the requested ids (see ``get_current_connector_playlists``).
         cached_by_id = {
             cp.connector_playlist_identifier: cp
-            for cp in await cp_repo.list_by_connector(connector_name)
+            for cp in await cp_repo.find_by_identifiers(connector_name, unique_ids)
         }
-
-    unique_ids = list(dict.fromkeys(connector_playlist_identifiers))
 
     cache_hit: list[str] = []
     to_fetch: list[ConnectorPlaylistIdentifier] = []

@@ -193,8 +193,8 @@ class TestLastFmConnectorContract:
             "lastfm_global_playcount metric must be available"
         )
 
-        # Check metrics are accessible (they're field mappings, not callables)
-        for name, field_mapping in metrics.items():
-            assert isinstance(field_mapping, str), (
-                f"Metric {name} must be a string field mapping"
-            )
+        # Check metrics are accessible (MetricSpec: field + display label)
+        from src.infrastructure.connectors.protocols import MetricSpec
+
+        for name, spec in metrics.items():
+            assert isinstance(spec, MetricSpec), f"Metric {name} must be a MetricSpec"

@@ -24,7 +24,7 @@ from src.domain.entities.shared import JsonValue
 from src.domain.playlist.diff_engine import PlaylistOperation, PlaylistOpsOutcome
 from src.domain.repositories.track import TrackRepositoryProtocol
 from src.infrastructure.connectors.base import BaseAPIConnector
-from src.infrastructure.connectors.protocols import ConnectorConfig
+from src.infrastructure.connectors.protocols import ConnectorConfig, MetricSpec
 from src.infrastructure.connectors.spotify.client import (
     SpotifyAPIClient,
     SpotifyTracksFetch,
@@ -37,6 +37,9 @@ from src.infrastructure.connectors.spotify.operations import (
     AppendTracksResult,
     SpotifyOperations,
     SpotifyPlaylistDetails,
+)
+from src.infrastructure.connectors.spotify.playlist_identifiers import (
+    parse_spotify_playlist_id,
 )
 from src.infrastructure.connectors.spotify.playlist_sync_operations import (
     SpotifyPlaylistSyncOperations,
@@ -248,6 +251,11 @@ class SpotifyConnector(BaseAPIConnector):
             playlist_id, on_page=on_page
         )
 
+    @override
+    def parse_playlist_identifier(self, raw_input: str) -> str:
+        """Normalize a Spotify playlist URL, URI, or raw ID to the raw ID."""
+        return parse_spotify_playlist_id(raw_input)
+
     async def fetch_user_playlists(self) -> list[ConnectorPlaylist]:
         """List every playlist the authenticated user owns or follows.
 
@@ -270,9 +278,13 @@ class SpotifyConnector(BaseAPIConnector):
         return convert_spotify_track_to_connector(track_data)
 
 
-# Metric name → connector metadata field, registered by connector discovery
-_METRIC_FIELD_MAP: dict[str, str] = {
-    "explicit_flag": "explicit",
+# Metric declarations registered by connector discovery
+_METRIC_SPECS: dict[str, MetricSpec] = {
+    "explicit_flag": MetricSpec(
+        field="explicit",
+        label="Explicit Flag",
+        description="Whether the track has explicit content (from Spotify)",
+    ),
 }
 
 
@@ -284,7 +296,7 @@ def get_connector_config() -> ConnectorConfig:
 
     return {
         "factory": SpotifyConnector,
-        "metrics": _METRIC_FIELD_MAP,
+        "metrics": _METRIC_SPECS,
         "metric_freshness_hours": settings.freshness.spotify_hours,
         "display_name": "Spotify",
         "category": "streaming",

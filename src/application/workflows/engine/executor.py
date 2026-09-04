@@ -15,7 +15,6 @@ results are all owned here and in ``workflow_runs``.
 
 import asyncio
 from collections.abc import Callable, Coroutine, Mapping
-import datetime
 import signal
 import time
 from typing import Final, cast
@@ -24,6 +23,7 @@ from uuid import UUID
 import attrs
 
 from src.application.services.progress_broker import ProgressBroker
+from src.application.utilities.timing import ExecutionTimer
 from src.application.workflows.definition.validation import (
     ConnectorNotAvailableError,
     extract_required_connectors,
@@ -64,7 +64,7 @@ _registry_validated = False
 
 # Categories where a node failure degrades rather than kills the workflow.
 # Enricher failures are recoverable: downstream nodes use cached/stale metrics.
-_RECOVERABLE_CATEGORIES: frozenset[str] = frozenset({"enricher"})
+_RECOVERABLE_CATEGORIES: frozenset[NodeType] = frozenset({"enricher"})
 
 
 async def _safe_emit(
@@ -91,7 +91,7 @@ async def _safe_emit(
         )
 
 
-def _is_failure_recoverable(node_type: str) -> bool:
+def _is_failure_recoverable(category: NodeType) -> bool:
     """Check if a node failure should degrade rather than kill the workflow.
 
     Enricher failures are recoverable because the upstream tracklist can pass
@@ -106,7 +106,6 @@ def _is_failure_recoverable(node_type: str) -> bool:
 
     Source/transform/destination failures remain fatal.
     """
-    category = node_type.split(".", maxsplit=1)[0]
     return category in _RECOVERABLE_CATEGORIES
 
 
@@ -290,15 +289,13 @@ _CATEGORY_TIMEOUTS: dict[NodeType, int] = {
 }
 
 
-def _get_node_timeout(node_type: str) -> int:
+def _get_node_timeout(category: NodeType) -> int:
     """Return asyncio.timeout budget (seconds) for a node category.
 
-    Falls back to TRANSFORM_TIMEOUT_SECONDS for unknown categories.
+    Falls back to TRANSFORM_TIMEOUT_SECONDS for categories with no entry
+    (combiners and any category added later).
     """
-    category = node_type.split(".", maxsplit=1)[0]
-    if category in _CATEGORY_TIMEOUTS:
-        return _CATEGORY_TIMEOUTS[category]
-    return WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+    return _CATEGORY_TIMEOUTS.get(category, WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS)
 
 
 # --- Node execution ---
@@ -407,7 +404,9 @@ async def _run_task_inner(
         total_nodes=state.total_nodes,
         input_track_count=input_track_count,
     )
-    timeout_seconds = _get_node_timeout(node_type)
+    # The registry owns the node's category — never re-derive it from the id.
+    node_category = get_node(node_type)[1]["category"]
+    timeout_seconds = _get_node_timeout(node_category)
     start_ns = time.perf_counter_ns()
 
     was_degraded = False
@@ -446,7 +445,7 @@ async def _run_task_inner(
         # Fault tolerance: enricher failures degrade rather than kill
         primary_upstream_id = _primary_upstream_id(task_def)
         if (
-            _is_failure_recoverable(node_type)
+            _is_failure_recoverable(node_category)
             and primary_upstream_id is not None
             and primary_upstream_id in state.task_results
         ):
@@ -859,8 +858,7 @@ async def _build_and_execute_workflow(
     small; these statements remain guarded by the caller's broad
     ``except Exception`` that marks the workflow failed.
     """
-    # Start timing
-    start_time = datetime.datetime.now(datetime.UTC)
+    timer = ExecutionTimer()
 
     # Build and execute the workflow
     workflow_fn = build_flow(
@@ -875,9 +873,7 @@ async def _build_and_execute_workflow(
         **parameters,
     )
 
-    # Calculate execution time
-    end_time = datetime.datetime.now(datetime.UTC)
-    execution_time = (end_time - start_time).total_seconds()
+    execution_time = timer.stop() / 1000
 
     # Extract typed task results from context
     task_results: dict[str, NodeResult] = cast(

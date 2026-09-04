@@ -22,6 +22,27 @@ class TestCreatePlayResolver:
 
         assert resolver._inward_resolver._cross_discovery is sentinel
 
+    async def test_factory_built_resolver_owns_the_discovered_provider(self) -> None:
+        """The factory keeps no reference to the provider, so the resolver's
+        aclose is its only teardown."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        provider = MagicMock()
+        provider.aclose = AsyncMock()
+        fake_config = {"cross_discovery_factory": lambda: provider}
+
+        with (
+            patch(_DISCOVERY, return_value={"faux": fake_config}),
+            patch(
+                "src.infrastructure.connectors.lastfm.play_resolver.LastFMAPIClient",
+                return_value=AsyncMock(),
+            ),
+        ):
+            resolver = create_play_resolver()
+            await resolver.aclose()
+
+        provider.aclose.assert_awaited_once()
+
     def test_no_declared_provider_degrades_to_none(self) -> None:
         with patch(_DISCOVERY, return_value={}):
             resolver = create_play_resolver()

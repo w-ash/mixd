@@ -32,14 +32,17 @@ from src.application.connector_protocols import PlaylistFetchProgress
 from src.application.services.connector_playlist_sync_service import (
     get_current_connector_playlists,
 )
-from src.application.services.operation_run_recorder import append_run_issue
+from src.application.services.operation_run_recorder import append_run_issues
 from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
 )
 from src.application.services.playlist_upsert import upsert_canonical_playlist
 from src.application.services.progress_broker import ProgressBroker
 from src.application.use_cases._shared.batch_commit import commit_batch
-from src.application.use_cases._shared.metric_config import MetricConfigProvider
+from src.application.use_cases._shared.metric_config import (
+    MetricConfigProvider,
+    default_metric_config,
+)
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
 )
@@ -55,7 +58,11 @@ from src.domain.entities.progress import (
     create_progress_event,
     create_progress_operation,
 )
-from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonValue
+from src.domain.entities.shared import (
+    ConnectorPlaylistIdentifier,
+    JsonDict,
+    JsonValue,
+)
 from src.domain.entities.summary_metrics import SummaryMetricCollection
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -164,12 +171,15 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     command.user_id, command.connector_name
                 )
             }
+            unique_ids = list(dict.fromkeys(command.connector_playlist_identifiers))
+            # Only the requested ids: a whole-connector cache scan pulled every
+            # cached playlist's items JSONB to read a handful of rows.
             cached_by_id: dict[str, ConnectorPlaylist] = {
                 cp.connector_playlist_identifier: cp
-                for cp in await cp_repo.list_by_connector(command.connector_name)
+                for cp in await cp_repo.find_by_identifiers(
+                    command.connector_name, unique_ids
+                )
             }
-
-            unique_ids = list(dict.fromkeys(command.connector_playlist_identifiers))
             new_ids = [c for c in unique_ids if c not in existing_by_id]
             existing_ids = [c for c in unique_ids if c in existing_by_id]
 
@@ -420,18 +430,15 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         Canonical and link commit together in this item's own transaction, so a
         failure can't leave an orphan canonical committed without its link.
         """
-        if progress_broker is not None and cid in sub_op_by_cid:
-            await progress_broker.emit_progress(
-                create_progress_event(
-                    operation_id=sub_op_by_cid[cid],
-                    current=0,
-                    total=len(cp.items) if cp.items else None,
-                    message=f"Resolving '{cp.name}' in your library...",
-                    phase="resolve",
-                    connector_playlist_identifier=cid,
-                    playlist_name=cp.name,
-                )
-            )
+        await self._emit_sub_start(
+            progress_broker,
+            sub_op_id=sub_op_by_cid.get(cid),
+            cid=cid,
+            name=cp.name,
+            total=len(cp.items) if cp.items else None,
+            message=f"Resolving '{cp.name}' in your library...",
+            phase="resolve",
+        )
 
         upsert_result = await upsert_canonical_playlist(
             cp,
@@ -485,26 +492,22 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             ),
         )
         # Post-commit: the item is durable, so progress emission is best-effort.
-        await self._best_effort(
-            command.connector_name,
-            cid,
-            lambda: self._emit_sub_outcome(
-                progress_broker,
-                sub_op_id=sub_op_by_cid.get(cid),
-                cid=cid,
-                name=cp.name,
-                outcome="succeeded",
-                message=(
-                    f"Imported '{cp.name}' — {resolved_count} resolved"
-                    + (f", {unresolved_count} unresolved" if unresolved_count else "")
-                ),
-                phase="done",
-                resolved=resolved_count,
-                unresolved=unresolved_count,
-                canonical_playlist_id=str(upsert_result.playlist.id),
-                final_status=OperationStatus.COMPLETED,
+        await self._emit_success_outcome(
+            connector=command.connector_name,
+            cid=cid,
+            name=cp.name,
+            outcome="succeeded",
+            message=(
+                f"Imported '{cp.name}' — {resolved_count} resolved"
+                + (f", {unresolved_count} unresolved" if unresolved_count else "")
             ),
-            lambda: tick_top(f"Imported '{cp.name}'"),
+            tick_message=f"Imported '{cp.name}'",
+            progress_broker=progress_broker,
+            sub_op_id=sub_op_by_cid.get(cid),
+            tick_top=tick_top,
+            resolved=resolved_count,
+            unresolved=unresolved_count,
+            canonical_playlist_id=str(upsert_result.playlist.id),
         )
 
     async def _reimport_one(
@@ -528,18 +531,15 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         ``confirmed=True``: a re-import is an explicit "mirror the external"
         action — the destructive guard belongs to interactive sync, not import.
         """
-        if progress_broker is not None and cid in sub_op_by_cid:
-            await progress_broker.emit_progress(
-                create_progress_event(
-                    operation_id=sub_op_by_cid[cid],
-                    current=0,
-                    total=None,
-                    message=f"Reconciling '{name}' with {command.connector_name}...",
-                    phase="fetch",
-                    connector_playlist_identifier=cid,
-                    playlist_name=name,
-                )
-            )
+        await self._emit_sub_start(
+            progress_broker,
+            sub_op_id=sub_op_by_cid.get(cid),
+            cid=cid,
+            name=name,
+            total=None,
+            message=f"Reconciling '{name}' with {command.connector_name}...",
+            phase="fetch",
+        )
 
         result = await engine.apply(
             link,
@@ -558,20 +558,16 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         if result.skipped:
             skipped_unchanged.append(ConnectorPlaylistIdentifier(cid))
             # Post-commit progress emission is best-effort (see _import_one).
-            await self._best_effort(
-                command.connector_name,
-                cid,
-                lambda: self._emit_sub_outcome(
-                    progress_broker,
-                    sub_op_id=sub_op_by_cid.get(cid),
-                    cid=cid,
-                    name=name,
-                    outcome="skipped_unchanged",
-                    message=f"'{name}' is already up to date",
-                    phase="done",
-                    final_status=OperationStatus.COMPLETED,
-                ),
-                lambda: tick_top(f"Skipped '{name}'"),
+            await self._emit_success_outcome(
+                connector=command.connector_name,
+                cid=cid,
+                name=name,
+                outcome="skipped_unchanged",
+                message=f"'{name}' is already up to date",
+                tick_message=f"Skipped '{name}'",
+                progress_broker=progress_broker,
+                sub_op_id=sub_op_by_cid.get(cid),
+                tick_top=tick_top,
             )
             return
 
@@ -598,23 +594,19 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             + (f", {result.unresolved} unresolved" if result.unresolved else "")
         )
         # Post-commit progress emission is best-effort (see _import_one).
-        await self._best_effort(
-            command.connector_name,
-            cid,
-            lambda: self._emit_sub_outcome(
-                progress_broker,
-                sub_op_id=sub_op_by_cid.get(cid),
-                cid=cid,
-                name=name,
-                outcome="succeeded",
-                message=message,
-                phase="done",
-                resolved=result.resolved,
-                unresolved=result.unresolved,
-                canonical_playlist_id=str(link.playlist_id),
-                final_status=OperationStatus.COMPLETED,
-            ),
-            lambda: tick_top(f"Updated '{name}'"),
+        await self._emit_success_outcome(
+            connector=command.connector_name,
+            cid=cid,
+            name=name,
+            outcome="succeeded",
+            message=message,
+            tick_message=f"Updated '{name}'",
+            progress_broker=progress_broker,
+            sub_op_id=sub_op_by_cid.get(cid),
+            tick_top=tick_top,
+            resolved=result.resolved,
+            unresolved=result.unresolved,
+            canonical_playlist_id=str(link.playlist_id),
         )
 
     @staticmethod
@@ -623,20 +615,20 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         failed: Sequence[CanonicalImportFailure],
         user_id: str,
     ) -> None:
-        """Append each per-playlist failure to the durable ``OperationRun`` row."""
+        """Append the per-playlist failures to the durable ``OperationRun`` row.
+
+        One write for the batch — a per-failure call opened a transaction each.
+        """
         if run_id is None or not failed:
             return
-        for f in failed:
-            await append_run_issue(
-                run_id,
-                user_id=user_id,
-                issue={
-                    "connector_playlist_identifier": str(
-                        f.connector_playlist_identifier
-                    ),
-                    "message": f.message,
-                },
-            )
+        issues: list[JsonDict] = [
+            {
+                "connector_playlist_identifier": str(f.connector_playlist_identifier),
+                "message": f.message,
+            }
+            for f in failed
+        ]
+        await append_run_issues(run_id, user_id=user_id, issues=issues)
 
     @staticmethod
     def _announce_name(
@@ -796,6 +788,73 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 exc_info=True,
             )
 
+    @staticmethod
+    async def _emit_sub_start(
+        manager: ProgressBroker | None,
+        *,
+        sub_op_id: str | None,
+        cid: str,
+        name: str,
+        total: int | None,
+        message: str,
+        phase: str,
+    ) -> None:
+        """Emit the opening event of a playlist's sub-operation."""
+        if manager is None or sub_op_id is None:
+            return
+        await manager.emit_progress(
+            create_progress_event(
+                operation_id=sub_op_id,
+                current=0,
+                total=total,
+                message=message,
+                phase=phase,
+                connector_playlist_identifier=cid,
+                playlist_name=name,
+            )
+        )
+
+    async def _emit_success_outcome(
+        self,
+        *,
+        connector: str,
+        cid: str,
+        name: str,
+        outcome: str,
+        message: str,
+        tick_message: str,
+        progress_broker: ProgressBroker | None,
+        sub_op_id: str | None,
+        tick_top: Callable[[str], Awaitable[None]],
+        resolved: int | None = None,
+        unresolved: int | None = None,
+        canonical_playlist_id: str | None = None,
+    ) -> None:
+        """Best-effort terminal emit for an item whose work already committed.
+
+        The success-side twin of ``_emit_failed_outcome``: same thunk-capture and
+        best-effort reasoning, covering the created, updated, and
+        ``skipped_unchanged`` outcomes (the last carries no counts).
+        """
+        await self._best_effort(
+            connector,
+            cid,
+            lambda: self._emit_sub_outcome(
+                progress_broker,
+                sub_op_id=sub_op_id,
+                cid=cid,
+                name=name,
+                outcome=outcome,
+                message=message,
+                phase="done",
+                resolved=resolved,
+                unresolved=unresolved,
+                canonical_playlist_id=canonical_playlist_id,
+                final_status=OperationStatus.COMPLETED,
+            ),
+            lambda: tick_top(tick_message),
+        )
+
     async def _emit_failed_outcome(
         self,
         *,
@@ -855,9 +914,6 @@ async def run_import_connector_playlists_as_canonical(
     zero events / records no issues — keeping the existing paths byte-identical.
     """
     from src.application.runner import execute_use_case
-    from src.infrastructure.connectors._shared.metric_registry import (
-        MetricConfigProviderImpl,
-    )
 
     command = ImportConnectorPlaylistsAsCanonicalCommand(
         user_id=user_id,
@@ -867,7 +923,7 @@ async def run_import_connector_playlists_as_canonical(
         force=force,
     )
     use_case = ImportConnectorPlaylistsAsCanonicalUseCase(
-        metric_config=MetricConfigProviderImpl()
+        metric_config=default_metric_config()
     )
     return await execute_use_case(
         lambda uow: use_case.execute(

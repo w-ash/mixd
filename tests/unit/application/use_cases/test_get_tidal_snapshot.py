@@ -15,12 +15,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.application.connector_protocols import TidalFavoritesConnector
 from src.application.use_cases.get_tidal_snapshot import (
     GetTidalSnapshotCommand,
     GetTidalSnapshotUseCase,
 )
 from src.domain.exceptions import ConnectorSyncError, TidalAuthRequiredError
-from tests.fixtures import make_mock_uow
+from tests.fixtures import make_mock_connector_provider, make_mock_uow
 
 _USER = "default"
 
@@ -53,7 +54,10 @@ def _make_connector(
     pages: list[dict[str, object] | None] | None = None,
     displays: dict[str, dict[str, object] | None] | None = None,
 ) -> AsyncMock:
-    connector = AsyncMock()
+    connector = AsyncMock(spec=TidalFavoritesConnector)
+    # Not on the capability protocol, but the UoW owns connector lifecycle —
+    # the tests below assert the use case never closes it itself.
+    connector.aclose = AsyncMock()
     if pages is not None:
         connector.get_collection_items_page.side_effect = pages
     else:
@@ -69,9 +73,9 @@ def _make_connector(
 
 
 def _make_uow(connector: AsyncMock) -> MagicMock:
-    provider = MagicMock()
-    provider.get_connector.return_value = connector
-    return make_mock_uow(connector_provider=provider)
+    return make_mock_uow(
+        connector_provider=make_mock_connector_provider(connector, name="tidal")
+    )
 
 
 async def _execute(connector: AsyncMock, recent_limit: int = 10):

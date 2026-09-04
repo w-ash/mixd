@@ -12,7 +12,6 @@ from typing import cast
 from uuid import UUID
 
 from attrs import define
-from structlog.stdlib import get_logger
 
 from src.domain.entities import Track
 from src.domain.matching.algorithms import (
@@ -28,8 +27,6 @@ from src.domain.matching.types import (
     MatchResultsById,
     RawProviderMatch,
 )
-
-logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
@@ -195,38 +192,8 @@ class TrackMatchEvaluationService:
                 accepted[track.id] = match_result
             elif match_result.review_required:
                 review_candidates[track.id] = match_result
-                logger.info(
-                    f"Match queued for review: '{track.title}' "
-                    f"(confidence {match_result.confidence}, "
-                    f"review zone {self.config.review_threshold}-{self.config.auto_accept_threshold})",
-                    track_id=track.id,
-                    confidence=match_result.confidence,
-                    match_method=match_result.match_method,
-                    connector=connector,
-                )
             else:
                 rejected.append(match_result)
-                logger.warning(
-                    f"Match rejected: '{track.title}' by '{track.artists_display or 'Unknown'}' "
-                    f"(confidence {match_result.confidence} < {self.config.review_threshold})",
-                    track_id=track.id,
-                    confidence=match_result.confidence,
-                    threshold=self.config.review_threshold,
-                    match_method=match_result.match_method,
-                    connector=connector,
-                )
-
-        if accepted or review_candidates:
-            logger.info(
-                f"Match evaluation: {len(accepted)} accepted, {len(review_candidates)} for review, "
-                f"{len(rejected)} rejected, {len(no_match_track_ids)} not found ({connector})",
-                connector=connector,
-                accepted=len(accepted),
-                review=len(review_candidates),
-                rejected=len(rejected),
-                no_matches=len(no_match_track_ids),
-                total=len(tracks),
-            )
 
         return EvaluationResult(
             accepted=accepted,

@@ -145,7 +145,29 @@ class TestIsrcBatchCorrelation:
         isrc_failures = [f for f in result.failures if f.method == "isrc"]
         assert [f.reason for f in isrc_failures] == [MatchFailureReason.API_ERROR]
         assert "USNP12400001" in isrc_failures[0].details
+        # The connector's loop is per-ISRC: an omitted code failed alone.
+        assert "the chunk holding" not in isrc_failures[0].details
         assert not result.matches
+
+    async def test_whole_lookup_raising_fails_every_code_and_keeps_the_fallback(self):
+        """A failure outside the per-ISRC loop (limiter/session setup, closed
+        connector) must not escape and kill the match operation: every ISRC
+        track fails as API_ERROR and the artist/title phase still runs."""
+        tracks = [
+            make_track(title="Gold Rush", artist="Neon Priest", isrc="USNP12400001"),
+            make_track(title="Silver", artist="Neon Priest", isrc="USNP12400002"),
+        ]
+        connector = AsyncMock()
+        connector.batch_isrc_lookup.side_effect = RuntimeError("client closed")
+        connector.search_recording.return_value = None
+        provider = MusicBrainzProvider(connector_instance=connector)
+
+        result = await provider.fetch_raw_matches_for_tracks(tracks)
+
+        isrc_failures = [f for f in result.failures if f.method == "isrc"]
+        assert [f.reason for f in isrc_failures] == [MatchFailureReason.API_ERROR] * 2
+        assert all("the chunk holding" in f.details for f in isrc_failures)
+        assert connector.search_recording.await_count == 2
 
     async def test_lookup_error_surfaces_as_api_error_through_real_batch(self):
         """A raised per-ISRC lookup classifies as API_ERROR, not NO_RESULTS.

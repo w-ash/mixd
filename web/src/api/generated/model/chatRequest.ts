@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.5
+ * OpenAPI spec version: 0.11.6
  */
 import type { ChatMessageInput } from './chatMessageInput.ts';
 import type { ConfirmationInput } from './confirmationInput.ts';

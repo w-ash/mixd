@@ -23,6 +23,7 @@ issue_count  # Pydantic field on OperationRunSummarySchema (audit-log list)
 retryable  # Pydantic field on OperationRun schemas — read by the frontend retry UI
 theme_mode  # UserSettingsResponse / UserSettingsPatch Pydantic fields
 iat  # JWTClaims TypedDict
+release_name  # ListenBrainz SpotifyIdLookupQuery/Result wire field — rows pair with queries positionally, so it is sent and echoed, never read
 iss  # JWTClaims TypedDict
 aud  # JWTClaims TypedDict
 capabilities  # ConnectorConfig TypedDict + ConnectorMetadataSchema
@@ -41,7 +42,6 @@ main  # Typer entrypoint (registered via project.scripts, not @app.command)
 # --- attrs field declarations (used by framework, not direct reference) ---
 total_files  # attrs field on BatchImportResult
 last_modified  # attrs field
-progress_operation  # attrs field
 include_track_metadata  # attrs field
 source_count  # attrs field on Track
 source_playlist_name  # attrs field on Track
@@ -58,7 +58,6 @@ last_event_time  # attrs field on ProgressCoordinator
 lastfm_album_mbid  # attrs field in connector conversion
 lastfm_artist_mbid  # attrs field in connector conversion
 attribute_name  # attrs field on probabilistic matcher
-batch_result  # attrs field on ImportMetadata
 image_url  # attrs field on ConnectorPlaylistInfo + Pydantic ConnectorPlaylistSchema
 current_assignments  # attrs field + Pydantic ConnectorPlaylistSchema
 
@@ -129,16 +128,16 @@ settled_at  # QueueEntry + ImportQueueEntrySchema — per-file duration, batch-r
 # --- v0.10.3: ResolutionMetrics keys reached only through string constants ---
 # All four are written by the Spotify resolver's _assemble_metrics and read in
 # play_import_orchestrator via `combined_metrics[key]`, where `key` comes from
-# _RUN_METRIC_KEYS / _CARRIED_RESOLUTION_METRICS. They were visible to vulture
+# _RUN_METRIC_KEYS / _RESOLUTION_METRIC_TABLE. They were visible to vulture
 # only by accident: _combine_phase_results used to bind one local per metric,
 # and v0.10.3 replaced those hand-written blocks with a single table-driven
 # loop — the DRY fix that stopped a counter reaching the run record at all.
 # Whitelisting is the honest trade: the alternative is reinstating four dead
 # locals purely so a tool can see a name it cannot resolve through a str key.
-fallback_resolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
-redirect_resolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
-dead_ids_unresolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
-isrc_suspect_deferred  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
+fallback_resolved  # ResolutionMetrics — read via _RESOLUTION_METRIC_TABLE
+redirect_resolved  # ResolutionMetrics — read via _RESOLUTION_METRIC_TABLE
+dead_ids_unresolved  # ResolutionMetrics — read via _RESOLUTION_METRIC_TABLE
+isrc_suspect_deferred  # ResolutionMetrics — read via _RESOLUTION_METRIC_TABLE
 
 # --- v0.10.3.4: the sse-starlette shutdown bridge ---
 # `AppStatus.should_exit` is sse-starlette's own module-global flag, and setting it is

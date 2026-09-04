@@ -7,6 +7,7 @@ from attrs import define, field
 
 from src.application.pagination import (
     PageCursor,
+    cursor_datetime_bound,
     cursor_sort_value_from_row,
     decode_cursor,
     encode_cursor,
@@ -56,13 +57,10 @@ class ListPlaysUseCase:
         before: tuple[datetime, UUID] | None = None
         if command.encoded_cursor is not None:
             decoded = decode_cursor(command.encoded_cursor)
-            # Cursor stores played_at as ISO string; parse here so the repo
-            # never sees the wire format (precedent: list_operation_runs).
-            if decoded.sort_value is not None:
-                before = (
-                    datetime.fromisoformat(str(decoded.sort_value)),
-                    decoded.last_id,
-                )
+            # Cursor stores played_at as ISO string; the shared converter
+            # parses it here so the repo never sees the wire format.
+            played_at = cursor_datetime_bound("played_at", decoded.sort_value)
+            before = (played_at, decoded.last_id)
 
         async with uow:
             plays_repo = uow.get_plays_repository()

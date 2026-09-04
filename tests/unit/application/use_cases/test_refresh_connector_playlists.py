@@ -33,7 +33,7 @@ def _cmd(ids, connector_name="spotify", user="default", *, force=False):
 class TestSnapshotShortCircuit:
     async def test_cached_snapshot_skips_fetch(self) -> None:
         uow, connector = make_mock_uow_with_connector()
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id="snap-existing")
         ]
 
@@ -47,7 +47,7 @@ class TestSnapshotShortCircuit:
     async def test_null_snapshot_triggers_fetch(self) -> None:
         cp = _cp("sp1", snapshot_id="fresh")
         uow, connector = make_mock_uow_with_connector(get_playlist_return=cp)
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id=None)
         ]
 
@@ -121,7 +121,7 @@ class TestForce:
         """A normally-skipped fresh-cache id IS fetched when force=True."""
         cp = _cp("sp1", snapshot_id="snap-fresh")
         uow, connector = make_mock_uow_with_connector(get_playlist_return=cp)
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id="snap-existing")
         ]
 
@@ -137,7 +137,7 @@ class TestForce:
     async def test_force_false_preserves_short_circuit(self) -> None:
         """Default force=False preserves the existing skip behavior."""
         uow, connector = make_mock_uow_with_connector()
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id="snap-existing")
         ]
 

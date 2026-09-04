@@ -15,6 +15,14 @@ from src.application.use_cases.import_play_history import (
     ImportTracksUseCase,
 )
 from src.domain.entities import OperationResult
+from src.domain.entities.progress import NullProgressEmitter
+from src.domain.repositories.play import (
+    RECENTLY_PLAYED_PAGE_LIMIT,
+    AppleRecentImportParams,
+    LastfmImportParams,
+    SpotifyImportParams,
+    SpotifyRecentImportParams,
+)
 
 
 class TestImportTracksCommand:
@@ -177,49 +185,172 @@ class TestImportTracksUseCase:
         assert result.mode == "recent"
         assert result.execution_time_ms >= 0
 
-    async def test_routing_lastfm_modes(self):
-        """Test that lastfm modes route to correct internal methods."""
+    @staticmethod
+    def _patched_two_phase(op_result: OperationResult):
+        """Patch the shared two-phase runner so routing can be asserted alone."""
+        return patch.object(
+            ImportTracksUseCase,
+            "_run_two_phase",
+            new_callable=AsyncMock,
+            return_value=op_result,
+        )
+
+    @pytest.mark.parametrize(
+        ("mode", "kwargs", "expected"),
+        [
+            (
+                "recent",
+                {"limit": 250},
+                LastfmImportParams(limit=250),
+            ),
+            (
+                "recent",
+                {},
+                LastfmImportParams(limit=1000),
+            ),
+            (
+                "incremental",
+                {"username": "someone"},
+                LastfmImportParams(username="someone"),
+            ),
+            (
+                "full",
+                {"confirm": True},
+                LastfmImportParams(limit=50000),
+            ),
+        ],
+    )
+    async def test_lastfm_modes_build_expected_params(self, mode, kwargs, expected):
+        """Each Last.fm mode differs only in the params it hands the runner."""
         uow = AsyncMock()
         op_result = OperationResult(operation_name="test")
         use_case = ImportTracksUseCase()
+        cmd = ImportTracksCommand(
+            user_id="test-user", service="lastfm", mode=mode, **kwargs
+        )
 
-        for mode in ["recent", "incremental", "full"]:
-            cmd = ImportTracksCommand(
-                user_id="test-user", service="lastfm", mode=mode, confirm=True
-            )
-            method_name = (
-                f"_run_lastfm_{mode}" if mode != "full" else "_run_lastfm_full_history"
-            )
+        with self._patched_two_phase(op_result) as runner:
+            result = await use_case.execute(cmd, uow)
 
-            with patch.object(
-                ImportTracksUseCase,
-                "_execute_import",
-                return_value=op_result,
-            ):
-                result = await use_case.execute(cmd, uow)
-                assert result.mode == mode
+        assert result.mode == mode
+        assert runner.call_args.kwargs["params"] == expected
+        assert runner.call_args.kwargs.get("kind", "api") == "api"
 
-    async def test_routing_spotify_file(self):
-        """Test that spotify file mode routes correctly."""
+    async def test_spotify_file_builds_file_params_and_kind(self):
+        """A file import is the only branch that asks for the 'file' importer."""
         uow = AsyncMock()
         op_result = OperationResult(operation_name="test")
-
+        use_case = ImportTracksUseCase()
         cmd = ImportTracksCommand(
             user_id="test-user",
             service="spotify",
             mode="file",
             file_path=Path("/data/test.json"),
         )
-        use_case = ImportTracksUseCase()
 
-        with patch.object(
-            ImportTracksUseCase,
-            "_execute_import",
-            return_value=op_result,
-        ):
+        with self._patched_two_phase(op_result) as runner:
             result = await use_case.execute(cmd, uow)
-            assert result.service == "spotify"
-            assert result.mode == "file"
+
+        assert result.service == "spotify"
+        assert result.mode == "file"
+        assert runner.call_args.kwargs["params"] == SpotifyImportParams(
+            file_path=Path("/data/test.json")
+        )
+        assert runner.call_args.kwargs["kind"] == "file"
+
+    @pytest.mark.parametrize(
+        ("limit", "expected_limit"),
+        [
+            (None, RECENTLY_PLAYED_PAGE_LIMIT),
+            (10, 10),
+            # 0 is falsy, so it takes the default before the clamp sees it
+            (0, RECENTLY_PLAYED_PAGE_LIMIT),
+            (-5, 1),
+            (500, RECENTLY_PLAYED_PAGE_LIMIT),
+        ],
+    )
+    @pytest.mark.parametrize("mode", ["recent", "incremental"])
+    async def test_spotify_api_modes_clamp_limit(self, mode, limit, expected_limit):
+        """Both API spellings share one branch, and the limit is clamped to 1..50."""
+        uow = AsyncMock()
+        op_result = OperationResult(operation_name="test")
+        use_case = ImportTracksUseCase()
+        cmd = ImportTracksCommand(
+            user_id="test-user",
+            service="spotify",
+            mode=mode,
+            limit=limit,
+            additional_options={"force": True},
+        )
+
+        with self._patched_two_phase(op_result) as runner:
+            _ = await use_case.execute(cmd, uow)
+
+        assert runner.call_args.kwargs["params"] == SpotifyRecentImportParams(
+            limit=expected_limit, force=True
+        )
+
+    @pytest.mark.parametrize("mode", ["recent", "incremental"])
+    async def test_apple_modes_build_force_only_params(self, mode):
+        """Apple carries no limit: the importer's prefix-diff bounds the ingest."""
+        uow = AsyncMock()
+        op_result = OperationResult(operation_name="test")
+        use_case = ImportTracksUseCase()
+        cmd = ImportTracksCommand(user_id="test-user", service="apple", mode=mode)
+
+        with self._patched_two_phase(op_result) as runner:
+            result = await use_case.execute(cmd, uow)
+
+        assert result.service == "apple"
+        assert runner.call_args.kwargs["params"] == AppleRecentImportParams(force=False)
+
+    async def test_unconfirmed_full_history_is_cancelled(self):
+        """An unconfirmed full history import never reaches the runner."""
+        uow = AsyncMock()
+        use_case = ImportTracksUseCase()
+        cmd = ImportTracksCommand(
+            user_id="test-user", service="lastfm", mode="full", confirm=False
+        )
+
+        with self._patched_two_phase(OperationResult(operation_name="test")) as runner:
+            result = await use_case.execute(cmd, uow)
+
+        runner.assert_not_awaited()
+        assert result.operation_result.metadata["cancelled"] is True
+        assert result.operation_result.summary_metrics.get("status") == 0
+
+    async def test_missing_file_path_is_reported_as_failure(self):
+        """The file-mode guard survives a command that dodged validation."""
+        uow = AsyncMock()
+        use_case = ImportTracksUseCase()
+        # Frozen commands cannot normally lose their path; the guard is
+        # defence-in-depth for a caller that bypasses __attrs_post_init__.
+        with patch.object(ImportTracksCommand, "__attrs_post_init__", lambda _: None):
+            cmd = ImportTracksCommand(
+                user_id="test-user", service="spotify", mode="file"
+            )
+
+        with pytest.raises(
+            ValueError, match="file_path is required for Spotify file imports"
+        ):
+            _ = await use_case._execute_import(cmd, uow, NullProgressEmitter())
+
+    @pytest.mark.parametrize(
+        ("service", "mode", "message"),
+        [
+            ("lastfm", "file", "LastFM service doesn't support mode: file"),
+            ("spotify", "full", "Spotify service doesn't support mode: full"),
+        ],
+    )
+    async def test_unsupported_mode_raises(self, service, mode, message):
+        """Unreachable-by-construction combos still raise rather than fall through."""
+        uow = AsyncMock()
+        use_case = ImportTracksUseCase()
+        with patch.object(ImportTracksCommand, "__attrs_post_init__", lambda _: None):
+            cmd = ImportTracksCommand(user_id="test-user", service=service, mode=mode)
+
+        with pytest.raises(ValueError, match=message):
+            _ = await use_case._execute_import(cmd, uow, NullProgressEmitter())
 
     async def test_result_success_rate_property(self):
         """Test that ImportTracksResult.success_rate reads from metrics."""

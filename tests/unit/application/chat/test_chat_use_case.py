@@ -5,7 +5,8 @@ tool dispatch through the registry end-to-end (describe_node) without a live
 Anthropic key or a database.
 """
 
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -16,15 +17,18 @@ from src.application.chat.protocols import (
     LLMRequest,
     LLMResponse,
     LLMStreamEvent,
+    ToolContext,
     ToolUseBlock,
 )
 from src.application.chat.system_prompt import build_system_prompt
 from src.application.chat.use_case import ChatCommand, ChatUseCase
 from src.application.tools.registry import build_tools, execute_tool
+from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import (
     ChatRefusedError,
     MaxRoundsExceededError,
     ResponseTruncatedError,
+    ToolExecutionError,
 )
 
 type _Turn = tuple[list[LLMStreamEvent], LLMResponse]
@@ -240,3 +244,139 @@ async def test_sandbox_only_rounds_hit_the_larger_backstop() -> None:
         await _collect(
             ChatUseCase(_FakeLLM(turns), execute_tool), _command(max_turns=1)
         )
+
+
+class _TrackingExecutor:
+    """Fake executor recording concurrency and completion order.
+
+    ``release`` maps a tool name to an event the call awaits before returning
+    and ``signal`` to an event it sets once done, so a test can force a later
+    block to finish first. ``failing`` names the tools that raise instead of
+    returning a summary.
+    """
+
+    def __init__(
+        self,
+        *,
+        release: dict[str, asyncio.Event] | None = None,
+        signal: dict[str, asyncio.Event] | None = None,
+        failing: frozenset[str] = frozenset(),
+    ) -> None:
+        self._release = release or {}
+        self._signal = signal or {}
+        self._failing = failing
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.started: list[str] = []
+        self.finished: list[str] = []
+
+    async def __call__(
+        self,
+        name: str,
+        tool_input: Mapping[str, JsonValue],
+        ctx: ToolContext,
+    ) -> JsonValue:
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        self.started.append(name)
+        try:
+            gate = self._release.get(name)
+            if gate is not None:
+                await gate.wait()
+            else:
+                # Yield control so a concurrent sibling can start.
+                await asyncio.sleep(0)
+            if name in self._failing:
+                raise ToolExecutionError(f"{name} blew up")
+            return {"tool": name}
+        finally:
+            self.in_flight -= 1
+            self.finished.append(name)
+            done = self._signal.get(name)
+            if done is not None:
+                done.set()
+
+
+def _tool_round(*names: str) -> _Turn:
+    blocks = [ToolUseBlock(id=f"t{i}", name=n, input={}) for i, n in enumerate(names)]
+    return (
+        list(blocks),
+        LLMResponse(
+            stop_reason="tool_use",
+            content=blocks,
+            raw_content=[{"type": "tool_use", "id": b.id} for b in blocks],
+        ),
+    )
+
+
+def _end_turn() -> _Turn:
+    return ([TextDelta(text="done")], LLMResponse(stop_reason="end_turn", content=[]))
+
+
+_KINDS = {"read_a": "read", "read_b": "read", "write_a": "write"}
+
+
+async def test_all_read_round_runs_tools_concurrently() -> None:
+    executor = _TrackingExecutor()
+    use_case = ChatUseCase(
+        _FakeLLM([_tool_round("read_a", "read_b"), _end_turn()]), executor, _KINDS
+    )
+    events = await _collect(use_case, _command())
+
+    assert executor.max_in_flight > 1
+    assert len([e for e in events if isinstance(e, ToolResultEvent)]) == 2
+
+
+async def test_round_with_a_write_stays_strictly_sequential() -> None:
+    executor = _TrackingExecutor()
+    use_case = ChatUseCase(
+        _FakeLLM([_tool_round("read_a", "write_a", "read_b"), _end_turn()]),
+        executor,
+        _KINDS,
+    )
+    await _collect(use_case, _command())
+
+    assert executor.max_in_flight == 1
+    # Each tool finished before the next one started.
+    assert executor.started == ["read_a", "write_a", "read_b"]
+    assert executor.finished == ["read_a", "write_a", "read_b"]
+
+
+async def test_unknown_tool_kind_falls_back_to_sequential() -> None:
+    executor = _TrackingExecutor()
+    use_case = ChatUseCase(
+        _FakeLLM([_tool_round("read_a", "mystery"), _end_turn()]), executor, _KINDS
+    )
+    await _collect(use_case, _command())
+
+    assert executor.max_in_flight == 1
+
+
+async def test_results_keep_block_order_when_the_second_read_finishes_first() -> None:
+    # read_a is gated until read_b completes, so completion order is inverted.
+    gate = asyncio.Event()
+    executor = _TrackingExecutor(release={"read_a": gate}, signal={"read_b": gate})
+    turns = [_tool_round("read_a", "read_b"), _end_turn()]
+    events = await _collect(ChatUseCase(_FakeLLM(turns), executor, _KINDS), _command())
+
+    assert executor.finished == ["read_b", "read_a"]
+    results = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert [r.tool_use_id for r in results] == ["t0", "t1"]
+    assert [r.name for r in results] == ["read_a", "read_b"]
+
+
+async def test_one_failing_read_errors_only_its_own_block() -> None:
+    executor = _TrackingExecutor(failing=frozenset({"read_a"}))
+    use_case = ChatUseCase(
+        _FakeLLM([_tool_round("read_a", "read_b"), _end_turn()]), executor, _KINDS
+    )
+    events = await _collect(use_case, _command())
+
+    results = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert [(r.name, r.is_error) for r in results] == [
+        ("read_a", True),
+        ("read_b", False),
+    ]
+    assert results[1].summary == {"tool": "read_b"}
+    # The failure did not cancel its sibling.
+    assert [e.text for e in events if isinstance(e, TextDelta)] == ["done"]

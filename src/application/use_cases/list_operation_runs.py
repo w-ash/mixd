@@ -8,6 +8,7 @@ from attrs import define
 
 from src.application.pagination import (
     PageCursor,
+    cursor_datetime_bound,
     cursor_sort_value_from_row,
     decode_cursor,
     encode_cursor,
@@ -42,11 +43,10 @@ class ListOperationRunsUseCase:
         after_id: UUID | None = None
         if command.encoded_cursor is not None:
             decoded = decode_cursor(command.encoded_cursor)
-            # Cursor stores started_at as ISO string; parse back here so the
-            # repo layer never sees the wire format.
-            if decoded.sort_value is not None:
-                after_started_at = datetime.fromisoformat(str(decoded.sort_value))
-                after_id = decoded.last_id
+            # Cursor stores started_at as ISO string; the shared converter
+            # parses it back so the repo layer never sees the wire format.
+            after_started_at = cursor_datetime_bound("started_at", decoded.sort_value)
+            after_id = decoded.last_id
 
         async with uow:
             repo = uow.get_operation_run_repository()

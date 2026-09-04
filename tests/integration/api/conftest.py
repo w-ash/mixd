@@ -14,6 +14,8 @@ from unittest.mock import patch
 import httpx2
 import pytest
 
+from src.domain.entities.connector import ConnectorDescriptor
+from src.infrastructure.connectors.discovery import discover_connectors
 from src.infrastructure.persistence.database.db_connection import (
     reset_engine_cache,
 )
@@ -200,7 +202,25 @@ def mock_connector_provider() -> Iterator[dict[str, object]]:
             )
         return stubs[service_name]
 
-    stub_provider = SimpleNamespace(get_connector=_get_connector)
+    def _describe(service_name: str) -> ConnectorDescriptor:
+        # Registry facts stay real — only connector *instances* are stubbed, so
+        # a capability the connector doesn't declare still fails the same way
+        # it would in production.
+        config = discover_connectors().get(service_name)
+        if config is None:
+            raise ValueError(f"Unknown connector: {service_name}")
+        return ConnectorDescriptor(
+            name=service_name,
+            display_name=config["display_name"],
+            category=config["category"],
+            auth_method=config["auth_method"],
+            capabilities=config["capabilities"],
+        )
+
+    stub_provider = SimpleNamespace(
+        get_connector=_get_connector,
+        describe=_describe,
+    )
 
     with patch.object(
         DatabaseUnitOfWork,

@@ -11,8 +11,10 @@ from typing import Final, Literal
 # Workflow progress tracking types
 type Phase = Literal["fetch", "enrich", "match", "query", "save", "sync"]
 type NodeType = Literal[
-    "source", "enricher", "destination", "filter", "sorter", "selector"
+    "source", "enricher", "destination", "filter", "sorter", "selector", "combiner"
 ]
+"""Workflow node categories. Single source of truth: the node registry derives
+its valid category set from this alias, and every consumer imports it."""
 
 
 class HTTPStatus:
@@ -214,6 +216,18 @@ class TokenConstants:
     # "tokn" (0x746F6B6E); the obj half is derived from (service, user_id).
     # Distinct key space from POLL_LOCK_KEY's one-arg bigint overload.
     REFRESH_LOCK_CLASS: Final = 0x746F6B6E
+
+
+class TrackConstants:
+    """Fixed values for the canonical-track write seam."""
+
+    # pg_advisory_xact_lock class id for the per-user canonical-track ingest
+    # lock (track/ingest_lock.py), which serializes the two writers that race
+    # on the tracks identity keys. The two-int overload takes
+    # (class_id, obj_id) as signed int4s: this is the fixed class half, ASCII
+    # "trki" (0x74726B69); the obj half is derived from user_id. Distinct key
+    # space from TokenConstants.REFRESH_LOCK_CLASS and POLL_LOCK_KEY.
+    INGEST_LOCK_CLASS: Final = 0x74726B69
 
 
 class MappingOrigin:

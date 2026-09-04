@@ -11,19 +11,18 @@ The filter supports include- and exclude-mode semantics:
 
 The sorter uses ``PREFERENCE_ORDER`` as the canonical strength ranking.
 Unrated tracks sort to the bottom.
+
+Purity: No side effects, logging, or external dependencies.
 """
 
 from collections.abc import Sequence
 
-from src.config import get_logger
 from src.domain.entities.preference import (
     PREFERENCE_ORDER,
     PreferenceState,
 )
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import Transform, dual_mode
-
-logger = get_logger(__name__)
 
 
 def filter_by_preference(
@@ -59,13 +58,6 @@ def filter_by_preference(
             return pref is None or pref.state not in exclude_set
 
         kept = [track for track in t.tracks if keep(track)]
-        logger.debug(
-            "filter_by_preference applied",
-            input_count=len(t.tracks),
-            output_count=len(kept),
-            include=sorted(include_set),
-            exclude=sorted(exclude_set),
-        )
         return t.with_tracks(kept)
 
     return dual_mode(transform, tracklist)
@@ -98,11 +90,6 @@ def sort_by_preference(
             return (1, PREFERENCE_ORDER[pref.state])
 
         sorted_tracks = sorted(t.tracks, key=sort_key, reverse=reverse)
-        logger.debug(
-            "sort_by_preference applied",
-            track_count=len(sorted_tracks),
-            reverse=reverse,
-        )
         return t.with_tracks(sorted_tracks)
 
     return dual_mode(transform, tracklist)

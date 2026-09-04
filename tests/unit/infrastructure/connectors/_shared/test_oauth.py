@@ -114,6 +114,42 @@ class TestCarryForwardTokenFields:
 
         assert merged == StoredToken(access_token="at-new")
 
+    def test_null_refresh_token_counts_as_omitted(self) -> None:
+        # Spotify's caller passes the raw parsed body, so a literal
+        # ``"refresh_token": null`` must not satisfy the presence check.
+        new = StoredToken(access_token="at-new")
+        new["refresh_token"] = None  # type: ignore[typeddict-item]
+        new["scope"] = ""
+
+        merged = carry_forward_token_fields(new, self._previous())
+
+        assert merged["refresh_token"] == "rt-old"
+        assert merged["scope"] == "collection.read"
+
+    def test_presented_grant_backstops_a_missing_previous(self) -> None:
+        # No cached token to read from: the refresh token the caller just
+        # POSTed is the grant, and it must survive into the stored pair.
+        merged = carry_forward_token_fields(
+            StoredToken(access_token="at-new"), None, refresh_token="rt-presented"
+        )
+
+        assert merged["refresh_token"] == "rt-presented"
+
+    def test_presented_grant_loses_to_previous_and_to_new(self) -> None:
+        from_previous = carry_forward_token_fields(
+            StoredToken(access_token="at-new"),
+            self._previous(),
+            refresh_token="rt-presented",
+        )
+        from_new = carry_forward_token_fields(
+            StoredToken(access_token="at-new", refresh_token="rt-new"),
+            None,
+            refresh_token="rt-presented",
+        )
+
+        assert from_previous["refresh_token"] == "rt-old"
+        assert from_new["refresh_token"] == "rt-new"
+
     def test_previous_without_the_fields_adds_nothing(self) -> None:
         merged = carry_forward_token_fields(
             StoredToken(access_token="at-new"), StoredToken(access_token="at-old")

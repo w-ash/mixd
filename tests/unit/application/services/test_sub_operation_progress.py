@@ -73,6 +73,27 @@ class TestCreateSubOperationHappyPath:
         assert emitted_event.total == 10
         assert emitted_event.message == "Processed 5/10"
 
+    async def test_every_call_emits_unthrottled(self):
+        """Interval 0: the shared emitter suppresses nothing on this path."""
+        mock_manager = _make_mock_manager()
+
+        _sub_op_id, callback = await create_sub_operation(
+            progress_broker=mock_manager,
+            description="Fetching metadata",
+            total_items=10,
+            parent_operation_id="parent-1",
+            phase="fetch",
+            node_type="source",
+        )
+
+        for completed in (1, 2, 3):
+            await callback(completed, 10, f"Processed {completed}/10")
+
+        assert mock_manager.emit_progress.await_count == 3
+        assert [
+            call.args[0].current for call in mock_manager.emit_progress.await_args_list
+        ] == [1, 2, 3]
+
 
 class TestCompleteSubOperation:
     """Tests that complete_sub_operation delegates correctly."""

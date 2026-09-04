@@ -4,11 +4,13 @@ Locks down filter_by_metric_range and sort_by_external_metrics behavior
 before renaming and refactoring.
 """
 
-from src.application.metadata_transforms.metric_transforms import (
+from datetime import UTC, datetime
+
+from src.domain.entities.track import TrackList
+from src.domain.transforms.metrics import (
     filter_by_metric_range,
     sort_by_external_metrics,
 )
-from src.domain.entities.track import TrackList
 from tests.fixtures.factories import make_tracks
 
 
@@ -155,6 +157,43 @@ class TestSortByExternalMetrics:
         result = sort_by_external_metrics("play_count", reverse=False, tracklist=tl)
         assert result.tracks[0].id == tracks[0].id
         assert {t.id for t in result.tracks[1:]} == {tracks[1].id, tracks[2].id}
+
+    def test_datetime_metric_sorts_and_missing_values_land_at_end(self):
+        """Datetime-valued metrics sort; unenriched tracks land at the end."""
+        tracks = make_tracks(count=4)
+        values = {
+            tracks[0].id: datetime(2026, 1, 5, tzinfo=UTC),
+            tracks[1].id: datetime(2026, 3, 5, tzinfo=UTC),
+            tracks[2].id: None,
+        }
+        tl = TrackList(
+            tracks=tracks,
+            metadata={"metrics": {"last_played_dates": values}},
+        )
+
+        newest_first = sort_by_external_metrics(
+            "last_played_dates", reverse=True, tracklist=tl
+        )
+        assert [t.id for t in newest_first.tracks[:2]] == [
+            tracks[1].id,
+            tracks[0].id,
+        ]
+        assert {t.id for t in newest_first.tracks[2:]} == {
+            tracks[2].id,
+            tracks[3].id,
+        }
+
+        oldest_first = sort_by_external_metrics(
+            "last_played_dates", reverse=False, tracklist=tl
+        )
+        assert [t.id for t in oldest_first.tracks[:2]] == [
+            tracks[0].id,
+            tracks[1].id,
+        ]
+        assert {t.id for t in oldest_first.tracks[2:]} == {
+            tracks[2].id,
+            tracks[3].id,
+        }
 
     def test_factory_mode_returns_callable(self):
         """Factory mode returns a callable transform."""

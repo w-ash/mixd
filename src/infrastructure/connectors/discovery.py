@@ -23,10 +23,9 @@ _connectors_cache: dict[str, ConnectorConfig] | None = None
 def _load_connector_config(name: str) -> ConnectorConfig | None:
     """Import a connector module and return its config, or None if it has none.
 
-    Holds the import + config resolution so the caller's ``try``/``except
-    ImportError`` stays narrow while still covering every statement that can
-    raise ``ImportError`` — both ``import_module`` and ``get_config()`` (which
-    triggers a connector's deferred optional-dependency imports).
+    An ``ImportError`` propagates: every connector is first-party, so a module
+    that cannot import is a bug. Swallowing it would cache a reduced registry
+    for the process lifetime and serve required connector pickers empty.
     """
     connector_module = importlib.import_module(name)
     if not hasattr(connector_module, "get_connector_config"):
@@ -68,16 +67,10 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
         if module_name == "__init__" or module_name.startswith("_"):
             continue
 
-        try:
-            config = _load_connector_config(name)
-        except ImportError as e:
-            logger.warning(f"Could not import connector module {module_name}: {e}")
-        else:
-            # Non-fallible registration — kept out of the try so the ImportError
-            # guard covers only the import/config resolution, as before.
-            if config is not None:
-                discovered[module_name] = config
-                logger.debug(f"Registered connector: {module_name}")
+        config = _load_connector_config(name)
+        if config is not None:
+            discovered[module_name] = config
+            logger.debug(f"Registered connector: {module_name}")
 
     logger.info(
         f"Discovered {len(discovered)} connectors: {', '.join(discovered.keys())}",

@@ -1,6 +1,6 @@
 """Integration tests for PlaylistRepository with real database operations following modern patterns."""
 
-from uuid import uuid4
+from uuid import uuid4, uuid7
 
 import pytest
 
@@ -419,3 +419,39 @@ class TestPlaylistRepositoryIntegration:
         # Both mappings still point at the same shared external playlist.
         assert saved_a.connector_playlist_identifiers == {"spotify": spotify_id}
         assert saved_b.connector_playlist_identifiers == {"spotify": spotify_id}
+
+
+class TestIsOwnedBy:
+    """is_owned_by is an ownership probe, not a hydration path."""
+
+    async def test_true_for_owner(self, db_session):
+        uow = get_unit_of_work(db_session)
+        playlist_repo = uow.get_playlist_repository()
+
+        owner = f"owner-{uuid4()}"
+        saved = await playlist_repo.save_playlist(
+            Playlist(name=f"TEST_Owned_{uuid4()}", user_id=owner)
+        )
+
+        assert await playlist_repo.is_owned_by(saved.id, user_id=owner) is True
+
+    async def test_false_for_other_user(self, db_session):
+        """Another user's playlist reads the same as a missing one."""
+        uow = get_unit_of_work(db_session)
+        playlist_repo = uow.get_playlist_repository()
+
+        owner = f"owner-{uuid4()}"
+        saved = await playlist_repo.save_playlist(
+            Playlist(name=f"TEST_Owned_{uuid4()}", user_id=owner)
+        )
+
+        assert (
+            await playlist_repo.is_owned_by(saved.id, user_id=f"intruder-{uuid4()}")
+            is False
+        )
+
+    async def test_false_for_unknown_playlist(self, db_session):
+        uow = get_unit_of_work(db_session)
+        playlist_repo = uow.get_playlist_repository()
+
+        assert await playlist_repo.is_owned_by(uuid7(), user_id="default") is False

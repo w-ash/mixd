@@ -2,11 +2,11 @@
 
 from datetime import UTC, datetime
 
-from src.application.metadata_transforms._helpers import (
+from src.domain.entities.track import TrackList
+from src.domain.transforms._metadata_helpers import (
     get_play_metrics,
     parse_datetime_safe,
 )
-from src.domain.entities.track import TrackList
 from tests.fixtures.factories import make_tracks
 
 

@@ -11,19 +11,30 @@ Two filters:
 - ``filter_by_tag_namespace(namespace, values)`` — tracks tagged anywhere in
   a namespace, optionally restricted to specific values. ``values=None`` or
   empty means "any tag in this namespace."
+
+Both filters normalize leniently: a value that cannot be a legal tag (bad
+characters, too long) cannot equal any stored tag, so it matches nothing
+instead of raising. The strict ``normalize_tag`` stays on the write path.
+
+Purity: No side effects, logging, or external dependencies.
 """
 
 from collections.abc import Sequence
 from typing import Literal
 
-from src.config import get_logger
 from src.domain.entities.tag import normalize_tag
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import Transform, dual_mode
 
-logger = get_logger(__name__)
-
 TagMatchMode = Literal["any", "all"]
+
+
+def _lenient_tag(raw: str) -> str | None:
+    """Normalized tag, or ``None`` when ``raw`` can never equal a stored tag."""
+    try:
+        return normalize_tag(raw)
+    except ValueError:
+        return None
 
 
 def filter_by_tag(
@@ -35,16 +46,21 @@ def filter_by_tag(
 
     Args:
         tags: Tags to match (raw or normalized — normalized here before
-            comparison).
+            comparison). A tag that cannot be legal matches nothing; under
+            ``"all"`` one such tag makes the whole filter match nothing.
         match_mode: ``"any"`` keeps tracks that have at least one matching
             tag; ``"all"`` requires every tag to be present on the track.
     """
     if not tags:
         raise ValueError("filter_by_tag: `tags` must be non-empty")
 
-    target: frozenset[str] = frozenset(normalize_tag(t) for t in tags)
+    normalized = [_lenient_tag(t) for t in tags]
+    target: frozenset[str] = frozenset(tag for tag in normalized if tag is not None)
+    unsatisfiable = match_mode == "all" and None in normalized
 
     def transform(t: TrackList) -> TrackList:
+        if unsatisfiable:
+            return t.with_tracks([])
         tags_by_track = t.metadata.get("tags", {})
 
         def keep(track: Track) -> bool:
@@ -54,13 +70,6 @@ def filter_by_tag(
             return not track_tags.isdisjoint(target)
 
         kept = [track for track in t.tracks if keep(track)]
-        logger.debug(
-            "filter_by_tag applied",
-            input_count=len(t.tracks),
-            output_count=len(kept),
-            match_mode=match_mode,
-            tags=sorted(target),
-        )
         return t.with_tracks(kept)
 
     return dual_mode(transform, tracklist)
@@ -74,35 +83,36 @@ def filter_by_tag_namespace(
     """Filter tracks by tag namespace, optionally restricted to specific values.
 
     Args:
-        namespace: Namespace to match (e.g. ``"mood"``).
+        namespace: Namespace to match (e.g. ``"mood"``), case-insensitive.
         values: If non-empty, only keep tracks with a tag whose value is in
             this set (within the namespace). If ``None`` or empty, any tag
-            in the namespace qualifies.
+            in the namespace qualifies. Values that cannot be legal tags
+            are dropped; if none survive, nothing matches.
     """
     if not namespace:
         raise ValueError("filter_by_tag_namespace: `namespace` must be non-empty")
 
-    value_set: frozenset[str] = frozenset(v.strip().lower() for v in values or ())
+    target_namespace = namespace.strip().lower()
+    raw_values = list(values or ())
+    value_set: frozenset[str] = frozenset(
+        tag for tag in (_lenient_tag(v) for v in raw_values) if tag is not None
+    )
+    unsatisfiable = bool(raw_values) and not value_set
 
     def transform(t: TrackList) -> TrackList:
+        if unsatisfiable:
+            return t.with_tracks([])
         tags_by_track = t.metadata.get("tags", {})
 
         def keep(track: Track) -> bool:
             for tt in tags_by_track.get(track.id, ()):
-                if tt.namespace != namespace:
+                if tt.namespace != target_namespace:
                     continue
                 if not value_set or tt.value in value_set:
                     return True
             return False
 
         kept = [track for track in t.tracks if keep(track)]
-        logger.debug(
-            "filter_by_tag_namespace applied",
-            input_count=len(t.tracks),
-            output_count=len(kept),
-            namespace=namespace,
-            values=sorted(value_set),
-        )
         return t.with_tracks(kept)
 
     return dual_mode(transform, tracklist)

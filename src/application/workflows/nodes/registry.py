@@ -9,21 +9,18 @@ workflow definitions and node implementations.
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Literal, NotRequired, TypedDict, Unpack
+from typing import NotRequired, TypedDict, Unpack, cast, get_args
 
 from src.application.workflows.protocols import NodeResult
+from src.config.constants import NodeType
 from src.domain.entities.shared import JsonValue
 
-# Type definitions with modern annotation style
-type NodeType = Literal[
-    "source",
-    "enricher",
-    "filter",
-    "sorter",
-    "selector",
-    "combiner",
-    "destination",
-]
+# Derived from the NodeType alias so the two can never drift. The cast to
+# object is what keeps the PEP 695 ``__value__`` (typed Any) out of strict
+# type checking.
+_VALID_CATEGORIES: frozenset[NodeType] = frozenset(
+    get_args(cast("object", NodeType.__value__))
+)
 
 # First param is the workflow execution context (heterogeneous dict, narrowed via NodeContext).
 # Second param is workflow config (validated JSON).
@@ -145,17 +142,9 @@ class NodeRegistry:
         return {cid: meta for cid, (_, meta) in self._registry.items()}
 
     @staticmethod
-    def get_valid_categories() -> set[NodeType]:
-        """Get all valid node categories."""
-        return {
-            "source",
-            "enricher",
-            "filter",
-            "sorter",
-            "selector",
-            "combiner",
-            "destination",
-        }
+    def get_valid_categories() -> frozenset[NodeType]:
+        """Get all valid node categories, derived from the ``NodeType`` alias."""
+        return _VALID_CATEGORIES
 
 
 # Create global registry instance

@@ -50,8 +50,14 @@ TRACK_SORT_COLUMNS: Final[dict[TrackSortBy, tuple[str, str]]] = {
 }
 
 # Sort columns that store datetime values (ISO string in cursor).
-# ``played_at`` belongs to the play-event listing's cursor, not a track sort.
-_DATETIME_COLUMNS: Final = frozenset({"created_at", "last_played_at", "played_at"})
+# ``played_at`` and ``started_at`` belong to the play-event and operation-run
+# listings' cursors, not to a track sort.
+_DATETIME_COLUMNS: Final = frozenset({
+    "created_at",
+    "last_played_at",
+    "played_at",
+    "started_at",
+})
 
 
 @define(frozen=True, slots=True)
@@ -143,10 +149,32 @@ def cursor_sort_value_to_query(
 ) -> str | int | float | datetime | None:
     """Convert a cursor's sort_value back to a query-compatible type.
 
-    Datetime columns (created_at) are parsed from ISO strings.
+    Datetime columns (``_DATETIME_COLUMNS``) are parsed from ISO strings.
+
+    Raises:
+        ValueError: If a datetime column carries a non-string or unparseable
+            value — a cursor that cannot bound the page must fail, not fall
+            through to page one.
     """
     if sort_value is None:
         return None
-    if column_name in _DATETIME_COLUMNS and isinstance(sort_value, str):
+    if column_name in _DATETIME_COLUMNS:
+        if not isinstance(sort_value, str):
+            raise ValueError(
+                f"Cursor sort_value for {column_name} must be an ISO datetime string"
+            )
         return datetime.fromisoformat(sort_value)
     return sort_value
+
+
+def cursor_datetime_bound(column_name: str, sort_value: str | float | None) -> datetime:
+    """The datetime keyset bound a cursor carries for a datetime-sorted list.
+
+    Raises:
+        ValueError: If the value is absent or not an ISO datetime string.
+    """
+    match cursor_sort_value_to_query(column_name, sort_value):
+        case datetime() as bound:
+            return bound
+        case _:
+            raise ValueError(f"Cursor sort_value for {column_name} must be a datetime")

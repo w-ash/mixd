@@ -19,7 +19,9 @@ from collections.abc import Mapping
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
     opt_bool,
+    plural,
     propose_action,
     require_str,
     require_str_list,
@@ -71,10 +73,6 @@ MANAGE_CONNECTOR_PLAYLIST_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _plural(count: int) -> str:
-    return "" if count == 1 else "s"
-
-
 async def handle_manage_connector_playlist(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext
 ) -> JsonValue:
@@ -95,14 +93,14 @@ async def handle_manage_connector_playlist(
     force = opt_bool(tool_input, "force", default=False)
 
     count = len(identifiers)
-    description = f"Refresh {count} cached {connector} playlist{_plural(count)}"
+    description = f"Refresh {count} cached {connector} playlist{plural(count)}"
     details: JsonDict = {
         "operation": operation,
         "connector": connector,
         "identifiers": list(identifiers),
         "force": force,
         "changes": [
-            f"Re-fetch {count} {connector} playlist{_plural(count)} into the "
+            f"Re-fetch {count} {connector} playlist{plural(count)} into the "
             f"local cache" + (" (force)" if force else "")
         ],
     }
@@ -162,12 +160,7 @@ async def exec_manage_connector_playlist(
         invalid_prefix="The refresh failed validation at confirm time",
     )
 
-    return {
-        "status": "confirmed",
-        "operation": "refresh",
-        "description": action.description,
-        "result": _project_result(result),
-    }
+    return confirmed(action, "refresh", result=_project_result(result))
 
 
 SPECS: list[dict[str, object]] = [

@@ -13,33 +13,28 @@ from src.application.workflows.engine.executor import (
     WorkflowCancelledError,
     _is_failure_recoverable,
 )
+from src.config.constants import NodeType
 
 
 class TestFailureClassification:
     """_is_failure_recoverable correctly classifies node categories."""
 
-    @pytest.mark.parametrize(
-        "node_type",
-        ["enricher.lastfm", "enricher.spotify", "enricher.play_history"],
-    )
-    def test_enricher_failures_are_recoverable(self, node_type: str):
-        assert _is_failure_recoverable(node_type) is True
+    def test_enricher_failures_are_recoverable(self):
+        assert _is_failure_recoverable("enricher") is True
 
     @pytest.mark.parametrize(
-        "node_type",
+        "category",
         [
-            "source.playlist",
-            "source.liked_tracks",
-            "filter.by_metric",
-            "sorter.by_metric",
-            "selector.top_n",
-            "destination.create_playlist",
-            "destination.update_playlist",
-            "combiner.merge_playlists",
+            "source",
+            "filter",
+            "sorter",
+            "selector",
+            "destination",
+            "combiner",
         ],
     )
-    def test_non_enricher_failures_are_fatal(self, node_type: str):
-        assert _is_failure_recoverable(node_type) is False
+    def test_non_enricher_failures_are_fatal(self, category: NodeType):
+        assert _is_failure_recoverable(category) is False
 
 
 class TestWorkflowCancelledError:

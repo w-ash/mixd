@@ -9,7 +9,8 @@ Three concerns the domain dispatcher modules all reuse:
   corrective message the model self-fixes from within the same turn — the same
   actionable-error contract the workflow tools use.
 - **Two-phase proposal** — :func:`propose_action` stores a pending action and
-  returns the ``pending_confirmation`` payload the frontend keys on.
+  returns the ``pending_confirmation`` payload the frontend keys on;
+  :func:`confirmed` builds the matching commit-side envelope.
 - **Entity projection** — compact, model-facing dicts built from domain
   entities (never interface Pydantic schemas — the application layer imports
   inward only). User-originated free text is wrapped in :class:`UserText` so the
@@ -20,7 +21,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from src.application.chat.pending_actions import pending_action_store
+from src.application.chat.pending_actions import PendingAction, pending_action_store
 from src.application.chat.protocols import ToolContext
 from src.application.chat.user_data import wrap
 from src.application.runner import execute_use_case
@@ -88,15 +89,26 @@ def opt_int(
     *,
     default: int,
     minimum: int = 1,
-    maximum: int = 500,
+    maximum: int | None = 500,
 ) -> int:
+    """Coerce an optional integer. ``maximum=None`` leaves the upper bound to a
+    downstream validator whose error message names the real range."""
     raw = args.get(key)
     if raw is None:
         return default
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise ToolExecutionError(f"{key!r} must be an integer")
-    if raw < minimum or raw > maximum:
+    if maximum is not None and (raw < minimum or raw > maximum):
         raise ToolExecutionError(f"{key!r} must be between {minimum} and {maximum}")
+    if raw < minimum:
+        raise ToolExecutionError(f"{key!r} must be at least {minimum}")
+    return raw
+
+
+def require_bool(args: Mapping[str, JsonValue], key: str) -> bool:
+    raw = args.get(key)
+    if not isinstance(raw, bool):
+        raise ToolExecutionError(f"{key!r} is required and must be true or false")
     return raw
 
 
@@ -133,6 +145,11 @@ def require_str_list(args: Mapping[str, JsonValue], key: str) -> list[str]:
     return [str(item) for item in raw]
 
 
+def plural(count: int) -> str:
+    """Plural ``s`` suffix for ``count`` — ``""`` when exactly one."""
+    return "" if count == 1 else "s"
+
+
 # --- two-phase proposal -----------------------------------------------------
 
 
@@ -163,6 +180,22 @@ async def propose_action(
         "description": description,
         "details": details,
     }
+
+
+def confirmed(action: PendingAction, operation: str, **extra: JsonValue) -> JsonDict:
+    """Build the commit-side envelope every ``exec_*`` returns.
+
+    ``status``/``operation``/``description`` are the fixed spine — the
+    confirmation the model reports back and the frontend keys on — and each
+    executor adds its own outcome fields through ``extra``.
+    """
+    result: JsonDict = {
+        "status": "confirmed",
+        "operation": operation,
+        "description": action.description,
+    }
+    result.update(extra)
+    return result
 
 
 # --- commit envelope --------------------------------------------------------

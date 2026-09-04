@@ -93,7 +93,7 @@ _UPSERT_PATCH = (
     "upsert_canonical_playlist"
 )
 _ISSUE_PATCH = (
-    "src.application.use_cases.import_connector_playlist_as_canonical.append_run_issue"
+    "src.application.use_cases.import_connector_playlist_as_canonical.append_run_issues"
 )
 
 
@@ -108,7 +108,7 @@ class TestReimportRoutesThroughEngine:
         uow.get_playlist_link_repository().list_by_user_connector.return_value = [
             _link("sp1")
         ]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id="cached-snap")
         ]
 
@@ -134,7 +134,7 @@ class TestReimportRoutesThroughEngine:
         uow.get_playlist_link_repository().list_by_user_connector.return_value = [
             _link("sp1")
         ]
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id="cached-snap")
         ]
 
@@ -198,7 +198,7 @@ class TestReimportRoutesThroughEngine:
         """
         uow, connector = make_mock_uow_with_connector()
         uow.get_playlist_link_repository().list_by_user_connector.return_value = []
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", name="Chill", snapshot_id="cached-snap"),
             _cp("sp2", name="Mellow", snapshot_id="cached-snap"),
             _cp("sp3", name="Drive", snapshot_id="cached-snap"),
@@ -233,7 +233,7 @@ class TestForce:
         """No link + fresh cache + force=True → fetch fresh from the connector."""
         cp = _cp("sp1", snapshot_id="fresh")
         uow, connector = make_mock_uow_with_connector(get_playlist_return=cp)
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id="cached-snap")
         ]
 
@@ -247,7 +247,7 @@ class TestForce:
     async def test_no_force_uses_fresh_cache_for_first_import(self) -> None:
         """No link + fresh cache + force=False → use cache (no network), still create."""
         uow, connector = make_mock_uow_with_connector()
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id="cached-snap")
         ]
 
@@ -290,7 +290,7 @@ class TestUpdatePath:
     ) -> None:
         cp = _cp("sp1", snapshot_id="fresh")
         uow, connector = make_mock_uow_with_connector(get_playlist_return=cp)
-        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+        uow.get_connector_playlist_repository().find_by_identifiers.return_value = [
             _cp("sp1", snapshot_id=None)
         ]
 
@@ -621,6 +621,32 @@ class TestRunIssueRecording:
         assert len(result.failed) == 1
         issue_mock.assert_awaited_once()
         assert issue_mock.await_args.args[0] == run_id
+        # One batched write, one issue per failed playlist.
+        issues = issue_mock.await_args.kwargs["issues"]
+        assert [i["connector_playlist_identifier"] for i in issues] == ["sp1"]
+
+    async def test_all_failures_recorded_in_one_write(self) -> None:
+        """Three failures produce one call carrying three issues, not three calls."""
+
+        async def fake_get_playlist(pid: str, **_kwargs):
+            raise RuntimeError(f"boom {pid}")
+
+        uow, connector = make_mock_uow_with_connector()
+        connector.get_playlist.side_effect = fake_get_playlist
+
+        with patch(_ISSUE_PATCH, new=AsyncMock()) as issue_mock:
+            result = await _use_case().execute(
+                _cmd(["sp1", "sp2", "sp3"]), uow, run_id=uuid7()
+            )
+
+        assert len(result.failed) == 3
+        issue_mock.assert_awaited_once()
+        issues = issue_mock.await_args.kwargs["issues"]
+        assert [i["connector_playlist_identifier"] for i in issues] == [
+            "sp1",
+            "sp2",
+            "sp3",
+        ]
 
     async def test_no_issue_recorded_when_run_id_none(self) -> None:
         async def fake_get_playlist(pid: str, **_kwargs):

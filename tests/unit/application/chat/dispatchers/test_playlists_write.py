@@ -512,3 +512,39 @@ class TestExecManagePlaylistEntries:
 
         with pytest.raises(ToolExecutionError, match="no longer exists"):
             await playlists_write.exec_manage_playlist_entries(action, "default")
+
+    async def test_malformed_entry_id_list_is_actionable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A details payload whose id list did not survive as a list must fail
+        # with a corrective error, never reach the use case.
+        monkeypatch.setattr(
+            _common, "execute_use_case", _raising_runner(AssertionError("not reached"))
+        )
+        action = await _action(
+            "remove",
+            {
+                "operation": "remove",
+                "playlist_id": str(uuid4()),
+                "entry_ids": "not-a-list",
+            },
+            "manage_playlist_entries",
+        )
+
+        with pytest.raises(ToolExecutionError, match="non-empty list of UUID strings"):
+            await playlists_write.exec_manage_playlist_entries(action, "default")
+
+    async def test_malformed_playlist_id_is_actionable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            _common, "execute_use_case", _raising_runner(AssertionError("not reached"))
+        )
+        action = await _action(
+            "repair",
+            {"operation": "repair", "playlist_id": "not-a-uuid"},
+            "manage_playlist_entries",
+        )
+
+        with pytest.raises(ToolExecutionError, match="must be a UUID string"):
+            await playlists_write.exec_manage_playlist_entries(action, "default")

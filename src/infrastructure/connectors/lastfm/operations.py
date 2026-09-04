@@ -15,7 +15,8 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Final
 from uuid import UUID
 
 from attrs import define, field
@@ -31,6 +32,9 @@ from src.infrastructure.connectors.lastfm.conversions import (
 
 # Get contextual logger for operations
 logger = get_logger(__name__).bind(service="lastfm_operations")
+
+# Concurrency ceiling for the love-track write fan-out.
+_LOVE_WRITE_CONCURRENCY: Final = 5
 
 
 @define(frozen=True, slots=True)
@@ -312,9 +316,35 @@ class LastFMOperations:
 
     # User Library Operations
 
-    async def love_track(self, artist: str, title: str) -> bool:
-        """Love a track on Last.fm for the authenticated user."""
-        return await self.client.love_track(artist, title)
+    async def love_tracks(self, items: Sequence[tuple[str, str]]) -> list[bool]:
+        """Love every ``(artist, title)`` pair with bounded concurrency.
+
+        Results keep input order. A per-item failure becomes ``False`` so one
+        bad track never abandons the batch.
+        """
+        if not items:
+            return []
+
+        async def _love(item: tuple[str, str]) -> bool:
+            artist, title = item
+            try:
+                return await self.client.love_track(artist, title)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to love track on Last.fm",
+                    artist=artist,
+                    title=title,
+                    error=str(exc),
+                )
+                return False
+
+        # track.love is a write endpoint: keep bursts modest regardless of the
+        # read-path concurrency setting; the client rate limiter paces the rest.
+        return await bounded_fan_out(
+            items,
+            _love,
+            concurrency=min(settings.api.lastfm.concurrency, _LOVE_WRITE_CONCURRENCY),
+        )
 
     async def enrich_track_with_lastfm_metadata(self, track: Track) -> Track:
         """Enrich a track with Last.fm metadata using FAST single API call."""

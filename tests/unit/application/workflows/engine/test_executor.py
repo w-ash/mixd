@@ -10,7 +10,7 @@ import asyncio
 import pytest
 
 from src.application.workflows.engine.executor import _get_node_timeout
-from src.config.constants import WorkflowConstants
+from src.config.constants import NodeType, WorkflowConstants
 from src.domain.entities.track import Artist, Track, TrackList
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
@@ -268,25 +268,22 @@ class TestGetNodeTimeout:
     """Tests for _get_node_timeout asyncio.timeout budget mapping."""
 
     @pytest.mark.parametrize(
-        ("node_type", "expected"),
+        ("category", "expected"),
         [
-            ("source.playlist", WorkflowConstants.SOURCE_TIMEOUT_SECONDS),
-            ("source.liked", WorkflowConstants.SOURCE_TIMEOUT_SECONDS),
-            ("enricher.spotify", WorkflowConstants.ENRICHER_TIMEOUT_SECONDS),
-            ("enricher.lastfm", WorkflowConstants.ENRICHER_TIMEOUT_SECONDS),
-            ("destination.playlist", WorkflowConstants.DESTINATION_TIMEOUT_SECONDS),
-            ("filter.by_metric", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
-            ("sorter.by_metric", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
-            ("selector.top_n", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
+            ("source", WorkflowConstants.SOURCE_TIMEOUT_SECONDS),
+            ("enricher", WorkflowConstants.ENRICHER_TIMEOUT_SECONDS),
+            ("destination", WorkflowConstants.DESTINATION_TIMEOUT_SECONDS),
+            ("filter", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
+            ("sorter", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
+            ("selector", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
         ],
     )
-    def test_known_categories(self, node_type: str, expected: int) -> None:
+    def test_known_categories(self, category: NodeType, expected: int) -> None:
         """Known node categories map to their configured timeout."""
-        assert _get_node_timeout(node_type) == expected
+        assert _get_node_timeout(category) == expected
 
-    def test_unknown_category_falls_back_to_transform(self) -> None:
-        """Unknown categories default to TRANSFORM_TIMEOUT_SECONDS."""
+    def test_category_without_entry_falls_back_to_transform(self) -> None:
+        """Categories with no explicit budget default to TRANSFORM_TIMEOUT_SECONDS."""
         assert (
-            _get_node_timeout("mystery.node")
-            == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+            _get_node_timeout("combiner") == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
         )

@@ -17,10 +17,11 @@ the ``changes`` summary.
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
+    plural,
     propose_action,
     require_choice,
     require_str,
@@ -106,10 +107,6 @@ MANAGE_TAGS_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _plural(count: int) -> str:
-    return "" if count == 1 else "s"
-
-
 async def handle_manage_tags(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext
 ) -> JsonValue:
@@ -146,12 +143,12 @@ async def handle_manage_tags(
         track_ids = require_uuid_list(tool_input, "track_ids")
         tag = require_str(tool_input, "tag")
         count = len(track_ids)
-        description = f"Tag {count} track{_plural(count)} as '{tag}'"
+        description = f"Tag {count} track{plural(count)} as '{tag}'"
         details = {
             "operation": operation,
             "track_ids": [str(tid) for tid in track_ids],
             "tag": tag,
-            "changes": [f"Add tag '{tag}' to {count} track{_plural(count)}"],
+            "changes": [f"Add tag '{tag}' to {count} track{plural(count)}"],
         }
     elif operation == "rename":
         source_tag = require_str(tool_input, "source_tag")
@@ -193,16 +190,6 @@ async def handle_manage_tags(
     return await propose_action(ctx, "manage_tags", tool_input, description, details)
 
 
-def _confirmed(action: PendingAction, operation: str, **extra: JsonValue) -> JsonDict:
-    result: JsonDict = {
-        "status": "confirmed",
-        "operation": operation,
-        "description": action.description,
-    }
-    result.update(extra)
-    return result
-
-
 async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
     """Commit the proposed tag mutation via its use case.
 
@@ -217,7 +204,7 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
     if operation == "tag":
         command = TagTrackCommand(
             user_id=user_id,
-            track_id=UUID(str(details["track_id"])),
+            track_id=require_uuid(details, "track_id"),
             raw_tag=str(details["tag"]),
             source=_AGENT_SOURCE,
             tagged_at=tagged_at,
@@ -228,12 +215,12 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return _confirmed(action, operation, tag=tagged.tag, changed=tagged.changed)
+        return confirmed(action, operation, tag=tagged.tag, changed=tagged.changed)
 
     if operation == "untag":
         untag_command = UntagTrackCommand(
             user_id=user_id,
-            track_id=UUID(str(details["track_id"])),
+            track_id=require_uuid(details, "track_id"),
             raw_tag=str(details["tag"]),
             source=_AGENT_SOURCE,
             tagged_at=tagged_at,
@@ -244,16 +231,12 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return _confirmed(action, operation, tag=untagged.tag, changed=untagged.changed)
+        return confirmed(action, operation, tag=untagged.tag, changed=untagged.changed)
 
     if operation == "batch_tag":
-        raw_ids = details["track_ids"]
-        track_ids = (
-            [UUID(str(tid)) for tid in raw_ids] if isinstance(raw_ids, list) else []
-        )
         batch_command = BatchTagTracksCommand(
             user_id=user_id,
-            track_ids=track_ids,
+            track_ids=require_uuid_list(details, "track_ids"),
             raw_tag=str(details["tag"]),
             source=_AGENT_SOURCE,
             tagged_at=tagged_at,
@@ -264,7 +247,7 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return _confirmed(
+        return confirmed(
             action,
             operation,
             tag=batched.tag,
@@ -284,7 +267,7 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return _confirmed(
+        return confirmed(
             action,
             operation,
             source_tag=str(details["source_tag"]),
@@ -304,7 +287,7 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return _confirmed(
+        return confirmed(
             action,
             operation,
             source_tag=str(details["source_tag"]),
@@ -320,7 +303,7 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return _confirmed(
+        return confirmed(
             action,
             operation,
             tag=str(details["tag"]),

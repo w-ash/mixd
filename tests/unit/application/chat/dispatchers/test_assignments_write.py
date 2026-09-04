@@ -237,3 +237,18 @@ class TestExecManagePlaylistAssignments:
 
         with pytest.raises(ToolExecutionError, match="no longer exists"):
             await assignments_write.exec_manage_playlist_assignments(action, "default")
+
+    async def test_malformed_assignment_id_at_commit_is_actionable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _raise(factory: object, user_id: str | None = None) -> object:
+            raise AssertionError("not reached")
+
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
+        action = await self._action({
+            "operation": "delete",
+            "assignment_id": "not-a-uuid",
+        })
+
+        with pytest.raises(ToolExecutionError, match="must be a UUID string"):
+            await assignments_write.exec_manage_playlist_assignments(action, "default")

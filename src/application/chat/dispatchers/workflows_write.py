@@ -23,10 +23,12 @@ from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
     opt_int,
     opt_str,
     opt_uuid,
     propose_action,
+    require_bool,
     require_choice,
     require_uuid,
     user_text,
@@ -55,14 +57,14 @@ from src.application.use_cases.workflow_versions import (
     RevertWorkflowVersionCommand,
     RevertWorkflowVersionUseCase,
 )
-from src.domain.entities.schedule import Schedule
+from src.domain.entities.schedule import (
+    Schedule,
+    validate_day_of_week,
+    validate_time_of_day,
+)
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.workflow import Workflow, parse_workflow_def
 from src.domain.exceptions import ToolExecutionError
-
-_MAX_HOUR = 23
-_MAX_MINUTE = 59
-_MAX_DAY_OF_WEEK = 6
 
 _WORKFLOW_OPERATIONS = ("instantiate", "duplicate", "delete", "revert_version")
 _SCHEDULE_OPERATIONS = ("upsert", "toggle", "delete")
@@ -217,15 +219,11 @@ async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            **_project_workflow(result.workflow),
-        }
+        return confirmed(action, operation, **_project_workflow(result.workflow))
 
     if operation == "duplicate":
         dup_command = DuplicateWorkflowCommand(
-            user_id=user_id, workflow_id=UUID(str(details["workflow_id"]))
+            user_id=user_id, workflow_id=require_uuid(details, "workflow_id")
         )
         dup = await commit(
             lambda uow: DuplicateWorkflowUseCase().execute(dup_command, uow),
@@ -233,15 +231,11 @@ async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            **_project_workflow(dup.workflow),
-        }
+        return confirmed(action, operation, **_project_workflow(dup.workflow))
 
     if operation == "delete":
         del_command = DeleteWorkflowCommand(
-            user_id=user_id, workflow_id=UUID(str(details["workflow_id"]))
+            user_id=user_id, workflow_id=require_uuid(details, "workflow_id")
         )
         deleted = await commit(
             lambda uow: DeleteWorkflowUseCase().execute(del_command, uow),
@@ -249,16 +243,12 @@ async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "workflow_id": str(deleted.workflow_id),
-        }
+        return confirmed(action, operation, workflow_id=str(deleted.workflow_id))
 
     if operation == "revert_version":
         rev_command = RevertWorkflowVersionCommand(
             user_id=user_id,
-            workflow_id=UUID(str(details["workflow_id"])),
+            workflow_id=require_uuid(details, "workflow_id"),
             version=int(str(details["version"])),
         )
         reverted = await commit(
@@ -267,11 +257,7 @@ async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            **_project_workflow(reverted.workflow),
-        }
+        return confirmed(action, operation, **_project_workflow(reverted.workflow))
 
     raise ToolExecutionError(f"Unknown manage_workflow operation {operation!r}")
 
@@ -390,21 +376,21 @@ async def handle_manage_schedule(
     target = _target_desc(workflow_id, sync_target)
 
     if operation == "upsert":
-        hour = opt_int(tool_input, "hour", default=0, minimum=0, maximum=_MAX_HOUR)
-        minute = opt_int(
-            tool_input, "minute", default=0, minimum=0, maximum=_MAX_MINUTE
-        )
+        # opt_int only enforces "a non-negative integer"; the domain validators
+        # below are the single authority on the calendar ranges.
+        hour = opt_int(tool_input, "hour", default=0, minimum=0, maximum=None)
+        minute = opt_int(tool_input, "minute", default=0, minimum=0, maximum=None)
         day_of_week = (
             None
             if tool_input.get("day_of_week") is None
-            else opt_int(
-                tool_input,
-                "day_of_week",
-                default=0,
-                minimum=0,
-                maximum=_MAX_DAY_OF_WEEK,
-            )
+            else opt_int(tool_input, "day_of_week", default=0, minimum=0, maximum=None)
         )
+        try:
+            hour, minute = validate_time_of_day(hour, minute)
+            if day_of_week is not None:
+                day_of_week = validate_day_of_week(day_of_week)
+        except ValueError as e:
+            raise ToolExecutionError(str(e)) from e
         timezone = opt_str(tool_input, "timezone") or "UTC"
         cadence = "daily" if day_of_week is None else f"weekly (day {day_of_week})"
         description = (
@@ -426,14 +412,7 @@ async def handle_manage_schedule(
             ],
         }
     elif operation == "toggle":
-        raw_enabled = tool_input.get("enabled")
-        if raw_enabled is None:
-            raise ToolExecutionError(
-                "'enabled' is required for toggle and must be true or false"
-            )
-        if not isinstance(raw_enabled, bool):
-            raise ToolExecutionError("'enabled' must be true or false")
-        enabled = raw_enabled
+        enabled = require_bool(tool_input, "enabled")
         verb = "Enable" if enabled else "Disable"
         description = f"{verb} schedule for {target}"
         details = {
@@ -464,7 +443,7 @@ async def exec_manage_schedule(action: PendingAction, user_id: str) -> JsonValue
     details = action.details
     operation = str(details["operation"])
     workflow_id = (
-        UUID(str(details["workflow_id"]))
+        require_uuid(details, "workflow_id")
         if details.get("workflow_id") is not None
         else None
     )
@@ -489,12 +468,12 @@ async def exec_manage_schedule(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "created": upserted.created,
-            "schedule": _project_schedule(upserted.schedule),
-        }
+        return confirmed(
+            action,
+            operation,
+            created=upserted.created,
+            schedule=_project_schedule(upserted.schedule),
+        )
 
     if operation == "toggle":
         toggle_command = ToggleScheduleCommand(
@@ -509,11 +488,9 @@ async def exec_manage_schedule(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "schedule": _project_schedule(toggled.schedule),
-        }
+        return confirmed(
+            action, operation, schedule=_project_schedule(toggled.schedule)
+        )
 
     if operation == "delete":
         delete_command = DeleteScheduleCommand(
@@ -525,11 +502,7 @@ async def exec_manage_schedule(action: PendingAction, user_id: str) -> JsonValue
             not_found=_COMMIT_NOT_FOUND,
             invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "schedule_id": str(deleted.schedule_id),
-        }
+        return confirmed(action, operation, schedule_id=str(deleted.schedule_id))
 
     raise ToolExecutionError(f"Unknown manage_schedule operation {operation!r}")
 

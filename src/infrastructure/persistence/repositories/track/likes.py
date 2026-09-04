@@ -1,8 +1,10 @@
 """Track repository for like operations."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -89,6 +91,36 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
+    @db_operation("count_liked_tracks_by_service")
+    async def count_liked_tracks_by_service(
+        self,
+        services: Sequence[str],
+        *,
+        user_id: str,
+        is_liked: bool = True,
+    ) -> dict[str, int]:
+        """Count likes per service in one grouped query, scoped to user.
+
+        Batch counterpart to ``count_liked_tracks``: N services cost one
+        round-trip instead of N. A service with no matching rows is absent
+        from the GROUP BY result, so it is filled in as 0.
+        """
+        if not services:
+            return {}
+
+        stmt = (
+            select(DBTrackLike.service, func.count())
+            .where(
+                DBTrackLike.service.in_(services),
+                DBTrackLike.is_liked == is_liked,
+                DBTrackLike.user_id == user_id,
+            )
+            .group_by(DBTrackLike.service)
+        )
+        result = await self.session.execute(stmt)
+        counts = dict(result.tuples().all())
+        return {service: counts.get(service, 0) for service in services}
+
     @db_operation("get_all_liked_tracks")
     async def get_all_liked_tracks(
         self,
@@ -107,8 +139,6 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
 
         # Handle special sorting cases that require custom queries
         if sort_by in ["title_asc", "random"]:
-            from sqlalchemy import func, select
-
             from src.infrastructure.persistence.database.db_models import DBTrack
 
             stmt = select(self.model_class)
@@ -181,44 +211,6 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             if like.track_id not in target_likes_dict
             or target_likes_dict[like.track_id].is_liked != is_liked
         ]
-
-    @db_operation("save_track_like")
-    async def save_track_like(
-        self,
-        track_id: UUID,
-        service: str,
-        *,
-        user_id: str,
-        is_liked: bool = True,
-        last_synced: datetime | None = None,
-        liked_at: datetime | None = None,
-    ) -> TrackLike:
-        """Save a track like for a service."""
-        now = datetime.now(UTC)
-
-        # Prepare new values
-        update_values: dict[str, object] = {
-            "is_liked": is_liked,
-            "updated_at": now,
-        }
-
-        if is_liked:
-            update_values["liked_at"] = liked_at or now
-        else:
-            update_values["liked_at"] = None  # Clear on unlike
-
-        if last_synced:
-            update_values["last_synced"] = last_synced
-
-        # Use upsert to either create or update
-        return await self.upsert(
-            lookup_attrs={
-                "user_id": user_id,
-                "track_id": track_id,
-                "service": service,
-            },
-            create_attrs=update_values,
-        )
 
     @db_operation("save_track_likes_batch")
     async def save_track_likes_batch(

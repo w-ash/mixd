@@ -18,27 +18,44 @@ The second half of the file pins what the savepoint fix left open: *which*
 fallback a failure earns. Per-track retry answers "one row in this batch is
 bad", and the production failure was the opposite — a concurrent transaction
 holding an identity key, where splitting the batch just queues N times on the
-same contended index and resolves nothing.
+same contended index and resolves nothing. That race is now serialized at the
+source by the per-user advisory lock in ``track/ingest_lock.py``: the two
+canonical-track writers queue at the lock instead of inside
+``uq_tracks_user_isrc``, and contention that survives it fails the run.
 """
 
+import asyncio
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+import time
 from unittest.mock import patch
 
 import pytest
+from pytest_asyncio import fixture as async_fixture
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, AsyncTransaction
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    AsyncTransaction,
+    async_sessionmaker,
+    create_async_engine,
+)
 
-from src.application.services import connector_playlist_processing_service
 from src.application.services.connector_playlist_processing_service import (
     ConnectorPlaylistProcessingService,
 )
 from src.domain.entities import Artist, ConnectorTrack
+from src.domain.entities.track import Track
 from src.domain.repositories.errors import LOCK_NOT_AVAILABLE, postgres_sqlstate
 from src.infrastructure.persistence.database.db_models import DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
+)
+from src.infrastructure.persistence.repositories.track.core import TrackRepository
+from src.infrastructure.persistence.repositories.track.ingest_lock import (
+    ingest_lock_keys,
 )
 
 USER = "default"
@@ -80,8 +97,8 @@ def _bulk_fails_batch_succeeds_singly(
     the transaction perfectly usable, so it would not reproduce the bug at all.
 
     ``calls`` collects the size of every ingest attempt, so a test can tell the
-    two fallbacks apart: ``[3, 1, 1, 1]`` is the per-track loop, ``[3, 3]`` the
-    whole-batch retry.
+    fallbacks apart: ``[3, 1, 1, 1]`` is the per-track loop, ``[3]`` a batch
+    that failed outright.
     """
     real = TrackConnectorRepository.ingest_external_tracks_bulk
 
@@ -93,10 +110,6 @@ def _bulk_fails_batch_succeeds_singly(
         return await real(self, connector, tracks, user_id=user_id)
 
     return patch.object(TrackConnectorRepository, "ingest_external_tracks_bulk", fake)
-
-
-# Arbitrary but stable: this file is the only user of this advisory-lock key.
-_CONTENTION_LOCK_KEY = 918_273_645
 
 
 class _LockHolder:
@@ -111,45 +124,51 @@ class _LockHolder:
             await self._trans.rollback()
 
 
-async def _wait_on_the_held_lock(session: AsyncSession) -> None:
-    """Queue on the competing writer's lock until ``lock_timeout`` fires.
+@pytest.fixture
+def probe_engine(_test_engine: AsyncEngine) -> AsyncEngine:
+    """The session engine, under a name a test may take as a parameter.
 
-    Production's statement is an ``INSERT INTO tracks`` blocked on
-    ``uq_tracks_user_isrc`` by a concurrent uncommitted writer; what reaches
-    the service is the same SQLAlchemy wrapper around
-    ``psycopg.errors.LockNotAvailable`` (SQLSTATE 55P03) either way, and an
-    advisory lock produces it deterministically instead of racing two real
-    ingests inside one test. The transaction is left aborted, as it is in
-    production.
+    Tests cannot inject ``_test_engine`` directly (ruff PT019 bans
+    underscore-prefixed fixture parameters); the lock probe needs a connection
+    of its own, so it borrows the engine through here.
     """
-    _ = await session.execute(text("SET LOCAL lock_timeout = '200ms'"))
-    _ = await session.execute(
-        text(f"SELECT pg_advisory_xact_lock({_CONTENTION_LOCK_KEY})")
-    )
+    return _test_engine
 
 
-def _bulk_hits_lock_contention(
-    session: AsyncSession,
-    calls: list[int],
-    *,
-    releasing: _LockHolder | None = None,
-):
-    """Every *batch* ingest blocks on the competing writer's lock and times out.
+async def _ingest_lock_has_a_waiter(engine: AsyncEngine) -> bool:
+    """Whether someone is queued on the ingest-lock class right now.
 
-    With ``releasing`` set, that writer finishes as the first attempt fails —
-    the ordinary case the retry exists for. Without it the contention outlives
-    both attempts, which is the case that has to fail loudly.
+    Read from ``pg_locks`` rather than inferred from elapsed time: the ingest
+    takes a few hundred milliseconds of its own, so a clock comparison cannot
+    tell "waited for the lock" from "was simply slow".
+    """
+    class_id, _ = ingest_lock_keys(USER)
+    async with engine.connect() as conn:
+        return bool(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                        "AND NOT granted AND classid::bigint = :class_id"
+                    ),
+                    {"class_id": class_id},
+                )
+            ).scalar_one()
+        )
+
+
+def _recording_ingest(calls: list[int]):
+    """Run the real bulk ingest, noting the size of every attempt.
+
+    No behaviour is faked: the contention comes from a second connection
+    genuinely holding the user's ingest lock, which is what the implementation
+    now waits on. ``calls`` is only how a test tells one batch attempt apart
+    from a per-track split.
     """
     real = TrackConnectorRepository.ingest_external_tracks_bulk
 
     async def fake(self, connector, tracks, *, user_id):
         calls.append(len(tracks))
-        if len(tracks) > 1:
-            try:
-                await _wait_on_the_held_lock(session)
-            finally:
-                if releasing is not None:
-                    await releasing.release()
         return await real(self, connector, tracks, user_id=user_id)
 
     return patch.object(TrackConnectorRepository, "ingest_external_tracks_bulk", fake)
@@ -252,32 +271,36 @@ class TestBulkIngestFailureIsContained:
         )
 
 
-class TestTransientContentionIsRetriedWholesale:
-    """55P03 is not a bad row — it is someone else holding the identity key.
+_SERIALIZATION_USER = "ingest-lock-serialization-probe"
+
+
+class TestTheIngestLockAbsorbsContention:
+    """The two canonical-track writers queue at the lock, not in the index.
 
     ``RunWorkflowUseCase`` starts a play import and deliberately doesn't await
     it, so an inward resolver's ``save_tracks`` routinely holds uncommitted
-    ``tracks`` rows while this ingest runs. Answering that with the per-track
-    loop makes it worse in the exact way that hurts: each retry queues on the
-    same contended index in turn, so the batch spends N times ``lock_timeout``
-    (measured: 33.7s at a 1s timeout, ~5.5 minutes at production's 10s) and
-    resolves *nothing* — every position silently recorded UNRESOLVED, no error
-    anywhere.
+    ``tracks`` rows while this ingest runs. Both writers now take the per-user
+    advisory lock before any row lock, so the loser waits at the lock and then
+    proceeds. Only a holder that outlives ``lock_timeout`` still reaches the
+    service, and that is a loud failure — never a per-track split, which would
+    queue on the same lock once per track and resolve nothing.
     """
 
     @pytest.fixture
-    async def competing_writer(self, _test_engine: AsyncEngine):
-        """A second connection holding a lock ours will queue on.
+    async def lock_holder(self, _test_engine: AsyncEngine):
+        """A second connection holding *this user's* ingest lock.
 
-        A fixture rather than an inline context manager because ``db_session``
-        is savepoint-isolated: the contention has to come from a *separate*
-        connection to be real, and this is the same shape the repositories'
-        claim-race tests use.
+        The same (class_id, obj_id) pair the implementation derives — so this
+        is the real contention the ingest was built to wait on, not a stand-in
+        key. A fixture rather than an inline context manager because
+        ``db_session`` is savepoint-isolated: the holder has to be a separate
+        connection to block anything.
         """
+        class_id, obj_id = ingest_lock_keys(USER)
         async with _test_engine.connect() as conn:
             trans = await conn.begin()
             _ = await conn.exec_driver_sql(
-                f"SELECT pg_advisory_xact_lock({_CONTENTION_LOCK_KEY})"
+                f"SELECT pg_advisory_xact_lock({class_id}, {obj_id})"
             )
             holder = _LockHolder(trans)
             try:
@@ -285,49 +308,66 @@ class TestTransientContentionIsRetriedWholesale:
             finally:
                 await holder.release()
 
-    @pytest.fixture(autouse=True)
-    def _shorten_the_backoff(self):
-        """Elide the real pause. Its length is a production judgement about how
-        long the competing writer takes to commit, not behaviour these tests
-        pin — and a second of sleep per test would push each of them over the
-        project's ``slow`` threshold and out of the default run."""
-        with patch.object(
-            connector_playlist_processing_service,
-            "CONTENTION_RETRY_DELAY_SECONDS",
-            0.05,
-        ):
-            yield
+    @staticmethod
+    async def _release_once_the_ingest_queues(
+        engine: AsyncEngine, holder: _LockHolder, seen: list[bool]
+    ) -> None:
+        """Wait for the ingest to appear at the lock, then let it through."""
+        deadline = time.perf_counter() + 5.0
+        while time.perf_counter() < deadline:
+            if await _ingest_lock_has_a_waiter(engine):
+                seen.append(True)
+                break
+            await asyncio.sleep(0.01)
+        await holder.release()
 
-    async def test_contention_retries_the_batch_and_never_splits_it(
-        self, db_session: AsyncSession, competing_writer: _LockHolder
+    async def test_the_ingest_waits_for_the_lock_and_then_succeeds(
+        self,
+        db_session: AsyncSession,
+        lock_holder: _LockHolder,
+        probe_engine: AsyncEngine,
     ):
-        """The competing writer commits while we back off; the retry lands."""
+        """The ordinary case: a holder that finishes inside the lock budget
+        costs the ingest a wait, not a failure."""
         uow = get_unit_of_work(db_session)
         service = ConnectorPlaylistProcessingService()
         calls: list[int] = []
+        queued: list[bool] = []
+        _ = await db_session.execute(text("SET LOCAL lock_timeout = '10s'"))
 
-        with _bulk_hits_lock_contention(db_session, calls, releasing=competing_writer):
-            resolved = await service._resolve_and_ingest_tracks(
-                BATCH, CONNECTOR, uow, user_id=USER
-            )
+        with _recording_ingest(calls):
+            async with asyncio.TaskGroup() as tg:
+                _ = tg.create_task(
+                    self._release_once_the_ingest_queues(
+                        probe_engine, lock_holder, queued
+                    )
+                )
+                resolved = await service._resolve_and_ingest_tracks(
+                    BATCH, CONNECTOR, uow, user_id=USER
+                )
 
         assert sorted(resolved) == ["sp_aaaaa", "sp_bbbbb", "sp_ccccc"]
-        assert calls == [3, 3], (
-            "contention must be retried as one batch — a per-track loop would "
-            "read [3, 1, 1, 1] and queue on the same lock three more times"
-        )
+        assert queued == [True], "the ingest must have queued on the held lock"
+        assert calls == [3], "one batch, no retry and no per-track split"
 
-    async def test_the_retried_tracks_are_really_persisted(
-        self, db_session: AsyncSession, competing_writer: _LockHolder
+    async def test_the_waited_out_tracks_are_really_persisted(
+        self,
+        db_session: AsyncSession,
+        lock_holder: _LockHolder,
+        probe_engine: AsyncEngine,
     ):
-        """The failed attempt's savepoint rolled back; the retry's writes stand."""
+        """Not just returned: the rows are in the database behind the wait."""
         uow = get_unit_of_work(db_session)
         service = ConnectorPlaylistProcessingService()
+        _ = await db_session.execute(text("SET LOCAL lock_timeout = '10s'"))
         before = (
             await db_session.execute(select(func.count()).select_from(DBTrack))
         ).scalar_one()
 
-        with _bulk_hits_lock_contention(db_session, [], releasing=competing_writer):
+        async with asyncio.TaskGroup() as tg:
+            _ = tg.create_task(
+                self._release_once_the_ingest_queues(probe_engine, lock_holder, [])
+            )
             _ = await service._resolve_and_ingest_tracks(
                 BATCH, CONNECTOR, uow, user_id=USER
             )
@@ -337,75 +377,43 @@ class TestTransientContentionIsRetriedWholesale:
         ).scalar_one()
         assert after == before + len(BATCH)
 
-    async def test_contention_that_outlives_the_retry_fails_the_run(
-        self, db_session: AsyncSession, competing_writer: _LockHolder
+    async def test_a_holder_outliving_the_lock_timeout_fails_the_run(
+        self, db_session: AsyncSession, lock_holder: _LockHolder
     ):
-        """Two attempts, then raise. Returning an empty map instead would reach
-        the user as a green run whose every entry reads "Couldn't match"."""
+        """No retry, no split, no empty map. An empty map would reach the user
+        as a green run whose every entry reads "Couldn't match"."""
+        _ = lock_holder  # held for the whole test
         uow = get_unit_of_work(db_session)
         service = ConnectorPlaylistProcessingService()
         calls: list[int] = []
+        _ = await db_session.execute(text("SET LOCAL lock_timeout = '200ms'"))
 
-        with _bulk_hits_lock_contention(db_session, calls):
+        with _recording_ingest(calls):
             with pytest.raises(DBAPIError) as raised:
                 _ = await service._resolve_and_ingest_tracks(
                     BATCH, CONNECTOR, uow, user_id=USER
                 )
 
         assert postgres_sqlstate(raised.value) == LOCK_NOT_AVAILABLE
-        assert calls == [3, 3], "one retry, then give up — not a loop, not per track"
-
-    async def test_a_non_contention_retry_failure_takes_the_per_track_path(
-        self, db_session: AsyncSession, competing_writer: _LockHolder
-    ):
-        """First failure is contention; the retry hits an ordinary error (the
-        competitor committed our key → e.g. 23505). That is the per-track
-        loop's case — not a wholesale run failure mislabeled as contention."""
-        uow = get_unit_of_work(db_session)
-        service = ConnectorPlaylistProcessingService()
-        calls: list[int] = []
-        real = TrackConnectorRepository.ingest_external_tracks_bulk
-
-        async def fake(self, connector, tracks, *, user_id):
-            calls.append(len(tracks))
-            if len(tracks) > 1:
-                if len(calls) == 1:
-                    try:
-                        await _wait_on_the_held_lock(db_session)
-                    finally:
-                        await competing_writer.release()
-                else:
-                    _ = await db_session.execute(text("SELECT 1 / 0"))
-            return await real(self, connector, tracks, user_id=user_id)
-
-        with patch.object(
-            TrackConnectorRepository, "ingest_external_tracks_bulk", fake
-        ):
-            resolved = await service._resolve_and_ingest_tracks(
-                BATCH, CONNECTOR, uow, user_id=USER
-            )
-
-        assert sorted(resolved) == ["sp_aaaaa", "sp_bbbbb", "sp_ccccc"]
-        assert calls == [3, 3, 1, 1, 1], (
-            "contention retry, then a non-contention failure isolated per track"
-        )
+        assert calls == [3], "one attempt, then give up — not a loop, not per track"
 
     async def test_the_giving_up_names_the_sqlstate(
         self,
         db_session: AsyncSession,
-        competing_writer: _LockHolder,
+        lock_holder: _LockHolder,
         capsys: pytest.CaptureFixture[str],
     ):
         """The log has to say *contention*, or the next reader diagnoses the
         wrong thing — as happened when this arrived as 32 ingest failures."""
+        _ = lock_holder
         uow = get_unit_of_work(db_session)
         service = ConnectorPlaylistProcessingService()
+        _ = await db_session.execute(text("SET LOCAL lock_timeout = '200ms'"))
 
-        with _bulk_hits_lock_contention(db_session, []):
-            with pytest.raises(DBAPIError):
-                _ = await service._resolve_and_ingest_tracks(
-                    BATCH, CONNECTOR, uow, user_id=USER
-                )
+        with pytest.raises(DBAPIError):
+            _ = await service._resolve_and_ingest_tracks(
+                BATCH, CONNECTOR, uow, user_id=USER
+            )
 
         out = capsys.readouterr().out
         assert "transient database contention" in out
@@ -413,18 +421,114 @@ class TestTransientContentionIsRetriedWholesale:
         assert "retrying them one at a time" not in out
 
     async def test_the_transaction_survives_a_contended_ingest(
-        self, db_session: AsyncSession, competing_writer: _LockHolder
+        self, db_session: AsyncSession, lock_holder: _LockHolder
     ):
-        """Both attempts ran in savepoints, so the caller's transaction can
+        """The attempt ran in a savepoint, so the caller's transaction can
         still record the failure it is about to report."""
+        _ = lock_holder
         uow = get_unit_of_work(db_session)
         service = ConnectorPlaylistProcessingService()
+        _ = await db_session.execute(text("SET LOCAL lock_timeout = '200ms'"))
 
-        with _bulk_hits_lock_contention(db_session, []):
-            with pytest.raises(DBAPIError):
-                _ = await service._resolve_and_ingest_tracks(
-                    BATCH, CONNECTOR, uow, user_id=USER
-                )
+        with pytest.raises(DBAPIError):
+            _ = await service._resolve_and_ingest_tracks(
+                BATCH, CONNECTOR, uow, user_id=USER
+            )
 
         async with uow.savepoint():
             assert (await db_session.execute(text("SELECT 1"))).scalar_one() == 1
+
+
+class TestTheTwoWritersSerialize:
+    """The real race, run for real: ``save_tracks`` against the bulk ingest.
+
+    Both writers claim ``uq_tracks_user_isrc`` for the same user. Left to
+    race, the second blocks inside the index on the first's uncommitted row
+    until ``lock_timeout``. With the lock, it blocks at the lock instead and
+    proceeds the moment the first transaction ends — the difference being that
+    the wait is bounded by the writer, not by the timeout.
+
+    Needs an engine of its own: ``db_session`` is one savepoint-wrapped
+    session, and two genuinely separate connections is the whole point (the
+    ``test_bulk_upsert_contention.py`` pattern).
+    """
+
+    _ISRC = "GBBPW1300777"
+
+    @async_fixture
+    async def concurrent_sessions(
+        self, postgres_url: str, _init_test_schema: None
+    ) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+        """A factory whose sessions really do run in separate transactions."""
+        engine = create_async_engine(postgres_url)
+        try:
+            yield async_sessionmaker(engine, expire_on_commit=False)
+        finally:
+            # Only writer A commits; sweep its rows either way.
+            async with engine.begin() as conn:
+                _ = await conn.execute(
+                    text("DELETE FROM tracks WHERE user_id = :uid"),
+                    {"uid": _SERIALIZATION_USER},
+                )
+            await engine.dispose()
+
+    async def test_the_bulk_ingest_waits_for_an_open_save_tracks(
+        self, concurrent_sessions: async_sessionmaker[AsyncSession]
+    ):
+        """B cannot get past the lock while A's transaction is open, and lands
+        as soon as it commits."""
+        order: list[str] = []
+
+        async def writer_a() -> None:
+            async with concurrent_sessions() as session:
+                _ = await TrackRepository(session).save_tracks([
+                    Track(
+                        title="You Took Your Time",
+                        artists=[Artist(name="Mount Kimbie")],
+                        isrc=self._ISRC,
+                        user_id=_SERIALIZATION_USER,
+                    )
+                ])
+                order.append("a-wrote")
+                # Hold the transaction — and the lock — open.
+                await asyncio.sleep(0.3)
+                await session.commit()
+                order.append("a-committed")
+
+        async def writer_b() -> list[Track]:
+            await asyncio.sleep(0.05)  # let A take the lock first
+            async with concurrent_sessions() as session:
+                # Bounded, so a regression that never releases fails instead
+                # of hanging the suite.
+                _ = await session.execute(text("SET lock_timeout = '10s'"))
+                ingested = await TrackConnectorRepository(
+                    session
+                ).ingest_external_tracks_bulk(
+                    CONNECTOR,
+                    [
+                        ConnectorTrack(
+                            connector_name=CONNECTOR,
+                            connector_track_identifier="sp_serial1",
+                            title="You Took Your Time",
+                            artists=[Artist(name="Mount Kimbie")],
+                            album="Cold Spring Fault Less Youth",
+                            duration_ms=216399,
+                            isrc=self._ISRC,
+                            raw_metadata={},
+                            last_updated=datetime.now(UTC),
+                        )
+                    ],
+                    user_id=_SERIALIZATION_USER,
+                )
+                order.append("b-ingested")
+                await session.rollback()
+                return ingested
+
+        async with asyncio.TaskGroup() as tg:
+            _ = tg.create_task(writer_a())
+            ingest = tg.create_task(writer_b())
+
+        assert order == ["a-wrote", "a-committed", "b-ingested"], (
+            "the ingest must not enter while save_tracks holds the lock"
+        )
+        assert len(ingest.result()) == 1, "and it must still succeed afterwards"

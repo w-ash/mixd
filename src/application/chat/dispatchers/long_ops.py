@@ -377,7 +377,7 @@ SPECS: list[dict[str, object]] = [
         ),
         "input_schema": IMPORT_DATA_INPUT_SCHEMA,
         "dispatch": handle_import_data,
-        "use_cases": ("ImportTracksUseCase", "ImportSpotifyLikesUseCase"),
+        "use_cases": ("ImportTracksUseCase", "ImportLikesUseCase"),
         "kind": "write",
         "launches_operation": True,
     },

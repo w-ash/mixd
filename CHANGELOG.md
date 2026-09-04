@@ -6,6 +6,22 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.6] — 2026-09-03
+
+**A workflow run and an import can now share the database without one losing to a lock timeout, and the application layer asks a connector what it can do instead of guessing.** A per-user advisory lock taken before any row lock replaces the retry-after-collision dance, so two writers queue instead of deadlocking. Use cases resolve connectors through declared capabilities narrowed by runtime protocols, and every transform is pure domain code with no logging and no application imports.
+
+- **Writers serialised at the source.** `save_tracks` and `ingest_external_tracks_bulk` take a per-user `pg_advisory_xact_lock` first; the application-layer contention retry is deleted. Proven with a two-writer integration test.
+- **Declared capabilities over probing.** `ConnectorDescriptor` + `ServiceConnectorProvider.describe()`; `resolve_capability()` checks the declaration then narrows via `@runtime_checkable` protocols. `hasattr`, `cast`, and hardcoded service names are gone from use cases. Likes import/export is connector-agnostic.
+- **Transforms are domain.** `metadata_transforms/` moved to `domain/transforms/`; the missing-metric warning moved to the node wrapper that knows the config. Date-valued metrics sort correctly, and every sort-direction dropdown in the workflow editor is honoured.
+- **Loves export tells the truth.** A failed `love_tracks` counts as an error, and the checkpoint is a low watermark over outstanding work that can move backwards.
+- **Boundaries fail the right way.** Tag filters match nothing on values that cannot be tags instead of aborting the run; a numeric keyset cursor is a client error instead of a page-one replay; a connector that fails to import at boot is a loud failure rather than a permanently empty required dropdown.
+- **No stranded pools.** The Spotify play resolver closes the connector it owns; the Last.fm resolver closes its cross-discovery provider only when it owns it.
+- **Truer diagnostics.** Integer JSON:API `status` bodies keep their detail; MusicBrainz attributes a failure to the one code that failed and survives a whole-call error with the artist/title fallback intact; ListenBrainz pairs answers positionally per the endpoint's contract; a refresh response that omits the refresh token never loses the grant.
+- **Collapses.** Six play-import handlers → one two-phase runner; 30 chat envelope literals and 33 raw UUID parses → shared helpers; registry-derived connector/service/metric options; Tidal snapshot and chat read-only tool rounds fan out concurrently; checkpoint dashboard 8 queries → 2.
+- **Tests.** The Last.fm status probe has its first test file; the mock connector provider declares what the real registry declares, so the capability gate is testable.
+
+→ [details](docs/backlog/v0.11.x.md#v0116-application-layer-quality-sweep)
+
 ## [0.11.5] — 2026-08-28
 
 **Big imports run faster, and adding the seventh connector no longer means writing the seventh copy.** Apple catalog lookups fetch concurrently instead of one round trip at a time, Last.fm cross-discovery batches what it used to ask one identifier at a time, playlist sync drops pure sleep time stacked on an already-paced client, and every service's rate budget is enforced by exactly one mechanism. Behavior-preserving except where the duplication itself was the bug.

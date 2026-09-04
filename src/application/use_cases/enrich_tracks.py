@@ -7,7 +7,7 @@ Supports two types of enrichment:
 Processes multiple tracks efficiently in batches.
 """
 
-from typing import Literal, Never, cast
+from typing import Literal, assert_never, cast
 from uuid import UUID
 
 from attrs import define, field
@@ -30,7 +30,6 @@ logger = get_logger(__name__)
 
 # Type definitions for enrichment configuration
 EnrichmentType = Literal["external_metadata", "play_history", "preferences", "tags"]
-ConnectorType = Literal["spotify", "lastfm", "musicbrainz"]
 
 
 @define(frozen=True, slots=True)
@@ -43,17 +42,15 @@ class EnrichmentConfig:
 
     enrichment_type: EnrichmentType
 
-    # External metadata enrichment options
-    connector: ConnectorType | None = None
+    # External metadata enrichment options. ``connector`` is any registered
+    # connector name; unknown names fail at resolve time in the registry.
+    connector: str | None = None
     connector_instance: TrackMetadataConnector | None = None
     track_metric_names: list[str] = field(factory=list)
 
     # Play history enrichment options
     metrics: list[str] = field(factory=lambda: ["total_plays", "last_played_dates"])
     period_days: int | None = None
-
-    # Common options
-    additional_options: dict[str, object] = field(factory=dict)
 
     def __attrs_post_init__(self) -> None:
         """Validate enrichment configuration."""
@@ -90,10 +87,6 @@ class EnrichTracksCommand:
     enrichment_config: EnrichmentConfig
     progress_broker: ProgressBroker | None = None
     parent_operation_id: str | None = None
-
-    def __attrs_post_init__(self) -> None:
-        """Validate command parameters."""
-        # Allow empty tracklists - the use case will handle this gracefully
 
 
 @define(frozen=True, slots=True)
@@ -202,42 +195,38 @@ class EnrichTracksUseCase:
         the same statements remain guarded by the caller's broad ``except``.
         """
 
-        def _raise_unknown_enrichment_type_error(enrichment_type: str) -> Never:
-            raise ValueError(f"Unknown enrichment type: {enrichment_type}")
-
-        # Delegate to appropriate enrichment strategy
-        if command.enrichment_config.enrichment_type == "external_metadata":
-            result = await self._enrich_external_metadata(
-                command.tracklist,
-                command.enrichment_config,
-                uow,
-                user_id=command.user_id,
-                progress_broker=command.progress_broker,
-                parent_operation_id=command.parent_operation_id,
-            )
-        elif command.enrichment_config.enrichment_type == "play_history":
-            result = await self._enrich_play_history(
-                command.tracklist,
-                command.enrichment_config,
-                uow,
-                user_id=command.user_id,
-            )
-        elif command.enrichment_config.enrichment_type == "preferences":
-            result = await self._enrich_preferences(
-                command.tracklist,
-                uow,
-                user_id=command.user_id,
-            )
-        elif command.enrichment_config.enrichment_type == "tags":
-            result = await self._enrich_tags(
-                command.tracklist,
-                uow,
-                user_id=command.user_id,
-            )
-        else:
-            _raise_unknown_enrichment_type_error(
-                command.enrichment_config.enrichment_type
-            )
+        # Delegate to the strategy for the configured enrichment type.
+        match command.enrichment_config.enrichment_type:
+            case "external_metadata":
+                result = await self._enrich_external_metadata(
+                    command.tracklist,
+                    command.enrichment_config,
+                    uow,
+                    user_id=command.user_id,
+                    progress_broker=command.progress_broker,
+                    parent_operation_id=command.parent_operation_id,
+                )
+            case "play_history":
+                result = await self._enrich_play_history(
+                    command.tracklist,
+                    command.enrichment_config,
+                    uow,
+                    user_id=command.user_id,
+                )
+            case "preferences":
+                result = await self._enrich_preferences(
+                    command.tracklist,
+                    uow,
+                    user_id=command.user_id,
+                )
+            case "tags":
+                result = await self._enrich_tags(
+                    command.tracklist,
+                    uow,
+                    user_id=command.user_id,
+                )
+            case _:
+                assert_never(command.enrichment_config.enrichment_type)
 
         enriched_count = sum(len(metrics) for metrics in result[1].values())
 
@@ -279,14 +268,12 @@ class EnrichTracksUseCase:
         """
         logger.info(f"Enriching with {config.connector} metadata")
 
-        # Validate required configuration
-        if config.connector is None:
+        # Narrowing only: EnrichmentConfig.__attrs_post_init__ already enforces
+        # both fields for external_metadata configs.
+        connector, connector_instance = config.connector, config.connector_instance
+        if connector is None or connector_instance is None:
             raise ValueError(
-                "Connector must be specified for external metadata enrichment"
-            )
-        if config.connector_instance is None:
-            raise ValueError(
-                "Connector instance must be provided for external metadata enrichment"
+                "external_metadata enrichment requires connector and connector_instance"
             )
 
         # Get track metric names directly from configuration
@@ -299,14 +286,14 @@ class EnrichTracksUseCase:
         track_ids = [t.id for t in tracklist.tracks]
 
         logger.info(
-            f"Fetching {len(metric_names)} metrics for {len(track_ids)} tracks from {config.connector}"
+            f"Fetching {len(metric_names)} metrics for {len(track_ids)} tracks from {connector}"
         )
 
         # Step 1: Ensure tracks have connector mappings for metric collection
         await self._ensure_track_identities(
             tracklist=tracklist,
-            connector=config.connector,
-            connector_instance=config.connector_instance,
+            connector=connector,
+            connector_instance=connector_instance,
             uow=uow,
             user_id=user_id,
             progress_broker=progress_broker,
@@ -316,10 +303,10 @@ class EnrichTracksUseCase:
         # Step 2: Use MetricsApplicationService for cache-first metric resolution
         metrics, fresh_ids = await self.metrics_service.get_external_track_metrics(
             track_ids=track_ids,
-            connector=config.connector,
+            connector=connector,
             metric_names=metric_names,
             uow=uow,
-            connector_instance=config.connector_instance,
+            connector_instance=connector_instance,
             progress_broker=progress_broker,
             parent_operation_id=parent_operation_id,
         )

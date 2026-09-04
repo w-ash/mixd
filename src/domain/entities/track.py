@@ -147,6 +147,7 @@ class TrackLike:
     is_liked: bool = True  # Default to liked since most cases create likes
     liked_at: datetime | None = None
     last_synced: datetime | None = None
+    updated_at: datetime | None = None
     id: UUID = field(factory=uuid7)
 
 

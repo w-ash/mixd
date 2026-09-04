@@ -14,6 +14,8 @@ from structlog.testing import capture_logs
 
 from src.application.services.play_import_orchestrator import (
     _MAX_RECORDED_RESOLUTION_FAILURES,
+    _RESOLUTION_METRIC_TABLE,
+    _RUN_METRIC_KEYS,
     PlayImportOrchestrator,
 )
 from src.application.services.progress_broker import ProgressBroker
@@ -581,6 +583,42 @@ class TestSpotifyResolutionMetricsPropagation:
         assert "redirect_resolved" not in metric_names
         assert "dead_ids_unresolved" not in metric_names
         assert "isrc_suspect_deferred" not in metric_names
+
+
+class TestResolutionMetricTable:
+    """One table feeds both surfaces, so a counter cannot reach one and miss the
+    other; the two significance columns keep each surface's display order."""
+
+    def test_every_row_is_a_counted_run_metric(self):
+        assert {key for key, *_ in _RESOLUTION_METRIC_TABLE} <= set(_RUN_METRIC_KEYS)
+
+    def test_carried_rows_keep_their_own_order_and_significance(self):
+        carried = [
+            (key, significance)
+            for key, _label, _resolution, significance in _RESOLUTION_METRIC_TABLE
+            if significance is not None
+        ]
+        assert carried == [
+            ("duration_excluded", 4),
+            ("incognito_excluded", 4),
+            ("fallback_resolved", 7),
+            ("redirect_resolved", 8),
+            ("dead_ids_unresolved", 9),
+            ("isrc_suspect_deferred", 10),
+        ]
+
+    def test_resolution_only_counters_are_not_carried(self):
+        not_carried = {
+            key
+            for key, _label, _resolution, significance in _RESOLUTION_METRIC_TABLE
+            if significance is None
+        }
+        assert not_carried == {
+            "write_failed",
+            "suppressed",
+            "reused_tracks",
+            "degraded_persists",
+        }
 
 
 class TestIncrementalCommit:

@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.11.5"
+version = "0.11.6"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -284,6 +284,9 @@ unfixable = []
 "src/infrastructure/connectors/spotify/client.py" = [
     "too-many-public-methods",  # One method per Spotify Web API endpoint — breadth tracks the API surface, not design complexity
 ]
+"src/infrastructure/connectors/spotify/connector.py" = [
+    "too-many-public-methods",  # Facade implements every capability protocol Spotify satisfies — breadth tracks the port surface, not design complexity
+]
 "src/application/use_cases/*.py" = ["unused-method-argument"] # Allow parameter forwarding patterns in orchestrators
 "src/application/workflows/observers.py" = ["unused-method-argument"] # Protocol implementations must match signatures
 "src/interface/api/oauth/provider.py" = ["unused-method-argument"] # SDK OAuthAuthorizationServerProvider protocol signatures
@@ -513,26 +516,16 @@ ignore_imports = [
     "src.application.runner -> src.infrastructure.persistence.database.db_connection",
     "src.application.runner -> src.infrastructure.persistence.database.user_context",
     "src.application.runner -> src.infrastructure.persistence.repositories.factories",
-    "src.application.workflows.context -> src.infrastructure.connectors",
-    "src.application.workflows.context -> src.infrastructure.connectors.protocols",
-    "src.application.workflows.context -> src.infrastructure.persistence.database.db_connection",
-    "src.application.workflows.context -> src.infrastructure.persistence.database.user_context",
-    "src.application.workflows.context -> src.infrastructure.persistence.repositories.factories",
-    # application-patterns.md: the function-scoped `MetricConfigProviderImpl`
-    # import (the `metric_config` protocol's concrete provider; precedent
-    # `sync_playlist_link.py`), imported inside the function that needs it.
-    "src.application.workflows.context -> src.infrastructure.connectors._shared.metric_registry",
-    "src.application.use_cases.sync_playlist_link -> src.infrastructure.connectors._shared.metric_registry",
-    "src.application.use_cases.preview_playlist_sync -> src.infrastructure.connectors._shared.metric_registry",
-    "src.application.use_cases.import_connector_playlist_as_canonical -> src.infrastructure.connectors._shared.metric_registry",
-    "src.application.chat.dispatchers.playlists_write -> src.infrastructure.connectors._shared.metric_registry",
-    # Same bridge, as an attrs `factory=` default rather than a call-site
-    # construction. It lives once, beside the protocol it provides, so the use
-    # cases the CLI and API construct directly get a default without
-    # `interface/` needing to know the concrete class — callers holding a
-    # provider still pass it explicitly. Consumers reach it indirectly, which
-    # this contract's `allow_indirect_imports` already covers.
+    # application-patterns.md: the `metric_config` protocol's concrete provider,
+    # imported inside the function that needs it. It lives once, beside the
+    # protocol it provides, so every consumer — a call-site construction or an
+    # attrs `factory=` default — reaches it through `default_metric_config()`
+    # and `interface/` never has to name the concrete class. Consumers reach it
+    # indirectly, which this contract's `allow_indirect_imports` already covers.
     "src.application.use_cases._shared.metric_config -> src.infrastructure.connectors._shared.metric_registry",
+    # Same bridge shape for the connector registry: the `connector_catalog`
+    # protocol's concrete provider, imported inside the method that needs it.
+    "src.application.use_cases._shared.connector_catalog -> src.infrastructure.connectors",
 ]
 
 [[tool.importlinter.contracts]]

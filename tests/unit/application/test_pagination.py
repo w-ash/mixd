@@ -12,6 +12,7 @@ import pytest
 from src.application.pagination import (
     TRACK_SORT_COLUMNS,
     PageCursor,
+    cursor_datetime_bound,
     cursor_sort_value_from_row,
     cursor_sort_value_to_query,
     decode_cursor,
@@ -149,6 +150,20 @@ class TestCursorSortValueConversion:
     def test_none_passthrough(self) -> None:
         assert cursor_sort_value_from_row("title", None) is None
         assert cursor_sort_value_to_query("title", None) is None
+
+    def test_numeric_value_on_datetime_column_raises(self) -> None:
+        # A tampered or foreign cursor carrying a number for played_at used to
+        # fall through as "no bound" and replay page one forever.
+        with pytest.raises(ValueError, match="ISO datetime string"):
+            _ = cursor_sort_value_to_query("played_at", 123)
+        with pytest.raises(ValueError, match="ISO datetime string"):
+            _ = cursor_sort_value_to_query("started_at", 1.5)
+
+    def test_datetime_bound_requires_a_value(self) -> None:
+        dt = datetime(2025, 3, 15, 10, 0, 0, tzinfo=UTC)
+        assert cursor_datetime_bound("played_at", dt.isoformat()) == dt
+        with pytest.raises(ValueError, match="must be a datetime"):
+            _ = cursor_datetime_bound("played_at", None)
 
 
 class TestSortRegistriesStayInSync:

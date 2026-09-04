@@ -812,6 +812,23 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         # Convert to domain model
         return await self.mapper.to_domain(db_model)
 
+    @db_operation("is_owned_by")
+    async def is_owned_by(self, playlist_id: UUID, *, user_id: str) -> bool:
+        """Report whether the playlist exists and belongs to the user.
+
+        An ID-only probe for IDOR prevention: an authorisation check pays for
+        one indexed lookup instead of the 3-table hydration
+        ``get_playlist_by_id`` performs. A playlist owned by another user is
+        reported the same as a missing one — False either way, so the answer
+        leaks nothing about other users' rows.
+        """
+        stmt = select(DBPlaylist.id).where(
+            DBPlaylist.id == playlist_id,
+            DBPlaylist.user_id == user_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
     @db_operation("get_playlist_by_connector")
     async def get_playlist_by_connector(
         self,

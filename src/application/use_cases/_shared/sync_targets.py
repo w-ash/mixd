@@ -19,14 +19,15 @@ it fully dispatchable by the scheduler.
 
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Final, Literal
 
 from attrs import define
 
 from src.application.use_cases.import_play_history import run_import
 from src.application.use_cases.sync_likes import (
-    run_lastfm_likes_export,
-    run_spotify_likes_import,
+    run_likes_import,
+    run_loves_export,
 )
 from src.domain.entities.operations import OperationResult
 from src.domain.services.play_poll_decision import PollTrigger
@@ -152,12 +153,12 @@ SYNC_TARGETS: Final[Mapping[str, SyncTargetSpec]] = {
     ),
     "spotify:likes": SyncTargetSpec(
         label="Spotify likes",
-        run=run_spotify_likes_import,
+        run=partial(run_likes_import, connector="spotify"),
         operation_type="import_spotify_likes",
     ),
     "lastfm:likes": SyncTargetSpec(
         label="Last.fm loves",
-        run=run_lastfm_likes_export,
+        run=partial(run_loves_export, connector="lastfm"),
         operation_type="export_lastfm_likes",
     ),
     "spotify:plays": SyncTargetSpec(
@@ -204,7 +205,7 @@ def sync_result_failed(result: object) -> bool:
     """True if a sync dispatch's return value signals a (soft) failure.
 
     The sync use cases behind ``SYNC_TARGETS`` (``run_import``,
-    ``run_spotify_likes_import``, ``run_lastfm_likes_export``) do NOT raise on a
+    ``run_likes_import``, ``run_loves_export``) do NOT raise on a
     handled failure — they catch it and return an ``OperationResult`` that records
     the failure via an ``errors`` summary metric and an ``error`` metadata key
     (see ``import_play_history``). The runner must read that signal, otherwise a

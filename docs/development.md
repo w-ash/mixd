@@ -47,7 +47,7 @@ pyproject.toml  ──→  importlib.metadata.version("mixd")
 
 ### Workflow Node
 ```python
-# Create transform in domain/transforms/ or application/metadata_transforms/
+# Create transform in domain/transforms/ (pure — metadata-aware included)
 # Register in application/workflows/node_catalog.py
 
 from src.application.workflows.node_catalog import node

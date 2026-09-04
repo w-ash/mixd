@@ -393,6 +393,49 @@ class TestManageSchedulePropose:
                 {"operation": "toggle", "workflow_id": str(uuid4())}, _CTX
             )
 
+    async def test_out_of_range_hour_is_rejected_by_the_domain_validator(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
+        with pytest.raises(ToolExecutionError, match="hour must be 0-23"):
+            await workflows_write.handle_manage_schedule(
+                {"operation": "upsert", "workflow_id": str(uuid4()), "hour": 25}, _CTX
+            )
+
+    async def test_out_of_range_minute_is_rejected_by_the_domain_validator(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
+        with pytest.raises(ToolExecutionError, match="minute must be 0-59"):
+            await workflows_write.handle_manage_schedule(
+                {"operation": "upsert", "workflow_id": str(uuid4()), "minute": 60},
+                _CTX,
+            )
+
+    async def test_out_of_range_day_of_week_is_rejected_by_the_domain_validator(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
+        with pytest.raises(ToolExecutionError, match="day_of_week must be 0"):
+            await workflows_write.handle_manage_schedule(
+                {
+                    "operation": "upsert",
+                    "workflow_id": str(uuid4()),
+                    "day_of_week": 7,
+                },
+                _CTX,
+            )
+
+    async def test_toggle_mistyped_enabled_rejected(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
+        with pytest.raises(ToolExecutionError, match="true or false"):
+            await workflows_write.handle_manage_schedule(
+                {
+                    "operation": "toggle",
+                    "workflow_id": str(uuid4()),
+                    "enabled": "yes",
+                },
+                _CTX,
+            )
+
 
 # ---------------------------------------------------------------------------
 # manage_schedule — exec
@@ -494,6 +537,26 @@ class TestExecManageSchedule:
 
         with pytest.raises(ToolExecutionError, match="validation at confirm time"):
             await workflows_write.exec_manage_schedule(action, "default")
+
+
+async def test_exec_schedule_malformed_workflow_id_is_actionable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _raise(factory, user_id: str | None = None):
+        raise AssertionError("not reached")
+
+    monkeypatch.setattr(_common, "execute_use_case", _raise)
+    action = await _action(
+        "manage_schedule",
+        {
+            "operation": "delete",
+            "workflow_id": "not-a-uuid",
+            "sync_target": None,
+        },
+    )
+
+    with pytest.raises(ToolExecutionError, match="must be a UUID string"):
+        await workflows_write.exec_manage_schedule(action, "default")
 
 
 def test_specs_expose_both_write_tools() -> None:

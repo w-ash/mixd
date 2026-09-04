@@ -230,7 +230,9 @@ class SpotifyTokenManager:
         # refresh-grant window; account_name is the status probe's /me
         # backfill) — carry all four forward from the cached token.
         merged = carry_forward_token_fields(
-            cast("StoredToken", raw), cast("StoredToken | None", self._token_info)
+            cast("StoredToken", raw),
+            cast("StoredToken | None", self._token_info),
+            refresh_token=refresh_token,
         )
         logger.debug("Spotify access token refreshed successfully")
         return cast("SpotifyTokenCache", merged)

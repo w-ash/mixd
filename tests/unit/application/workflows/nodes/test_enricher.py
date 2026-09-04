@@ -18,8 +18,7 @@ from src.application.use_cases.enrich_tracks import EnrichmentConfig
 from src.application.workflows.nodes import catalog
 from src.application.workflows.nodes.enricher import enrich_spotify_liked_status
 from src.application.workflows.nodes.factories import (
-    build_preferences_enrichment_config,
-    build_tags_enrichment_config,
+    static_enrichment_config,
 )
 from src.application.workflows.nodes.registry import get_node
 from src.domain.entities.track import TrackList
@@ -255,20 +254,22 @@ class TestPreferenceAndTagEnricherRegistration:
 
     def test_preferences_config_builder_produces_correct_type(self):
         ctx = MagicMock()
-        config = build_preferences_enrichment_config(ctx, {})
+        config = static_enrichment_config("preferences")(ctx, {})
         assert isinstance(config, EnrichmentConfig)
         assert config.enrichment_type == "preferences"
 
     def test_tags_config_builder_produces_correct_type(self):
         ctx = MagicMock()
-        config = build_tags_enrichment_config(ctx, {})
+        config = static_enrichment_config("tags")(ctx, {})
         assert isinstance(config, EnrichmentConfig)
         assert config.enrichment_type == "tags"
 
     def test_builders_ignore_user_config(self):
         """Both builders take no user-facing config — any passed config is ignored."""
         ctx = MagicMock()
-        pref_config = build_preferences_enrichment_config(ctx, {"anything": "ignored"})
-        tag_config = build_tags_enrichment_config(ctx, {"anything": "ignored"})
+        pref_config = static_enrichment_config("preferences")(
+            ctx, {"anything": "ignored"}
+        )
+        tag_config = static_enrichment_config("tags")(ctx, {"anything": "ignored"})
         assert pref_config.enrichment_type == "preferences"
         assert tag_config.enrichment_type == "tags"

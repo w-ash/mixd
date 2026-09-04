@@ -365,12 +365,29 @@ class TestLifecycle:
             "src.infrastructure.connectors.lastfm.play_resolver.LastFMAPIClient",
             return_value=client,
         ):
-            resolver = LastfmConnectorPlayResolver(cross_discovery=provider)
+            resolver = LastfmConnectorPlayResolver(
+                cross_discovery=provider, owns_cross_discovery=True
+            )
 
         await resolver.aclose()
 
         client.aclose.assert_awaited_once()
         provider.aclose.assert_awaited_once()
+
+    async def test_aclose_leaves_injected_provider_open(self):
+        """A provider shared by two resolvers must survive the first one's
+        teardown — only the resolver flagged as owner closes it."""
+        provider = MagicMock()
+        provider.aclose = AsyncMock()
+        resolver = LastfmConnectorPlayResolver(
+            cross_discovery=provider,
+            lastfm_client=AsyncMock(),
+            inward_resolver=AsyncMock(),
+        )
+
+        await resolver.aclose()
+
+        provider.aclose.assert_not_awaited()
 
     async def test_aclose_leaves_injected_client_open(self):
         """An injected client belongs to the caller; with no cross-discovery

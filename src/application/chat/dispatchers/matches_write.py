@@ -18,10 +18,10 @@ UI does, so RLS scoping and validation are identical to a human doing it.
 
 from collections.abc import Mapping
 from typing import Literal, cast
-from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
     propose_action,
     require_choice,
     require_uuid,
@@ -273,12 +273,13 @@ async def handle_manage_track_matches(
     return await _propose_resolve_review(tool_input, ctx)
 
 
-async def _exec_relink(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_relink(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     command = RelinkConnectorTrackCommand(
         user_id=user_id,
-        mapping_id=UUID(str(d["mapping_id"])),
-        new_track_id=UUID(str(d["new_track_id"])),
-        current_track_id=UUID(str(d["current_track_id"])),
+        mapping_id=require_uuid(d, "mapping_id"),
+        new_track_id=require_uuid(d, "new_track_id"),
+        current_track_id=require_uuid(d, "current_track_id"),
     )
     result = await commit(
         lambda uow: RelinkConnectorTrackUseCase().execute(command, uow),
@@ -286,19 +287,20 @@ async def _exec_relink(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_COMMIT_NOT_FOUND,
         invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "relink",
-        "old_track_id": str(result.old_track_id),
-        "new_track_id": str(result.new_track_id),
-    }
+    return confirmed(
+        action,
+        "relink",
+        old_track_id=str(result.old_track_id),
+        new_track_id=str(result.new_track_id),
+    )
 
 
-async def _exec_unlink(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_unlink(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     command = UnlinkConnectorTrackCommand(
         user_id=user_id,
-        mapping_id=UUID(str(d["mapping_id"])),
-        current_track_id=UUID(str(d["current_track_id"])),
+        mapping_id=require_uuid(d, "mapping_id"),
+        current_track_id=require_uuid(d, "current_track_id"),
     )
     result = await commit(
         lambda uow: UnlinkConnectorTrackUseCase().execute(command, uow),
@@ -307,19 +309,20 @@ async def _exec_unlink(d: JsonDict, user_id: str) -> JsonValue:
         invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
     orphan = result.orphan_track_id
-    return {
-        "status": "confirmed",
-        "operation": "unlink",
-        "deleted_mapping_id": str(result.deleted_mapping_id),
-        "orphan_track_id": str(orphan) if orphan is not None else None,
-    }
+    return confirmed(
+        action,
+        "unlink",
+        deleted_mapping_id=str(result.deleted_mapping_id),
+        orphan_track_id=str(orphan) if orphan is not None else None,
+    )
 
 
-async def _exec_set_primary(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_set_primary(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     command = SetPrimaryMappingCommand(
         user_id=user_id,
-        mapping_id=UUID(str(d["mapping_id"])),
-        track_id=UUID(str(d["track_id"])),
+        mapping_id=require_uuid(d, "mapping_id"),
+        track_id=require_uuid(d, "track_id"),
     )
     # SetPrimaryMappingUseCase.execute returns None — the confirmation echoes
     # the committed ids rather than a Result object.
@@ -329,18 +332,19 @@ async def _exec_set_primary(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_COMMIT_NOT_FOUND,
         invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "set_primary",
-        "mapping_id": str(command.mapping_id),
-        "track_id": str(command.track_id),
-    }
+    return confirmed(
+        action,
+        "set_primary",
+        mapping_id=str(command.mapping_id),
+        track_id=str(command.track_id),
+    )
 
 
-async def _exec_resolve_review(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_resolve_review(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     command = ResolveMatchReviewCommand(
         user_id=user_id,
-        review_id=UUID(str(d["review_id"])),
+        review_id=require_uuid(d, "review_id"),
         action=cast("Literal['accept', 'reject']", str(d["action"])),
     )
     result = await commit(
@@ -349,20 +353,21 @@ async def _exec_resolve_review(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_COMMIT_NOT_FOUND,
         invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "resolve_review",
-        "review_id": str(result.review.id),
-        "review_status": result.review.status,
-        "mapping_created": result.mapping_created,
-    }
+    return confirmed(
+        action,
+        "resolve_review",
+        review_id=str(result.review.id),
+        review_status=result.review.status,
+        mapping_created=result.mapping_created,
+    )
 
 
-async def _exec_unreject(d: JsonDict, user_id: str) -> JsonValue:
+async def _exec_unreject(action: PendingAction, user_id: str) -> JsonValue:
+    d = action.details
     command = UnrejectMappingCandidateCommand(
         user_id=user_id,
-        connector_track_id=UUID(str(d["connector_track_id"])),
-        candidate_track_id=UUID(str(d["candidate_track_id"])),
+        connector_track_id=require_uuid(d, "connector_track_id"),
+        candidate_track_id=require_uuid(d, "candidate_track_id"),
         source="assistant",
     )
     result = await commit(
@@ -371,13 +376,13 @@ async def _exec_unreject(d: JsonDict, user_id: str) -> JsonValue:
         not_found=_COMMIT_NOT_FOUND,
         invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
-    return {
-        "status": "confirmed",
-        "operation": "unreject",
-        "connector_name": result.connector_name,
-        "connector_track_id": str(result.connector_track_id),
-        "candidate_track_id": str(result.candidate_track_id),
-    }
+    return confirmed(
+        action,
+        "unreject",
+        connector_name=result.connector_name,
+        connector_track_id=str(result.connector_track_id),
+        candidate_track_id=str(result.candidate_track_id),
+    )
 
 
 async def exec_manage_track_matches(action: PendingAction, user_id: str) -> JsonValue:
@@ -391,14 +396,14 @@ async def exec_manage_track_matches(action: PendingAction, user_id: str) -> Json
     d = action.details
     operation = str(d["operation"])
     if operation == "relink":
-        return await _exec_relink(d, user_id)
+        return await _exec_relink(action, user_id)
     if operation == "unlink":
-        return await _exec_unlink(d, user_id)
+        return await _exec_unlink(action, user_id)
     if operation == "set_primary":
-        return await _exec_set_primary(d, user_id)
+        return await _exec_set_primary(action, user_id)
     if operation == "unreject":
-        return await _exec_unreject(d, user_id)
-    return await _exec_resolve_review(d, user_id)
+        return await _exec_unreject(action, user_id)
+    return await _exec_resolve_review(action, user_id)
 
 
 SPECS: list[dict[str, object]] = [

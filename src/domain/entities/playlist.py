@@ -310,3 +310,29 @@ class ConnectorPlaylist:
     def track_ids(self) -> list[str]:
         """All track IDs in this playlist."""
         return [item.connector_track_identifier for item in self.items]
+
+
+@define(frozen=True, slots=True)
+class ConnectorPlaylistSummary:
+    """Cached connector playlist without its item list.
+
+    Carries the same metadata as ``ConnectorPlaylist`` but replaces the
+    ``items`` list with ``item_count``. Browse and picker surfaces need the
+    track count, not the tracks, so the summary keeps the large items JSONB
+    out of the query and out of memory.
+    """
+
+    id: UUID | None
+    connector_name: str
+    connector_playlist_identifier: str
+    name: str
+    description: str | None = None
+    owner: str | None = None
+    owner_id: str | None = None
+    is_public: bool = False
+    collaborative: bool = False
+    follower_count: int | None = None
+    raw_metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
+    snapshot_id: str | None = None
+    last_updated: datetime = field(factory=utc_now_factory)
+    item_count: int = 0

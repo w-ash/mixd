@@ -305,7 +305,9 @@ class TidalTokenManager:
 
         # Rotation should return a new refresh token and may omit scope —
         # carry both forward on omission, plus our extra_data/account_name.
-        new_token = carry_forward_token_fields(stored_token_from_response(raw), current)
+        new_token = carry_forward_token_fields(
+            stored_token_from_response(raw), current, refresh_token=refresh_token
+        )
         logger.debug("Tidal access token refreshed successfully")
         return new_token
 

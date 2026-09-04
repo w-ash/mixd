@@ -8,16 +8,17 @@ from collections.abc import Awaitable, Callable
 
 from attrs import define
 
-# Repository factory functions will be imported locally where needed
-from src.application.use_cases._shared.metric_config import MetricConfigProvider
+from src.application.runner import execute_use_case as run_with_uow
+from src.application.use_cases._shared.connector_catalog import (
+    ConnectorCatalog,
+    default_connector_catalog,
+)
+from src.application.use_cases._shared.metric_config import (
+    MetricConfigProvider,
+    default_metric_config,
+)
 from src.config.constants import BusinessLimits
 from src.domain.repositories.uow import UnitOfWorkProtocol
-
-# Approved infrastructure bridge: context.py is a DI container (like runner.py and
-# executor.py). Infrastructure imports for session creation and SQLAlchemy AsyncSession
-# are intentional wiring — this is the designated integration point for workflow DI.
-from src.infrastructure.connectors.protocols import ConnectorConfig
-from src.infrastructure.persistence.database.db_connection import get_session
 
 from .protocols import (
     ConnectorRegistry,
@@ -30,19 +31,22 @@ from .protocols import (
 class ConnectorRegistryImpl:
     """Registry for music service API connectors.
 
-    Manages access to connectors for music services like Spotify, Last.fm,
-    and MusicBrainz. Automatically discovers available connectors and caches
-    instances so repeated calls return the same connector (same httpx2 pool).
+    Reads names and builds instances through the ``ConnectorCatalog`` port, so
+    the registry never names infrastructure itself. Instances are cached, so
+    repeated calls return the same connector (same httpx2 pool).
     """
 
-    _connectors: dict[str, ConnectorConfig]
+    _catalog: ConnectorCatalog
     _cache: dict[str, object]
 
-    def __init__(self):
-        """Initialize connector registry and discover available connectors."""
-        from src.infrastructure.connectors import discover_connectors
+    def __init__(self, catalog: ConnectorCatalog | None = None) -> None:
+        """Initialize the registry against a connector catalog.
 
-        self._connectors = discover_connectors()
+        Args:
+            catalog: Catalog to read connectors from. Defaults to the
+                discovery-backed catalog.
+        """
+        self._catalog = default_connector_catalog() if catalog is None else catalog
         self._cache = {}
 
     def get_connector(self, name: str) -> object:
@@ -59,10 +63,8 @@ class ConnectorRegistryImpl:
         """
         if name in self._cache:
             return self._cache[name]
-        if name not in self._connectors:
-            raise ValueError(f"Unknown connector: {name}")
 
-        instance = self._connectors[name]["factory"]()
+        instance = self._catalog.create_connector(name)
         self._cache[name] = instance
         return instance
 
@@ -72,7 +74,7 @@ class ConnectorRegistryImpl:
         Returns:
             List of connector names
         """
-        return list(self._connectors.keys())
+        return [descriptor.name for descriptor in self._catalog.list_descriptors()]
 
     async def aclose(self) -> None:
         """Close all cached connector instances and their httpx2 connection pools.
@@ -179,30 +181,6 @@ class ConcreteWorkflowContext:
     metric_config: MetricConfigProvider
     user_id: str = BusinessLimits.DEFAULT_USER_ID
 
-    async def _with_uow[TResult](
-        self,
-        fn: Callable[[UnitOfWorkProtocol], Awaitable[TResult]],
-    ) -> TResult:
-        """Acquire a UnitOfWork and run an async function against it.
-
-        Each call creates a fresh session from the PostgreSQL connection pool.
-        Per-task sessions are safe under MVCC — no shared session needed.
-
-        Wraps execution in ``user_context()`` so the ``after_begin`` event
-        sets ``SET LOCAL app.user_id`` on the PostgreSQL transaction for RLS.
-
-        Args:
-            fn: Async callable receiving a UoW and returning a result.
-        """
-        from src.infrastructure.persistence.database.user_context import user_context
-        from src.infrastructure.persistence.repositories.factories import (
-            get_unit_of_work,
-        )
-
-        async with get_session() as session:
-            with user_context(self.user_id):
-                return await fn(get_unit_of_work(session))
-
     async def execute_service[TResult](
         self,
         service_fn: Callable[[UnitOfWorkProtocol], Awaitable[TResult]],
@@ -211,7 +189,9 @@ class ConcreteWorkflowContext:
 
         General-purpose method for running service calls, repository operations,
         or any async function that needs a UoW — without the caller importing
-        infrastructure.
+        infrastructure. Delegates to the shared runner, so each call creates a
+        fresh session from the PostgreSQL connection pool (safe under MVCC) and
+        scopes it to ``user_id`` for RLS.
 
         Args:
             service_fn: Async callable receiving a UoW and returning a result.
@@ -219,7 +199,7 @@ class ConcreteWorkflowContext:
         Returns:
             Result from the service function.
         """
-        return await self._with_uow(service_fn)
+        return await run_with_uow(service_fn, user_id=self.user_id)
 
     async def execute_use_case[TCommand, TResult](
         self,
@@ -239,7 +219,7 @@ class ConcreteWorkflowContext:
             Typed result from the executed use case.
         """
         use_case = await use_case_getter()
-        return await self._with_uow(lambda uow: use_case.execute(command, uow))
+        return await self.execute_service(lambda uow: use_case.execute(command, uow))
 
 
 def create_workflow_context(
@@ -262,12 +242,8 @@ def create_workflow_context(
     Returns:
         Configured workflow context ready for use
     """
-    from src.infrastructure.connectors._shared.metric_registry import (
-        MetricConfigProviderImpl,
-    )
-
     connectors = ConnectorRegistryImpl()
-    metric_config = MetricConfigProviderImpl()
+    metric_config = default_metric_config()
     use_cases = UseCaseProviderImpl(metric_config=metric_config)
 
     return ConcreteWorkflowContext(

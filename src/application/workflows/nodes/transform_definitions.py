@@ -1,32 +1,23 @@
 """Workflow node definitions mapping config keys to transform functions.
 
 This is a lookup table, not logic. Each entry maps a workflow config key
-(e.g., "filter.by_metric") to the domain or metadata_transforms function
-that implements it, plus a human-readable description for the CLI.
+(e.g., "filter.by_metric") to the domain transform that implements it, plus a
+human-readable description for the CLI.
 
 To add a new transform:
-1. Write the function in domain/transforms/ (pure) or metadata_transforms/ (impure)
+1. Write the function in domain/transforms/ (pure)
 2. Add a TransformEntry here pointing to it
 3. It auto-registers as a workflow node via nodes/catalog.py
+
+Transforms are pure, so any diagnostic logging about their inputs — such as the
+missing-enricher warning below — belongs to this node layer, not the domain.
 """
 
 from collections.abc import Callable, Mapping, Sequence
 from operator import attrgetter
-from typing import NamedTuple, Protocol
+from typing import NamedTuple, Protocol, TypedDict
 
-from src.application.metadata_transforms import (
-    filter_by_explicit,
-    filter_by_metric_range,
-    filter_by_play_history,
-    filter_by_preference,
-    filter_by_tag,
-    filter_by_tag_namespace,
-    sort_by_date,
-    sort_by_play_history,
-    sort_by_preference,
-    weighted_shuffle,
-)
-from src.application.metadata_transforms.metric_routing import route_metric_sorting
+from src.config import get_logger
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
@@ -36,17 +27,29 @@ from src.domain.transforms import (
     exclude_tracks,
     filter_by_date_range,
     filter_by_duration,
+    filter_by_explicit,
     filter_by_liked_status,
+    filter_by_metric_range,
+    filter_by_play_history,
+    filter_by_preference,
     filter_by_release_year,
+    filter_by_tag,
+    filter_by_tag_namespace,
     filter_duplicates,
+    has_metric_values,
     interleave,
     intersect,
     reverse_tracks,
     select_by_method,
     select_by_percentage,
+    sort_by_date,
     sort_by_key_function,
+    sort_by_play_history,
+    sort_by_preference,
+    weighted_shuffle,
 )
 from src.domain.transforms.core import Transform
+from src.domain.transforms.metric_routing import classify_metric, route_metric_sorting
 
 from .config_accessors import (
     cfg_bool,
@@ -57,6 +60,8 @@ from .config_accessors import (
     cfg_str_or_none,
 )
 from .execution_context import NodeContext
+
+logger = get_logger(__name__)
 
 # Transform factory: takes (context, config) and returns a TrackList→TrackList transform.
 type TransformFactory = Callable[
@@ -107,6 +112,31 @@ def _coerce_preference_states(values: Sequence[str]) -> list[PreferenceState]:
     return [v for v in values if v in _VALID_PREFERENCE_STATES]
 
 
+class _PlayHistoryKwargs(TypedDict):
+    """Play-count and date-window constraints shared by the play-history filters."""
+
+    min_plays: int | None
+    max_plays: int | None
+    start_date: str | None
+    end_date: str | None
+    not_played_in_days: int | None
+    played_within_days: int | None
+    include_missing: bool
+
+
+def _play_history_kwargs(cfg: Mapping[str, JsonValue]) -> _PlayHistoryKwargs:
+    """Read the constraints both play-history filters accept from node config."""
+    return {
+        "min_plays": cfg_int(cfg, "min_plays"),
+        "max_plays": cfg_int(cfg, "max_plays"),
+        "start_date": cfg_str_or_none(cfg, "start_date"),
+        "end_date": cfg_str_or_none(cfg, "end_date"),
+        "not_played_in_days": cfg_int(cfg, "not_played_in_days"),
+        "played_within_days": cfg_int(cfg, "played_within_days"),
+        "include_missing": cfg_bool(cfg, "include_missing"),
+    }
+
+
 def _tf(factory: TransformFactory, description: str) -> TransformEntry:
     """Typed TransformEntry constructor enabling lambda type inference.
 
@@ -115,6 +145,39 @@ def _tf(factory: TransformFactory, description: str) -> TransformEntry:
     type inference. This gives every lambda in the registry typed `ctx` and `cfg`.
     """
     return TransformEntry(factory, description)
+
+
+def _warn_when_metric_missing(
+    operation: str, metric_name: str, transform: Transform | TrackList
+) -> Transform | TrackList:
+    """Wrap a metric transform so an unenriched metric warns once per execution.
+
+    The transforms degrade gracefully on missing metrics, which hides a
+    misconfigured pipeline. This wrapper reports it when the node runs.
+    """
+    if isinstance(transform, TrackList):
+        return transform
+
+    def warn_then_apply(tracklist: TrackList) -> TrackList:
+        if tracklist.tracks and not has_metric_values(tracklist, metric_name):
+            logger.warning(
+                f"{operation} '{metric_name}' has no metric data — "
+                "ensure an upstream enricher for this metric is configured"
+            )
+        return transform(tracklist)
+
+    return warn_then_apply
+
+
+def _sort_by_metric(cfg: Mapping[str, JsonValue]) -> Transform | TrackList:
+    """Route a metric sort, warning when an external metric was never enriched."""
+    metric_name = cfg_str(cfg, "metric_name")
+    transform = route_metric_sorting(
+        metric_name, reverse=cfg_bool(cfg, "reverse", True)
+    )
+    if classify_metric(metric_name) != "external_metric":
+        return transform
+    return _warn_when_metric_missing("Sort by", metric_name, transform)
 
 
 # === TRANSFORM STRATEGIES ===
@@ -154,11 +217,15 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
             "Excludes tracks whose artists appear in exclusion source",
         ),
         "by_metric": _tf(
-            lambda _ctx, cfg: filter_by_metric_range(
-                metric_name=cfg_str(cfg, "metric_name"),
-                min_value=cfg_float(cfg, "min_value"),
-                max_value=cfg_float(cfg, "max_value"),
-                include_missing=cfg_bool(cfg, "include_missing"),
+            lambda _ctx, cfg: _warn_when_metric_missing(
+                "Filter by",
+                cfg_str(cfg, "metric_name"),
+                filter_by_metric_range(
+                    metric_name=cfg_str(cfg, "metric_name"),
+                    min_value=cfg_float(cfg, "min_value"),
+                    max_value=cfg_float(cfg, "max_value"),
+                    include_missing=cfg_bool(cfg, "include_missing"),
+                ),
             ),
             "Filters tracks based on metric value range",
         ),
@@ -184,27 +251,12 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
             "Filters tracks by explicit content flag",
         ),
         "by_play_history": _tf(
-            lambda _ctx, cfg: filter_by_play_history(
-                min_plays=cfg_int(cfg, "min_plays"),
-                max_plays=cfg_int(cfg, "max_plays"),
-                start_date=cfg_str_or_none(cfg, "start_date"),
-                end_date=cfg_str_or_none(cfg, "end_date"),
-                not_played_in_days=cfg_int(cfg, "not_played_in_days"),
-                played_within_days=cfg_int(cfg, "played_within_days"),
-                include_missing=cfg_bool(cfg, "include_missing"),
-            ),
+            lambda _ctx, cfg: filter_by_play_history(**_play_history_kwargs(cfg)),
             "Filters tracks by play count and/or listening date with flexible constraints",
         ),
         "by_first_played_date": _tf(
             lambda _ctx, cfg: filter_by_play_history(
-                date_source="first_played",
-                min_plays=cfg_int(cfg, "min_plays"),
-                max_plays=cfg_int(cfg, "max_plays"),
-                start_date=cfg_str_or_none(cfg, "start_date"),
-                end_date=cfg_str_or_none(cfg, "end_date"),
-                not_played_in_days=cfg_int(cfg, "not_played_in_days"),
-                played_within_days=cfg_int(cfg, "played_within_days"),
-                include_missing=cfg_bool(cfg, "include_missing"),
+                date_source="first_played", **_play_history_kwargs(cfg)
             ),
             "Filters tracks by when they were first played (and/or play count)",
         ),
@@ -234,7 +286,7 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
     },
     "sorter": {
         "by_metric": _tf(
-            lambda _ctx, cfg: route_metric_sorting(cfg),
+            lambda _ctx, cfg: _sort_by_metric(cfg),
             "Sorts tracks by any metric specified in config",
         ),
         "by_release_date": _tf(

@@ -119,6 +119,11 @@ class ToolSpec:
     # injected ``OperationLauncher`` and returns an ``{operation_id, run_id}``
     # handle. Mutually exclusive with ``executor``.
     launches_operation: bool = False
+    # Read tools only: False keeps the tool out of the chat loop's concurrent
+    # read rounds (e.g. ``preview_workflow`` — its source nodes upsert canonical
+    # rows under the per-user track-ingest advisory lock, so two in flight would
+    # serialize on the DB while holding pool connections).
+    parallel_safe: bool = True
     # Deferred tools stay out of the upfront prompt until tool search surfaces
     # them. Deferred is the default at this registry size (~40 tools): accuracy
     # degrades past ~10 upfront tools, so only a curated hot set and the agentic
@@ -383,6 +388,7 @@ def _spec_from_mapping(entry: Mapping[str, object]) -> ToolSpec:
         dispatch=cast("ToolDispatch", entry["dispatch"]),
         use_cases=cast("tuple[str, ...]", entry.get("use_cases", ())),
         kind=cast("ToolKind", entry.get("kind", "read")),
+        parallel_safe=cast("bool", entry.get("parallel_safe", True)),
         executor=cast("ConfirmedExecutor", executor) if executor is not None else None,
         launches_operation=bool(entry.get("launches_operation", False)),
         # Deferred by default (the registry-wide default); a dispatcher opts a
@@ -714,7 +720,7 @@ BLACKLISTED_USE_CASES: frozenset[str] = frozenset({
 
 # Excluded because chat has no file input/output channel, not by policy.
 MECHANICALLY_EXCLUDED_USE_CASES: frozenset[str] = frozenset({
-    "ExportLastFmLikesUseCase",
+    "ExportLovesUseCase",
 })
 
 # Engine/pipeline plumbing with no direct human surface — the agent reaches

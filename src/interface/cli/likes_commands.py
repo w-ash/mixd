@@ -86,13 +86,14 @@ def import_spotify_cmd(
     Tracks that already exist and are marked as liked will be skipped automatically.
     Use --force to re-import your entire library if a previous import was incomplete.
     """
-    from src.application.use_cases.sync_likes import run_spotify_likes_import
+    from src.application.use_cases.sync_likes import run_likes_import
 
     # Execute the import
     with brand_status("Importing liked tracks from Spotify..."):
         result = run_async(
-            run_spotify_likes_import(
+            run_likes_import(
                 user_id=get_cli_user_id(),
+                connector="spotify",
                 limit=limit,
                 max_imports=max_imports,
                 force=force,
@@ -150,13 +151,14 @@ def export_lastfm_cmd(
         )
         raise typer.Exit(1)
 
-    from src.application.use_cases.sync_likes import run_lastfm_likes_export
+    from src.application.use_cases.sync_likes import run_loves_export
 
     # Execute the export
     with brand_status("Exporting liked tracks to Last.fm..."):
         result = run_async(
-            run_lastfm_likes_export(
+            run_loves_export(
                 user_id=get_cli_user_id(),
+                connector="lastfm",
                 batch_size=batch_size,
                 max_exports=max_exports,
                 override_date=override_date,

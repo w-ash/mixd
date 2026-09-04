@@ -61,36 +61,34 @@ class TestSpotifyIdsFromMetadata:
 
         assert result == {_CREEP: "abc123"}
 
-    async def test_results_key_off_echoed_fields_not_position(self):
-        """Rows scrambled out of request order still land on their triples."""
+    async def test_rows_pair_with_queries_by_position(self):
+        """The endpoint echoes one row per query in request order; the echo
+        text is not the join key, so a server-normalized echo cannot strand
+        a hit."""
         lookup, _ = _lookup_returning([
-            _row(_BLISS, ["muse1"]),
-            _row(_CREEP, ["rad1"]),
+            _row(("radiohead", "pablo honey", "creep"), ["abc123"]),
+            _row(("MUSE", "Origin of Symmetry", "Bliss"), ["muse1"]),
         ])
 
         result = await lookup.spotify_ids_from_metadata([_CREEP, _BLISS])
 
-        assert result == {_CREEP: "rad1", _BLISS: "muse1"}
+        assert result == {_CREEP: "abc123", _BLISS: "muse1"}
 
-    async def test_echo_matching_is_case_insensitive(self):
-        """A server-normalized echo must not strand the hit; the result keys
-        by the caller's original triple either way."""
-        lookup, _ = _lookup_returning([
-            _row(("radiohead", "pablo honey", "creep"), ["abc123"])
-        ])
+    async def test_row_count_mismatch_degrades_the_chunk_to_misses(self):
+        """A broken one-row-per-query contract is not silently misattributed:
+        the short chunk yields nothing and the next chunk still resolves."""
+        batch_size = settings.api.listenbrainz.batch_size
+        filler = [
+            (f"Artist {n}", f"Album {n}", f"Track {n}") for n in range(batch_size)
+        ]
+        lookup, _ = _lookup_returning(
+            [_row(filler[0], ["stray1"])],  # one row for a full chunk of queries
+            [_row(_BLISS, ["muse1"])],
+        )
 
-        result = await lookup.spotify_ids_from_metadata([_CREEP])
+        result = await lookup.spotify_ids_from_metadata([*filler, _BLISS])
 
-        assert result == {_CREEP: "abc123"}
-
-    async def test_unmatched_echo_rows_are_dropped(self):
-        lookup, _ = _lookup_returning([
-            _row(("Someone", "Else", "Entirely"), ["stray1"])
-        ])
-
-        result = await lookup.spotify_ids_from_metadata([_CREEP])
-
-        assert result == {}
+        assert result == {_BLISS: "muse1"}
 
     async def test_chunks_at_the_configured_batch_size(self):
         batch_size = settings.api.listenbrainz.batch_size

@@ -44,37 +44,44 @@ class LastfmConnectorPlayResolver:
     _inward_resolver: LastfmInwardResolver
     _cross_discovery: CrossDiscoveryProvider | None
     _owns_lastfm_client: bool
+    _owns_cross_discovery: bool
 
     def __init__(
         self,
         cross_discovery: CrossDiscoveryProvider | None = None,
         lastfm_client: LastFMAPIClient | None = None,
         inward_resolver: LastfmInwardResolver | None = None,
+        *,
+        owns_cross_discovery: bool = False,
     ):
-        """Initialize with an inward resolver (constructed if not injected)."""
+        """Initialize with an inward resolver (constructed if not injected).
+
+        ``owns_cross_discovery`` says the caller keeps no reference to the
+        provider, so this resolver is its only teardown.
+        """
         self._owns_lastfm_client = lastfm_client is None
         self.lastfm_client = lastfm_client or LastFMAPIClient()
         self._cross_discovery = cross_discovery
+        self._owns_cross_discovery = owns_cross_discovery
         self._inward_resolver = inward_resolver or LastfmInwardResolver(
             lastfm_client=self.lastfm_client,
             cross_discovery=cross_discovery,
         )
 
     async def aclose(self) -> None:
-        """Release the httpx2 pools this factory-built chain owns.
+        """Release the httpx2 pools this chain owns.
 
         The orchestrator closes factory-built resolvers when the resolution
         phase ends — without this, every import strands the Last.fm client's
         pool plus whatever the cross-discovery provider owns. A client built
-        here is closed (shared with the inward resolver, so exactly once);
-        an injected client belongs to the caller and stays open. The
-        cross-discovery provider is adopted: ``create_play_resolver()``
-        builds it solely for this chain and keeps no reference, so this is
-        its only teardown.
+        here is closed (shared with the inward resolver, so exactly once).
+        The cross-discovery provider is closed only under
+        ``owns_cross_discovery``. Anything injected without that flag belongs
+        to the caller and stays open.
         """
         if self._owns_lastfm_client:
             await self.lastfm_client.aclose()
-        if isinstance(self._cross_discovery, Closeable):
+        if self._owns_cross_discovery and isinstance(self._cross_discovery, Closeable):
             await self._cross_discovery.aclose()
 
     async def resolve_connector_plays(

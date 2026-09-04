@@ -77,7 +77,7 @@ class OperationBoundEmitter(ProgressEmitter):
     def run_id(self) -> UUID | None:
         """The ``OperationRun`` audit-row id for this request, when one exists.
 
-        Threaded so a use case can record per-item issues (``append_run_issue``)
+        Threaded so a use case can record per-item issues (``append_run_issues``)
         against the durable audit row. ``None`` on paths that don't write a row
         (CLI, tests), so issue recording is simply skipped there.
         """

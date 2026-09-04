@@ -275,13 +275,14 @@ class TestImportData:
 
         with (
             patch.object(chat_operations, "launch_sse_operation", capturing),
-            patch.object(chat_operations, "run_spotify_likes_import", run_likes),
+            patch.object(chat_operations, "run_likes_import", run_likes),
         ):
             await chat_operations.launch_chat_operation(action, _USER)
 
         assert capturing.kwargs["operation_type"] == "import_spotify_likes"
         assert capturing.kwargs["initiated_by"] == "assistant"
         _, kwargs = run_likes.await_args
+        assert kwargs["connector"] == "spotify"
         assert kwargs["limit"] == 100
         assert kwargs["force"] is True
 

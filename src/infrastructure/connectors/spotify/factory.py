@@ -41,7 +41,11 @@ def create_play_resolver() -> SpotifyConnectorPlayResolver:
     """
     from .connector import SpotifyConnector
 
-    return SpotifyConnectorPlayResolver(spotify_connector=SpotifyConnector())
+    # The factory keeps no reference to the connector it builds, so the
+    # resolver's ``aclose`` is the pool's only teardown.
+    return SpotifyConnectorPlayResolver(
+        spotify_connector=SpotifyConnector(), owns_connector=True
+    )
 
 
 def create_cross_discovery_provider() -> CrossDiscoveryProvider:

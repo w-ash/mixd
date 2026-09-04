@@ -70,7 +70,6 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
     - `play_import_orchestrator.py` - Play history import orchestration
     - `playlist_backup_service.py` - Playlist backup and restoration
     - `progress_manager.py` - Progress tracking and UI coordination
-  - `metadata_transforms/` - Metadata-aware transforms (metrics, shuffle, play_history, _helpers)
   - `utilities/` - Application utilities (batch_results, timing)
   - `workflows/` - Prefect workflow definitions and node implementations (14 modules + workflow definitions/)
   - `runner.py` - Generic `execute_use_case[TResult]()` — session/UoW lifecycle for both CLI and FastAPI
@@ -220,31 +219,35 @@ class SpotifyTrackMatcher:
 **Benefits**: Algorithmic flexibility, easy testing, service extensibility
 
 ### Connector Capability Protocols
-Typed narrow interfaces for specific connector operations. Instead of passing `Any` from the connector registry, call sites use capability protocols that describe what they need.
+Typed narrow interfaces for specific connector operations, gated by declared capabilities. Each connector's `ConnectorConfig` declares a `capabilities: frozenset[Capability]`; the application reads it through the domain port `ServiceConnectorProvider.describe(service) -> ConnectorDescriptor`. Resolution checks the declaration first, then narrows with a `@runtime_checkable` protocol — no `hasattr` probing, no `cast`.
 
 ```python
-# application/workflows/protocols.py — capability protocols
+# application/connector_protocols.py — @runtime_checkable capability protocols
 class LikedTrackConnector(Protocol):
     """Connector that can read liked/saved tracks."""
     async def get_liked_tracks(self, limit: int = 50, cursor: str | None = None) -> ...: ...
 
 class LoveTrackConnector(Protocol):
-    """Connector that can love/like tracks."""
-    async def love_track(self, artist: str, title: str) -> bool: ...
+    """Connector that can love/like tracks, batch-first."""
+    async def love_tracks(self, items: Sequence[tuple[str, str]]) -> list[bool]: ...
 
 class PlaylistConnector(Protocol):
     """Connector that supports playlist CRUD."""
+    def parse_playlist_identifier(self, raw_input: str) -> str: ...
     async def get_playlist_details(self, playlist_id: str) -> ...: ...
     async def execute_playlist_operations(self, ...) -> str | None: ...
     async def create_playlist(self, name: str, tracks: list[Track], ...) -> str: ...
 
-# application/use_cases/_shared/connector_resolver.py — typed resolvers
-def resolve_liked_track_connector(uow) -> LikedTrackConnector: ...
-def resolve_love_track_connector(uow) -> LoveTrackConnector: ...
-def resolve_playlist_connector(service, uow) -> PlaylistConnector: ...
+# application/use_cases/_shared/connector_resolver.py — capability-gated resolvers
+def resolve_capability[T](service, uow, *, capability: Capability, protocol: type[T]) -> T: ...
+def resolve_liked_track_connector(service, uow) -> LikedTrackConnector: ...   # "likes_import"
+def resolve_love_track_connector(service, uow) -> LoveTrackConnector: ...     # "love_tracks"
+def resolve_playlist_connector(service, uow) -> PlaylistConnector: ...        # "playlist_sync"
 ```
 
-**Benefits**: Call sites get type-checked method access instead of `Any`, each use case depends only on the capability it needs (Interface Segregation), and per-UoW connector caching ensures one httpx2 pool per transaction scope with deterministic `aclose()` cleanup.
+A service that does not declare the capability raises `ValueError` (caller error); one that declares it but does not implement the protocol raises `TypeError` (adapter bug).
+
+**Benefits**: Call sites get type-checked method access instead of `Any`, each use case depends only on the capability it needs (Interface Segregation), the connector registry — not string literals in use cases — decides which services support what, and per-UoW connector caching ensures one httpx2 pool per transaction scope with deterministic `aclose()` cleanup.
 
 ### Workflow Pattern
 Declarative transformation pipelines.

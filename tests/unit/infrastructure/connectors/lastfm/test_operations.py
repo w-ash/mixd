@@ -69,3 +69,47 @@ class TestBatchGetTrackInfoEdgeCases:
         operations = LastFMOperations(client=MagicMock())
 
         assert await operations.batch_get_track_info([]) == {}
+
+
+class TestLoveTracks:
+    """Batch love: order preservation and per-item failure isolation."""
+
+    async def test_preserves_input_order(self):
+        client = MagicMock()
+        seen: list[tuple[str, str]] = []
+
+        async def love(artist: str, title: str) -> bool:
+            seen.append((artist, title))
+            return title != "B"
+
+        client.love_track = love
+        operations = LastFMOperations(client=client)
+
+        items = [("Artist A", "A"), ("Artist B", "B"), ("Artist C", "C")]
+        results = await operations.love_tracks(items)
+
+        assert results == [True, False, True]
+        assert sorted(seen) == sorted(items)
+
+    async def test_item_exception_becomes_false(self):
+        client = MagicMock()
+
+        async def love(artist: str, title: str) -> bool:
+            if title == "boom":
+                raise RuntimeError("Last.fm 429")
+            return True
+
+        client.love_track = love
+        operations = LastFMOperations(client=client)
+
+        results = await operations.love_tracks([
+            ("Artist A", "ok"),
+            ("Artist B", "boom"),
+            ("Artist C", "ok"),
+        ])
+
+        assert results == [True, False, True]
+
+    async def test_empty_input_returns_empty_list(self):
+        operations = LastFMOperations(client=MagicMock())
+        assert await operations.love_tracks([]) == []

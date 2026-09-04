@@ -10,10 +10,10 @@ and validation are identical to a human doing it.
 """
 
 from collections.abc import Mapping
-from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
     project_track,
     propose_action,
     require_uuid,
@@ -96,8 +96,8 @@ async def exec_merge_tracks(action: PendingAction, user_id: str) -> JsonValue:
     d = action.details
     command = MergeTracksCommand(
         user_id=user_id,
-        winner_id=UUID(str(d["winner_id"])),
-        loser_id=UUID(str(d["loser_id"])),
+        winner_id=require_uuid(d, "winner_id"),
+        loser_id=require_uuid(d, "loser_id"),
     )
     result = await commit(
         lambda uow: MergeTrackAndFetchDetailsUseCase().execute(command, uow),
@@ -110,7 +110,7 @@ async def exec_merge_tracks(action: PendingAction, user_id: str) -> JsonValue:
         invalid_prefix="The merge is no longer valid",
     )
 
-    return {"status": "confirmed", "merged_track": project_track(result.track)}
+    return confirmed(action, "merge", merged_track=project_track(result.track))
 
 
 SPECS: list[dict[str, object]] = [

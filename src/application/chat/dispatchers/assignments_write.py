@@ -14,10 +14,10 @@ validates and stores a pending action carrying the exact commit parameters;
 """
 
 from collections.abc import Mapping
-from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     commit,
+    confirmed,
     propose_action,
     require_choice,
     require_str,
@@ -192,7 +192,7 @@ async def exec_manage_playlist_assignments(
     if operation == "create":
         command = CreatePlaylistAssignmentCommand(
             user_id=user_id,
-            connector_playlist_id=UUID(str(details["connector_playlist_id"])),
+            connector_playlist_id=require_uuid(details, "connector_playlist_id"),
             action_type=_to_action_type(str(details["action_type"])),
             raw_action_value=str(details["action_value"]),
         )
@@ -202,18 +202,17 @@ async def exec_manage_playlist_assignments(
             not_found=_ASSIGN_NOT_FOUND,
             invalid_prefix=_ASSIGN_INVALID_PREFIX,
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "description": action.description,
-            "assignment": _project_assignment(result.assignment),
-            "created": result.created,
-        }
+        return confirmed(
+            action,
+            operation,
+            assignment=_project_assignment(result.assignment),
+            created=result.created,
+        )
 
     if operation == "create_and_apply":
         apply_command = CreateAndApplyAssignmentCommand(
             user_id=user_id,
-            connector_playlist_id=UUID(str(details["connector_playlist_id"])),
+            connector_playlist_id=require_uuid(details, "connector_playlist_id"),
             action_type=_to_action_type(str(details["action_type"])),
             raw_action_value=str(details["action_value"]),
         )
@@ -224,22 +223,21 @@ async def exec_manage_playlist_assignments(
             invalid_prefix=_ASSIGN_INVALID_PREFIX,
         )
         apply_result = apply_outcome.apply_result
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "description": action.description,
-            "assignment": _project_assignment(apply_outcome.assignment),
-            "applied": {
+        return confirmed(
+            action,
+            operation,
+            assignment=_project_assignment(apply_outcome.assignment),
+            applied={
                 "preferences_applied": apply_result.preferences_applied,
                 "tags_applied": apply_result.tags_applied,
                 "assignments_processed": apply_result.assignments_processed,
             },
-        }
+        )
 
     if operation == "delete":
         delete_command = DeletePlaylistAssignmentCommand(
             user_id=user_id,
-            assignment_id=UUID(str(details["assignment_id"])),
+            assignment_id=require_uuid(details, "assignment_id"),
         )
         deleted = await commit(
             lambda uow: DeletePlaylistAssignmentUseCase().execute(delete_command, uow),
@@ -250,13 +248,12 @@ async def exec_manage_playlist_assignments(
             ),
             invalid_prefix="The assignment could not be deleted",
         )
-        return {
-            "status": "confirmed",
-            "operation": operation,
-            "description": action.description,
-            "assignment_id": str(details["assignment_id"]),
-            "deleted": deleted.deleted,
-        }
+        return confirmed(
+            action,
+            operation,
+            assignment_id=str(delete_command.assignment_id),
+            deleted=deleted.deleted,
+        )
 
     raise ToolExecutionError(
         f"Unknown manage_playlist_assignments operation {operation!r}"

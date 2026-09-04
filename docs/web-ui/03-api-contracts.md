@@ -833,7 +833,7 @@ POST   /imports/spotify/likes
        body: { limit?: int, max_imports?: int }
        → { operation_id: str }
 ```
-- **Use case**: `SyncLikesUseCase` (Spotify import direction via `run_spotify_likes_import()`)
+- **Use case**: `ImportLikesUseCase` (via `run_likes_import(connector="spotify")`)
 - **Status**: ✅ Implemented (v0.3.1)
 
 ```
@@ -841,7 +841,7 @@ POST   /imports/lastfm/likes
        body: { batch_size?: int, max_exports?: int }
        → { operation_id: str }
 ```
-- **Use case**: `SyncLikesUseCase` (Last.fm export direction via `run_lastfm_likes_export()`)
+- **Use case**: `ExportLovesUseCase` (via `run_loves_export(connector="lastfm")`)
 - **Status**: ✅ Implemented (v0.3.1)
 
 ```

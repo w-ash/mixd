@@ -102,6 +102,32 @@ async def require_playlist(
     return playlist
 
 
+async def require_owned_playlist(
+    playlist_id: UUID,
+    uow: UnitOfWorkProtocol,
+    *,
+    user_id: str,
+) -> None:
+    """Assert the user owns a playlist, without loading it.
+
+    The ownership gate for callers that hold a real UUID and discard the
+    entity — an existence + ownership predicate, so the row's tracks and
+    metadata never leave the database.
+
+    Args:
+        playlist_id: The canonical playlist UUID.
+        uow: Unit of work for repository access.
+        user_id: Authenticated user ID for ownership scoping.
+
+    Raises:
+        NotFoundError: If the playlist does not exist or belongs to
+            another user.
+    """
+    playlist_repo = uow.get_playlist_repository()
+    if not await playlist_repo.is_owned_by(playlist_id, user_id=user_id):
+        raise NotFoundError(f"Playlist with ID {playlist_id} not found")
+
+
 async def require_playlist_link(
     link_id: UUID,
     uow: UnitOfWorkProtocol,
@@ -130,8 +156,8 @@ async def require_playlist_link(
     link = await link_repo.get_link(link_id)
     if link is None:
         raise NotFoundError(f"Playlist link {link_id} not found")
-    # Ownership check: require_playlist raises NotFoundError for wrong user
-    await require_playlist(str(link.playlist_id), uow, user_id=user_id)
+    # Ownership check: raises NotFoundError for a wrong-user parent playlist
+    await require_owned_playlist(link.playlist_id, uow, user_id=user_id)
     return link
 
 

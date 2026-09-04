@@ -19,6 +19,7 @@ import uuid
 import httpx2
 import pytest
 
+from src.application.connector_protocols import UserPlaylistsConnector
 from src.domain.entities.connector import ConnectorStatus
 from src.domain.exceptions import DiscogsInvalidTokenError
 from src.infrastructure.connectors._shared.token_storage import (
@@ -258,7 +259,7 @@ class TestSpotifyPlaylistBrowse:
         ``Exception`` subclasses don't surface cleanly through httpx2's
         ASGITransport in test mode.
         """
-        spotify = AsyncMock()
+        spotify = AsyncMock(spec=UserPlaylistsConnector)
         spotify.fetch_user_playlists = AsyncMock(
             side_effect=ValueError("connector temporarily unavailable")
         )
@@ -506,8 +507,8 @@ class TestDisconnectPreservesSiblingData:
                     connector_track_identifiers={},
                 )
             )
-            await uow.get_like_repository().save_track_like(
-                saved_track.id, "spotify", user_id="default", is_liked=True
+            await uow.get_like_repository().save_track_likes_batch(
+                [(saved_track.id, "spotify", True, None, None)], user_id="default"
             )
             await uow.get_connector_play_repository().bulk_insert_connector_plays([
                 ConnectorTrackPlay(

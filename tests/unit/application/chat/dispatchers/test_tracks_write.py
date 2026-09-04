@@ -130,3 +130,42 @@ class TestExecMergeTracks:
 
         with pytest.raises(ToolExecutionError, match="no longer exists"):
             await tracks_write.exec_merge_tracks(action, "default")
+
+    async def test_malformed_winner_id_at_commit_is_actionable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _raise(factory: object, user_id: str | None = None) -> object:
+            raise AssertionError("not reached")
+
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
+        store = InMemoryPendingActionStore()
+        action = await store.create(
+            user_id="default",
+            tool_name="merge_tracks",
+            tool_input={},
+            description="Merge",
+            details={
+                "operation": "merge",
+                "winner_id": "not-a-uuid",
+                "loser_id": str(uuid4()),
+            },
+        )
+
+        with pytest.raises(ToolExecutionError, match="must be a UUID string"):
+            await tracks_write.exec_merge_tracks(action, "default")
+
+    async def test_confirmed_envelope_carries_operation_and_description(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        winner_id = uuid4()
+        monkeypatch.setattr(
+            _common,
+            "execute_use_case",
+            _fake_use_case_runner(_details_result(winner_id)),
+        )
+        action = await self._action(winner_id, uuid4())
+
+        result = await tracks_write.exec_merge_tracks(action, "default")
+
+        assert result["operation"] == "merge"
+        assert result["description"] == "Merge"

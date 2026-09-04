@@ -5,7 +5,7 @@ from uuid import uuid7
 
 import pytest
 
-from src.application.pagination import decode_cursor
+from src.application.pagination import PageCursor, decode_cursor, encode_cursor
 from src.application.use_cases.get_plays_histogram import (
     GetPlaysHistogramCommand,
     GetPlaysHistogramUseCase,
@@ -86,6 +86,21 @@ class TestListPlaysUseCase:
 
         second_call = plays_repo.list_play_events.await_args_list[1]
         assert second_call.kwargs["before"] == (play.played_at, play.id)
+
+    @pytest.mark.asyncio
+    async def test_numeric_cursor_value_is_rejected_before_the_repo(self):
+        plays_repo = make_mock_plays_repo(list_play_events=([], None))
+        uow = make_mock_uow(plays_repo=plays_repo, track_repo=make_mock_track_repo())
+        bad = encode_cursor(
+            PageCursor(sort_column="played_at", sort_value=123, last_id=uuid7())
+        )
+
+        with pytest.raises(ValueError, match="played_at"):
+            _ = await ListPlaysUseCase().execute(
+                ListPlaysCommand(user_id="u1", encoded_cursor=bad), uow
+            )
+
+        plays_repo.list_play_events.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_missing_track_falls_back_to_placeholder(self):

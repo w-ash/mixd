@@ -14,6 +14,9 @@ from attrs import define, field
 from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
 )
+from src.application.use_cases._shared.metric_config import (
+    default_metric_config,
+)
 from src.config import get_logger
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
@@ -80,9 +83,6 @@ class SyncPlaylistLinkUseCase:
         from src.application.use_cases._shared.playlist_resolver import (
             require_playlist_link,
         )
-        from src.infrastructure.connectors._shared.metric_registry import (
-            MetricConfigProviderImpl,
-        )
 
         async with uow:
             link = await require_playlist_link(
@@ -96,7 +96,7 @@ class SyncPlaylistLinkUseCase:
             )
             await uow.commit()
 
-        engine = PlaylistReconciliationEngine(metric_config=MetricConfigProviderImpl())
+        engine = PlaylistReconciliationEngine(metric_config=default_metric_config())
         try:
             return await self._apply(engine, command, uow, link, direction, link_id)
         except ConfirmationRequiredError:

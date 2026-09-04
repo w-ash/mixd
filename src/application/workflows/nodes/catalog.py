@@ -11,17 +11,15 @@ their registries — adding a new filter/sorter/selector/combiner only requires
 touching transform_definitions.py.
 """
 
-from .config_fields import get_enricher_attributes
 from .destination import create_playlist, update_playlist
 from .enricher import enrich_spotify_liked_status
 from .factories import (
     build_external_enrichment_config,
     build_play_history_enrichment_config,
-    build_preferences_enrichment_config,
-    build_tags_enrichment_config,
     create_enricher_node,
     make_combiner_node,
     make_node,
+    static_enrichment_config,
 )
 from .registry import node
 from .source import (
@@ -66,10 +64,7 @@ _ = node(
     required_connectors=["lastfm"],
 )(
     create_enricher_node(
-        build_external_enrichment_config({
-            "connector": "lastfm",
-            "attributes": get_enricher_attributes("enricher.lastfm"),
-        }),
+        build_external_enrichment_config({"connector": "lastfm"}),
         enricher_label="lastfm",
     ),
 )
@@ -82,10 +77,7 @@ _ = node(
     required_connectors=["spotify"],
 )(
     create_enricher_node(
-        build_external_enrichment_config({
-            "connector": "spotify",
-            "attributes": get_enricher_attributes("enricher.spotify"),
-        }),
+        build_external_enrichment_config({"connector": "spotify"}),
         enricher_label="spotify",
     ),
 )
@@ -104,7 +96,7 @@ _ = node(
     output_type="tracklist",
 )(
     create_enricher_node(
-        build_preferences_enrichment_config, enricher_label="preferences"
+        static_enrichment_config("preferences"), enricher_label="preferences"
     )
 )
 
@@ -113,7 +105,7 @@ _ = node(
     description="Enriches tracks with user tags from internal database",
     input_type="tracklist",
     output_type="tracklist",
-)(create_enricher_node(build_tags_enrichment_config, enricher_label="tags"))
+)(create_enricher_node(static_enrichment_config("tags"), enricher_label="tags"))
 
 _ = node(
     "enricher.spotify_liked_status",

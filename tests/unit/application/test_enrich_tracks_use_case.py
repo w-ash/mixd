@@ -401,8 +401,9 @@ class TestEnrichTracksUseCase:
             enrichment_config=invalid_config,
         )
 
-        # Act / Assert — an unknown enrichment type is a total failure → raises.
-        with pytest.raises(EnrichmentFailedError, match="Unknown enrichment type"):
+        # Act / Assert — the type system makes this unconstructible; at runtime
+        # the match statement's assert_never backstop still fails the operation.
+        with pytest.raises(EnrichmentFailedError):
             await use_case.execute(command, mock_uow)
 
 

@@ -12,17 +12,12 @@ from typing import Literal
 
 from attrs import define, field
 
-from src.application.utilities.batch_results import BatchResult
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.config.logging import logging_context
 from src.domain.entities import OperationResult
-from src.domain.entities.progress import (
-    NullProgressEmitter,
-    ProgressEmitter,
-    ProgressOperation,
-)
+from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.exceptions import (
     AppleMusicAuthRequiredError,
     LastfmAuthRequiredError,
@@ -35,6 +30,7 @@ from src.domain.repositories.play import (
     ImportKind,
     LastfmImportParams,
     PlayImporterProtocol,
+    PlayImportParams,
     SpotifyImportParams,
     SpotifyRecentImportParams,
 )
@@ -136,30 +132,20 @@ class ImportTracksCommand:
 class ImportTracksResult:
     """Result from track import operation with performance metrics.
 
-    Contains import statistics, timing data, and optional batch processing metadata
-    for monitoring and debugging import operations.
+    Contains import statistics and timing data for monitoring and debugging
+    import operations.
 
     Attributes:
         operation_result: Core import statistics and error details.
         service: Music service that was imported from.
         mode: Import mode that was executed.
         execution_time_ms: Total time taken for import in milliseconds.
-        total_batches: Number of processing batches used.
-        batch_result: Optional detailed batch processing results from BatchProcessor.
-        progress_operation: Optional progress tracking operation for real-time updates.
     """
 
     operation_result: OperationResult
     service: ServiceType
     mode: ImportMode
     execution_time_ms: int = 0
-
-    # Batch processing metadata
-    total_batches: int = 0
-
-    # Optional integration with existing batch processing utilities
-    batch_result: BatchResult | None = None
-    progress_operation: ProgressOperation | None = None
 
     @property
     def success_rate(self) -> float:
@@ -217,7 +203,6 @@ class ImportTracksUseCase:
                     service=command.service,
                     mode=command.mode,
                     execution_time_ms=timer.stop(),
-                    total_batches=1,
                 )
 
             except (
@@ -253,7 +238,6 @@ class ImportTracksUseCase:
                     service=command.service,
                     mode=command.mode,
                     execution_time_ms=execution_time_ms,
-                    total_batches=1,
                 )
 
     @staticmethod
@@ -285,61 +269,79 @@ class ImportTracksUseCase:
         uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter,
     ) -> OperationResult:
-        """Routes to service-specific import handler based on command."""
-        match command.service:
-            case "lastfm":
-                return await self._run_lastfm_import(command, uow, progress_emitter)
-            case "spotify":
-                return await self._run_spotify_import(command, uow, progress_emitter)
-            case "apple":
-                return await self._run_apple_recent(command, uow, progress_emitter)
+        """Applies per-branch guards, builds import params, runs the two-phase import.
 
-    async def _run_lastfm_import(
-        self,
-        command: ImportTracksCommand,
-        uow: UnitOfWorkProtocol,
-        progress_emitter: ProgressEmitter,
-    ) -> OperationResult:
-        """Routes to LastFM import mode handler (recent/incremental/full).
-
-        Note: All modes now use the unified daily chunking approach in infrastructure.
-        Mode differences are primarily application-layer concerns (confirmation,
-        checkpoint reset, parameter mapping).
+        Every branch ends in the same two-phase workflow (``_run_two_phase``);
+        only the guards and the params object differ per service and mode.
         """
-        match command.mode:
-            case "recent":
-                return await self._run_lastfm_recent(command, uow, progress_emitter)
-            case "incremental":
-                return await self._run_lastfm_incremental(
-                    command, uow, progress_emitter
+        match (command.service, command.mode):
+            case ("lastfm", "recent"):
+                params: PlayImportParams = LastfmImportParams(
+                    limit=command.limit or 1000
                 )
-            case "full":
-                return await self._run_lastfm_full_history(
-                    command, uow, progress_emitter
+            case ("lastfm", "incremental"):
+                params = LastfmImportParams(
+                    username=command.username,
+                    from_date=command.from_date,
+                    to_date=command.to_date,
                 )
-            case _:
+            case ("lastfm", "full"):
+                # Confirmation UI is the caller's responsibility: an
+                # unconfirmed full history import is cancelled, not run.
+                if not command.confirm:
+                    cancelled = OperationResult(
+                        operation_name="Last.fm Full History Import",
+                        execution_time=0.0,
+                    )
+                    cancelled.metadata["cancelled"] = True
+                    cancelled.summary_metrics.add(
+                        "status", 0, "Cancelled", significance=0
+                    )
+                    return cancelled
+                params = LastfmImportParams(limit=50000)
+            case ("lastfm", _):
                 raise ValueError(f"LastFM service doesn't support mode: {command.mode}")
-
-    async def _run_spotify_import(
-        self,
-        command: ImportTracksCommand,
-        uow: UnitOfWorkProtocol,
-        progress_emitter: ProgressEmitter,
-    ) -> OperationResult:
-        """Routes to the Spotify export-file or recently-played API handler."""
-        match command.mode:
-            case "file":
-                return await self._run_spotify_file(command, uow, progress_emitter)
-            case "recent" | "incremental":
-                # Deliberately the same handler: the stored cursor makes every
-                # poll incremental, so "recent" and "incremental" cannot differ
-                # here. Both are accepted so each caller can use the word that
-                # fits (the UI says recent, a scheduled sync says incremental).
-                return await self._run_spotify_recent(command, uow, progress_emitter)
-            case _:
+            case ("spotify", "file"):
+                if not command.file_path:
+                    raise ValueError("file_path is required for Spotify file imports")
+                return await self._run_two_phase(
+                    command,
+                    uow,
+                    progress_emitter,
+                    params=SpotifyImportParams(file_path=Path(command.file_path)),
+                    kind="file",
+                )
+            case ("spotify", "recent" | "incremental"):
+                # Deliberately one branch: the stored cursor makes every poll
+                # incremental, so "recent" and "incremental" cannot differ here.
+                # Both are accepted so each caller can use the word that fits
+                # (the UI says recent, a scheduled sync says incremental).
+                #
+                # Clamped on both ends: a caller asking for more than the
+                # endpoint retains cannot get it, and a zero/negative limit
+                # would otherwise reach Spotify verbatim and come back as an
+                # opaque transport failure.
+                requested = command.limit or RECENTLY_PLAYED_PAGE_LIMIT
+                limit = min(max(requested, 1), RECENTLY_PLAYED_PAGE_LIMIT)
+                params = SpotifyRecentImportParams(
+                    limit=limit,
+                    force=bool(command.additional_options.get("force")),
+                )
+            case ("spotify", _):
                 raise ValueError(
                     f"Spotify service doesn't support mode: {command.mode}"
                 )
+            case ("apple", _):
+                # Only recent/incremental reach here (the command validator
+                # rejects the rest) and they are identical: the stored window
+                # fingerprint makes every poll incremental. No limit either —
+                # the endpoint's page size is fixed and the importer's
+                # prefix-diff, not a count, bounds the ingest.
+                params = AppleRecentImportParams(
+                    force=bool(command.additional_options.get("force"))
+                )
+
+        return await self._run_two_phase(command, uow, progress_emitter, params=params)
 
     async def _create_play_import_orchestrator(self, uow: UnitOfWorkProtocol):
         """Create play import orchestrator for two-phase workflow.
@@ -379,246 +381,35 @@ class ImportTracksUseCase:
             service, kind, uow
         )
 
-    async def _run_lastfm_recent(
+    async def _run_two_phase(
         self,
         command: ImportTracksCommand,
         uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter,
+        *,
+        params: PlayImportParams,
+        kind: ImportKind = "api",
     ) -> OperationResult:
-        """Downloads recent plays using two-phase workflow.
+        """Runs the two-phase import shared by every service and mode.
 
-        Phase 1: Ingests raw play data as connector_plays
-        Phase 2: Resolves connector_plays to canonical track_plays
-
-        CLEAN ARCHITECTURE: No mention of specific connectors - uses generic service pattern.
+        Phase 1 ingests raw plays as connector_plays; phase 2 resolves them to
+        canonical track_plays. The application layer names no connector: the
+        service string and ``kind`` select the importer through the provider.
 
         Args:
-            command: Contains limit (default 1000).
+            command: Import configuration (service, mode, user).
             uow: Database transaction manager for atomic operations.
+            progress_emitter: Emitter for real-time progress updates.
+            params: Importer-specific frozen import selectors.
+            kind: Live API read or uploaded export file.
 
         Returns:
-            Import statistics with number of plays downloaded and resolved to canonical tracks.
-        """
-        limit = command.limit or 1000
-
-        # Create generic service importer and orchestrator
-        importer = await self._create_service_importer(command.service, uow)
-        orchestrator = await self._create_play_import_orchestrator(uow)
-
-        try:
-            # Execute two-phase import: ingestion then resolution
-            result = await orchestrator.import_plays_two_phase(
-                importer=importer,
-                uow=uow,
-                user_id=command.user_id,
-                progress_emitter=progress_emitter,
-                params=LastfmImportParams(limit=limit),
-            )
-
-            logger.info(
-                f"Recent play two-phase import completed: {result.summary_metrics.get('track_plays')} track plays created"
-            )
-
-        except Exception as e:
-            logger.error(f"Recent play import failed: {e}")
-            raise
-        else:
-            return result
-
-    async def _run_lastfm_incremental(
-        self,
-        command: ImportTracksCommand,
-        uow: UnitOfWorkProtocol,
-        progress_emitter: ProgressEmitter,
-    ) -> OperationResult:
-        """Downloads new plays since last sync using two-phase workflow.
-
-        Phase 1: Ingests raw play data as connector_plays
-        Phase 2: Resolves connector_plays to canonical track_plays
-
-        Uses stored checkpoint to only fetch plays added since previous import.
-        More efficient than full history import for regular syncing.
-
-        CLEAN ARCHITECTURE: No mention of specific connectors - uses generic service pattern.
-
-        Args:
-            command: Contains username, from_date, to_date.
-            uow: Database transaction manager for atomic operations.
-
-        Returns:
-            Import statistics with number of new plays resolved to canonical tracks.
-        """
-        # Create generic service importer and orchestrator
-        importer = await self._create_service_importer(command.service, uow)
-        orchestrator = await self._create_play_import_orchestrator(uow)
-
-        try:
-            # Execute two-phase import: ingestion then resolution
-            result = await orchestrator.import_plays_two_phase(
-                importer=importer,
-                uow=uow,
-                user_id=command.user_id,
-                progress_emitter=progress_emitter,
-                params=LastfmImportParams(
-                    username=command.username,
-                    from_date=command.from_date,
-                    to_date=command.to_date,
-                ),
-            )
-
-            logger.info(
-                f"Incremental two-phase import completed: {result.summary_metrics.get('track_plays')} track plays created"
-            )
-
-        except Exception as e:
-            logger.error(f"Incremental import failed: {e}")
-            raise
-        else:
-            return result
-
-    async def _run_lastfm_full_history(
-        self,
-        command: ImportTracksCommand,
-        uow: UnitOfWorkProtocol,
-        progress_emitter: ProgressEmitter,
-    ) -> OperationResult:
-        """Downloads complete LastFM listening history using two-phase workflow.
-
-        Phase 1: Ingests entire play history as connector_plays
-        Phase 2: Resolves connector_plays to canonical track_plays
-
-        Imports entire play history from account creation to present. Resets sync
-        checkpoint and prompts for confirmation due to large API usage.
-
-        Args:
-            command: Contains username and confirm flags.
-            uow: Database transaction manager for atomic operations.
-
-        Returns:
-            Import statistics with total plays resolved to canonical tracks or cancellation result.
-        """
-        confirm = command.confirm
-
-        # Return cancelled result if not confirmed — confirmation UI is the CLI's responsibility
-        if not confirm:
-            result = OperationResult(
-                operation_name="Last.fm Full History Import",
-                execution_time=0.0,
-            )
-            result.metadata["cancelled"] = True
-            result.summary_metrics.add("status", 0, "Cancelled", significance=0)
-            return result
-
-        # Create generic service importer and orchestrator
-        importer = await self._create_service_importer(command.service, uow)
-        orchestrator = await self._create_play_import_orchestrator(uow)
-
-        try:
-            # Execute two-phase import: ingestion then resolution
-            # NOTE: Checkpoint reset logic moved to service-specific importers for clean architecture
-            result = await orchestrator.import_plays_two_phase(
-                importer=importer,
-                uow=uow,
-                user_id=command.user_id,
-                progress_emitter=progress_emitter,
-                params=LastfmImportParams(limit=50000),
-            )
-
-            logger.info(
-                f"Full history two-phase import completed: {result.summary_metrics.get('track_plays')} track plays created"
-            )
-
-        except Exception as e:
-            logger.error(f"Full history import failed: {e}")
-            raise
-        else:
-            return result
-
-    async def _run_spotify_file(
-        self,
-        command: ImportTracksCommand,
-        uow: UnitOfWorkProtocol,
-        progress_emitter: ProgressEmitter,
-    ) -> OperationResult:
-        """Processes Spotify data export JSON file using two-phase workflow.
-
-        Phase 1: Ingests raw Spotify export data as connector_plays
-        Phase 2: Resolves connector_plays to canonical track_plays
-
-        CLEAN ARCHITECTURE: No mention of specific connectors - uses generic service pattern.
-
-        Args:
-            command: Contains file_path to Spotify JSON export file.
-            uow: Database transaction manager for atomic operations.
-
-        Returns:
-            Import statistics with number of plays resolved to canonical tracks.
+            Import statistics with plays ingested and resolved to canonical tracks.
 
         Raises:
-            ValueError: If file_path is missing.
+            Exception: Any importer or resolver failure, logged then re-raised.
         """
-        if not command.file_path:
-            raise ValueError("file_path is required for Spotify file imports")
-
-        # Create generic service importer and orchestrator
-        importer = await self._create_service_importer(command.service, uow, "file")
-        orchestrator = await self._create_play_import_orchestrator(uow)
-
-        try:
-            # Execute two-phase import: ingestion then resolution
-            result = await orchestrator.import_plays_two_phase(
-                importer=importer,
-                uow=uow,
-                user_id=command.user_id,
-                progress_emitter=progress_emitter,
-                params=SpotifyImportParams(file_path=Path(command.file_path)),
-            )
-
-            logger.info(
-                f"File two-phase import completed: {result.summary_metrics.get('track_plays')} track plays created"
-            )
-
-        except Exception as e:
-            logger.error(
-                "Spotify file import failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                exc_info=True,
-            )
-            raise
-        else:
-            return result
-
-    async def _run_spotify_recent(
-        self,
-        command: ImportTracksCommand,
-        uow: UnitOfWorkProtocol,
-        progress_emitter: ProgressEmitter,
-    ) -> OperationResult:
-        """Polls Spotify's recently-played API using the two-phase workflow.
-
-        Phase 1: Ingests the new plays as connector_plays on the ``spotify_api``
-        channel. Phase 2: Resolves them to canonical track_plays through the
-        existing Spotify resolver — no new resolution code, which is the
-        v0.10.0 channel-generic claim being cashed.
-
-        Args:
-            command: Contains an optional limit (clamped into 1..50, the API's
-                page ceiling) and an optional ``force`` extra that ignores the
-                stored cursor and re-reads the whole retained window.
-            uow: Database transaction manager for atomic operations.
-
-        Returns:
-            Import statistics with the number of plays ingested and resolved.
-        """
-        # Clamped on both ends: a caller asking for more than the endpoint
-        # retains cannot get it, and a zero/negative limit would otherwise reach
-        # Spotify verbatim and come back as an opaque transport failure.
-        requested = command.limit or RECENTLY_PLAYED_PAGE_LIMIT
-        limit = min(max(requested, 1), RECENTLY_PLAYED_PAGE_LIMIT)
-        force = bool(command.additional_options.get("force"))
-
-        importer = await self._create_service_importer(command.service, uow, "api")
+        importer = await self._create_service_importer(command.service, uow, kind)
         orchestrator = await self._create_play_import_orchestrator(uow)
 
         try:
@@ -627,74 +418,21 @@ class ImportTracksUseCase:
                 uow=uow,
                 user_id=command.user_id,
                 progress_emitter=progress_emitter,
-                params=SpotifyRecentImportParams(limit=limit, force=force),
+                params=params,
             )
 
             logger.info(
-                f"Spotify recently-played two-phase import completed: "
-                f"{result.summary_metrics.get('track_plays')} track plays created"
+                "Two-phase import completed",
+                service=command.service,
+                mode=command.mode,
+                track_plays=result.summary_metrics.get("track_plays"),
             )
 
         except Exception as e:
             logger.error(
-                "Spotify recently-played import failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                exc_info=True,
-            )
-            raise
-        else:
-            return result
-
-    async def _run_apple_recent(
-        self,
-        command: ImportTracksCommand,
-        uow: UnitOfWorkProtocol,
-        progress_emitter: ProgressEmitter,
-    ) -> OperationResult:
-        """Polls Apple's recently-played API using the two-phase workflow.
-
-        Phase 1: Ingests the new plays as connector_plays on the ``apple_api``
-        channel (the importer's prefix-diff decides what is new — the feed
-        carries no timestamps to cursor on). Phase 2: Resolves them to
-        canonical track_plays through the Apple resolver registered in P6.
-
-        The command carries no limit: the endpoint's page size is fixed and
-        the diff, not a count, bounds the ingest. ``force`` re-seeds the
-        window fingerprint (a recovery lever, not a re-import — see
-        ``AppleRecentImportParams``).
-
-        Args:
-            command: Mode ``recent``/``incremental`` (identical here — the
-                stored fingerprint makes every poll incremental) and the
-                optional ``force`` extra.
-            uow: Database transaction manager for atomic operations.
-
-        Returns:
-            Import statistics with the number of plays ingested and resolved.
-        """
-        force = bool(command.additional_options.get("force"))
-
-        importer = await self._create_service_importer(command.service, uow, "api")
-        orchestrator = await self._create_play_import_orchestrator(uow)
-
-        try:
-            result = await orchestrator.import_plays_two_phase(
-                importer=importer,
-                uow=uow,
-                user_id=command.user_id,
-                progress_emitter=progress_emitter,
-                params=AppleRecentImportParams(force=force),
-            )
-
-            logger.info(
-                f"Apple Music recently-played two-phase import completed: "
-                f"{result.summary_metrics.get('track_plays')} track plays created"
-            )
-
-        except Exception as e:
-            logger.error(
-                "Apple Music recently-played import failed",
+                "Two-phase import failed",
+                service=command.service,
+                mode=command.mode,
                 error=str(e),
                 error_type=type(e).__name__,
                 exc_info=True,

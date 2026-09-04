@@ -1,33 +1,30 @@
 """Metric classification and sort routing for workflow transforms.
 
-Classifies metrics by data source (track attribute, play history, external)
-and routes metric-based sorting to the appropriate domain function.
-This is application-layer knowledge — the domain provides pure sort functions,
-and this module makes the routing decisions.
+Classifies a metric by its data source (track attribute, play history, external)
+and routes metric-based sorting to the matching transform.
+
+Purity: No side effects, logging, or external dependencies.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import UTC, datetime
 
-from src.application.metadata_transforms import (
-    sort_by_external_metrics,
-    sort_by_play_history,
-)
 from src.domain.entities.shared import SortKey
 from src.domain.entities.track import Track, TrackList
-from src.domain.transforms import sort_by_key_function
 from src.domain.transforms.core import Transform
+from src.domain.transforms.metrics import sort_by_external_metrics
+from src.domain.transforms.play_history import sort_by_play_history
+from src.domain.transforms.sorting import sort_by_key_function
 
-# Application-layer knowledge: Track entity fields usable as sort keys
+# Track entity fields usable as sort keys
 TRACK_ATTRIBUTES = {"title", "album", "release_date", "duration_ms", "artist"}
 
-# Application-layer knowledge: internal play history DB aggregates
+# Internal play history DB aggregates
 PLAY_HISTORY_METRICS = {
     "total_plays",
     "plays_last_7_days",
     "plays_last_30_days",
     "plays_last_90_days",
-    "last_played_date",
 }
 
 
@@ -68,17 +65,8 @@ def resolve_sort_key_function(value_name: str) -> Callable[[Track], SortKey] | N
     return track_attribute_extractors.get(value_name)
 
 
-def route_metric_sorting(cfg: Mapping[str, object]) -> Transform | TrackList:
-    """Route metric sorting to appropriate domain function based on data source.
-
-    Clean separation of concerns: application layer makes routing decisions,
-    domain layer provides pure functions for each data source type.
-    """
-    metric_name = cfg.get("metric_name")
-    if not isinstance(metric_name, str):
-        raise TypeError("metric_name must be a string for metric sorting")
-
-    reverse: bool = bool(cfg.get("reverse", True))
+def route_metric_sorting(metric_name: str, *, reverse: bool) -> Transform | TrackList:
+    """Route metric sorting to the transform matching the metric's data source."""
     category = classify_metric(metric_name)
 
     if category == "track_attribute":

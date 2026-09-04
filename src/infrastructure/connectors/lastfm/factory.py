@@ -52,4 +52,6 @@ def create_play_resolver() -> LastfmConnectorPlayResolver:
     Returns:
         Configured LastfmConnectorPlayResolver
     """
-    return LastfmConnectorPlayResolver(cross_discovery=_discover_cross_discovery())
+    return LastfmConnectorPlayResolver(
+        cross_discovery=_discover_cross_discovery(), owns_cross_discovery=True
+    )

@@ -31,7 +31,7 @@ from src.application.use_cases.import_connector_playlist_as_canonical import (
 )
 from src.application.use_cases.import_play_history import ImportMode, run_import
 from src.application.use_cases.rebuild_play_history import run_rebuild
-from src.application.use_cases.sync_likes import run_spotify_likes_import
+from src.application.use_cases.sync_likes import run_likes_import
 from src.domain.entities.playlist import SPOTIFY_CONNECTOR
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonDict
@@ -226,8 +226,9 @@ async def _launch_import_data(
     if source == "spotify_likes":
 
         async def _likes(emitter: OperationBoundEmitter) -> object:
-            return await run_spotify_likes_import(
+            return await run_likes_import(
                 user_id=user_id,
+                connector="spotify",
                 limit=limit,
                 force=force,
                 progress_emitter=emitter,

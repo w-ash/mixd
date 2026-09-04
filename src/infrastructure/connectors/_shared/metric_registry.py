@@ -1,13 +1,17 @@
 """Dynamic registry for connector metrics.
 
 Holds the process-wide mapping of connectors to their metrics, metric-to-field
-mappings, and per-metric freshness. Connector discovery
+mappings, human-readable labels and descriptions, and per-metric freshness.
+Connector discovery
 (``src.infrastructure.connectors.discovery.discover_connectors``) registers
-each connector's metrics from its ``ConnectorConfig["metrics"]`` declaration;
-this module holds no service-specific configuration of its own.
+each connector's ``MetricSpec`` declarations from its
+``ConnectorConfig["metrics"]`` entry; this module holds no service-specific
+configuration of its own.
 """
 
 from collections.abc import Mapping
+
+from src.infrastructure.connectors.protocols import MetricSpec
 
 # ============================================================================
 # DYNAMIC METRIC REGISTRIES
@@ -17,6 +21,8 @@ from collections.abc import Mapping
 _connector_metrics: dict[str, list[str]] = {}
 _field_mappings: dict[str, str] = {}
 _metric_freshness: dict[str, float] = {}
+_metric_labels: dict[str, str] = {}
+_metric_descriptions: dict[str, str] = {}
 
 # Default freshness period in hours
 DEFAULT_METRIC_FRESHNESS = 24.0
@@ -62,6 +68,30 @@ def get_connector_metrics(connector_name: str) -> list[str]:
     return _connector_metrics.get(connector_name, [])
 
 
+def get_metric_label(metric_name: str) -> str:
+    """Get the human-readable label for a metric.
+
+    Args:
+        metric_name: Name of the metric to get the label for
+
+    Returns:
+        Declared label, or the metric name when none was declared
+    """
+    return _metric_labels.get(metric_name, metric_name)
+
+
+def get_metric_description(metric_name: str) -> str:
+    """Get the human-readable description for a metric.
+
+    Args:
+        metric_name: Name of the metric to get the description for
+
+    Returns:
+        Declared description, or an empty string when none was declared
+    """
+    return _metric_descriptions.get(metric_name, "")
+
+
 # ============================================================================
 # REGISTRATION
 # ============================================================================
@@ -69,24 +99,26 @@ def get_connector_metrics(connector_name: str) -> list[str]:
 
 def register_metrics(
     connector: str,
-    field_map: Mapping[str, str],
+    specs: Mapping[str, MetricSpec],
     freshness_hours: float | None = None,
 ) -> None:
-    """Register a connector's metrics: names, field mappings, and freshness.
+    """Register a connector's metrics: names, field mappings, labels, freshness.
 
     Idempotent — re-registration with the same values is a no-op.
 
     Args:
         connector: Connector name the metrics belong to (e.g. "lastfm")
-        field_map: Maps metric names to connector metadata field names
+        specs: Maps metric names to their declared ``MetricSpec``
         freshness_hours: Staleness threshold applied to every metric in
-            ``field_map``; ``None`` keeps ``DEFAULT_METRIC_FRESHNESS``
+            ``specs``; ``None`` keeps ``DEFAULT_METRIC_FRESHNESS``
     """
-    for metric_name, field_name in field_map.items():
+    for metric_name, spec in specs.items():
         metrics = _connector_metrics.setdefault(connector, [])
         if metric_name not in metrics:
             metrics.append(metric_name)
-        _field_mappings[metric_name] = field_name
+        _field_mappings[metric_name] = spec.field
+        _metric_labels[metric_name] = spec.label
+        _metric_descriptions[metric_name] = spec.description
         if freshness_hours is not None:
             _metric_freshness[metric_name] = freshness_hours
 
@@ -138,3 +170,9 @@ class MetricConfigProviderImpl:
 
     def get_all_field_mappings(self) -> dict[str, str]:
         return get_all_field_mappings()
+
+    def get_metric_label(self, metric: str) -> str:
+        return get_metric_label(metric)
+
+    def get_metric_description(self, metric: str) -> str:
+        return get_metric_description(metric)

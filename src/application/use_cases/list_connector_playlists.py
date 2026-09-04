@@ -22,6 +22,7 @@ from attrs import define, field
 from src.application.use_cases._shared import resolve_user_playlists_connector
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist
+from src.domain.entities.playlist import ConnectorPlaylistSummary
 from src.domain.entities.playlist_assignment import AssignmentActionType
 from src.domain.entities.shared import json_int, json_str
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -83,7 +84,31 @@ class ListConnectorPlaylistsResult:
     fetched_at: datetime = field(factory=lambda: datetime.now(UTC))
 
 
-def _first_image_url(cp: ConnectorPlaylist) -> str | None:
+def _summarize(cp: ConnectorPlaylist) -> ConnectorPlaylistSummary:
+    """Project a freshly fetched playlist onto the cached listing's shape.
+
+    The refresh path fetches full playlists; the cache path reads summaries.
+    Folding the former into the latter keeps one view-building loop.
+    """
+    return ConnectorPlaylistSummary(
+        id=cp.id,
+        connector_name=cp.connector_name,
+        connector_playlist_identifier=cp.connector_playlist_identifier,
+        name=cp.name,
+        description=cp.description,
+        owner=cp.owner,
+        owner_id=cp.owner_id,
+        is_public=cp.is_public,
+        collaborative=cp.collaborative,
+        follower_count=cp.follower_count,
+        raw_metadata=cp.raw_metadata,
+        snapshot_id=cp.snapshot_id,
+        last_updated=cp.last_updated,
+        item_count=len(cp.items),
+    )
+
+
+def _first_image_url(cp: ConnectorPlaylistSummary) -> str | None:
     images = cp.raw_metadata.get("images") if cp.raw_metadata else None
     if not isinstance(images, list) or not images:
         return None
@@ -94,14 +119,14 @@ def _first_image_url(cp: ConnectorPlaylist) -> str | None:
     return url or None
 
 
-def _track_count(cp: ConnectorPlaylist) -> int:
-    """Resolve track count from raw_metadata, falling back to len(items).
+def _track_count(cp: ConnectorPlaylistSummary) -> int:
+    """Resolve track count from raw_metadata, falling back to the item count.
 
-    Browse-path playlists carry only ``{href, total}`` in raw_metadata; the
-    full-items fetch path leaves total absent and populates ``items``.
+    Browse-path playlists carry only ``{href, total}`` in raw_metadata and no
+    items; the full-items fetch path leaves total absent and populates items.
     """
     raw = cp.raw_metadata.get("total_tracks") if cp.raw_metadata else None
-    return json_int(raw, default=len(cp.items)) if raw is not None else len(cp.items)
+    return json_int(raw, default=cp.item_count) if raw is not None else cp.item_count
 
 
 @define(slots=True)
@@ -117,18 +142,26 @@ class ListConnectorPlaylistsUseCase:
             assignment_repo = uow.get_playlist_assignment_repository()
 
             if command.force_refresh or not (
-                cached := await cp_repo.list_by_connector(command.connector_name)
+                cached := await cp_repo.list_summaries_by_connector(
+                    command.connector_name
+                )
             ):
                 connector = resolve_user_playlists_connector(
                     command.connector_name, uow
                 )
                 fetched = await connector.fetch_user_playlists()
-                playlists = await cp_repo.bulk_upsert_models(fetched)
+                upserted = await cp_repo.bulk_upsert_models(fetched)
                 await uow.commit()
+                playlists = [_summarize(cp) for cp in upserted]
                 from_cache = False
             else:
                 playlists = cached
                 from_cache = True
+
+            # A summary's id is Optional only because the projection type is;
+            # an unsaved row cannot be assigned to or linked, so pair each
+            # playlist with its id once and drop any that somehow lacks one.
+            identified = [(cp.id, cp) for cp in playlists if cp.id is not None]
 
             imported_links = await link_repo.list_by_user_connector(
                 command.user_id, command.connector_name
@@ -137,13 +170,13 @@ class ListConnectorPlaylistsUseCase:
                 link.connector_playlist_identifier for link in imported_links
             }
             assignments_by_cp = await assignment_repo.list_for_connector_playlist_ids(
-                [cp.id for cp in playlists], user_id=command.user_id
+                [cp_id for cp_id, _ in identified], user_id=command.user_id
             )
 
             views: list[ConnectorPlaylistView] = [
                 ConnectorPlaylistView(
                     connector_playlist_identifier=cp.connector_playlist_identifier,
-                    connector_playlist_db_id=cp.id,
+                    connector_playlist_db_id=cp_id,
                     name=cp.name,
                     description=cp.description,
                     owner=cp.owner,
@@ -163,10 +196,10 @@ class ListConnectorPlaylistsUseCase:
                             action_type=a.action_type,
                             action_value=a.action_value,
                         )
-                        for a in assignments_by_cp.get(cp.id, [])
+                        for a in assignments_by_cp.get(cp_id, [])
                     ],
                 )
-                for cp in playlists
+                for cp_id, cp in identified
             ]
 
             return ListConnectorPlaylistsResult(

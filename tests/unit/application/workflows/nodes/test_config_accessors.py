@@ -106,6 +106,20 @@ class TestCfgBool:
     def test_returns_custom_default_for_non_bool(self):
         assert cfg_bool({"key": "yes"}, "key", True) is True
 
+    def test_coerces_string_true(self):
+        """Sort-order selects persist the string form."""
+        assert cfg_bool({"key": "true"}, "key") is True
+
+    def test_coerces_string_false(self):
+        assert cfg_bool({"key": "false"}, "key", True) is False
+
+    def test_coerces_string_case_and_whitespace(self):
+        assert cfg_bool({"key": " False "}, "key", True) is False
+        assert cfg_bool({"key": "TRUE"}, "key") is True
+
+    def test_unrecognized_string_returns_default(self):
+        assert cfg_bool({"key": "maybe"}, "key") is False
+
 
 class TestCfgStrList:
     def test_returns_string_list(self):

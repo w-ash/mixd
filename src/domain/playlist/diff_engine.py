@@ -7,18 +7,12 @@ re-identification of tracks that already have known Spotify mappings.
 """
 
 from enum import Enum
-from typing import Final
 from uuid import UUID
 
 from attrs import define, field
-from structlog.stdlib import get_logger
 
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
-
-logger = get_logger(__name__)
-
-_DEBUG_TRUNCATION: Final = 10
 
 
 def _get_track_uri(track: Track) -> str | None:
@@ -141,11 +135,6 @@ def match_tracks_with_db_lookup(
         if target_idx not in consumed_target_indices
     ]
 
-    logger.debug(
-        f"Track matching: {len(matched)} matched, "
-        f"{len(unmatched_current)} unmatched current, {len(unmatched_target)} unmatched target"
-    )
-
     return matched, unmatched_current, unmatched_target
 
 
@@ -196,10 +185,6 @@ def calculate_remove_operations(
                     spotify_uri=_get_track_uri(track),
                 )
             )
-        else:
-            logger.warning(
-                f"Track {track.title} not found in current playlist for removal"
-            )
 
     return operations
 
@@ -229,10 +214,6 @@ def calculate_add_operations(
                     position=target_position,
                     spotify_uri=_get_track_uri(track),
                 )
-            )
-        else:
-            logger.warning(
-                f"Track {track.title} not found in target playlist for addition"
             )
 
     return operations
@@ -332,9 +313,6 @@ def calculate_lis_reorder_operations(
     target_track_refs: list[tuple[int, Track, int]] = []
 
     # Step 1: Direct position-to-position matching for identical tracks
-    direct_matches = 0
-    first_mismatch = None
-
     for target_pos, target_track in enumerate(target_tracks):
         # Check if current playlist has a track at this same position
         if target_pos < len(current_tracks):
@@ -344,18 +322,6 @@ def calculate_lis_reorder_operations(
             if current_track.id == target_track.id:
                 target_positions_in_current.append(target_pos)
                 target_track_refs.append((target_pos, target_track, target_pos))
-                direct_matches += 1
-            elif first_mismatch is None:
-                # Record first mismatch for debugging
-                first_mismatch = (target_pos, current_track.id, target_track.id)
-
-    logger.debug(
-        f"Position-by-position matching: {direct_matches} direct matches out of {len(target_tracks)} positions"
-    )
-    if first_mismatch:
-        logger.debug(
-            f"First mismatch at position {first_mismatch[0]}: current track {first_mismatch[1]} vs target track {first_mismatch[2]}"
-        )
 
     # Step 2: For remaining target positions, find where those tracks currently are
     matched_positions: set[int] = {
@@ -393,25 +359,6 @@ def calculate_lis_reorder_operations(
         target_pos, target_track, current_pos = target_track_refs[lis_idx]
         positions_in_correct_order.add((target_pos, current_pos))
 
-    # Debug: log some examples of what's being identified as needing to move
-    tracks_to_move: list[tuple[int, int, UUID | None]] = [
-        (target_pos, current_pos, target_track.id)
-        for target_pos, target_track, current_pos in target_track_refs
-        if (target_pos, current_pos) not in positions_in_correct_order
-    ]
-
-    logger.debug(
-        f"LIS optimization: {len(positions_in_correct_order)} track instances already in correct order, "
-        f"{len(target_track_refs) - len(positions_in_correct_order)} need to move"
-    )
-
-    if (
-        tracks_to_move and len(tracks_to_move) <= _DEBUG_TRUNCATION
-    ):  # Only log if small number
-        logger.debug(
-            f"Tracks identified as needing moves: {tracks_to_move[:_DEBUG_TRUNCATION]}"
-        )
-
     # Generate move operations only for track instances not in LIS
     operations: list[PlaylistOperation] = []
 
@@ -428,11 +375,6 @@ def calculate_lis_reorder_operations(
                     spotify_uri=_get_track_uri(target_track),
                 )
             )
-
-    logger.debug(
-        f"Generated {len(operations)} LIS-optimized move operations "
-        f"(saved {len(positions_in_correct_order)} unnecessary moves)"
-    )
 
     return operations
 
@@ -452,13 +394,7 @@ def calculate_move_operations(
         return operations
 
     # Use LIS-based minimal move calculation
-    operations = calculate_lis_reorder_operations(current_tracks, target_tracks)
-
-    logger.debug(
-        f"Calculated {len(operations)} LIS-optimized move operations for {len(matched_tracks)} matched tracks"
-    )
-
-    return operations
+    return calculate_lis_reorder_operations(current_tracks, target_tracks)
 
 
 def calculate_confidence_score(
@@ -497,10 +433,6 @@ def calculate_playlist_diff(
     target_ids = [t.id for t in target_tracks]
     if current_ids == target_ids:
         return PlaylistDiff()
-
-    logger.debug(
-        f"Calculating diff: {len(current_tracks)} → {len(target_tracks)} tracks"
-    )
 
     # Step 1: Use sophisticated database-first track matching
     (

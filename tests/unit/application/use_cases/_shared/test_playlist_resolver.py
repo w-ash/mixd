@@ -1,14 +1,18 @@
-"""Tests for the shared resolve_playlist helper.
+"""Tests for the shared playlist resolution helpers.
 
-Validates that playlist resolution works for UUID IDs, connector IDs,
-and correctly handles not-found scenarios.
+Validates that ``resolve_playlist`` works for UUID IDs, connector IDs, and
+not-found scenarios, and that ``require_owned_playlist`` gates on the
+ownership predicate rather than hydrating the row.
 """
 
 from uuid import uuid7
 
 import pytest
 
-from src.application.use_cases._shared.playlist_resolver import resolve_playlist
+from src.application.use_cases._shared.playlist_resolver import (
+    require_owned_playlist,
+    resolve_playlist,
+)
 from src.domain.exceptions import NotFoundError
 from tests.fixtures import make_playlist
 from tests.fixtures.mocks import make_mock_uow
@@ -92,3 +96,25 @@ class TestResolvePlaylist:
         mock_uow.get_playlist_repository().get_playlist_by_connector.assert_awaited_once_with(
             "lastfm", "lfm_xyz", user_id="test-user", raise_if_not_found=True
         )
+
+
+class TestRequireOwnedPlaylist:
+    """The ownership gate is a predicate — it never loads the playlist."""
+
+    async def test_owned_playlist_passes_without_loading_the_row(self, mock_uow):
+        playlist_id = uuid7()
+        mock_uow.get_playlist_repository().is_owned_by.return_value = True
+
+        await require_owned_playlist(playlist_id, mock_uow, user_id="test-user")
+
+        mock_uow.get_playlist_repository().is_owned_by.assert_awaited_once_with(
+            playlist_id, user_id="test-user"
+        )
+        mock_uow.get_playlist_repository().get_playlist_by_id.assert_not_awaited()
+
+    async def test_unowned_or_missing_playlist_raises_not_found(self, mock_uow):
+        playlist_id = uuid7()
+        mock_uow.get_playlist_repository().is_owned_by.return_value = False
+
+        with pytest.raises(NotFoundError, match=str(playlist_id)):
+            await require_owned_playlist(playlist_id, mock_uow, user_id="test-user")

@@ -301,20 +301,6 @@ def validate_connector_availability(
     return sorted(required - available_set)
 
 
-# Derived from the canonical ENRICHER_METRIC_DEFS in nodes/config_fields.py.
-# Lazily computed (not at import) so importing this module — e.g. by API
-# middleware at boot — doesn't eagerly walk the node config registry.
-_enricher_metrics_cache: dict[str, frozenset[str]] | None = None
-
-
-def _enricher_metrics() -> dict[str, frozenset[str]]:
-    """Resolve enricher type → metric-names on first use, then cache."""
-    global _enricher_metrics_cache
-    if _enricher_metrics_cache is None:
-        _enricher_metrics_cache = get_enricher_metric_names()
-    return _enricher_metrics_cache
-
-
 # The one enricher whose emitted metrics depend on its own ``metrics`` config
 # rather than being fixed by type — so validation must read config, not just
 # capability, when reasoning about what it produces.
@@ -322,7 +308,7 @@ _PLAY_HISTORY_ENRICHER = "enricher.play_history"
 
 
 # Node types whose required enricher is derived from config["metric_name"]
-# via the ENRICHER_METRIC_DEFS lookup (scalar-metric consumers).
+# via the enricher metric-def lookup (scalar-metric consumers).
 _METRIC_CONSUMER_TYPES: frozenset[str] = frozenset({
     "filter.by_metric",
     "sorter.by_metric",
@@ -368,7 +354,7 @@ def _enricher_emitted_metrics(enricher_task: WorkflowTaskDef) -> set[str]:
     if enricher_task.type == _PLAY_HISTORY_ENRICHER:
         configured = cfg_str_list(enricher_task.config, "metrics")
         return set(configured or DEFAULT_PLAY_HISTORY_METRICS)
-    return set(_enricher_metrics().get(enricher_task.type, frozenset[str]()))
+    return set(get_enricher_metric_names().get(enricher_task.type, frozenset[str]()))
 
 
 def _enricher_emits(enricher_task: WorkflowTaskDef, metric: str) -> bool:
@@ -387,7 +373,7 @@ def _validate_enrichment_dependencies(
 
     Covers two consumer families:
     - Metric consumers (filter.by_metric, sorter.by_metric): required enricher
-      is derived from config["metric_name"] via ENRICHER_METRIC_DEFS.
+      is derived from config["metric_name"] via the enricher metric defs.
     - Enricher consumers (filter.by_preference, filter.by_tag, ...): required
       enricher is fixed per consumer node type.
 

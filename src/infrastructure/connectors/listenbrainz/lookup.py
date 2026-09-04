@@ -34,15 +34,16 @@ class ListenBrainzLookup:
         """Resolve (artist, release, track) triples to Spotify track ids.
 
         Chunks at ``settings.api.listenbrainz.batch_size`` — one POST per
-        chunk. Results key by the caller's original triple: each echoed row
-        is matched back to its query casefolded (the echo is the documented
-        join key; casefolding keeps a server-normalized echo from stranding
-        a hit) and the first entry of its ``spotify_track_ids`` wins.
+        chunk. The endpoint answers one row per query in request order, so
+        rows pair with the chunk positionally and the result keys by the
+        caller's original triple; the first entry of a row's
+        ``spotify_track_ids`` wins.
 
         Returns:
             triple → bare Spotify track id for the triples that resolved.
-            Misses are absent; a chunk whose call failed contributes only
-            misses — the lookup degrades, it never raises.
+            Misses are absent; a chunk whose call failed, or whose row count
+            broke the one-row-per-query contract, contributes only misses —
+            the lookup degrades, it never raises.
         """
         resolved: dict[MetadataTriple, str] = {}
         batch_size = settings.api.listenbrainz.batch_size
@@ -60,24 +61,17 @@ class ListenBrainzLookup:
                     "triple(s); treating as misses"
                 )
                 continue
-            hits = {
-                _folded((row.artist_name, row.release_name, row.track_name)): (
-                    row.spotify_track_ids[0]
+            if len(rows) != len(chunk):
+                logger.warning(
+                    f"ListenBrainz lookup answered {len(rows)} row(s) for "
+                    f"{len(chunk)} query(ies); treating the chunk as misses"
                 )
-                for row in rows
-                if row.spotify_track_ids
-            }
-            for triple in chunk:
-                if spotify_id := hits.get(_folded(triple)):
-                    resolved[triple] = spotify_id
+                continue
+            for triple, row in zip(chunk, rows, strict=True):
+                if row.spotify_track_ids:
+                    resolved[triple] = row.spotify_track_ids[0]
         return resolved
 
     async def aclose(self) -> None:
         """Close the underlying API client."""
         await self._client.aclose()
-
-
-def _folded(triple: MetadataTriple) -> MetadataTriple:
-    """Case-insensitive echo-matching key for one triple."""
-    artist, release, track = triple
-    return (artist.casefold(), release.casefold(), track.casefold())

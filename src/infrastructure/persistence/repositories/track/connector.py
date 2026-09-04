@@ -88,6 +88,9 @@ from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.resolution import actively_suppressing
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
+from src.infrastructure.persistence.repositories.track.ingest_lock import (
+    acquire_user_track_ingest_lock,
+)
 from src.infrastructure.services.resolution_recorder import ResolutionRecorder
 
 logger = get_logger(__name__)
@@ -1131,6 +1134,12 @@ class TrackConnectorRepository:
         """
         if not tracks:
             return []
+
+        # Before the first write: the competing writer is the play-import
+        # resolver's ``save_tracks``, which takes the same lock, so the two
+        # queue here instead of inside ``uq_tracks_user_isrc``. Transaction-
+        # scoped, so it is held for the rest of the caller's transaction.
+        await acquire_user_track_ingest_lock(self.session, user_id)
 
         # 1. Group tracks by identifier upfront to handle duplicates in a single
         # batch (Spotify can return the same track across pagination boundaries),

@@ -59,19 +59,29 @@ class MusicBrainzProvider(BaseMatchingProvider):
     async def _match_by_isrc(
         self, tracks: list[Track]
     ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
-        """Match tracks via one connector batch ISRC lookup.
+        """Match tracks via the connector's per-ISRC batch lookup.
 
         The batch result carries only answered ISRCs: a code mapped to a
         recording matches, a code mapped to ``None`` fails as ``NO_RESULTS``,
         and a code ABSENT from the result went unanswered (its lookup
         errored) — its tracks fail as ``API_ERROR``, never ``NO_RESULTS``.
+        A failure outside the connector's per-code loop (rate-limiter or
+        session setup, a connector closed mid-run) fails every code the same
+        way and leaves the artist/title fallback free to run.
         """
         isrc_by_track: dict[UUID, str] = {
             track.id: track.isrc for track in tracks if track.id and track.isrc
         }
-        isrc_results = await self.connector_instance.batch_isrc_lookup(
-            list(dict.fromkeys(isrc_by_track.values()))
-        )
+        codes = list(dict.fromkeys(isrc_by_track.values()))
+        whole_call_failed = False
+        try:
+            isrc_results = await self.connector_instance.batch_isrc_lookup(codes)
+        except Exception as exc:
+            logger.warning(
+                f"MusicBrainz ISRC lookup failed for all {len(codes)} code(s): {exc}"
+            )
+            isrc_results = {}
+            whole_call_failed = True
         recording_by_isrc = {
             code: recording for code, recording in isrc_results.items() if recording
         }
@@ -88,8 +98,9 @@ class MusicBrainzProvider(BaseMatchingProvider):
             service_label="MusicBrainz",
             method="isrc",
             code_label="ISRC",
-            # One batch call carries every code, so its failure is theirs all.
-            batched=True,
+            # The connector looks codes up one at a time, so an omitted code
+            # failed alone — unless the whole call raised before the loop.
+            batched=whole_call_failed,
         )
 
     async def _match_by_artist_title(

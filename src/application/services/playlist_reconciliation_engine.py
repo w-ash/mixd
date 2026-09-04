@@ -120,9 +120,11 @@ class PlaylistReconciliationEngine:
             link.playlist_id, user_id=user_id
         )
         remote_cp = await self._fetch_remote(link, uow)
-        plan = await self._build_plan(
-            direction, canonical, remote_cp, uow, user_id=user_id
-        )
+        if direction == SyncDirection.PUSH:
+            external = await external_as_playlist(remote_cp, uow, user_id=user_id)
+            plan = self._push_plan(canonical, external, remote_cp.connector_name)
+        else:
+            plan = self._pull_plan(canonical, remote_cp)
         token = compute_confirm_token(
             link_id=link.id,
             direction=direction,
@@ -151,10 +153,43 @@ class PlaylistReconciliationEngine:
         )
         remote_cp = await self._fetch_remote(link, uow)
         base_repo = uow.get_playlist_sync_base_repository()
-        plan = await self._build_plan(
-            direction, canonical, remote_cp, uow, user_id=user_id
-        )
 
+        # Each path plans and applies against its own inputs, then returns the
+        # post-apply base snapshot (the external state the link now agrees with):
+        # the fresh remote for a pull, the post-write snapshot for a push.
+        if direction == SyncDirection.PUSH:
+            # Resolve the remote to a canonical-shaped Playlist ONCE — the plan
+            # and the executor diff the same resolved sets, and resolving costs a
+            # lookup per remote track.
+            external = await external_as_playlist(remote_cp, uow, user_id=user_id)
+            plan = self._push_plan(canonical, external, remote_cp.connector_name)
+            self._gate(plan, confirmed=confirmed)
+            if plan.is_noop:
+                return await self._skip(
+                    link, base_repo, remote_cp, direction, user_id=user_id
+                )
+            result, base_snapshot = await self._apply_push(
+                link, canonical, external, uow
+            )
+        else:
+            plan = self._pull_plan(canonical, remote_cp)
+            self._gate(plan, confirmed=confirmed)
+            if plan.is_noop:
+                return await self._skip(
+                    link, base_repo, remote_cp, direction, user_id=user_id
+                )
+            result, base_snapshot = await self._apply_pull(
+                link, remote_cp, plan, uow, user_id=user_id
+            )
+
+        await self._record_base(link, base_repo, base_snapshot, user_id=user_id)
+        return result
+
+    # -- internals ---------------------------------------------------------
+
+    @staticmethod
+    def _gate(plan: SyncPlan, *, confirmed: bool) -> None:
+        """Raise unless a destructive plan has already been confirmed."""
         if plan.requires_confirmation and not confirmed:
             raise ConfirmationRequiredError(
                 plan.safety.reason or "Destructive sync requires confirmation",
@@ -163,30 +198,21 @@ class PlaylistReconciliationEngine:
                 remaining=plan.safety.remaining_after_sync,
             )
 
-        if plan.is_noop:
-            # Nothing to apply — refresh the base snapshot to the current remote so
-            # the next sync's change-detection has the latest snapshot.
-            await self._record_base(
-                link, base_repo, remote_cp.snapshot_id, user_id=user_id
-            )
-            return ReconcileResult(direction=direction, skipped=True)
+    async def _skip(
+        self,
+        link: PlaylistLink,
+        base_repo: PlaylistSyncBaseRepositoryProtocol,
+        remote_cp: ConnectorPlaylist,
+        direction: SyncDirection,
+        *,
+        user_id: str,
+    ) -> ReconcileResult:
+        """Nothing to apply — refresh the base snapshot to the current remote.
 
-        # Each path returns its result plus the post-apply base snapshot (the
-        # external state the link now agrees with): the fresh remote for a pull,
-        # the post-write snapshot for a push.
-        if direction == SyncDirection.PULL:
-            result, base_snapshot = await self._apply_pull(
-                link, remote_cp, plan, uow, user_id=user_id
-            )
-        else:
-            result, base_snapshot = await self._apply_push(
-                link, canonical, remote_cp, uow, user_id=user_id
-            )
-
-        await self._record_base(link, base_repo, base_snapshot, user_id=user_id)
-        return result
-
-    # -- internals ---------------------------------------------------------
+        The next sync's change-detection then starts from the latest snapshot.
+        """
+        await self._record_base(link, base_repo, remote_cp.snapshot_id, user_id=user_id)
+        return ReconcileResult(direction=direction, skipped=True)
 
     async def _fetch_remote(
         self, link: PlaylistLink, uow: UnitOfWorkProtocol
@@ -199,40 +225,47 @@ class PlaylistReconciliationEngine:
         )
 
     @staticmethod
-    async def _build_plan(
-        direction: SyncDirection,
-        canonical: Playlist,
-        remote_cp: ConnectorPlaylist,
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
+    def _push_plan(
+        canonical: Playlist, external: Playlist, connector_name: str
     ) -> SyncPlan:
-        # Compare connector identifiers (not canonical track ids), so a pull's
-        # not-yet-ingested remote tracks are counted as adds rather than skipped.
-        current_ids: Sequence[Hashable]
-        target_ids: Sequence[Hashable]
-        if direction == SyncDirection.PUSH:
-            # Diff the SAME sets the executor does. overwrite_external_playlist
-            # diffs the RESOLVED remote (external_as_playlist drops unmatched
-            # remote tracks from `.tracks`, so the push never touches them) against
-            # the resolved canonical. Counting raw remote ids on the current side
-            # would report phantom removals for local/unavailable remote tracks the
-            # push leaves in place — inflating the count and tripping the
-            # destructive gate. Both sides are resolved-only. (The apply re-resolves
-            # for the actual diff; threading one Playlist through preview+apply would
-            # need lint-forbidden narrowing, so each path resolves what it needs.)
-            external = await external_as_playlist(remote_cp, uow, user_id=user_id)
-            current_ids = _resolved_connector_ids(external, remote_cp.connector_name)
-            target_ids = _resolved_connector_ids(canonical, remote_cp.connector_name)
-        else:
-            # A pull overwrites the canonical. Every canonical position counts
-            # toward the size and (if absent from the remote) as a removal — incl.
-            # cross-matched tracks with no id on this connector — so the
-            # destructive-pull gate can't be diluted by positions it would drop.
-            current_ids = _canonical_pull_ids(canonical, remote_cp.connector_name)
-            target_ids = [item.connector_track_identifier for item in remote_cp.items]
+        """Diff the SAME sets the executor does — resolved-only, both sides.
+
+        ``overwrite_external_playlist`` diffs the RESOLVED remote
+        (``external_as_playlist`` drops unmatched remote tracks from ``.tracks``,
+        so the push never touches them) against the resolved canonical. Counting
+        raw remote ids on the current side would report phantom removals for
+        local/unavailable remote tracks the push leaves in place — inflating the
+        count and tripping the destructive gate.
+        """
+        current_ids: Sequence[Hashable] = _resolved_connector_ids(
+            external, connector_name
+        )
+        target_ids: Sequence[Hashable] = _resolved_connector_ids(
+            canonical, connector_name
+        )
         return build_sync_plan(
-            direction=direction, current_ids=current_ids, target_ids=target_ids
+            direction=SyncDirection.PUSH, current_ids=current_ids, target_ids=target_ids
+        )
+
+    @staticmethod
+    def _pull_plan(canonical: Playlist, remote_cp: ConnectorPlaylist) -> SyncPlan:
+        """Diff the canonical against the raw remote by connector identifier.
+
+        Identifiers (not canonical track ids), so the remote's not-yet-ingested
+        tracks are counted as adds rather than skipped. A pull overwrites the
+        canonical, so every canonical position counts toward the size and (if
+        absent from the remote) as a removal — incl. cross-matched tracks with no
+        id on this connector — so the destructive-pull gate can't be diluted by
+        positions it would drop.
+        """
+        current_ids: Sequence[Hashable] = _canonical_pull_ids(
+            canonical, remote_cp.connector_name
+        )
+        target_ids: Sequence[Hashable] = [
+            item.connector_track_identifier for item in remote_cp.items
+        ]
+        return build_sync_plan(
+            direction=SyncDirection.PULL, current_ids=current_ids, target_ids=target_ids
         )
 
     async def _apply_pull(
@@ -274,17 +307,15 @@ class PlaylistReconciliationEngine:
     async def _apply_push(
         link: PlaylistLink,
         canonical: Playlist,
-        remote_cp: ConnectorPlaylist,
+        external: Playlist,
         uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
     ) -> tuple[ReconcileResult, str | None]:
         """Push canonical to the external via the shared overwrite primitive.
 
-        New base snapshot = the post-write snapshot (the external now matches
-        canonical).
+        Takes the resolved ``external`` the plan was built from, so one apply
+        resolves the remote once. New base snapshot = the post-write snapshot
+        (the external now matches canonical).
         """
-        external = await external_as_playlist(remote_cp, uow, user_id=user_id)
         push = await overwrite_external_playlist(
             link.connector_name,
             ConnectorPlaylistIdentifier(link.connector_playlist_identifier),

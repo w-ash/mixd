@@ -18,8 +18,52 @@ from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from src.application.connector_protocols import PlaylistConnector
 from src.domain.entities import SyncCheckpoint
+from src.domain.entities.connector import Capability, ConnectorDescriptor
 from src.domain.entities.progress import ProgressEmitter
+
+
+def _declared_capabilities(name: str) -> frozenset[Capability]:
+    """The capability set the real registry declares for ``name``.
+
+    Unknown names declare nothing, the same as Tidal and Discogs do today.
+    """
+    from src.infrastructure.connectors.discovery import discover_connectors
+
+    config = discover_connectors().get(name)
+    return config["capabilities"] if config is not None else frozenset()
+
+
+def make_mock_connector_provider(
+    connector: object = None,
+    *,
+    name: str = "spotify",
+    capabilities: frozenset[Capability] | None = None,
+    **overrides,
+) -> MagicMock:
+    """Build a ``MagicMock`` mimicking :class:`ServiceConnectorProvider`.
+
+    ``describe`` returns a descriptor with the capabilities the real registry
+    declares for ``name``, so the gate in ``resolve_capability`` behaves as it
+    does in production — a test that needs a capability the connector does
+    not declare says so with ``capabilities=``.
+    """
+    provider = MagicMock()
+    if connector is not None:
+        provider.get_connector.return_value = connector
+    provider.describe.return_value = ConnectorDescriptor(
+        name=name,
+        display_name=name.title(),
+        category="streaming",
+        auth_method="oauth",
+        capabilities=(
+            capabilities if capabilities is not None else _declared_capabilities(name)
+        ),
+    )
+    for key, value in overrides.items():
+        setattr(provider, key, value)
+    return provider
 
 
 def fake_run_async[T](value: T) -> Callable[[Coroutine[Any, Any, Any]], T]:
@@ -284,7 +328,10 @@ def make_mock_connector_playlist_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`ConnectorPlaylistRepositoryProtocol`."""
     repo = AsyncMock()
     repo.upsert_model.side_effect = overrides.pop("upsert_model", lambda cp: cp)
-    repo.list_by_connector.return_value = overrides.pop("list_by_connector", [])
+    repo.list_summaries_by_connector.return_value = overrides.pop(
+        "list_summaries_by_connector", []
+    )
+    repo.find_by_ids.return_value = overrides.pop("find_by_ids", [])
     repo.bulk_upsert_models.side_effect = overrides.pop("bulk_upsert_models", list)
     for k, v in overrides.items():
         setattr(repo, k, v)
@@ -548,7 +595,9 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
 
     # Connector provider (optional override)
     uow.get_service_connector_provider = MagicMock(
-        return_value=repo_overrides.get("connector_provider", MagicMock())
+        return_value=repo_overrides.get(
+            "connector_provider", make_mock_connector_provider()
+        )
     )
 
     # Async context manager protocol
@@ -585,18 +634,17 @@ def make_mock_uow_with_connector(
 ) -> tuple[MagicMock, AsyncMock]:
     """Build a mock UoW wired with an AsyncMock playlist connector.
 
-    Returns ``(uow, connector)``. The connector implements
-    ``get_playlist`` (returns ``get_playlist_return`` when provided) and
-    a stub ``get_playlist_details`` so ``resolve_playlist_connector``'s
-    capability check passes. Additional uow_overrides are forwarded to
-    ``make_mock_uow``.
+    Returns ``(uow, connector)``. The connector is specced against
+    ``PlaylistConnector`` so ``resolve_playlist_connector``'s ``isinstance``
+    narrowing accepts it — an unspecced mock builds its members lazily via
+    ``__getattr__``, which protocol runtime checks deliberately do not see.
+    Additional uow_overrides are forwarded to ``make_mock_uow``.
     """
-    connector = AsyncMock()
+    connector = AsyncMock(spec=PlaylistConnector)
     if get_playlist_return is not None:
         connector.get_playlist.return_value = get_playlist_return
-    connector.get_playlist_details = AsyncMock()
 
-    provider = MagicMock()
-    provider.get_connector.return_value = connector
-    uow = make_mock_uow(connector_provider=provider, **uow_overrides)
+    uow = make_mock_uow(
+        connector_provider=make_mock_connector_provider(connector), **uow_overrides
+    )
     return uow, connector

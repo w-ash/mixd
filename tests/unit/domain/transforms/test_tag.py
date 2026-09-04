@@ -6,11 +6,11 @@ Covers filter_by_tag (any/all match modes) and filter_by_tag_namespace
 
 import pytest
 
-from src.application.metadata_transforms.tag import (
+from src.domain.entities.track import TrackList
+from src.domain.transforms.tag import (
     filter_by_tag,
     filter_by_tag_namespace,
 )
-from src.domain.entities.track import TrackList
 from tests.fixtures.factories import make_track_tag, make_tracks
 
 
@@ -151,3 +151,91 @@ class TestFilterByTagNamespace:
         result = filter_by_tag_namespace(namespace="mood", tracklist=tracklist)
 
         assert [t.id for t in result.tracks] == [tracks[1].id]
+
+
+class TestLenientNormalization:
+    """Both filters normalise inputs but never raise on a value that can't be a tag.
+
+    Free-text config fields carry ordinary punctuation; a value that can never
+    equal a stored tag matches nothing instead of aborting the workflow run.
+    """
+
+    def test_invalid_namespace_value_matches_nothing(self):
+        tracklist, _ = _tracklist_with_tags(2, {0: ["mood:chill"], 1: ["mood:upbeat"]})
+
+        result = filter_by_tag_namespace("mood", ["Chill!"], tracklist)
+
+        assert isinstance(result, TrackList)
+        assert result.tracks == []
+
+    def test_invalid_value_dropped_when_others_remain(self):
+        tracklist, tracks = _tracklist_with_tags(
+            2, {0: ["mood:chill"], 1: ["mood:upbeat"]}
+        )
+
+        result = filter_by_tag_namespace("mood", ["drum & bass", "chill"], tracklist)
+
+        assert isinstance(result, TrackList)
+        assert [t.id for t in result.tracks] == [tracks[0].id]
+
+    def test_values_normalise_before_comparison(self):
+        """Case and whitespace runs collapse to the stored canonical form."""
+        tracklist, tracks = _tracklist_with_tags(2, {0: ["mood:deep house"]})
+
+        result = filter_by_tag_namespace("mood", ["Deep  House"], tracklist)
+
+        assert isinstance(result, TrackList)
+        assert [t.id for t in result.tracks] == [tracks[0].id]
+
+    def test_namespace_is_case_insensitive(self):
+        tracklist, tracks = _tracklist_with_tags(
+            2, {0: ["mood:chill"], 1: ["energy:low"]}
+        )
+
+        result = filter_by_tag_namespace(" Mood ", tracklist=tracklist)
+
+        assert isinstance(result, TrackList)
+        assert [t.id for t in result.tracks] == [tracks[0].id]
+
+    def test_by_tag_any_drops_invalid_and_keeps_valid(self):
+        tracklist, tracks = _tracklist_with_tags(
+            2, {0: ["genre:dnb"], 1: ["mood:chill"]}
+        )
+
+        result = filter_by_tag(["drum & bass", "genre:dnb"], "any", tracklist)
+
+        assert isinstance(result, TrackList)
+        assert [t.id for t in result.tracks] == [tracks[0].id]
+
+    def test_by_tag_any_with_only_invalid_matches_nothing(self):
+        tracklist, _ = _tracklist_with_tags(1, {0: ["genre:dnb"]})
+
+        result = filter_by_tag(["drum & bass"], "any", tracklist)
+
+        assert isinstance(result, TrackList)
+        assert result.tracks == []
+
+    def test_by_tag_all_with_one_invalid_matches_nothing(self):
+        """An unmatchable tag can never be present, so 'all' is unsatisfiable."""
+        tracklist, _ = _tracklist_with_tags(1, {0: ["genre:dnb", "mood:chill"]})
+
+        result = filter_by_tag(["genre:dnb", "drum & bass"], "all", tracklist)
+
+        assert isinstance(result, TrackList)
+        assert result.tracks == []
+
+    def test_by_tag_all_tolerates_duplicate_inputs(self):
+        tracklist, tracks = _tracklist_with_tags(1, {0: ["genre:dnb"]})
+
+        result = filter_by_tag(["genre:dnb", "Genre:DnB"], "all", tracklist)
+
+        assert isinstance(result, TrackList)
+        assert [t.id for t in result.tracks] == [tracks[0].id]
+
+    def test_over_length_value_matches_nothing(self):
+        tracklist, _ = _tracklist_with_tags(1, {0: ["mood:chill"]})
+
+        result = filter_by_tag(["x" * 65], "any", tracklist)
+
+        assert isinstance(result, TrackList)
+        assert result.tracks == []

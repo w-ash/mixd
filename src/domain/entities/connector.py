@@ -133,3 +133,19 @@ def derive_status_state(status: ConnectorStatus) -> ConnectorStatusState:
     if status.token_expires_at and status.token_expires_at < time.time():
         return "expired"
     return "connected"
+
+
+@define(frozen=True, slots=True)
+class ConnectorDescriptor:
+    """Static, user-independent facts about one music service connector.
+
+    The registry's declarative half — everything a caller can know about a
+    connector without probing a user's credentials. ``ConnectorStatus`` is
+    the per-user runtime counterpart.
+    """
+
+    name: str
+    display_name: str
+    category: ConnectorCategory
+    auth_method: ConnectorAuthMethod
+    capabilities: frozenset[Capability]

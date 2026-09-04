@@ -7,6 +7,8 @@ to the domain vocabulary (``src.domain.entities.connector``).
 from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
+from attrs import define
+
 from src.domain.entities.connector import (
     Capability,
     ConnectorAuthMethod,
@@ -45,6 +47,20 @@ type CrossDiscoveryFactory = Callable[[], CrossDiscoveryProvider]
 type DisconnectHook = Callable[[str], Awaitable[None]]
 
 
+@define(frozen=True, slots=True)
+class MetricSpec:
+    """One metric a connector declares: where it comes from and how to name it.
+
+    ``field`` is the key the metric arrives under in the connector's metadata
+    payload; ``label`` and ``description`` are the human-facing strings the
+    metric registry serves to UI surfaces.
+    """
+
+    field: str
+    label: str
+    description: str = ""
+
+
 class ConnectorConfig(TypedDict):
     """Declarative registry entry for a music service connector.
 
@@ -52,7 +68,7 @@ class ConnectorConfig(TypedDict):
     ``ConnectorMetadataSchema`` payload so the frontend can render connectors
     generically. ``factory`` / ``status_fn`` / ``build_auth_url`` are the
     three pieces of real connector-specific code — everything else is
-    declarative metadata. ``metrics`` (metric name → metadata field) and the
+    declarative metadata. ``metrics`` (metric name → ``MetricSpec``) and the
     optional ``metric_freshness_hours`` feed the metric registry: connector
     discovery registers them via ``register_metrics``.
 
@@ -72,7 +88,7 @@ class ConnectorConfig(TypedDict):
     """
 
     factory: Callable[[], object]
-    metrics: dict[str, str]
+    metrics: dict[str, MetricSpec]
     metric_freshness_hours: NotRequired[float]
     display_name: str
     category: ConnectorCategory

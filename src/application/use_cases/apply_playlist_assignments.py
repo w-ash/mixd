@@ -125,8 +125,14 @@ class ApplyPlaylistAssignmentsUseCase:
         for a in assignments:
             assignments_by_cp.setdefault(a.connector_playlist_id, []).append(a)
 
-        cached_cps = await cp_repo.list_by_connector(command.connector_name)
-        cached_by_db_id = {cp.id: cp for cp in cached_cps}
+        # When assignment_ids is None the assignments span every connector;
+        # only this command's connector may pair its identifiers below.
+        cached_cps = await cp_repo.find_by_ids(list(assignments_by_cp))
+        cached_by_db_id = {
+            cp.id: cp
+            for cp in cached_cps
+            if cp.connector_name == command.connector_name
+        }
 
         all_connections: list[tuple[str, str]] = []
         for cp_id in assignments_by_cp:

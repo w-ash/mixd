@@ -440,8 +440,11 @@ SPECS: list[dict[str, object]] = [
         "dispatch": handle_preview_workflow,
         "use_cases": ("PreviewWorkflowUseCase",),
         # "read" despite the source upserts: they're idempotent cache-fill,
-        # touching no user-facing artifact — no confirmation gate needed.
+        # touching no user-facing artifact — no confirmation gate needed. But
+        # those upserts take the per-user track-ingest advisory lock, so the
+        # chat loop must not run two previews concurrently.
         "kind": "read",
+        "parallel_safe": False,
     },
     {
         "name": "query_workflow_history",

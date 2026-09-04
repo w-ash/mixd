@@ -1,29 +1,21 @@
-"""Private helper utilities for application transform modules.
+"""Private helper utilities for metadata-aware transforms.
 
-This module contains shared helper functions used by multiple transform modules
-to eliminate code duplication. Functions are prefixed with underscore to indicate
-they are private implementation details.
-
-These helpers consolidate:
-- Date/time window calculation logic
+Shared helpers for the transform modules that read ``TrackList.metadata``:
+- Date/time window calculation
 - Metadata extraction patterns
 - Datetime parsing with timezone handling
 
-Note: This module is private and should only be imported by other modules
-in the application/metadata_transforms package.
-"""
+Purity: No side effects, logging, or external dependencies.
 
-# Legitimate Any: use case results, OperationResult metadata, metric values
+Note: This module is private to ``src/domain/transforms``.
+"""
 
 from datetime import UTC, datetime, timedelta
 from typing import Literal, TypeIs
 from uuid import UUID
 
-from src.config import get_logger
 from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import TrackList
-
-logger = get_logger(__name__)
 
 # === Type Guards ===
 
@@ -148,7 +140,7 @@ def parse_datetime_safe(value: object) -> datetime | None:
     - Already datetime objects (ensures UTC timezone)
     - ISO format strings (most common)
     - Timestamp strings (fallback)
-    - Invalid formats (returns None with debug logging)
+    - Invalid formats (returns None)
 
     Always returns timezone-aware datetime in UTC or None.
 
@@ -176,9 +168,6 @@ def parse_datetime_safe(value: object) -> datetime | None:
             timestamp = float(value)
             return datetime.fromtimestamp(timestamp, tz=UTC)
         except ValueError, TypeError:
-            logger.debug(
-                "Failed to parse datetime value", value=value, type=type(value)
-            )
             return None
 
     # Not a datetime or string

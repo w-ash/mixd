@@ -43,6 +43,41 @@ class TestTrackAttributeSorting:
         assert title_metrics[t2.id] == "Apple"
         assert title_metrics[t3.id] == "Banana"
 
+    def test_sort_by_title_with_string_reverse_false_is_ascending(self):
+        """The editor persists reverse as the string "false"; sort ascends."""
+        tracks = [
+            Track(title="Zebra", artists=[Artist(name="Artist1")]),
+            Track(title="Apple", artists=[Artist(name="Artist2")]),
+            Track(title="Banana", artists=[Artist(name="Artist3")]),
+        ]
+        tracklist = TrackList(tracks=tracks)
+
+        sorter_fn = TRANSFORM_REGISTRY["sorter"]["by_metric"].factory(
+            _ctx=None, cfg={"metric_name": "title", "reverse": "false"}
+        )
+        sorted_tracklist = sorter_fn(tracklist)
+
+        assert [t.title for t in sorted_tracklist.tracks] == [
+            "Apple",
+            "Banana",
+            "Zebra",
+        ]
+
+    def test_sort_by_title_with_string_reverse_true_is_descending(self):
+        """The string "true" sorts descending, matching the bool form."""
+        tracks = [
+            Track(title="Apple", artists=[Artist(name="Artist1")]),
+            Track(title="Zebra", artists=[Artist(name="Artist2")]),
+        ]
+        tracklist = TrackList(tracks=tracks)
+
+        sorter_fn = TRANSFORM_REGISTRY["sorter"]["by_metric"].factory(
+            _ctx=None, cfg={"metric_name": "title", "reverse": "true"}
+        )
+        sorted_tracklist = sorter_fn(tracklist)
+
+        assert [t.title for t in sorted_tracklist.tracks] == ["Zebra", "Apple"]
+
     def test_sort_by_artist_attribute_directly(self):
         """Test sorting by primary artist name using track attribute directly."""
         # Arrange: Create tracks with different artists

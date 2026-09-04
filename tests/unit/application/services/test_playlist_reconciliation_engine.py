@@ -13,6 +13,7 @@ from uuid import uuid7
 
 import pytest
 
+from src.application.services.connector_push import external_as_playlist
 from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
     compute_confirm_token,
@@ -139,6 +140,61 @@ class TestSafetyAgainstFreshRemote:
             )
         assert result.skipped is False
         connector.execute_playlist_operations.assert_awaited_once()
+
+
+class TestRemoteResolvedOncePerPush:
+    """Planning and applying a push share ONE resolved remote.
+
+    ``external_as_playlist`` is a lookup per remote track; resolving it again
+    inside the executor doubled that cost on every push.
+    """
+
+    async def test_push_apply_resolves_external_once(self):
+        tracks = _tracks(3)
+        canonical = _canonical(tracks)
+        remote = _remote(["s0"])  # 2 adds, 0 removals — a real, non-destructive push
+        resolve_map = {
+            ("spotify", t.connector_track_identifiers["spotify"]): t for t in tracks
+        }
+        uow = _uow_with(canonical, resolve_map)
+        connector = MagicMock()
+        connector.execute_playlist_operations = AsyncMock(
+            return_value=PlaylistOpsOutcome(snapshot_id="new", requested=2, failed=0)
+        )
+        spy = AsyncMock(side_effect=external_as_playlist)
+
+        with (
+            patch(
+                f"{_ENGINE_MOD}.sync_connector_playlist", AsyncMock(return_value=remote)
+            ),
+            patch(f"{_ENGINE_MOD}.external_as_playlist", spy),
+            patch(f"{_PUSH_MOD}.resolve_playlist_connector", return_value=connector),
+        ):
+            result = await _engine().apply(
+                _link(SyncDirection.PUSH), SyncDirection.PUSH, uow, user_id="u"
+            )
+
+        assert result.tracks_added == 2
+        spy.assert_awaited_once()
+
+    async def test_pull_never_resolves_external(self):
+        canonical = _canonical(_tracks(1))
+        remote = _remote(["s0", "s1"])
+        uow = _uow_with(canonical)
+        spy = AsyncMock(side_effect=external_as_playlist)
+
+        with (
+            patch(
+                f"{_ENGINE_MOD}.sync_connector_playlist", AsyncMock(return_value=remote)
+            ),
+            patch(f"{_ENGINE_MOD}.external_as_playlist", spy),
+            patch(f"{_ENGINE_MOD}.upsert_canonical_playlist", AsyncMock()),
+        ):
+            await _engine().apply(
+                _link(SyncDirection.PULL), SyncDirection.PULL, uow, user_id="u"
+            )
+
+        spy.assert_not_awaited()
 
 
 class TestPushTargetResolvedOnly:

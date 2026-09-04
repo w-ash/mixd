@@ -1,10 +1,13 @@
-"""Synchronizes liked tracks between Spotify and Last.fm.
+"""Synchronizes liked tracks between a connector and the local library.
 
-Imports liked tracks from Spotify user libraries and exports them to Last.fm as "loved" tracks.
-Supports incremental syncing with checkpoints to resume interrupted operations.
+Imports liked tracks from any connector declaring ``likes_import`` and exports
+locally liked tracks to any connector declaring ``love_tracks``. Both sides are
+connector-agnostic: the service name arrives on the command, and every display
+string is derived from the registry descriptor. Supports incremental syncing
+with checkpoints to resume interrupted operations.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -39,6 +42,10 @@ from src.domain.services.play_poll_decision import (
 
 logger = get_logger(__name__)
 
+# Rewind applied to the export watermark. Absorbs clock skew between the app
+# and database ``updated_at`` values.
+_CHECKPOINT_LOOKBACK = timedelta(seconds=60)
+
 
 # -------------------------------------------------------------------------
 # SHARED CHECKPOINT & LIKE HELPERS
@@ -62,40 +69,13 @@ async def update_checkpoint(
     return await checkpoint_repo.save_sync_checkpoint(updated)
 
 
-async def save_likes(
-    track_id: UUID,
-    uow: UnitOfWorkProtocol,
-    *,
-    user_id: str,
-    services: list[str] | None = None,
-    timestamp: datetime | None = None,
-    is_liked: bool = True,
-    liked_at: datetime | None = None,
-) -> None:
-    """Save track like status across multiple services.
+def _display_name(connector: str, uow: UnitOfWorkProtocol) -> str:
+    """Registry display name for a connector ("spotify" → "Spotify").
 
-    Args:
-        track_id: Internal track ID.
-        uow: Unit of work for transaction management.
-        user_id: Owner's user ID.
-        services: Services to save likes for (defaults to ["mixd"]).
-        timestamp: When this sync happened (used for last_synced).
-        is_liked: Whether the track is liked.
-        liked_at: When the user originally liked the track.
+    Every user-visible string in this module is built from it, so an added
+    connector needs no new literals here.
     """
-    services = services or ["mixd"]
-    now = timestamp or datetime.now(UTC)
-    like_repo = uow.get_like_repository()
-
-    for service in services:
-        _ = await like_repo.save_track_like(
-            track_id=track_id,
-            service=service,
-            user_id=user_id,
-            is_liked=is_liked,
-            last_synced=now,
-            liked_at=liked_at,
-        )
+    return uow.get_service_connector_provider().describe(connector).display_name
 
 
 # -------------------------------------------------------------------------
@@ -104,20 +84,22 @@ async def save_likes(
 
 
 @define(frozen=True, slots=True)
-class ImportSpotifyLikesCommand:
-    """Parameters for importing Spotify liked tracks."""
+class ImportLikesCommand:
+    """Parameters for importing a connector's liked tracks."""
 
     user_id: str
+    connector: str
     limit: int | None = None
     max_imports: int | None = None
     force: bool = False
 
 
 @define(frozen=True, slots=True)
-class ExportLastFmLikesCommand:
-    """Parameters for exporting liked tracks to Last.fm."""
+class ExportLovesCommand:
+    """Parameters for exporting locally liked tracks as loves."""
 
     user_id: str
+    connector: str
     batch_size: int | None = None
     max_exports: int | None = None
     override_date: datetime | None = None
@@ -148,56 +130,63 @@ CHECKPOINT_COMBINATIONS: tuple[tuple[str, Literal["likes", "plays"]], ...] = (
 
 
 @define(slots=True)
-class ImportSpotifyLikesUseCase:
-    """Imports liked tracks from Spotify into the local database."""
+class ImportLikesUseCase:
+    """Imports a connector's liked tracks into the local database."""
 
     async def execute(
         self,
-        command: ImportSpotifyLikesCommand,
+        command: ImportLikesCommand,
         uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter | None = None,
     ) -> OperationResult:
-        """Import Spotify liked tracks with database transaction management."""
+        """Import the connector's liked tracks with transaction management."""
         from src.domain.entities.progress import NullProgressEmitter
 
         emitter = progress_emitter or NullProgressEmitter()
         async with uow:
-            return await self._import(command, uow, emitter)
+            return await self._import(
+                command, uow, emitter, _display_name(command.connector, uow)
+            )
 
     async def _import(
         self,
-        command: ImportSpotifyLikesCommand,
+        command: ImportLikesCommand,
         uow: UnitOfWorkProtocol,
         emitter: ProgressEmitter,
+        display_name: str,
     ) -> OperationResult:
-        """Fetch and store Spotify liked tracks in batches."""
+        """Fetch and store the connector's liked tracks in batches."""
         from src.domain.entities.progress import tracked_operation
 
         async with tracked_operation(
-            emitter, "Importing Spotify Likes"
+            emitter, f"Importing {display_name} Likes"
         ) as operation_id:
-            return await self._import_inner(command, uow, emitter, operation_id)
+            return await self._import_inner(
+                command, uow, emitter, operation_id, display_name
+            )
 
     async def _import_inner(
         self,
-        command: ImportSpotifyLikesCommand,
+        command: ImportLikesCommand,
         uow: UnitOfWorkProtocol,
         emitter: ProgressEmitter,
         operation_id: str,
+        display_name: str,
     ) -> OperationResult:
         from src.domain.entities.progress import create_progress_event
 
-        batch_size = command.limit or settings.api.spotify.batch_size
+        service = command.connector
+        batch_size = command.limit or settings.api.for_connector(service).batch_size
         checkpoint = (
             await uow.get_checkpoint_repository().get_or_create_sync_checkpoint(
-                user_id=command.user_id, service="spotify", entity_type="likes"
+                user_id=command.user_id, service=service, entity_type="likes"
             )
         )
 
         imported = 0
         already_synced = 0
         batches = 0
-        spotify_total: int | None = None
+        remote_total: int | None = None
 
         if command.force:
             cursor = None
@@ -207,14 +196,14 @@ class ImportSpotifyLikesUseCase:
         else:
             cursor = checkpoint.cursor
 
-        spotify_connector = resolve_liked_track_connector(uow)
+        likes_connector = resolve_liked_track_connector(service, uow)
 
         await emitter.emit_progress(
             create_progress_event(
                 operation_id,
                 current=0,
                 total=None,
-                message="Fetching liked tracks from Spotify...",
+                message=f"Fetching liked tracks from {display_name}...",
             )
         )
 
@@ -227,13 +216,13 @@ class ImportSpotifyLikesUseCase:
                 create_progress_event(
                     operation_id,
                     current=imported + already_synced,
-                    total=spotify_total,
+                    total=remote_total,
                     message=f"Fetching batch {batches + 1}...",
                 )
             )
 
             try:
-                tracks, cursor, batch_total = await spotify_connector.get_liked_tracks(
+                tracks, cursor, batch_total = await likes_connector.get_liked_tracks(
                     limit=batch_size, cursor=cursor
                 )
             except Exception:
@@ -243,13 +232,13 @@ class ImportSpotifyLikesUseCase:
                     uow,
                     checkpoint.last_timestamp or datetime.now(UTC),
                     cursor=cursor,
-                    remote_total=spotify_total,
+                    remote_total=remote_total,
                 )
                 await uow.commit()
                 raise
 
             if batch_total is not None:
-                spotify_total = batch_total
+                remote_total = batch_total
 
             if not tracks:
                 logger.info("No more tracks to import")
@@ -260,7 +249,7 @@ class ImportSpotifyLikesUseCase:
 
             # 1. Bulk-find existing tracks (1 query instead of N)
             connections: list[tuple[str, str]] = [
-                ("spotify", ct.connector_track_identifier) for ct in tracks
+                (service, ct.connector_track_identifier) for ct in tracks
             ]
 
             try:
@@ -280,7 +269,7 @@ class ImportSpotifyLikesUseCase:
             }
 
             for ct in tracks:
-                key = ("spotify", ct.connector_track_identifier)
+                key = (service, ct.connector_track_identifier)
                 existing_track = existing_map.get(key)
                 if existing_track and existing_track.id:
                     existing_ids.append(existing_track.id)
@@ -293,11 +282,11 @@ class ImportSpotifyLikesUseCase:
             if existing_ids:
                 like_repo = uow.get_like_repository()
                 like_status = await like_repo.get_liked_status_batch(
-                    existing_ids, ["spotify", "mixd"], user_id=command.user_id
+                    existing_ids, [service, "mixd"], user_id=command.user_id
                 )
                 for track_id in existing_ids:
                     statuses = like_status.get(track_id, {})
-                    if all(statuses.get(s, False) for s in ("spotify", "mixd")):
+                    if all(statuses.get(s, False) for s in (service, "mixd")):
                         already_synced += 1
                         batch_already_synced += 1
                     else:
@@ -309,7 +298,7 @@ class ImportSpotifyLikesUseCase:
             if new_tracks:
                 try:
                     ingested = await repo.ingest_external_tracks_bulk(
-                        "spotify", new_tracks, user_id=command.user_id
+                        service, new_tracks, user_id=command.user_id
                     )
                     for track in ingested:
                         if track.id:
@@ -329,12 +318,12 @@ class ImportSpotifyLikesUseCase:
             # Newly ingested tracks: lookup via connector_track_identifiers
             for ingested_track in ingested:
                 if ingested_track.id and ingested_track.id not in liked_at_map:
-                    spotify_id = ingested_track.connector_track_identifiers.get(
-                        "spotify"
+                    external_id = ingested_track.connector_track_identifiers.get(
+                        service
                     )
-                    if spotify_id:
+                    if external_id:
                         liked_at_map[ingested_track.id] = _parse_liked_at(
-                            ct_by_id.get(spotify_id)
+                            ct_by_id.get(external_id)
                         )
 
             # 6. Bulk-save likes for all tracks that need them
@@ -346,8 +335,8 @@ class ImportSpotifyLikesUseCase:
                 for track_id in needs_likes:
                     track_liked_at = liked_at_map.get(track_id)
                     like_entries.extend(
-                        (track_id, service, True, batch_time, track_liked_at)
-                        for service in ("spotify", "mixd")
+                        (track_id, like_service, True, batch_time, track_liked_at)
+                        for like_service in (service, "mixd")
                     )
                 try:
                     await like_repo.save_track_likes_batch(
@@ -366,7 +355,7 @@ class ImportSpotifyLikesUseCase:
 
             # Commit each batch incrementally so data survives machine restarts
             checkpoint = await update_checkpoint(
-                checkpoint, uow, batch_time, cursor=cursor, remote_total=spotify_total
+                checkpoint, uow, batch_time, cursor=cursor, remote_total=remote_total
             )
             await commit_batch(uow)
 
@@ -374,7 +363,7 @@ class ImportSpotifyLikesUseCase:
                 create_progress_event(
                     operation_id,
                     current=imported + already_synced,
-                    total=spotify_total,
+                    total=remote_total,
                     message=f"Fetching batch {batches + 1}...",
                 )
             )
@@ -392,14 +381,14 @@ class ImportSpotifyLikesUseCase:
                     create_progress_event(
                         operation_id,
                         current=imported + already_synced,
-                        total=spotify_total,
+                        total=remote_total,
                         message="Detected high duplicate rate, finishing...",
                     )
                 )
                 break
 
             if not cursor:
-                logger.info("Completed import of all Spotify likes")
+                logger.info(f"Completed import of all {display_name} likes")
                 break
 
         # Always stamp the checkpoint on exit — regardless of which exit path was taken.
@@ -410,12 +399,12 @@ class ImportSpotifyLikesUseCase:
             uow,
             datetime.now(UTC),
             cursor=cursor,
-            remote_total=spotify_total,
+            remote_total=remote_total,
         )
         logger.info(f"Import complete: {imported} imported, {already_synced} synced")
 
         await uow.commit()  # commit checkpoint before "complete" SSE fires
-        result = OperationResult(operation_name="Spotify Likes Import")
+        result = OperationResult(operation_name=f"{display_name} Likes Import")
         total = imported + already_synced
 
         # Add summary metrics with display order
@@ -459,49 +448,58 @@ def _parse_liked_at(ct: ConnectorTrack | None) -> datetime | None:
 
 
 @define(slots=True)
-class ExportLastFmLikesUseCase:
-    """Exports locally liked tracks to Last.fm as "loved" tracks."""
+class ExportLovesUseCase:
+    """Exports locally liked tracks to a connector as "loved" tracks."""
 
     async def execute(
         self,
-        command: ExportLastFmLikesCommand,
+        command: ExportLovesCommand,
         uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter | None = None,
     ) -> OperationResult:
-        """Export liked tracks to Last.fm with database transaction management."""
+        """Export liked tracks to the connector with transaction management."""
         from src.domain.entities.progress import NullProgressEmitter
 
         emitter = progress_emitter or NullProgressEmitter()
         async with uow:
-            return await self._export(command, uow, emitter)
+            return await self._export(
+                command, uow, emitter, _display_name(command.connector, uow)
+            )
 
     async def _export(
         self,
-        command: ExportLastFmLikesCommand,
+        command: ExportLovesCommand,
         uow: UnitOfWorkProtocol,
         emitter: ProgressEmitter,
+        display_name: str,
     ) -> OperationResult:
-        """Find unsynced likes and export them to Last.fm."""
+        """Find unsynced likes and export them to the connector."""
         from src.domain.entities.progress import tracked_operation
 
         async with tracked_operation(
-            emitter, "Exporting Likes to Last.fm"
+            emitter, f"Exporting Likes to {display_name}"
         ) as operation_id:
-            return await self._export_inner(command, uow, emitter, operation_id)
+            return await self._export_inner(
+                command, uow, emitter, operation_id, display_name
+            )
 
     async def _export_inner(
         self,
-        command: ExportLastFmLikesCommand,
+        command: ExportLovesCommand,
         uow: UnitOfWorkProtocol,
         emitter: ProgressEmitter,
         operation_id: str,
+        display_name: str,
     ) -> OperationResult:
         from src.domain.entities.progress import create_progress_event
 
-        batch_size = command.batch_size or settings.api.lastfm.batch_size
+        service = command.connector
+        batch_size = (
+            command.batch_size or settings.api.for_connector(service).batch_size
+        )
         checkpoint = (
             await uow.get_checkpoint_repository().get_or_create_sync_checkpoint(
-                user_id=command.user_id, service="lastfm", entity_type="likes"
+                user_id=command.user_id, service=service, entity_type="likes"
             )
         )
 
@@ -514,7 +512,7 @@ class ExportLastFmLikesUseCase:
         like_repo = uow.get_like_repository()
         unsynced = await like_repo.get_unsynced_likes(
             source_service="mixd",
-            target_service="lastfm",
+            target_service=service,
             user_id=command.user_id,
             is_liked=True,
             since_timestamp=filter_time,
@@ -540,15 +538,21 @@ class ExportLastFmLikesUseCase:
         filtered = 0
         errors = 0
         first_error: str | None = None
-        lastfm = resolve_love_track_connector(uow)
+        love_connector = resolve_love_track_connector(service, uow)
+        run_start = datetime.now(UTC)
+        # updated_at of every like that does not reach EXPORTED; the checkpoint
+        # is a low watermark over this outstanding work.
+        failed_updated_at: list[datetime] = []
 
         for i in range(0, len(unsynced), batch_size):
             if command.max_exports and exported >= command.max_exports:
                 logger.info(f"Reached max exports: {command.max_exports}")
+                failed_updated_at.extend(
+                    like.updated_at for like in unsynced[i:] if like.updated_at
+                )
                 break
 
             batch = unsynced[i : i + batch_size]
-            batch_time = datetime.now(UTC)
 
             await emitter.emit_progress(
                 create_progress_event(
@@ -567,6 +571,9 @@ class ExportLastFmLikesUseCase:
             except Exception as e:
                 logger.exception("Error batch-loading tracks for export")
                 errors += len(batch)
+                failed_updated_at.extend(
+                    like.updated_at for like in batch if like.updated_at
+                )
                 if first_error is None:
                     first_error = f"batch track load failed: {e}"
                 continue
@@ -581,17 +588,26 @@ class ExportLastFmLikesUseCase:
                     tracks_to_export.append(track)
 
             if not tracks_to_export:
+                failed_updated_at.extend(
+                    like.updated_at for like in batch if like.updated_at
+                )
                 continue
 
             # Process batch
             results = await self._process_batch(
-                tracks_to_export, lastfm, uow, user_id=command.user_id
+                tracks_to_export,
+                love_connector,
+                uow,
+                service=service,
+                user_id=command.user_id,
             )
 
+            exported_track_ids: set[UUID | None] = set()
             for result in results:
                 match result.status:
                     case BatchItemStatus.EXPORTED:
                         exported += 1
+                        exported_track_ids.add(result.track_id)
                     case BatchItemStatus.SKIPPED:
                         filtered += 1
                     case _:
@@ -599,15 +615,24 @@ class ExportLastFmLikesUseCase:
                         if first_error is None and result.error:
                             first_error = result.error
 
-            checkpoint = await update_checkpoint(checkpoint, uow, batch_time)
+            failed_updated_at.extend(
+                like.updated_at
+                for like in batch
+                if like.updated_at and like.track_id not in exported_track_ids
+            )
             await commit_batch(uow)
 
         logger.info(
             f"Export complete: {exported} exported, {filtered} skipped, {errors} errors"
         )
 
+        # Low watermark: the next incremental window must include every like
+        # that is still outstanding, so the mark is free to move backwards.
+        watermark = min(failed_updated_at, default=run_start)
+        _ = await update_checkpoint(checkpoint, uow, watermark - _CHECKPOINT_LOOKBACK)
+
         await uow.commit()  # commit checkpoint before "complete" SSE fires
-        result = OperationResult(operation_name="Last.fm Likes Export")
+        result = OperationResult(operation_name=f"{display_name} Likes Export")
         total_candidates = len(unsynced)
         attempted = exported + filtered + errors
 
@@ -653,66 +678,68 @@ class ExportLastFmLikesUseCase:
         connector: LoveTrackConnector,
         uow: UnitOfWorkProtocol,
         *,
+        service: str,
         user_id: str,
     ) -> list[BatchItemResult]:
-        """Process track batch through Last.fm API."""
-        results: list[BatchItemResult] = []
-        for track in tracks:
-            try:
-                result = await self._love_track(track, connector, uow, user_id=user_id)
-                results.append(result)
-            except Exception as e:
-                logger.exception(f"Error processing track {track.id}")
-                results.append(
-                    BatchItemResult(
-                        status=BatchItemStatus.ERROR,
-                        track_id=track.id,
-                        error=str(e),
-                    )
-                )
-        return results
+        """Love one batch through the connector, then persist what stuck.
 
-    async def _love_track(
-        self,
-        track: Track,
-        connector: LoveTrackConnector,
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> BatchItemResult:
-        """Love track on Last.fm and record result."""
-        if not track.artists:
-            return BatchItemResult(
+        One connector call and one like write per batch: ``love_tracks``
+        returns one flag per input in input order, and ``False`` records an
+        error for that item, so the batch is never abandoned because a
+        single track failed. A track with no artists cannot be matched on
+        any service and never reaches the connector.
+        """
+        results: list[BatchItemResult] = [
+            BatchItemResult(
                 status=BatchItemStatus.ERROR,
                 track_id=track.id,
                 error="No artists found",
             )
+            for track in tracks
+            if not track.artists
+        ]
+        lovable = [track for track in tracks if track.artists]
+        if not lovable:
+            return results
 
         try:
-            success = await connector.love_track(
-                artist=track.artists[0].name, title=track.title
+            outcomes = await connector.love_tracks([
+                (track.artists[0].name, track.title) for track in lovable
+            ])
+            paired = list(zip(lovable, outcomes, strict=True))
+        except Exception as e:
+            logger.exception("Error loving batch")
+            results.extend(
+                BatchItemResult(
+                    status=BatchItemStatus.ERROR, track_id=track.id, error=str(e)
+                )
+                for track in lovable
+            )
+            return results
+
+        now = datetime.now(UTC)
+        exported: list[tuple[UUID, str, bool, datetime | None, datetime | None]] = []
+        for track, loved in paired:
+            if not loved:
+                results.append(
+                    BatchItemResult(
+                        status=BatchItemStatus.ERROR,
+                        track_id=track.id,
+                        error="connector rejected the love (see connector logs)",
+                    )
+                )
+                continue
+            if track.id:
+                exported.append((track.id, service, True, now, None))
+            results.append(
+                BatchItemResult(status=BatchItemStatus.EXPORTED, track_id=track.id)
             )
 
-            if success:
-                if track.id:
-                    await save_likes(
-                        track.id, uow, user_id=user_id, services=["lastfm"]
-                    )
-                return BatchItemResult(
-                    status=BatchItemStatus.EXPORTED,
-                    track_id=track.id,
-                )
-            return BatchItemResult(
-                status=BatchItemStatus.SKIPPED,
-                track_id=track.id,
-                metadata={"reason": "API returned False"},
+        if exported:
+            _ = await uow.get_like_repository().save_track_likes_batch(
+                exported, user_id=user_id
             )
-        except Exception as e:
-            return BatchItemResult(
-                status=BatchItemStatus.ERROR,
-                track_id=track.id,
-                error=str(e),
-            )
+        return results
 
 
 @define(slots=True)
@@ -734,12 +761,41 @@ class GetSyncCheckpointStatusUseCase:
         combinations: tuple[tuple[str, Literal["likes", "plays"]], ...],
         uow: UnitOfWorkProtocol,
     ) -> list[SyncCheckpointStatus]:
-        """Get checkpoint statuses for all service/entity combinations in a single session."""
+        """Get every requested checkpoint status in two queries.
+
+        The whole surface is read up front — one checkpoint listing, one
+        grouped like count — rather than fanning out per combination, so
+        adding a connector costs no extra round-trips.
+        """
         async with uow:
-            return [
-                await self._get_status(user_id, service, entity_type, uow)
-                for service, entity_type in combinations
-            ]
+            checkpoints = await uow.get_checkpoint_repository().list_for_user(user_id)
+            by_key = {(c.service, c.entity_type): c for c in checkpoints}
+            like_services = sorted({
+                service for service, entity in combinations if entity == "likes"
+            })
+            counts = (
+                await uow.get_like_repository().count_liked_tracks_by_service(
+                    like_services, user_id=user_id
+                )
+                if like_services
+                else {}
+            )
+            lastfm_plays = by_key.get(("lastfm", "plays"))
+
+            statuses: list[SyncCheckpointStatus] = []
+            for service, entity_type in combinations:
+                checkpoint = by_key.get((service, entity_type))
+                local_count = (
+                    counts.get(service, 0)
+                    if entity_type == "likes" and checkpoint is not None
+                    else None
+                )
+                statuses.append(
+                    _build_status(
+                        service, entity_type, checkpoint, local_count, lastfm_plays
+                    )
+                )
+            return statuses
 
     @staticmethod
     async def _get_status(
@@ -761,20 +817,18 @@ class GetSyncCheckpointStatusUseCase:
             like_repo = uow.get_like_repository()
             local_count = await like_repo.count_liked_tracks(service, user_id=user_id)
 
-        poll = await _poll_status(user_id, service, entity_type, checkpoint, uow)
+        # The poll health of the adaptively-polled channel is judged against
+        # the Last.fm plays checkpoint; nothing else needs it.
+        lastfm_plays = (
+            await repo.get_sync_checkpoint(
+                user_id=user_id, service="lastfm", entity_type="plays"
+            )
+            if _is_poll_target(service, entity_type)
+            else None
+        )
 
-        return SyncCheckpointStatus(
-            service=service,
-            entity_type=entity_type,
-            last_sync_timestamp=checkpoint.last_timestamp if checkpoint else None,
-            has_previous_sync=checkpoint is not None
-            and checkpoint.last_timestamp is not None,
-            local_count=local_count,
-            remote_total=checkpoint.remote_total if checkpoint else None,
-            last_polled_at=poll.last_polled_at,
-            effective_interval_seconds=poll.effective_interval_seconds,
-            poll_health=poll.health,
-            possible_gap=poll.possible_gap,
+        return _build_status(
+            service, entity_type, checkpoint, local_count, lastfm_plays
         )
 
 
@@ -788,16 +842,48 @@ class _PollStatus:
     possible_gap: bool = False
 
 
-async def _poll_status(
-    user_id: str,
+def _is_poll_target(service: str, entity_type: str) -> bool:
+    """True for the one channel the adaptive poll policy drives."""
+    # Function-scoped: play_poll_policy reaches back into this module through
+    # sync_targets, so a module-level import would close the cycle.
+    from src.application.services.play_poll_policy import PLAY_POLL_TARGET
+
+    return f"{service}:{entity_type}" == PLAY_POLL_TARGET
+
+
+def _build_status(
+    service: str,
+    entity_type: Literal["likes", "plays"],
+    checkpoint: SyncCheckpoint | None,
+    local_count: int | None,
+    lastfm_plays: SyncCheckpoint | None,
+) -> SyncCheckpointStatus:
+    """Assemble one checkpoint's read model from already-loaded rows."""
+    poll = _poll_status(service, entity_type, checkpoint, lastfm_plays)
+    return SyncCheckpointStatus(
+        service=service,
+        entity_type=entity_type,
+        last_sync_timestamp=checkpoint.last_timestamp if checkpoint else None,
+        has_previous_sync=checkpoint is not None
+        and checkpoint.last_timestamp is not None,
+        local_count=local_count,
+        remote_total=checkpoint.remote_total if checkpoint else None,
+        last_polled_at=poll.last_polled_at,
+        effective_interval_seconds=poll.effective_interval_seconds,
+        poll_health=poll.health,
+        possible_gap=poll.possible_gap,
+    )
+
+
+def _poll_status(
     service: str,
     entity_type: str,
     checkpoint: SyncCheckpoint | None,
-    uow: UnitOfWorkProtocol,
+    lastfm: SyncCheckpoint | None,
 ) -> _PollStatus:
     """Polling status for the adaptively-polled channel; empty for every other.
 
-    Only ``("spotify", "plays")`` is polled, so the other checkpoints report
+    Only ``PLAY_POLL_TARGET`` is polled, so the other checkpoints report
     nothing rather than a misleading "never polled" — they are not *supposed* to
     be polled, and rendering them as overdue would be a false alarm.
 
@@ -805,12 +891,9 @@ async def _poll_status(
     backoff a 20-hour-old check is healthy at the daily floor and broken at the
     sole-observer cap, so the interval it was judged against travels with it.
     """
-    if (service, entity_type) != ("spotify", "plays") or checkpoint is None:
+    if not _is_poll_target(service, entity_type) or checkpoint is None:
         return _PollStatus()
 
-    lastfm = await uow.get_checkpoint_repository().get_sync_checkpoint(
-        user_id=user_id, service="lastfm", entity_type="plays"
-    )
     now = datetime.now(UTC)
     state = PollState.from_json(checkpoint.poll_state)
     # Through the domain's own selector rather than re-deriving the rule here:
@@ -846,43 +929,52 @@ async def _poll_status(
 # -------------------------------------------------------------------------
 
 
-async def run_spotify_likes_import(
+async def run_likes_import(
     user_id: str,
+    *,
+    connector: str,
     limit: int | None = None,
     max_imports: int | None = None,
     force: bool = False,
     progress_emitter: ProgressEmitter | None = None,
 ) -> OperationResult:
-    """Import Spotify liked tracks into local database."""
+    """Import a connector's liked tracks into the local database."""
     from src.application.runner import execute_use_case
 
-    command = ImportSpotifyLikesCommand(
-        user_id=user_id, limit=limit, max_imports=max_imports, force=force
+    command = ImportLikesCommand(
+        user_id=user_id,
+        connector=connector,
+        limit=limit,
+        max_imports=max_imports,
+        force=force,
     )
     return await execute_use_case(
-        lambda uow: ImportSpotifyLikesUseCase().execute(command, uow, progress_emitter),
+        lambda uow: ImportLikesUseCase().execute(command, uow, progress_emitter),
         user_id=user_id,
     )
 
 
-async def run_lastfm_likes_export(
+async def run_loves_export(
     user_id: str,
+    *,
+    connector: str,
     batch_size: int | None = None,
     max_exports: int | None = None,
     override_date: datetime | None = None,
     progress_emitter: ProgressEmitter | None = None,
 ) -> OperationResult:
-    """Export locally liked tracks to Last.fm as loved tracks."""
+    """Export locally liked tracks to a connector as loved tracks."""
     from src.application.runner import execute_use_case
 
-    command = ExportLastFmLikesCommand(
+    command = ExportLovesCommand(
         user_id=user_id,
+        connector=connector,
         batch_size=batch_size,
         max_exports=max_exports,
         override_date=override_date,
     )
     return await execute_use_case(
-        lambda uow: ExportLastFmLikesUseCase().execute(command, uow, progress_emitter),
+        lambda uow: ExportLovesUseCase().execute(command, uow, progress_emitter),
         user_id=user_id,
     )
 

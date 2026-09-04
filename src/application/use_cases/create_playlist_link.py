@@ -15,10 +15,9 @@ from src.application.use_cases._shared.command_validators import non_empty_strin
 from src.application.use_cases._shared.connector_resolver import (
     resolve_playlist_connector,
 )
-from src.application.use_cases._shared.playlist_id_parser import (
-    parse_playlist_identifier,
+from src.application.use_cases._shared.playlist_resolver import (
+    require_owned_playlist,
 )
-from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.config import get_logger
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
@@ -67,8 +66,8 @@ class CreatePlaylistLinkUseCase:
     ) -> CreatePlaylistLinkResult:
         async with uow:
             # 1. Verify canonical playlist exists
-            await require_playlist(
-                str(command.playlist_id), uow, user_id=command.user_id
+            await require_owned_playlist(
+                command.playlist_id, uow, user_id=command.user_id
             )
 
             # 2. Resolve connector (raises if unavailable)
@@ -77,8 +76,8 @@ class CreatePlaylistLinkUseCase:
             )
 
             # 3. Parse identifier (URL/URI/raw → raw ID)
-            raw_id = parse_playlist_identifier(
-                command.connector, command.connector_playlist_identifier
+            raw_id = connector.parse_playlist_identifier(
+                command.connector_playlist_identifier
             )
 
             # 4. Fetch external playlist (validates it exists)

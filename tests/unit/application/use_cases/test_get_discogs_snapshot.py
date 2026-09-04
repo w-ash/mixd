@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.application.connector_protocols import DiscogsCollectionConnector
 from src.application.use_cases.get_discogs_snapshot import (
     GetDiscogsSnapshotCommand,
     GetDiscogsSnapshotUseCase,
@@ -21,6 +22,7 @@ from src.domain.exceptions import ConnectorSyncError, DiscogsAuthRequiredError
 from tests.fixtures import (
     make_discogs_collection_page,
     make_discogs_release,
+    make_mock_connector_provider,
     make_mock_uow,
 )
 
@@ -37,7 +39,10 @@ def _make_connector(
     page: dict[str, object] | None = None,
     live_username: str | None = None,
 ) -> AsyncMock:
-    connector = AsyncMock()
+    connector = AsyncMock(spec=DiscogsCollectionConnector)
+    # Not on the capability protocol, but the UoW owns connector lifecycle —
+    # the tests below assert the use case never closes it itself.
+    connector.aclose = AsyncMock()
     connector.get_stored_username.return_value = username
     connector.get_collection_page_data.return_value = page
     if username is None and live_username is None:
@@ -49,9 +54,9 @@ def _make_connector(
 
 
 def _make_uow(connector: AsyncMock) -> MagicMock:
-    provider = MagicMock()
-    provider.get_connector.return_value = connector
-    return make_mock_uow(connector_provider=provider)
+    return make_mock_uow(
+        connector_provider=make_mock_connector_provider(connector, name="discogs")
+    )
 
 
 async def _execute(connector: AsyncMock, recent_limit: int = 10):

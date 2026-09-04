@@ -6,8 +6,8 @@ no duplicates, no missing tracks, correct edge-case behavior.
 
 import pytest
 
-from src.application.metadata_transforms.shuffle import weighted_shuffle
 from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.transforms.shuffle import weighted_shuffle
 
 
 def _make_tracklist(n: int) -> TrackList:

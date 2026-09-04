@@ -57,7 +57,15 @@ def cfg_float(
 
 def cfg_bool(cfg: Mapping[str, JsonValue], key: str, default: bool = False) -> bool:
     val = cfg.get(key, default)
-    return val if isinstance(val, bool) else default
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        lowered = val.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    return default
 
 
 def require_connector_playlist_identifier(

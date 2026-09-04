@@ -1,6 +1,7 @@
 """Chat use case — the agentic tool-use loop yielding stream events."""
 
-from collections.abc import AsyncGenerator
+import asyncio
+from collections.abc import AsyncGenerator, Mapping, Sequence, Set as AbstractSet
 import json
 from typing import cast
 
@@ -18,6 +19,7 @@ from src.application.chat.protocols import (
     LLMRequest,
     ToolContext,
     ToolExecutorFn,
+    ToolUseBlock,
 )
 from src.application.chat.user_data import strip_user_data
 from src.config import get_logger
@@ -35,6 +37,10 @@ logger = get_logger(__name__)
 # Sandbox-called rounds (v0.9.2) are cheap (cache reads, no context growth) but
 # a runaway code loop must still terminate. Inert until the sandbox is enabled.
 _SANDBOX_ROUNDS_PER_TURN = 5
+
+# Concurrent read tools per round — below the DB pool's base size (5) so one
+# chat round leaves connections for every other request in flight.
+_READ_ROUND_CONCURRENCY = 4
 
 type ChatEvent = (
     TextDelta
@@ -65,13 +71,128 @@ class ChatUseCase:
     The executor is injected (not imported from the registry) so v0.9.2's
     subagent can reuse this loop without an import cycle:
     ``registry -> subagent -> use_case`` must never lead back to ``registry``.
+    The tool-kind map takes the same injected route for the same reason, and
+    falls back to a function-scoped registry import on first use.
     """
 
     def __init__(
-        self, llm_client: LLMClientProtocol, tool_executor: ToolExecutorFn
+        self,
+        llm_client: LLMClientProtocol,
+        tool_executor: ToolExecutorFn,
+        tool_kinds: Mapping[str, str] | None = None,
+        sequential_reads: AbstractSet[str] | None = None,
     ) -> None:
         self._llm = llm_client
         self._execute_tool = tool_executor
+        self._tool_kinds = tool_kinds
+        self._sequential_reads = sequential_reads
+
+    def _kinds(self) -> Mapping[str, str]:
+        """Return the tool name -> kind map, loading it from the registry once.
+
+        The import is function-scoped: ``registry`` imports ``subagent``, which
+        imports this module, so a module-level registry import is a cycle.
+        """
+        if self._tool_kinds is None:
+            from src.application.tools.registry import TOOLS
+
+            self._tool_kinds = {spec.name: spec.kind for spec in TOOLS}
+        return self._tool_kinds
+
+    def _kept_sequential(self) -> AbstractSet[str]:
+        """Read tools that opted out of concurrent rounds (``parallel_safe=False``)."""
+        if self._sequential_reads is None:
+            from src.application.tools.registry import TOOLS
+
+            self._sequential_reads = {
+                spec.name for spec in TOOLS if not spec.parallel_safe
+            }
+        return self._sequential_reads
+
+    def _all_reads(self, blocks: Sequence[ToolUseBlock]) -> bool:
+        """Return True when every block is a known read-only tool.
+
+        Read tools own no transaction across the round, so they are safe to run
+        concurrently. Writes, agentic tools, and unknown names are not.
+        """
+        kinds = self._kinds()
+        sequential = self._kept_sequential()
+        return all(
+            kinds.get(block.name) == "read" and block.name not in sequential
+            for block in blocks
+        )
+
+    async def _run_block(
+        self, block: ToolUseBlock, ctx: ToolContext
+    ) -> tuple[ToolResultEvent, dict[str, object]]:
+        """Execute one tool_use block into its stream event and result dict.
+
+        Failures are captured, never raised, so a concurrent sibling's task
+        group is not cancelled by one tool's error.
+        """
+        try:
+            summary = await self._execute_tool(block.name, block.input, ctx)
+            # Dispatchers eagerly wrap attacker-controllable library text in
+            # <user_data> tags (see user_data.py). The model content keeps the
+            # tags (quoted as data); the event boundary strips them so the
+            # frontend renders the raw values.
+            return (
+                ToolResultEvent(
+                    name=block.name,
+                    tool_use_id=block.id,
+                    summary=cast("JsonValue", strip_user_data(summary)),
+                ),
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": json.dumps(summary),
+                },
+            )
+        except Exception as e:
+            return (
+                ToolResultEvent(
+                    name=block.name,
+                    tool_use_id=block.id,
+                    summary=cast("JsonValue", strip_user_data({"error": str(e)})),
+                    is_error=True,
+                ),
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": str(e),
+                    "is_error": True,
+                },
+            )
+
+    async def _run_round_tools(
+        self, blocks: Sequence[ToolUseBlock], ctx: ToolContext
+    ) -> AsyncGenerator[tuple[ToolResultEvent, dict[str, object]]]:
+        """Execute a round's blocks, yielding outcomes in block order.
+
+        An all-read round runs concurrently — each tool opens its own short
+        transaction, so they share no session — behind a semaphore so one round
+        cannot drain the connection pool. Any write, agentic, unknown, or
+        ``parallel_safe=False`` tool keeps the whole round sequential (those may
+        depend on each other's effects), and the sequential path yields each
+        outcome as its tool finishes so the stream stays live.
+        """
+        if not self._all_reads(blocks):
+            for block in blocks:
+                yield await self._run_block(block, ctx)
+            return
+
+        limiter = asyncio.Semaphore(_READ_ROUND_CONCURRENCY)
+
+        async def _bounded(
+            block: ToolUseBlock,
+        ) -> tuple[ToolResultEvent, dict[str, object]]:
+            async with limiter:
+                return await self._run_block(block, ctx)
+
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(_bounded(block)) for block in blocks]
+        for task in tasks:
+            yield task.result()
 
     async def execute(self, command: ChatCommand) -> AsyncGenerator[ChatEvent]:
         messages = list(command.messages)
@@ -165,40 +286,14 @@ class ChatUseCase:
             if not response.content:
                 return
 
+            # Block order is load-bearing: the API requires exactly one
+            # tool_result per tool_use in the next user message, so events and
+            # results are emitted in the order the model asked for them even
+            # when the tools ran concurrently.
             tool_results: list[dict[str, object]] = []
-            for tu in response.content:
-                try:
-                    summary = await self._execute_tool(tu.name, tu.input, ctx)
-                    # Dispatchers eagerly wrap attacker-controllable library text
-                    # in <user_data> tags (see user_data.py). The model content
-                    # keeps the tags (quoted as data); the event boundary strips
-                    # them so the frontend renders the raw values.
-                    yield ToolResultEvent(
-                        name=tu.name,
-                        tool_use_id=tu.id,
-                        summary=cast("JsonValue", strip_user_data(summary)),
-                    )
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": json.dumps(summary),
-                    })
-                except Exception as e:
-                    error_summary = cast(
-                        "JsonValue", strip_user_data({"error": str(e)})
-                    )
-                    yield ToolResultEvent(
-                        name=tu.name,
-                        tool_use_id=tu.id,
-                        summary=error_summary,
-                        is_error=True,
-                    )
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": str(e),
-                        "is_error": True,
-                    })
+            async for event_out, result in self._run_round_tools(response.content, ctx):
+                yield event_out
+                tool_results.append(result)
 
             messages.extend([
                 {"role": "assistant", "content": response.raw_content},

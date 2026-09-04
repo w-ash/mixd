@@ -1,19 +1,15 @@
 """Weighted shuffle transformation for track collections.
 
-This module contains the weighted shuffle transformation that blends original
-track ordering with random ordering based on a configurable strength parameter.
+Blends original track ordering with random ordering based on a configurable
+strength parameter.
 
-Unlike pure domain transforms, this can use logging and is designed for
-application-layer orchestration in workflows.
+Purity: No side effects, logging, or external dependencies.
 """
 
 import random
 
-from src.config import get_logger
 from src.domain.entities.track import TrackList
 from src.domain.transforms.core import Transform, dual_mode
-
-logger = get_logger(__name__)
 
 
 def weighted_shuffle(
@@ -65,19 +61,11 @@ def weighted_shuffle(
         # Edge cases for performance
         if shuffle_strength <= 0.0:
             # No shuffle - return as-is
-            logger.debug(
-                "Weighted shuffle skipped (strength=0.0)",
-                track_count=len(t.tracks),
-            )
             return t
         if shuffle_strength >= 1.0:
             # Full shuffle - use random.shuffle for efficiency
             shuffled_tracks = t.tracks.copy()
             random.shuffle(shuffled_tracks)
-            logger.debug(
-                "Full random shuffle applied",
-                track_count=len(t.tracks),
-            )
             return t.with_tracks(shuffled_tracks)
 
         # Weighted sort key: blend normalized position with random value.
@@ -90,12 +78,6 @@ def weighted_shuffle(
                 (1 - shuffle_strength) * (pair[0] / track_count)
                 + shuffle_strength * random.random()  # ruff:ignore[suspicious-non-cryptographic-random-usage]
             ),
-        )
-
-        logger.debug(
-            "Weighted blend shuffle applied",
-            shuffle_strength=shuffle_strength,
-            track_count=track_count,
         )
         return t.with_tracks([track for _, track in blended])
 

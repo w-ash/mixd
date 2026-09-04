@@ -140,9 +140,20 @@ class SpotifyConnectorPlayResolver:
     spotify_connector: SpotifyConnector
     _inward_resolver: SpotifyInwardResolver
     _completed_play_ms_by_id: dict[str, list[int]]
+    _owns_connector: bool
 
-    def __init__(self, spotify_connector: SpotifyConnector | None = None):
-        """Initialize with Spotify connector for track resolution."""
+    def __init__(
+        self,
+        spotify_connector: SpotifyConnector | None = None,
+        *,
+        owns_connector: bool = False,
+    ):
+        """Initialize with Spotify connector for track resolution.
+
+        A connector built here is owned; an injected one is owned only when
+        ``owns_connector`` says the caller keeps no reference to it.
+        """
+        self._owns_connector = owns_connector or spotify_connector is None
         self.spotify_connector = spotify_connector or SpotifyConnector()
         self._inward_resolver = SpotifyInwardResolver(
             spotify_connector=self.spotify_connector
@@ -152,6 +163,18 @@ class SpotifyConnectorPlayResolver:
         # accumulates across the chunks of a single import and is discarded
         # with the resolver when that import ends. See ``_accumulate_completed_ms``.
         self._completed_play_ms_by_id = {}
+
+    async def aclose(self) -> None:
+        """Release the connector's httpx2 pool when this resolver owns it.
+
+        The orchestrator closes factory-built resolvers when the resolution
+        phase ends — without this, every import strands the connector's pool
+        in the long-lived API process. The connector is shared with the
+        inward resolver, so it closes exactly once here; an injected
+        connector belongs to the caller and stays open.
+        """
+        if self._owns_connector:
+            await self.spotify_connector.aclose()
 
     async def resolve_connector_plays(
         self,

@@ -331,3 +331,46 @@ class TestExecManageTrackMatches:
 
         with pytest.raises(ToolExecutionError, match="no longer valid"):
             await matches_write.exec_manage_track_matches(action, "default")
+
+    async def test_malformed_mapping_id_is_actionable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A details payload the executor cannot parse fails with a corrective
+        # message instead of a bare ValueError, and never reaches the use case.
+        async def _raise(factory, user_id: str | None = None):
+            raise AssertionError("not reached")
+
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
+        action = await _action({
+            "operation": "set_primary",
+            "mapping_id": "not-a-uuid",
+            "track_id": str(uuid4()),
+        })
+
+        with pytest.raises(ToolExecutionError, match="must be a UUID string"):
+            await matches_write.exec_manage_track_matches(action, "default")
+
+    async def test_confirmed_envelope_echoes_the_description(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            _common,
+            "execute_use_case",
+            _fake_use_case_runner(
+                UnlinkConnectorTrackResult(
+                    deleted_mapping_id=uuid4(), orphan_track_id=None
+                )
+            ),
+        )
+        action = await _action({
+            "operation": "unlink",
+            "mapping_id": str(uuid4()),
+            "current_track_id": str(uuid4()),
+        })
+
+        result = await matches_write.exec_manage_track_matches(action, "default")
+
+        assert isinstance(result, dict)
+        assert result["status"] == "confirmed"
+        assert result["operation"] == "unlink"
+        assert result["description"] == "Manage match"

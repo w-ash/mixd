@@ -3,7 +3,7 @@
 Split from the former monolithic ``interfaces.py``.
 """
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
@@ -20,28 +20,6 @@ class LikeRepositoryProtocol(Protocol):
         self, track_id: UUID, *, user_id: str, services: list[str] | None = None
     ) -> Awaitable[list[TrackLike]]:
         """Get likes for a track across services."""
-        ...
-
-    def save_track_like(
-        self,
-        track_id: UUID,
-        service: str,
-        *,
-        user_id: str,
-        is_liked: bool = True,
-        last_synced: datetime | None = None,
-        liked_at: datetime | None = None,
-    ) -> Awaitable[TrackLike]:
-        """Save track like.
-
-        Args:
-            track_id: Internal track ID.
-            service: Service name ('spotify', 'lastfm', 'mixd').
-            user_id: Owner's user ID.
-            is_liked: Whether the track is liked.
-            last_synced: When this like was last synced.
-            liked_at: When the user originally liked the track. Falls back to now() if not provided.
-        """
         ...
 
     def save_track_likes_batch(
@@ -106,6 +84,25 @@ class LikeRepositoryProtocol(Protocol):
             service: Service to count likes for
             user_id: Owner's user ID.
             is_liked: Filter by like status
+        """
+        ...
+
+    def count_liked_tracks_by_service(
+        self,
+        services: Sequence[str],
+        *,
+        user_id: str,
+        is_liked: bool = True,
+    ) -> Awaitable[dict[str, int]]:
+        """Count likes per service in one grouped query.
+
+        Batch counterpart to ``count_liked_tracks``. Every requested service
+        is present in the result; one with no matching rows maps to 0.
+
+        Args:
+            services: Services to count likes for.
+            user_id: Owner's user ID.
+            is_liked: Filter by like status.
         """
         ...
 

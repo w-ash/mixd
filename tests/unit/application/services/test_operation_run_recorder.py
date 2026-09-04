@@ -100,3 +100,36 @@ class TestFinalizeRunIssues:
             )
 
         repo.append_issues.assert_not_awaited()
+
+
+class TestAppendRunIssues:
+    """The standalone appender is batch-first: one transaction per call."""
+
+    async def test_all_issues_land_in_one_transaction(self):
+        uow = make_mock_uow()
+        repo = AsyncMock()
+        uow.get_operation_run_repository = lambda: repo
+        run_id = uuid4()
+        issues = [{"message": "sp1 failed"}, {"message": "sp2 failed"}]
+
+        with _patch_runner(uow):
+            await operation_run_recorder.append_run_issues(
+                run_id, user_id="u1", issues=issues
+            )
+
+        repo.append_issues.assert_awaited_once()
+        assert repo.append_issues.await_args.kwargs["issues"] == issues
+        uow.commit.assert_awaited_once()
+
+    async def test_empty_issues_writes_nothing(self):
+        uow = make_mock_uow()
+        repo = AsyncMock()
+        uow.get_operation_run_repository = lambda: repo
+
+        with _patch_runner(uow):
+            await operation_run_recorder.append_run_issues(
+                uuid4(), user_id="u1", issues=[]
+            )
+
+        repo.append_issues.assert_not_awaited()
+        uow.commit.assert_not_awaited()

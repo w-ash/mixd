@@ -49,6 +49,16 @@ class SyncCheckpointRepository(BaseRepository[DBSyncCheckpoint, SyncCheckpoint])
             "entity_type": entity_type,
         })
 
+    @db_operation("list_for_user")
+    async def list_for_user(self, user_id: str) -> list[SyncCheckpoint]:
+        """Every checkpoint for one user, across services and entity types.
+
+        One round-trip for the whole sync-status surface. The explicit
+        ``user_id`` predicate mirrors the FORCE-RLS policy rather than relying
+        on it, so the scope is visible in the query.
+        """
+        return await self.find_by([DBSyncCheckpoint.user_id == user_id])
+
     @db_operation("get_or_create_sync_checkpoint")
     async def get_or_create_sync_checkpoint(
         self,

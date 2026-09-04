@@ -19,6 +19,7 @@ Connector lifecycle is owned by the UoW: connectors resolved through the
 provider are cached on the UoW and closed by its ``__aexit__``.
 """
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from typing import Final
 
@@ -49,6 +50,11 @@ _FETCH_FAILED_MESSAGE: Final = (
 # interface edge): every recent row costs one Tidal request, so an oversized
 # limit from any caller must not fan out into an unbounded request burst.
 _MAX_RECENT_LIMIT: Final = 25
+
+# Parallel track lookups for the recent rows. Enough to hide the round-trip
+# latency of a 25-row slice, low enough that a snapshot never reads as a
+# burst to Tidal's rate limiter.
+_RECENT_FETCH_CONCURRENCY: Final = 5
 
 
 @define(frozen=True, slots=True)
@@ -139,28 +145,45 @@ class GetTidalSnapshotUseCase:
         """Resolve display rows for the newest favorites, one lookup per track.
 
         The relationship serves identifiers only, so each row costs one
-        ``get_track_display_data`` call — bounded by the caller's slice. An
-        entry whose track cannot be resolved (gone from the catalog, a
-        suppressed transport failure) has nothing to display and is skipped
-        with a warning — the total stays authoritative either way.
+        ``get_track_display_data`` call — bounded by the caller's slice. The
+        lookups run concurrently behind a small semaphore (a snapshot must not
+        become a request burst against Tidal) and write into a pre-sized slot
+        list, so the rendered order still matches ``sort=-addedAt``. An entry
+        whose track cannot be resolved (gone from the catalog, a suppressed
+        transport failure) has nothing to display and is skipped with a
+        warning — the total stays authoritative either way.
         """
-        rows: list[TidalSnapshotItem] = []
-        skipped = 0
-        for ref in item_refs:
+        slots: list[TidalSnapshotItem | None] = [None] * len(item_refs)
+        limiter = asyncio.Semaphore(_RECENT_FETCH_CONCURRENCY)
+
+        async def _fill(index: int, ref: Mapping[str, JsonValue]) -> None:
             track_id = json_str(ref.get("id"))
-            display = (
-                await connector.get_track_display_data(track_id) if track_id else None
-            )
+            if not track_id:
+                return
+            async with limiter:
+                display = await connector.get_track_display_data(track_id)
             if display is None:
-                skipped += 1
-                continue
-            rows.append(
-                TidalSnapshotItem(
-                    title=json_str(display.get("title")),
-                    artists=_artists_display(display.get("artists")),
-                    added_at=json_str(ref.get("added_at")),
-                )
+                return
+            slots[index] = TidalSnapshotItem(
+                title=json_str(display.get("title")),
+                artists=_artists_display(display.get("artists")),
+                added_at=json_str(ref.get("added_at")),
             )
+
+        # Interface layers match on typed connector errors (e.g. the auth-
+        # required error -> 409 reconnect); a single failure is re-raised bare
+        # so an ExceptionGroup never hides it from those handlers.
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for index, ref in enumerate(item_refs):
+                    _ = tg.create_task(_fill(index, ref))
+        except ExceptionGroup as eg:
+            if len(eg.exceptions) == 1:
+                raise eg.exceptions[0] from eg
+            raise
+
+        rows = [row for row in slots if row is not None]
+        skipped = len(slots) - len(rows)
         if skipped:
             logger.warning(
                 "Skipping Tidal favorites without a resolvable track",

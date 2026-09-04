@@ -385,3 +385,46 @@ class TestConcurrentPollClaim:
         results = await asyncio.gather(claim(repo1, s1), claim(repo2, s2))
 
         assert sorted(results) == [False, True], f"got {results}"
+
+
+class TestListForUser:
+    """One round-trip for a user's whole checkpoint set."""
+
+    async def test_returns_every_checkpoint_for_user(
+        self, db_session: AsyncSession
+    ) -> None:
+        repo = SyncCheckpointRepository(db_session)
+        user_id = f"list-user-{uuid4()}"
+
+        for service, entity_type in (
+            ("spotify", "likes"),
+            ("spotify", "plays"),
+            ("lastfm", "plays"),
+        ):
+            await repo.save_sync_checkpoint(
+                SyncCheckpoint(
+                    user_id=user_id,
+                    service=service,
+                    entity_type=entity_type,
+                    cursor=f"{service}-{entity_type}",
+                )
+            )
+
+        rows = await repo.list_for_user(user_id)
+
+        assert {(r.service, r.entity_type) for r in rows} == {
+            ("spotify", "likes"),
+            ("spotify", "plays"),
+            ("lastfm", "plays"),
+        }
+
+    async def test_excludes_other_users(self, db_session: AsyncSession) -> None:
+        repo = SyncCheckpointRepository(db_session)
+        owner = f"list-owner-{uuid4()}"
+        other = f"list-other-{uuid4()}"
+
+        await repo.save_sync_checkpoint(
+            SyncCheckpoint(user_id=owner, service="spotify", entity_type="likes")
+        )
+
+        assert await repo.list_for_user(other) == []

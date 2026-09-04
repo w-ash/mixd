@@ -42,6 +42,14 @@ class CheckpointRepositoryProtocol(Protocol):
         """Get the checkpoint, or a fresh unsaved one on miss (non-persisting)."""
         ...
 
+    def list_for_user(self, user_id: str) -> Awaitable[list[SyncCheckpoint]]:
+        """Every checkpoint for one user, across services and entity types.
+
+        One round-trip for the whole sync-status surface, replacing a
+        per-(service, entity_type) fan-out of ``get_sync_checkpoint`` calls.
+        """
+        ...
+
     def save_sync_checkpoint(
         self, checkpoint: SyncCheckpoint
     ) -> Awaitable[SyncCheckpoint]:

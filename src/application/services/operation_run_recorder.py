@@ -7,7 +7,7 @@ so the write happens in its own short-lived UoW transaction with the
 ``user_context`` ContextVar set for RLS enforcement.
 
 Use cases that want to record per-item failures call
-:func:`append_run_issue` directly with the run_id threaded through their
+:func:`append_run_issues` directly with the run_id threaded through their
 emitter wiring. v0.7.7 deliberately keeps the recorder out of the
 ``OperationBoundEmitter`` to avoid coupling the SSE event stream to the
 audit log; future iterations can add an auto-tee if call sites grow.
@@ -110,21 +110,27 @@ async def finalize_run(
     await execute_use_case(_update, user_id=user_id)
 
 
-async def append_run_issue(
+async def append_run_issues(
     run_id: UUID,
     *,
     user_id: str,
-    issue: JsonDict,
+    issues: Sequence[JsonDict],
 ) -> None:
-    """Append one issue dict to the run's JSONB ``issues`` array."""
+    """Append issue dicts to the run's JSONB ``issues`` array in one write.
+
+    Batch-first: a per-item loop over this function would open one transaction
+    per failure. An empty ``issues`` writes nothing.
+    """
+    if not issues:
+        return
 
     async def _append(uow: UnitOfWorkProtocol) -> None:
         async with uow:
             repo = uow.get_operation_run_repository()
-            await repo.append_issues(run_id, user_id=user_id, issues=[issue])
+            await repo.append_issues(run_id, user_id=user_id, issues=list(issues))
             await uow.commit()
 
     await execute_use_case(_append, user_id=user_id)
 
 
-__all__ = ["append_run_issue", "finalize_run", "start_run"]
+__all__ = ["append_run_issues", "finalize_run", "start_run"]

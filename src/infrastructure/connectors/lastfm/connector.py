@@ -6,7 +6,7 @@ single public interface while the internal implementation is split across
 LastFMAPIClient, LastFMOperations, and conversion utilities.
 """
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import cast, override
 from uuid import UUID
@@ -26,7 +26,7 @@ from src.infrastructure.connectors.lastfm.conversions import (
 from src.infrastructure.connectors.lastfm.error_classifier import LastFMErrorClassifier
 from src.infrastructure.connectors.lastfm.models import LastFMTrackData
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
-from src.infrastructure.connectors.protocols import ConnectorConfig
+from src.infrastructure.connectors.protocols import ConnectorConfig, MetricSpec
 
 # Get contextual logger with service binding
 logger = get_logger(__name__).bind(service="lastfm")
@@ -105,9 +105,12 @@ class LastFMConnector(BaseAPIConnector):
             result[track_id] = {k: v for k, v in raw.items() if v is not None}
         return result
 
-    async def love_track(self, artist: str, title: str) -> bool:
-        """Love a track on Last.fm for the authenticated user."""
-        return await self._operations.love_track(artist, title)
+    async def love_tracks(self, items: Sequence[tuple[str, str]]) -> list[bool]:
+        """Love a batch of ``(artist, title)`` pairs, one result per input.
+
+        Results keep input order; a per-item failure is ``False``.
+        """
+        return await self._operations.love_tracks(items)
 
     @override
     def convert_track_to_connector(
@@ -199,11 +202,23 @@ class LastFMConnector(BaseAPIConnector):
         return play_records
 
 
-# Metric name → connector metadata field, registered by connector discovery
-_METRIC_FIELD_MAP: dict[str, str] = {
-    "lastfm_user_playcount": "lastfm_user_playcount",
-    "lastfm_global_playcount": "lastfm_global_playcount",
-    "lastfm_listeners": "lastfm_listeners",
+# Metric declarations registered by connector discovery
+_METRIC_SPECS: dict[str, MetricSpec] = {
+    "lastfm_user_playcount": MetricSpec(
+        field="lastfm_user_playcount",
+        label="Play Count (Last.fm)",
+        description="Your personal play count from Last.fm scrobbles",
+    ),
+    "lastfm_global_playcount": MetricSpec(
+        field="lastfm_global_playcount",
+        label="Global Play Count (Last.fm)",
+        description="Total plays across all Last.fm users",
+    ),
+    "lastfm_listeners": MetricSpec(
+        field="lastfm_listeners",
+        label="Listeners (Last.fm)",
+        description="How many distinct Last.fm users have played the track",
+    ),
 }
 
 
@@ -215,7 +230,7 @@ def get_connector_config() -> ConnectorConfig:
 
     return {
         "factory": LastFMConnector,
-        "metrics": _METRIC_FIELD_MAP,
+        "metrics": _METRIC_SPECS,
         "metric_freshness_hours": settings.freshness.lastfm_hours,
         "display_name": "Last.fm",
         "category": "history",

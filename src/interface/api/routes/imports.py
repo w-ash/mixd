@@ -146,10 +146,11 @@ async def import_spotify_likes(
     """Trigger a Spotify liked tracks import."""
 
     async def _import(emitter: OperationBoundEmitter) -> object:
-        from src.application.use_cases.sync_likes import run_spotify_likes_import
+        from src.application.use_cases.sync_likes import run_likes_import
 
-        return await run_spotify_likes_import(
+        return await run_likes_import(
             user_id=user_id,
+            connector="spotify",
             limit=body.limit,
             max_imports=body.max_imports,
             force=body.force,
@@ -172,10 +173,11 @@ async def export_lastfm_likes(
     """Trigger a Last.fm likes export (love tracks on Last.fm)."""
 
     async def _export(emitter: OperationBoundEmitter) -> object:
-        from src.application.use_cases.sync_likes import run_lastfm_likes_export
+        from src.application.use_cases.sync_likes import run_loves_export
 
-        return await run_lastfm_likes_export(
+        return await run_loves_export(
             user_id=user_id,
+            connector="lastfm",
             batch_size=body.batch_size,
             max_exports=body.max_exports,
             progress_emitter=emitter,

@@ -13,6 +13,9 @@ from attrs import define, field
 from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
 )
+from src.application.use_cases._shared.metric_config import (
+    default_metric_config,
+)
 from src.config import get_logger
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -63,9 +66,6 @@ class PreviewPlaylistSyncUseCase:
         from src.application.use_cases._shared.playlist_resolver import (
             require_playlist_link,
         )
-        from src.infrastructure.connectors._shared.metric_registry import (
-            MetricConfigProviderImpl,
-        )
 
         async with uow:
             link = await require_playlist_link(
@@ -76,9 +76,7 @@ class PreviewPlaylistSyncUseCase:
                 link.playlist_id, user_id=command.user_id
             )
 
-            engine = PlaylistReconciliationEngine(
-                metric_config=MetricConfigProviderImpl()
-            )
+            engine = PlaylistReconciliationEngine(metric_config=default_metric_config())
             preview = await engine.preview(
                 link, direction, uow, user_id=command.user_id
             )

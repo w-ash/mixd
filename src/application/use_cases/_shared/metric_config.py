@@ -33,6 +33,14 @@ class MetricConfigProvider(Protocol):
         """Return mapping of all metric names to their field names."""
         ...
 
+    def get_metric_label(self, metric: str) -> str:
+        """Return the human-readable label for a metric."""
+        ...
+
+    def get_metric_description(self, metric: str) -> str:
+        """Return the human-readable description for a metric."""
+        ...
+
 
 def default_metric_config() -> MetricConfigProvider:
     """Build the default metric provider (approved infrastructure bridge).

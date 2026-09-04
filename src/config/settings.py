@@ -245,6 +245,10 @@ class ConnectorAPIConfig(BaseModel):
     )
 
 
+# Connector names whose settings field differs from the connector name.
+_CONNECTOR_FIELD_ALIASES: Final[dict[str, str]] = {"apple": "apple_music"}
+
+
 class APIConfig(BaseModel):
     """External API configuration and rate limiting."""
 
@@ -353,6 +357,21 @@ class APIConfig(BaseModel):
         default="US",
         description="ISO 3166-1 alpha-2 country code for track availability and content filtering.",
     )
+
+    def for_connector(self, name: str) -> ConnectorAPIConfig:
+        """Return the tuning block for a connector, by name.
+
+        ``name`` is the connector package name; ``_CONNECTOR_FIELD_ALIASES``
+        covers the cases where the data-plane service name differs. An
+        unknown or non-connector name falls back to ``ConnectorAPIConfig``
+        defaults, so a connector without a declared block still gets sane
+        batch sizes and retries.
+        """
+        field_name = _CONNECTOR_FIELD_ALIASES.get(name, name)
+        block = getattr(self, field_name, None)
+        if isinstance(block, ConnectorAPIConfig):
+            return block
+        return ConnectorAPIConfig()
 
 
 class CLIConfig(BaseModel):

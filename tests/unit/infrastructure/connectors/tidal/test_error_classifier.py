@@ -108,6 +108,15 @@ class TestAuthClassification:
         assert "The access token expired" in description
         assert "reconnect Tidal" in description
 
+    def test_401_with_integer_status_keeps_the_upstream_detail(
+        self, classifier: TidalErrorClassifier
+    ):
+        body = {"errors": [{"status": 401, "detail": "Token expired"}]}
+
+        _, _, description = classifier.classify_error(make_status_error(401, body=body))
+
+        assert "Token expired" in description
+
     def test_401_with_unparseable_body_still_permanent_auth(
         self, classifier: TidalErrorClassifier
     ):

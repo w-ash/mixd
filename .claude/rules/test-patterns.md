@@ -16,7 +16,6 @@ paths:
 - `src/application/use_cases/X.py` → `tests/unit/application/use_cases/test_X.py`
 - `src/application/workflows/X.py` → `tests/unit/application/workflows/test_X.py`
 - `src/application/services/X.py` → `tests/unit/application/services/test_X.py`
-- `src/application/metadata_transforms/X.py` → `tests/unit/application/metadata_transforms/test_X.py`
 - `src/infrastructure/connectors/Y/X.py` → `tests/unit/infrastructure/connectors/Y/test_X.py`
 - `src/infrastructure/persistence/repositories/X.py` → `tests/integration/repositories/test_X.py`
 - `src/interface/api/X.py` → `tests/integration/api/test_X.py`

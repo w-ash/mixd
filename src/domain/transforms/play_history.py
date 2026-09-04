@@ -1,29 +1,23 @@
 """Play history-based transformations for track collections.
 
-This module contains transformations that operate on tracks using play history data
-stored in TrackList metadata. These transforms coordinate between domain entities
-and application-layer play history enrichment.
+Transforms tracks using play history stored in ``TrackList.metadata`` — nested
+under ``metadata["metrics"]["total_plays"]`` and the played-date maps. Play
+history enrichment happens upstream; these functions only read the entity and
+apply the time-window logic.
 
-Unlike pure domain transforms, these functions:
-- Access nested metadata structures (metadata["metrics"]["total_plays"], etc.)
-- Use logging for debugging datetime parsing issues
-- Depend on play history enrichment having occurred first
-- Handle complex time window logic with multiple date format parsing
+Purity: No side effects, logging, or external dependencies.
 """
 
-from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import Transform, dual_mode
 
-from ._helpers import (
+from ._metadata_helpers import (
     DateSource,
     calculate_time_window,
     get_play_metrics,
     is_datetime_in_window,
     parse_datetime_safe,
 )
-
-logger = get_logger(__name__)
 
 
 def filter_by_play_history(
@@ -138,30 +132,7 @@ def filter_by_play_history(
         filtered_tracks = [
             track for track in t.tracks if meets_play_history_criteria(track)
         ]
-        result = t.with_tracks(filtered_tracks)
-
-        logger.debug(
-            "Play history filter applied",
-            min_plays=min_plays,
-            max_plays=max_plays,
-            start_date=start_date,
-            end_date=end_date,
-            not_played_in_days=not_played_in_days,
-            played_within_days=played_within_days,
-            date_source=date_source,
-            effective_after_date=effective_after.isoformat()
-            if effective_after
-            else None,
-            effective_before_date=effective_before.isoformat()
-            if effective_before
-            else None,
-            include_missing=include_missing,
-            original_count=len(t.tracks),
-            filtered_count=len(filtered_tracks),
-            removed_count=len(t.tracks) - len(filtered_tracks),
-        )
-
-        return result
+        return t.with_tracks(filtered_tracks)
 
     return dual_mode(transform, tracklist)
 
@@ -250,24 +221,6 @@ def sort_by_play_history(
         sorted_tracks = sorted(
             t.tracks, key=get_play_count_for_sorting, reverse=reverse
         )
-        result = t.with_tracks(sorted_tracks)
-
-        logger.debug(
-            "Play history sort applied",
-            start_date=start_date,
-            end_date=end_date,
-            not_played_in_days=not_played_in_days,
-            played_within_days=played_within_days,
-            effective_after_date=effective_after.isoformat()
-            if effective_after
-            else None,
-            effective_before_date=effective_before.isoformat()
-            if effective_before
-            else None,
-            reverse=reverse,
-            track_count=len(t.tracks),
-        )
-
-        return result
+        return t.with_tracks(sorted_tracks)
 
     return dual_mode(transform, tracklist)

@@ -27,9 +27,12 @@ from src.application.workflows.nodes.config_fields import (
     get_node_config_fields,
 )
 from src.application.workflows.nodes.registry import list_nodes
+from src.config.constants import NodeType
 from src.domain.entities.workflow import Workflow
 
-_CATEGORY_ORDER = (
+# Pipeline order for the catalog listing — deliberately explicit, not derived
+# from the ``NodeType`` alias, so the primer reads in dataflow order.
+_CATEGORY_ORDER: tuple[NodeType, ...] = (
     "source",
     "enricher",
     "filter",

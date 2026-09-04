@@ -28,32 +28,15 @@ logger = get_logger(__name__).bind(service="sub_operation_progress")
 _DEFAULT_THROTTLE_INTERVAL_SECONDS = 0.25
 
 
-async def create_sub_operation(
-    progress_broker: ProgressBroker,
+def _sub_operation(
     description: str,
     total_items: int | None,
     parent_operation_id: str,
     phase: Phase,
     node_type: NodeType,
-) -> tuple[str, ProgressCallback]:
-    """Create a sub-operation and return an infrastructure-compatible callback.
-
-    Starts a ProgressOperation on the manager with parent metadata,
-    then returns a callback that callers can invoke with (completed, total, message)
-    to emit progress events.
-
-    Args:
-        progress_broker: The application progress manager.
-        description: Human-readable sub-operation description.
-        total_items: Expected total (None for indeterminate).
-        parent_operation_id: ID of the parent workflow operation.
-        phase: Phase identifier (e.g., "fetch", "enrich", "save").
-        node_type: Node type for context (e.g., "enricher", "source").
-
-    Returns:
-        Tuple of (sub_operation_id, callback_fn).
-    """
-    operation = ProgressOperation(
+) -> ProgressOperation:
+    """Build the parent-linked ProgressOperation every sub-op here starts with."""
+    return ProgressOperation(
         description=description,
         total_items=total_items,
         metadata={
@@ -62,19 +45,6 @@ async def create_sub_operation(
             "node_type": node_type,
         },
     )
-
-    sub_op_id = await progress_broker.start_operation(operation)
-
-    async def callback(completed: int, total: int, message: str) -> None:
-        event = create_progress_event(
-            operation_id=sub_op_id,
-            current=completed,
-            total=total,
-            message=message,
-        )
-        await progress_broker.emit_progress(event)
-
-    return sub_op_id, callback
 
 
 @define(slots=True)
@@ -168,6 +138,41 @@ class ThrottledSubOperationEmitter:
         await self.manager.complete_operation(self.sub_op_id, status)
 
 
+async def create_sub_operation(
+    progress_broker: ProgressBroker,
+    description: str,
+    total_items: int | None,
+    parent_operation_id: str,
+    phase: Phase,
+    node_type: NodeType,
+) -> tuple[str, ProgressCallback]:
+    """Create a sub-operation and return an infrastructure-compatible callback.
+
+    Starts a ProgressOperation on the manager with parent metadata, then returns
+    an unthrottled ``ThrottledSubOperationEmitter`` (interval 0, so every call
+    emits immediately). The emitter is callable, satisfying ``ProgressCallback``.
+
+    Args:
+        progress_broker: The application progress manager.
+        description: Human-readable sub-operation description.
+        total_items: Expected total (None for indeterminate).
+        parent_operation_id: ID of the parent workflow operation.
+        phase: Phase identifier (e.g., "fetch", "enrich", "save").
+        node_type: Node type for context (e.g., "enricher", "source").
+
+    Returns:
+        Tuple of (sub_operation_id, callback_fn).
+    """
+    sub_op_id = await progress_broker.start_operation(
+        _sub_operation(description, total_items, parent_operation_id, phase, node_type)
+    )
+    return sub_op_id, ThrottledSubOperationEmitter(
+        sub_op_id=sub_op_id,
+        manager=progress_broker,
+        min_interval_seconds=0,
+    )
+
+
 async def create_throttled_sub_operation(
     progress_broker: ProgressBroker,
     description: str,
@@ -192,17 +197,9 @@ async def create_throttled_sub_operation(
     a re-render cost, and per-item progress callbacks are the only producer
     that can flood it. This is the right seam.
     """
-    operation = ProgressOperation(
-        description=description,
-        total_items=total_items,
-        metadata={
-            "parent_operation_id": parent_operation_id,
-            "phase": phase,
-            "node_type": node_type,
-        },
+    sub_op_id = await progress_broker.start_operation(
+        _sub_operation(description, total_items, parent_operation_id, phase, node_type)
     )
-
-    sub_op_id = await progress_broker.start_operation(operation)
     return ThrottledSubOperationEmitter(
         sub_op_id=sub_op_id,
         manager=progress_broker,
@@ -244,17 +241,9 @@ async def emit_phase_progress(
         node_type: Node type (e.g., "source", "destination").
         message: Human-readable phase description.
     """
-    operation = ProgressOperation(
-        description=message,
-        total_items=None,
-        metadata={
-            "parent_operation_id": parent_operation_id,
-            "phase": phase,
-            "node_type": node_type,
-        },
+    sub_op_id = await progress_broker.start_operation(
+        _sub_operation(message, None, parent_operation_id, phase, node_type)
     )
-
-    sub_op_id = await progress_broker.start_operation(operation)
 
     # Emit a single progress event for the phase
     event = create_progress_event(

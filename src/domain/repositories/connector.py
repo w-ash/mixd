@@ -15,6 +15,8 @@ from src.domain.entities import (
     Track,
     TrackMapping,
 )
+from src.domain.entities.connector import ConnectorDescriptor
+from src.domain.entities.playlist import ConnectorPlaylistSummary
 from src.domain.entities.shared import JsonDict, JsonValue
 
 
@@ -573,12 +575,33 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
         """
         ...
 
-    def list_by_connector(self, connector: str) -> Awaitable[list[ConnectorPlaylist]]:
-        """List every cached playlist for a connector.
+    def list_summaries_by_connector(
+        self, connector: str
+    ) -> Awaitable[list[ConnectorPlaylistSummary]]:
+        """List every cached playlist for a connector without its items.
 
-        Connector playlists are a cross-user cache — the browse UI reads
-        from here after the fetch-and-upsert pass, so all users see the
-        same Spotify playlist metadata without re-fetching.
+        Connector playlists are a cross-user cache — browse surfaces read
+        from here after the fetch-and-upsert pass. They need the item count,
+        not the items, so the large items JSONB never leaves the database.
+        Ordered by name.
+        """
+        ...
+
+    def find_by_identifiers(
+        self, connector: str, identifiers: Sequence[str]
+    ) -> Awaitable[list[ConnectorPlaylist]]:
+        """Fetch the given connector playlists by their external identifiers.
+
+        Batch-first: missing identifiers are simply absent from the result; an empty
+        ``identifiers`` returns an empty list without a query.
+        """
+        ...
+
+    def find_by_ids(self, ids: Sequence[UUID]) -> Awaitable[list[ConnectorPlaylist]]:
+        """Fetch the given connector playlists by their internal IDs.
+
+        Missing IDs are absent from the result; an empty ``ids`` returns an
+        empty list without a query.
         """
         ...
 
@@ -610,6 +633,21 @@ class ServiceConnectorProvider(Protocol):
         Returns:
             Connector instance for the specified service.
             Callers narrow via capability protocols (PlaylistConnector, etc.).
+        """
+        ...
+
+    def describe(self, service_name: str) -> ConnectorDescriptor:
+        """Return the static registry facts for one service.
+
+        Args:
+            service_name: Name of the service (e.g., "spotify", "lastfm")
+
+        Returns:
+            Descriptor carrying display name, category, auth method, and
+            declared capabilities — no user credentials are consulted.
+
+        Raises:
+            ValueError: If the service is not registered.
         """
         ...
 

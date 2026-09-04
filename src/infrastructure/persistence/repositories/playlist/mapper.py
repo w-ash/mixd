@@ -1,7 +1,9 @@
 """Playlist repository mappers for domain-persistence conversions."""
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import override
+from uuid import UUID
 
 from attrs import define
 from sqlalchemy.orm import selectinload
@@ -18,6 +20,8 @@ from src.domain.entities import (
     Track,
     ensure_utc,
 )
+from src.domain.entities.playlist import ConnectorPlaylistSummary
+from src.domain.entities.shared import JsonDict
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
     DBConnectorTrack,
@@ -34,6 +38,26 @@ from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
 # Create module logger
 logger = get_logger(__name__)
+
+# Column order of the items-free connector-playlist projection. Declared here
+# so the SELECT in ConnectorPlaylistRepository and ``to_summary``'s unpacking
+# cannot drift apart.
+type ConnectorPlaylistSummaryRow = tuple[
+    UUID,
+    str,
+    str,
+    str,
+    str | None,
+    str | None,
+    str | None,
+    bool,
+    bool,
+    int | None,
+    JsonDict,
+    str | None,
+    datetime,
+    int,
+]
 
 
 @define(frozen=True, slots=True)
@@ -220,6 +244,46 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
             snapshot_id=db_model.snapshot_id,
             items=items,
             last_updated=db_model.last_updated,
+        )
+
+    @staticmethod
+    def to_summary(row: ConnectorPlaylistSummaryRow) -> ConnectorPlaylistSummary:
+        """Build a summary from an items-free column projection.
+
+        Kept separate from ``to_domain``, which needs the ``items`` JSONB the
+        projection deliberately leaves in the database.
+        """
+        (
+            row_id,
+            connector_name,
+            connector_playlist_identifier,
+            name,
+            description,
+            owner,
+            owner_id,
+            is_public,
+            collaborative,
+            follower_count,
+            raw_metadata,
+            snapshot_id,
+            last_updated,
+            item_count,
+        ) = row
+        return ConnectorPlaylistSummary(
+            id=row_id,
+            connector_name=connector_name,
+            connector_playlist_identifier=connector_playlist_identifier,
+            name=name,
+            description=description,
+            owner=owner,
+            owner_id=owner_id,
+            is_public=is_public,
+            collaborative=collaborative,
+            follower_count=follower_count,
+            raw_metadata=raw_metadata,
+            snapshot_id=snapshot_id,
+            last_updated=last_updated,
+            item_count=item_count,
         )
 
     @staticmethod

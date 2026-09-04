@@ -80,27 +80,33 @@ async def delete_grant_if_unchanged(
 
 
 def carry_forward_token_fields(
-    new: StoredToken, previous: StoredToken | None
+    new: StoredToken,
+    previous: StoredToken | None,
+    *,
+    refresh_token: str | None = None,
 ) -> StoredToken:
-    """Merge refresh-omitted and mixd-owned fields from ``previous`` into ``new``.
+    """Merge refresh-omitted and mixd-owned fields into ``new``.
 
     Providers may omit ``refresh_token`` and ``scope`` from a refresh
     response even though the grant is intact — losing ``scope`` reads
     downstream as "the grant covers nothing", and losing ``refresh_token``
-    stores a pair with no way to renew it. ``extra_data`` and
-    ``account_name`` are mixd's own fields (``authorized_at``, cached
-    counts, the connector card's display name), never the provider's —
-    they carry forward verbatim. Values present in ``new`` win, except
-    ``extra_data``/``account_name``, which the provider never sends.
-    Mutates and returns ``new``.
+    stores a pair with no way to renew it. A present-but-empty value
+    (``"refresh_token": null``) counts as omitted. ``refresh_token`` is the
+    grant the caller just presented: it backstops the carry-forward when no
+    ``previous`` token is loaded, so a refresh never persists a grant that
+    cannot renew itself. ``extra_data`` and ``account_name`` are mixd's own
+    fields (``authorized_at``, cached counts, the connector card's display
+    name), never the provider's — they carry forward verbatim. Values present
+    in ``new`` win, except ``extra_data``/``account_name``, which the provider
+    never sends. Mutates and returns ``new``.
     """
-    if previous is None:
-        return new
-    if "refresh_token" not in new and (
-        previous_refresh := previous.get("refresh_token")
-    ):
-        new["refresh_token"] = previous_refresh
-    if "scope" not in new and (previous_scope := previous.get("scope")):
+    previous = previous or StoredToken()
+    if not new.get("refresh_token"):
+        if previous_refresh := previous.get("refresh_token"):
+            new["refresh_token"] = previous_refresh
+        elif refresh_token:
+            new["refresh_token"] = refresh_token
+    if not new.get("scope") and (previous_scope := previous.get("scope")):
         new["scope"] = previous_scope
     if (previous_extra := previous.get("extra_data")) is not None:
         new["extra_data"] = previous_extra

@@ -9,3 +9,4 @@ paths:
 - All transformations must be pure (no side effects, no I/O)
 - Repository interfaces are `Protocol` classes only (zero implementation)
 - Exception: `TYPE_CHECKING` allowed to break a genuine circular import — e.g. `operations.py` → `spotify/personal_data`, and `repositories/{track,play}.py` → `repositories/uow.py` (those service protocols take a `uow` param while `uow.py` imports them for its accessors)
+- Metadata-aware transforms (play counts, tags, preferences, metrics in `TrackList.metadata`) are still pure domain transforms — enrichment happens upstream and the transform only reads the entity it is handed.

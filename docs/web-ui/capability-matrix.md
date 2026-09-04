@@ -52,7 +52,7 @@ internal plumbing). This table is generated from
 | GetWorkflowUseCase | get_workflow | covered | — |
 | GetWorkflowVersionUseCase | query_workflow_history | covered | — |
 | ImportConnectorPlaylistsAsCanonicalUseCase | import_connector_playlists | covered | — |
-| ImportSpotifyLikesUseCase | import_data | covered | — |
+| ImportLikesUseCase | import_data | covered | — |
 | ImportTracksUseCase | import_data | covered | — |
 | InstantiateWorkflowUseCase | manage_workflow | covered | — |
 | ListActiveRunsUseCase | query_workflow_history | covered | — |
@@ -105,7 +105,7 @@ internal plumbing). This table is generated from
 | GetOperationSnapshotUseCase | — | internal | Frontend SSE-watchdog fallback keyed on an ephemeral operation_id; the agent reads run status via query_operations instead. |
 | MatchAndIdentifyTracksUseCase | — | internal | Internal enrich/import step needing a live connector API; reached via the same workflow path, no direct human surface. |
 | UpdateConnectorPlaylistUseCase | — | internal | Workflow destination.* capability built only by the engine; the agent updates a connector playlist by running a workflow with that destination. |
-| ExportLastFmLikesUseCase | — | mechanically-excluded | Produces a file export; chat has no file input/output channel. |
+| ExportLovesUseCase | — | mechanically-excluded | Produces a file export; chat has no file input/output channel. |
 
 ## Chat tools
 

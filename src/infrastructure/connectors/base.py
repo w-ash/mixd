@@ -213,6 +213,26 @@ class BaseAPIConnector(ABC):
             f"Playlist operations not supported by {self.connector_name} connector"
         )
 
+    def parse_playlist_identifier(self, raw_input: str) -> str:
+        """Normalize a user-supplied playlist identifier to a raw service id.
+
+        Default: the trimmed input is already the id. Services publishing
+        URL or URI forms (Spotify) override this.
+
+        Args:
+            raw_input: User-provided value
+
+        Returns:
+            The raw playlist id for this service
+
+        Raises:
+            ValueError: If the input is empty
+        """
+        stripped = raw_input.strip()
+        if not stripped:
+            raise ValueError("Playlist identifier cannot be empty")
+        return stripped
+
     @abstractmethod
     def convert_track_to_connector(
         self, track_data: Mapping[str, JsonValue]

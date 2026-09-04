@@ -28,6 +28,16 @@ class PlaylistRepositoryProtocol(Protocol):
         """Get playlist by ID. Returns NotFoundError if wrong user (IDOR prevention)."""
         ...
 
+    def is_owned_by(self, playlist_id: UUID, *, user_id: str) -> Awaitable[bool]:
+        """Report whether the playlist exists and belongs to the user.
+
+        An existence probe for IDOR prevention: callers that only need to
+        authorise a request check ownership here instead of hydrating the
+        whole playlist. A playlist owned by another user is indistinguishable
+        from one that does not exist — both return False.
+        """
+        ...
+
     def save_playlist(self, playlist: Playlist) -> Awaitable[Playlist]:
         """Save playlist."""
         ...

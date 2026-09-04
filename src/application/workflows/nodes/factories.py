@@ -22,8 +22,8 @@ from typing import TypedDict, cast
 from src.application.connector_protocols import TrackMetadataConnector
 from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.use_cases.enrich_tracks import (
-    ConnectorType,
     EnrichmentConfig,
+    EnrichmentType,
     EnrichTracksCommand,
 )
 from src.application.workflows.protocols import NodeResult
@@ -33,7 +33,7 @@ from src.domain.entities.track import TrackList
 from src.domain.transforms.core import require_database_tracks
 
 from .config_accessors import cfg_bool, cfg_int, cfg_str_list
-from .config_fields import DEFAULT_PLAY_HISTORY_METRICS
+from .config_fields import DEFAULT_PLAY_HISTORY_METRICS, get_enricher_attributes
 from .execution_context import NodeContext
 from .registry import NodeFn
 from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
@@ -228,8 +228,8 @@ type _EnrichmentConfigBuilder = Callable[
 class _EnricherStaticConfig(TypedDict, total=False):
     """Static registration-time config for enricher nodes (used in nodes/catalog.py)."""
 
-    connector: ConnectorType
-    attributes: list[str]
+    connector: str
+    enricher_type: str
 
 
 def build_external_enrichment_config(
@@ -246,9 +246,13 @@ def build_external_enrichment_config(
     connector = static_config.get("connector")
     if not connector:
         raise ValueError("Enricher configuration must specify a 'connector' type")
-    attribute_names = static_config.get("attributes", ["user_playcount"])
+    enricher_type = static_config.get("enricher_type", f"enricher.{connector}")
 
     def builder(ctx: NodeContext, _config: Mapping[str, JsonValue]) -> EnrichmentConfig:
+        # Attribute names resolve here, not at registration: the registry walk
+        # behind them is cached but can only see connectors that imported
+        # cleanly, so the lookup must not be frozen into module import order.
+        attribute_names = get_enricher_attributes(enricher_type)
         workflow_context = ctx.extract_workflow_context()
         metric_names = _get_connector_metric_names(
             workflow_context.metric_config, connector, attribute_names
@@ -277,18 +281,27 @@ def build_play_history_enrichment_config(
     )
 
 
-def build_preferences_enrichment_config(
-    _ctx: NodeContext, _config: Mapping[str, JsonValue]
-) -> EnrichmentConfig:
-    """Build config for preferences enrichment from internal database."""
-    return EnrichmentConfig(enrichment_type="preferences")
+def static_enrichment_config(
+    enrichment_type: EnrichmentType,
+) -> _EnrichmentConfigBuilder:
+    """Build a config builder for an enrichment fully determined by its type.
 
+    Preferences and tags enrichment read only the internal database, so they
+    take nothing from the node context or the node's config.
 
-def build_tags_enrichment_config(
-    _ctx: NodeContext, _config: Mapping[str, JsonValue]
-) -> EnrichmentConfig:
-    """Build config for tags enrichment from internal database."""
-    return EnrichmentConfig(enrichment_type="tags")
+    Args:
+        enrichment_type: Enrichment the built config selects.
+
+    Returns:
+        Builder returning the same config on every call.
+    """
+
+    def builder(
+        _ctx: NodeContext, _config: Mapping[str, JsonValue]
+    ) -> EnrichmentConfig:
+        return EnrichmentConfig(enrichment_type=enrichment_type)
+
+    return builder
 
 
 def create_enricher_node(

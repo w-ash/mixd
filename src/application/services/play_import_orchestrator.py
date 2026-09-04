@@ -23,7 +23,7 @@ from src.application.use_cases._shared.batch_commit import commit_batch
 from src.config import get_logger
 from src.config.logging import logging_context
 from src.config.telemetry import ChunkProbe, measure_chunk, phase
-from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
+from src.domain.entities import ConnectorTrackPlay, OperationResult
 from src.domain.entities.operations import (
     RESOLUTION_FAILURES_KEY,
     RESOLUTION_FAILURES_TRUNCATED_KEY,
@@ -105,38 +105,33 @@ _RUN_METRIC_KEYS: Final = (
     "write_failed",
 )
 
-# The subset of the above the run record labels, in display order. ``write_failed``
-# sits beside ``dead_ids_unresolved`` because it is the half of it that means
-# "ask again", and reading one without the other is what turned a chunk of
-# refused writes into a diagnosis of dead identifiers.
-_RESOLUTION_SUMMARY_METRICS: Final[tuple[tuple[str, str, int], ...]] = (
-    # The breakdown behind "Filtered", sharing its significance so the two sort
-    # together. A service export is an event log, so discarding a third of it is
-    # normal — but that is only reassuring if the user can see the discards are
-    # skips and private sessions rather than tracks mixd failed to identify.
-    ("duration_excluded", "Skipped — Too Short to Count", 3),
-    ("incognito_excluded", "Skipped — Private Session", 3),
-    ("fallback_resolved", "Resolved via Search Fallback", 5),
-    ("redirect_resolved", "Resolved via Spotify Redirect", 6),
-    ("dead_ids_unresolved", "Dead IDs Unresolved", 7),
-    ("write_failed", "Writes Rolled Back — Retry Next Import", 8),
-    ("isrc_suspect_deferred", "ISRC Suspect — Deferred to Review", 9),
-    ("suppressed", "Skipped — Inside Backoff Window", 10),
-    ("reused_tracks", "Reused Existing Canonicals", 11),
-    ("degraded_persists", "Chunks Written One Row at a Time", 12),
-)
-
-# Resolution-phase counters the terminal combined result re-publishes, in its
-# own display order. The combined result is what ``operation_runs.counts`` is
-# built from, so a counter missing here never reaches the user's run record no
-# matter how faithfully the resolution phase counted it.
-_CARRIED_RESOLUTION_METRICS: Final[tuple[tuple[str, str, int], ...]] = (
-    ("duration_excluded", "Skipped — Too Short to Count", 4),
-    ("incognito_excluded", "Skipped — Private Session", 4),
-    ("fallback_resolved", "Resolved via Search Fallback", 7),
-    ("redirect_resolved", "Resolved via Spotify Redirect", 8),
-    ("dead_ids_unresolved", "Dead IDs Unresolved", 9),
-    ("isrc_suspect_deferred", "ISRC Suspect — Deferred to Review", 10),
+# The subset of the above the run record labels, one row per counter:
+# ``(key, label, resolution_significance, carried_significance)``. The
+# resolution phase reads column 3, the terminal combined result column 4;
+# ``None`` there means the counter stops at the resolution phase. One table so a
+# counter added to one surface can't be silently absent from the other — which
+# is how the skip breakdown reached the logs but never the run record.
+#
+# The display orders differ per surface, hence the two significance columns.
+# ``duration_excluded`` / ``incognito_excluded`` are the breakdown behind
+# "Filtered" and share its significance so the two sort together: a service
+# export is an event log, so discarding a third of it is normal — but that is
+# only reassuring if the user can see the discards are skips and private
+# sessions rather than tracks mixd failed to identify. ``write_failed`` sits
+# beside ``dead_ids_unresolved`` because it is the half of it that means "ask
+# again", and reading one without the other is what turned a chunk of refused
+# writes into a diagnosis of dead identifiers.
+_RESOLUTION_METRIC_TABLE: Final[tuple[tuple[str, str, int, int | None], ...]] = (
+    ("duration_excluded", "Skipped — Too Short to Count", 3, 4),
+    ("incognito_excluded", "Skipped — Private Session", 3, 4),
+    ("fallback_resolved", "Resolved via Search Fallback", 5, 7),
+    ("redirect_resolved", "Resolved via Spotify Redirect", 6, 8),
+    ("dead_ids_unresolved", "Dead IDs Unresolved", 7, 9),
+    ("write_failed", "Writes Rolled Back — Retry Next Import", 8, None),
+    ("isrc_suspect_deferred", "ISRC Suspect — Deferred to Review", 9, 10),
+    ("suppressed", "Skipped — Inside Backoff Window", 10, None),
+    ("reused_tracks", "Reused Existing Canonicals", 11, None),
+    ("degraded_persists", "Chunks Written One Row at a Time", 12, None),
 )
 
 
@@ -342,7 +337,7 @@ class PlayImportOrchestrator:
         for play in connector_plays:
             plays_by_service.setdefault(play.connector_name, []).append(play)
 
-        all_track_plays: list[TrackPlay] = []
+        resolved_count = 0
         # Only what Phase 3 still needs after a chunk is durable: the days the
         # projection has to sweep. The resolutions themselves are written back
         # per chunk, so holding them for the whole run would keep a 198k-play
@@ -426,7 +421,7 @@ class PlayImportOrchestrator:
                                 metrics=metrics,
                             )
 
-                        all_track_plays.extend(track_plays)
+                        resolved_count += len(track_plays)
                         combined_metrics["resolved_plays"] += len(track_plays)
                         for key in _RUN_METRIC_KEYS:
                             combined_metrics[key] += metrics.get(key, 0)
@@ -435,9 +430,9 @@ class PlayImportOrchestrator:
                         await progress_emitter.emit_progress(
                             create_progress_event(
                                 operation_id=operation_id,
-                                current=len(all_track_plays),
+                                current=resolved_count,
                                 total=len(connector_plays),
-                                message=f"Resolved {len(all_track_plays)}/{len(connector_plays)} plays ({service})",
+                                message=f"Resolved {resolved_count}/{len(connector_plays)} plays ({service})",
                             )
                         )
                 finally:
@@ -506,7 +501,7 @@ class PlayImportOrchestrator:
 
         # Add summary metrics
         total_plays = combined_metrics["total_plays"]
-        resolved = len(all_track_plays)
+        resolved = resolved_count
         errors = combined_metrics["error_count"]
         filtered = total_plays - resolved - errors
 
@@ -543,7 +538,7 @@ class PlayImportOrchestrator:
         # counter that stops here is readable only in the machine's logs. Zero
         # is left off rather than recorded: a clean run says nothing, and the
         # absence of a row is not evidence about a run that never had the key.
-        for key, label, significance in _RESOLUTION_SUMMARY_METRICS:
+        for key, label, significance, _carried in _RESOLUTION_METRIC_TABLE:
             value = combined_metrics[key]
             if value > 0:
                 result.summary_metrics.add(key, value, label, significance=significance)
@@ -663,15 +658,15 @@ class PlayImportOrchestrator:
                 significance=6,
             )
 
-        # Table-driven rather than a block per metric: the resolution phase and
-        # the combined result each used to name their counters independently,
-        # so a counter added to one was silently absent from the other — which
-        # is how the skip breakdown reached the logs but never the run record.
-        for key, label, significance in _CARRIED_RESOLUTION_METRICS:
+        # Table-driven rather than a block per metric: the combined result is
+        # what ``operation_runs.counts`` is built from, so a counter missing here
+        # never reaches the user's run record no matter how faithfully the
+        # resolution phase counted it.
+        for key, label, _significance, carried in _RESOLUTION_METRIC_TABLE:
+            if carried is None:
+                continue
             value = resolution_result.summary_metrics.get(key)
             if value > 0:
-                result.summary_metrics.add(
-                    key, int(value), label, significance=significance
-                )
+                result.summary_metrics.add(key, int(value), label, significance=carried)
 
         return result
