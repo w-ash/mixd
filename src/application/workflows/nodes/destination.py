@@ -40,16 +40,16 @@ logger = get_logger(__name__)
 
 def _prepare_destination(
     context: dict[str, object], config: Mapping[str, JsonValue]
-) -> tuple[TrackList, dict[str, JsonValue], WorkflowContext]:
-    """Extract tracklist, render templates, and get workflow context.
+) -> tuple[NodeContext, TrackList, dict[str, JsonValue], WorkflowContext]:
+    """Build the node context, extract the tracklist, and render templates.
 
-    Shared preamble for destination nodes that need all three.
+    Shared preamble for destination nodes that need all four.
     """
     ctx = NodeContext(context)
     tracklist = ctx.extract_tracklist()
     config = render_playlist_config_templates(config, len(tracklist.tracks))
     workflow_context = ctx.extract_workflow_context()
-    return tracklist, config, workflow_context
+    return ctx, tracklist, config, workflow_context
 
 
 async def create_playlist(
@@ -76,7 +76,7 @@ async def create_playlist(
     Raises:
         ValueError: If required 'name' field missing from config.
     """
-    tracklist, config, workflow_context = _prepare_destination(context, config)
+    ctx, tracklist, config, workflow_context = _prepare_destination(context, config)
 
     if context.get("dry_run"):
         logger.info(
@@ -87,8 +87,6 @@ async def create_playlist(
     playlist_name = cfg_str(config, "name")
     if not playlist_name:
         raise ValueError("Missing required 'name' for create_playlist operation")
-
-    ctx = NodeContext(context)
 
     track_count = len(tracklist.tracks)
 
@@ -105,7 +103,7 @@ async def create_playlist(
             tracklist=tracklist,
             playlist_name=playlist_name,
             connector=connector,
-            playlist_description=cfg_str(config, "description", "Created by Mixd"),
+            playlist_description=cfg_str(config, "description"),
             create_internal_playlist=True,
         )
         result = await workflow_context.execute_use_case(
@@ -138,7 +136,7 @@ async def create_playlist(
         user_id=workflow_context.user_id,
         name=playlist_name,
         tracklist=tracklist,
-        description=cfg_str(config, "description", "Created by Mixd"),
+        description=cfg_str(config, "description"),
     )
     result = await workflow_context.execute_use_case(
         workflow_context.use_cases.get_create_canonical_playlist_use_case, command
@@ -177,7 +175,7 @@ async def update_playlist(
     Raises:
         ValueError: If required 'playlist_id' field missing from config.
     """
-    tracklist, config, workflow_context = _prepare_destination(context, config)
+    ctx, tracklist, config, workflow_context = _prepare_destination(context, config)
 
     if context.get("dry_run"):
         logger.info(
@@ -197,8 +195,6 @@ async def update_playlist(
             or cfg_str_or_none(config, "name")
             or "playlist"
         )
-
-    ctx = NodeContext(context)
 
     if connector := cfg_str_or_none(config, "connector"):
         connector_playlist_identifier = require_connector_playlist_identifier(

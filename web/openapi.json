@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.11.6"
+    "version": "0.11.6.1"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -5669,6 +5669,7 @@
           "history_import_file",
           "history_import_api",
           "track_enrichment",
+          "library_contains",
           "love_tracks"
         ]
       },
@@ -5997,6 +5998,12 @@
               },
               {
                 "type": "boolean"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
@@ -6786,7 +6793,9 @@
           "string",
           "number",
           "boolean",
-          "select"
+          "select",
+          "multi_select",
+          "task_ref"
         ]
       },
       "HTTPValidationError": {

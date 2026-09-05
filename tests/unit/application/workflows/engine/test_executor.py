@@ -11,7 +11,7 @@ import pytest
 
 from src.application.workflows.engine.executor import _get_node_timeout
 from src.config.constants import NodeType, WorkflowConstants
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import TrackList
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
 
@@ -29,7 +29,7 @@ class TestExtractWorkflowResult:
                 WorkflowTaskDef(id="src_1", type="source.playlist"),
                 WorkflowTaskDef(
                     id="dest_1",
-                    type="destination.playlist",
+                    type="destination.create_playlist",
                     upstream=["src_1"],
                 ),
             ],
@@ -66,7 +66,7 @@ class TestExtractWorkflowResult:
                 ),
                 WorkflowTaskDef(
                     id="dest_1",
-                    type="destination.playlist",
+                    type="destination.create_playlist",
                     upstream=["enricher_1"],
                 ),
             ],
@@ -129,44 +129,17 @@ class TestAggregateWorkflowMetrics:
 class TestOrchestratorWarnings:
     """Tests for orchestrator-level 0-track warnings."""
 
-    def test_warns_when_node_outputs_zero_tracks(self, sample_tracklist):
-        """_get_input_track_count + output_track_count == 0 should trigger warning.
-
-        The actual warning lives inside build_flow's inner loop, which is
-        difficult to test in isolation from Prefect infrastructure. This test
-        validates the helper that determines input_track_count, confirming
-        the condition can be met.
-        """
-        from src.application.workflows.engine.executor import _get_input_track_count
-
-        task_def = WorkflowTaskDef(
-            id="filter_1",
-            type="filter.by_metric",
-            upstream=["src_1"],
-        )
-        task_results = {
-            "src_1": {"tracklist": sample_tracklist},
-        }
-
-        input_count = _get_input_track_count(task_def, task_results)
-
-        # Source had 2 tracks — if output were 0, warning should fire
-        assert input_count == 2
-        assert input_count > 0  # Confirms the warning condition can trigger
-
     def test_no_warning_for_source_nodes(self):
-        """Source nodes have no upstream, so input_track_count is None — no warning."""
-        from src.application.workflows.engine.executor import _get_input_track_count
+        """Source nodes have no upstream, so there is no primary input to count."""
+        from src.application.workflows.engine.executor import _primary_upstream_id
 
         task_def = WorkflowTaskDef(
             id="src_1",
             type="source.playlist",
         )
 
-        input_count = _get_input_track_count(task_def, {})
-
-        # None means no upstream — warning condition (> 0) won't fire
-        assert input_count is None
+        # None means no upstream — the input_track_count guard (> 0) won't fire
+        assert _primary_upstream_id(task_def) is None
 
     def test_none_input_track_count_no_type_error(self):
         """Regression: None input_track_count must not raise TypeError in > comparison.
@@ -188,55 +161,48 @@ class TestOrchestratorWarnings:
         assert should_warn is False
 
 
-class TestPrimaryInputTrackCount:
-    """_get_input_track_count honors config.primary_input, not just upstream[0]."""
+class TestPrimaryUpstreamId:
+    """_primary_upstream_id honors config.primary_input, not just upstream[0].
 
-    def test_uses_primary_input_branch_not_first_upstream(self, sample_tracklist):
-        """A node whose primary_input names the second upstream must report that
-        branch's track count — not upstream[0]'s.
+    The success path, the enricher-degrade pass-through, and the
+    input_track_count diagnostic all read this one helper, so it is the single
+    place a combiner with ``primary_input=upstream[1]`` can go wrong.
+    """
 
-        Regression: _get_input_track_count and the success/degrade paths once
-        disagreed on which upstream is primary. The success path was migrated to
-        _primary_upstream_id; the diagnostic helper hardcoded upstream[0], so a
-        combiner with primary_input=upstream[1] reported the wrong input count in
-        SSE events and the track_count_checkpoint delta.
-        """
-        from src.application.workflows.engine.executor import _get_input_track_count
+    def test_uses_primary_input_branch_not_first_upstream(self):
+        from src.application.workflows.engine.executor import _primary_upstream_id
 
-        # sample_tracklist has 2 tracks (src_a); src_b has 3.
-        src_b_tracklist = TrackList(
-            tracks=[
-                Track(title="T1", artists=[Artist(name="A")], version=1),
-                Track(title="T2", artists=[Artist(name="A")], version=1),
-                Track(title="T3", artists=[Artist(name="A")], version=1),
-            ]
-        )
         task_def = WorkflowTaskDef(
             id="combiner_1",
             type="combiner.merge_playlists",
             upstream=["src_a", "src_b"],
             config={"primary_input": "src_b"},
         )
-        task_results = {
-            "src_a": {"tracklist": sample_tracklist},
-            "src_b": {"tracklist": src_b_tracklist},
-        }
 
-        # Primary is src_b (3 tracks), not the first-declared src_a (2 tracks).
-        assert _get_input_track_count(task_def, task_results) == 3
+        assert _primary_upstream_id(task_def) == "src_b"
 
-    def test_falls_back_to_first_upstream_without_primary_input(self, sample_tracklist):
-        """When primary_input is unset, the first declared upstream is primary."""
-        from src.application.workflows.engine.executor import _get_input_track_count
+    def test_falls_back_to_first_upstream_without_primary_input(self):
+        from src.application.workflows.engine.executor import _primary_upstream_id
 
         task_def = WorkflowTaskDef(
             id="filter_1",
             type="filter.by_metric",
             upstream=["src_a"],
         )
-        task_results = {"src_a": {"tracklist": sample_tracklist}}
 
-        assert _get_input_track_count(task_def, task_results) == 2
+        assert _primary_upstream_id(task_def) == "src_a"
+
+    def test_ignores_primary_input_that_is_not_an_upstream(self):
+        from src.application.workflows.engine.executor import _primary_upstream_id
+
+        task_def = WorkflowTaskDef(
+            id="filter_1",
+            type="filter.by_metric",
+            upstream=["src_a"],
+            config={"primary_input": "elsewhere"},
+        )
+
+        assert _primary_upstream_id(task_def) == "src_a"
 
 
 class TestSafeEmit:

@@ -31,9 +31,8 @@
     },
     {
       "id": "sort_by_date_added",
-      "type": "sorter.by_metric",
+      "type": "sorter.by_release_date",
       "config": {
-        "metric_name": "release_date",
         "reverse": false
       },
       "upstream": ["filter_barely_played"]

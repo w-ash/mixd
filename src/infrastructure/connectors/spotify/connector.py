@@ -308,6 +308,7 @@ def get_connector_config() -> ConnectorConfig:
             "history_import_file",
             "history_import_api",
             "track_enrichment",
+            "library_contains",
         }),
         "status_fn": get_spotify_status,
         "build_auth_url": build_auth_url,

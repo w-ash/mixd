@@ -16,6 +16,7 @@ from src.application.use_cases.get_liked_tracks import GetLikedTracksCommand
 from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistResult,
 )
+from src.application.workflows.nodes.config_fields import apply_declared_defaults
 from src.application.workflows.nodes.source import (
     _build_source_tracklist,
     playlist_source,
@@ -155,7 +156,8 @@ class TestSourceLikedTracks:
         wf_ctx.execute_use_case = AsyncMock(return_value=mock_result)
 
         context = {"workflow_context": wf_ctx}
-        config = {"limit": 50000}
+        # The executor applies declared defaults (sort_by) before a node runs.
+        config = apply_declared_defaults("source.liked_tracks", {"limit": 50000})
 
         await source_liked_tracks(context, config)
         _, call_kwargs = wf_ctx.execute_use_case.call_args

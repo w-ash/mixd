@@ -88,6 +88,42 @@ class TestConnectorContracts:
                 f"{connector_name} connector should be instantiable"
             )
 
+    def test_spotify_declares_library_contains_and_implements_it(self):
+        """The registry capability and the runtime protocol agree for Spotify.
+
+        Prevents: enricher.spotify_liked_status failing the NodeContext gate
+        because the descriptor or the class drifted.
+        """
+        from src.application.connector_protocols import LibraryContainsConnector
+
+        registry = ConnectorRegistryImpl()
+
+        assert "library_contains" in registry.describe("spotify").capabilities
+        assert isinstance(registry.get_connector("spotify"), LibraryContainsConnector)
+
+    def test_every_track_enrichment_connector_implements_the_protocol(self):
+        """Declaring ``track_enrichment`` means implementing ``TrackMetadataConnector``.
+
+        Prevents: ``NodeContext.get_connector`` raising ``TypeError`` at run
+        time because a descriptor and its class drifted apart. Checks every
+        registered connector, so a new one cannot declare the capability
+        without the method.
+        """
+        from src.application.connector_protocols import TrackMetadataConnector
+
+        registry = ConnectorRegistryImpl()
+        declaring = [
+            name
+            for name in registry.list_connectors()
+            if "track_enrichment" in registry.describe(name).capabilities
+        ]
+
+        assert {"spotify", "lastfm"} <= set(declaring)
+        for name in declaring:
+            assert isinstance(registry.get_connector(name), TrackMetadataConnector), (
+                name
+            )
+
     def test_connector_registry_error_handling(self):
         """Test proper error handling for unknown connectors.
 

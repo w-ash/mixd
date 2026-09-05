@@ -133,7 +133,7 @@ class ConfigFieldSchema(BaseModel):
     field_type: FieldType
     required: bool = False
     description: str | None = None
-    default: str | float | bool | None = None
+    default: str | float | bool | list[str] | None = None
     placeholder: str | None = None
     min: float | None = None
     max: float | None = None
@@ -157,7 +157,7 @@ def config_field_to_schema(field_def: ConfigFieldDef) -> ConfigFieldSchema:
         field_type=field_def.field_type,
         required=field_def.required,
         description=field_def.description,
-        default=field_def.default,
+        default=field_def.json_default(),
         placeholder=field_def.placeholder,
         min=field_def.min,
         max=field_def.max,

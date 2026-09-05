@@ -46,7 +46,7 @@ class TestCapabilityGate:
             connector_provider=make_mock_connector_provider(AsyncMock(), name="discogs")
         )
 
-        with pytest.raises(ValueError, match="does not support 'playlist_sync'"):
+        with pytest.raises(ValueError, match="does not declare 'playlist_sync'"):
             resolve_playlist_connector("discogs", uow)
 
     def test_declared_capability_returns_the_narrowed_connector(self) -> None:
@@ -59,7 +59,7 @@ class TestCapabilityGate:
         connector = AsyncMock(spec=LikedTrackConnector)
         uow = _uow(connector, capabilities={"playlist_sync"})
 
-        with pytest.raises(ValueError, match="does not support 'likes_import'"):
+        with pytest.raises(ValueError, match="does not declare 'likes_import'"):
             resolve_liked_track_connector("spotify", uow)
 
     def test_unknown_service_propagates_the_provider_error(self) -> None:

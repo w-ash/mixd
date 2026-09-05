@@ -1,9 +1,10 @@
-"""Connector capability protocols for typed resolver narrowing.
+"""Connector capability protocols and the capability-gated resolver.
 
 These protocols define what music service connectors can do (read liked tracks,
 love tracks, playlist CRUD, fetch metadata). They live at the application layer
 so use cases and connector resolvers can reference them without importing from
-infrastructure.
+infrastructure. ``resolve_connector_capability`` is the one gate both the use
+case resolvers and workflow nodes narrow through.
 
 Separated from ``workflows.protocols`` to break a circular import chain:
 ``_shared`` -> ``connector_resolver`` -> ``workflows.protocols`` -> ``workflows/__init__``
@@ -15,6 +16,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from src.domain.entities import ConnectorPlaylist, ConnectorTrack
+from src.domain.entities.connector import Capability, ConnectorDescriptor
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import Track
 from src.domain.playlist.diff_engine import PlaylistOperation, PlaylistOpsOutcome
@@ -253,3 +255,62 @@ class PlaylistConnector(Protocol):
             ValueError: If the input is empty or cannot be parsed.
         """
         ...
+
+
+class ConnectorLookup(Protocol):
+    """Minimal provider surface the capability gate needs.
+
+    Positional-only parameters let both ``ServiceConnectorProvider`` (uow side)
+    and ``ConnectorRegistry`` (workflow side) satisfy it structurally.
+    """
+
+    def describe(self, name: str, /) -> ConnectorDescriptor:
+        """Return the static descriptor for one connector.
+
+        Raises:
+            ValueError: If the connector is not registered.
+        """
+        ...
+
+    def get_connector(self, name: str, /) -> object:
+        """Return the connector instance; callers narrow via capability protocols."""
+        ...
+
+
+def resolve_connector_capability[ConnectorT](
+    provider: ConnectorLookup,
+    name: str,
+    *,
+    capability: Capability,
+    protocol: type[ConnectorT],
+) -> ConnectorT:
+    """Resolve a connector that declares ``capability``, narrowed to ``protocol``.
+
+    Two distinct failures, deliberately different exception types: a connector
+    that does not declare the capability is a caller error (``ValueError``),
+    while one that declares it but does not implement the protocol is an
+    adapter bug (``TypeError``) — the registry and the class disagree.
+
+    Args:
+        provider: Registry exposing ``describe`` and ``get_connector``.
+        name: Connector name (e.g., ``"spotify"``, ``"lastfm"``).
+        capability: The registry capability the operation requires.
+        protocol: Runtime-checkable capability protocol to narrow to.
+
+    Returns:
+        The connector instance, typed as ``protocol``.
+
+    Raises:
+        ValueError: If the connector is unregistered or lacks the capability.
+        TypeError: If the connector does not implement ``protocol``.
+    """
+    descriptor = provider.describe(name)
+    if capability not in descriptor.capabilities:
+        raise ValueError(f"Connector '{name}' does not declare '{capability}'")
+    connector = provider.get_connector(name)
+    if not isinstance(connector, protocol):
+        raise TypeError(
+            f"Connector '{name}' declares '{capability}' but does not implement "
+            f"{protocol.__name__}"
+        )
+    return connector

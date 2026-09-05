@@ -8,7 +8,6 @@ connector access and custom persistence logic.
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import cast
 from uuid import UUID
 
 from src.application.connector_protocols import LibraryContainsConnector
@@ -43,7 +42,9 @@ async def enrich_spotify_liked_status(
     """
     ctx = NodeContext(context)
     tracklist = ctx.extract_tracklist()
-    connector = cast(LibraryContainsConnector, ctx.get_connector("spotify"))
+    connector = ctx.get_connector(
+        "spotify", capability="library_contains", protocol=LibraryContainsConnector
+    )
     workflow_context = ctx.extract_workflow_context()
 
     await ctx.emit_phase_progress("enrich", "enricher", "Checking Spotify saved status")

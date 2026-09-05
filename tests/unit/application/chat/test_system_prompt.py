@@ -142,6 +142,17 @@ class TestCatalogIsSelfSufficient:
         primer = _texts(build_system_prompt(None, None, _TODAY))[0]
         catalog = primer.split("<node_catalog>")[1].split("</node_catalog>")[0]
         assert " (select" not in catalog
+        assert " (multi_select" not in catalog
+        assert " (task_ref" not in catalog
+        assert "exclusion_source (upstream task id, required)" in catalog
+        assert "default [total_plays, last_played_dates]" in catalog
+
+    def test_numeric_bounds_render_without_exponent(self):
+        """source.preferred_tracks limit is 1-1000000; ``:g`` would print 1e+06."""
+        primer = _texts(build_system_prompt(None, None, _TODAY))[0]
+        catalog = primer.split("<node_catalog>")[1].split("</node_catalog>")[0]
+        assert "1 to 1000000" in catalog
+        assert "e+06" not in catalog
 
 
 class TestCacheFloor:

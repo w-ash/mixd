@@ -322,3 +322,27 @@ class TestListNodeTypes:
         opt = metric_field["options"][0]
         assert "value" in opt
         assert "label" in opt
+
+    async def test_task_ref_and_multi_select_field_types(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        response = await client.get("/api/v1/workflows/nodes")
+
+        body = response.json()
+        by_type = {n["type"]: n for n in body}
+        exclusion = next(
+            f
+            for f in by_type["filter.by_tracks"]["config_fields"]
+            if f["key"] == "exclusion_source"
+        )
+        assert exclusion["field_type"] == "task_ref"
+        metrics = next(
+            f
+            for f in by_type["enricher.play_history"]["config_fields"]
+            if f["key"] == "metrics"
+        )
+        assert metrics["field_type"] == "multi_select"
+        assert metrics["default"] == ["total_plays", "last_played_dates"]
+        assert "primary_input" not in {
+            f["key"] for f in by_type["source.playlist"]["config_fields"]
+        }

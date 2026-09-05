@@ -5,6 +5,7 @@ import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { NodeTypeInfoSchema } from "#/api/generated/model";
+import { useEditorStore } from "#/stores/editor-store";
 import { server } from "#/test/setup";
 
 import { useNodeSchemas } from "./useNodeSchemas";
@@ -58,6 +59,32 @@ const TEST_NODE_TYPES: NodeTypeInfoSchema[] = [
     description: "Fetch liked tracks from a connector",
     config_fields: [],
   },
+  {
+    type: "enricher.play_history",
+    category: "enricher",
+    description: "Attach play-history metrics",
+    config_fields: [
+      {
+        key: "metrics",
+        label: "Metrics",
+        field_type: "multi_select",
+        required: false,
+        default: ["total_plays", "last_played_dates"],
+        options: [
+          { value: "total_plays", label: "Total Plays" },
+          { value: "last_played_dates", label: "Last Played" },
+          { value: "period_plays", label: "Period Plays" },
+        ],
+      },
+      {
+        key: "primary_input",
+        label: "Primary Input",
+        field_type: "task_ref",
+        required: false,
+        options: [],
+      },
+    ],
+  },
 ];
 
 // ─── Tests ──────────────────────────────────────────────────────
@@ -77,6 +104,23 @@ describe("useNodeSchemas", () => {
     });
 
     expect(result.current.isLoading).toBe(true);
+  });
+
+  it("registers the fetched schemas with the editor store", async () => {
+    useEditorStore.setState({ nodeSchemas: new Map() });
+    const { result } = renderHook(() => useNodeSchemas(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    const registered = useEditorStore.getState().nodeSchemas;
+    expect(registered.get("filter.play_count")).toBe(
+      result.current.getSchema("filter.play_count"),
+    );
+    expect(registered.get("source.liked_tracks")).toEqual([]);
   });
 
   it("returns empty schema for unknown node types", async () => {
@@ -222,5 +266,29 @@ describe("useNodeSchemas", () => {
     });
 
     expect(result.current.getNodeDescription("nonexistent.type")).toBe("");
+  });
+
+  it("exposes multi_select and task_ref fields with their defaults", async () => {
+    const { result } = renderHook(() => useNodeSchemas(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    const fields = result.current.getSchema("enricher.play_history");
+    expect(fields.map((f) => f.field_type)).toEqual([
+      "multi_select",
+      "task_ref",
+    ]);
+    expect(fields[0].default).toEqual(["total_plays", "last_played_dates"]);
+    expect(
+      result.current.getOptionLabel(
+        "enricher.play_history",
+        "metrics",
+        "period_plays",
+      ),
+    ).toBe("Period Plays");
   });
 });

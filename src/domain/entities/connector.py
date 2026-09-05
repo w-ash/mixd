@@ -73,6 +73,7 @@ type Capability = Literal[
     "history_import_file",
     "history_import_api",
     "track_enrichment",
+    "library_contains",
     "love_tracks",
 ]
 """Stable capability names. Narrowed to a Literal union so a typo like

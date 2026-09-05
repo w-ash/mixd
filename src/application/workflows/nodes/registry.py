@@ -9,7 +9,7 @@ workflow definitions and node implementations.
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from collections.abc import Awaitable, Callable, Mapping
-from typing import NotRequired, TypedDict, Unpack, cast, get_args
+from typing import NotRequired, TypedDict, cast, get_args
 
 from src.application.workflows.protocols import NodeResult
 from src.config.constants import NodeType
@@ -30,25 +30,30 @@ type NodeFn = Callable[
 
 
 class NodeMetadata(TypedDict):
-    """Type-safe node metadata."""
+    """Type-safe node metadata.
+
+    The ``requires_*`` / ``*_from_config`` keys declare enricher-consumer
+    dependencies for the workflow validator; ``registry_validation`` checks
+    them against the enricher catalog and each node's declared config fields.
+    """
 
     id: str
     description: str
     category: NodeType
     input_type: NotRequired[str]
     output_type: NotRequired[str]
-    factory_created: NotRequired[bool]
     required_connectors: NotRequired[list[str]]
-
-
-class _NodeRegisterKwargs(TypedDict, total=False):
-    """Typed kwargs for node registration (forwarded from node() to register())."""
-
-    description: str
-    input_type: str | None
-    output_type: str | None
-    category: NodeType | None
-    required_connectors: list[str] | None
+    # Consumer nodes: the enricher type that must run upstream, and (when the
+    # enricher only emits it on request) the metric that enricher must be
+    # configured to produce.
+    requires_enricher: NotRequired[str]
+    requires_metric: NotRequired[str]
+    # Consumer nodes whose required metric is named by a config key.
+    metric_from_config: NotRequired[str]
+    # Enricher nodes whose emitted metric set is chosen by a config key.
+    emits_metrics_from_config: NotRequired[str]
+    # Enricher nodes: config key -> metric that key only takes effect with.
+    metric_config_corequisites: NotRequired[dict[str, str]]
 
 
 # Singleton registry using a class-based pattern
@@ -58,7 +63,7 @@ class NodeRegistry:
     def __init__(self) -> None:
         self._registry: dict[str, tuple[NodeFn, NodeMetadata]] = {}
 
-    def register(
+    def node(
         self,
         node_id: str,
         *,
@@ -67,6 +72,11 @@ class NodeRegistry:
         output_type: str | None = None,
         category: NodeType | None = None,
         required_connectors: list[str] | None = None,
+        requires_enricher: str | None = None,
+        requires_metric: str | None = None,
+        metric_from_config: str | None = None,
+        emits_metrics_from_config: str | None = None,
+        metric_config_corequisites: dict[str, str] | None = None,
     ) -> Callable[[NodeFn], NodeFn]:
         """Register a node with the registry.
 
@@ -77,6 +87,11 @@ class NodeRegistry:
             output_type: Type of output the node produces
             category: Node category (source, filter, etc.)
             required_connectors: External service connectors this node needs at runtime
+            requires_enricher: Enricher node type that must run upstream
+            requires_metric: Metric the upstream enricher must be configured to emit
+            metric_from_config: Config key naming the metric this node consumes
+            emits_metrics_from_config: Config key selecting the metrics this enricher emits
+            metric_config_corequisites: Config keys that only take effect with a metric
 
         Returns:
             Decorator that registers the node
@@ -104,22 +119,24 @@ class NodeRegistry:
                 metadata["input_type"] = input_type
             if output_type is not None:
                 metadata["output_type"] = output_type
-            if hasattr(func, "__factory__"):
-                metadata["factory_created"] = True
             if required_connectors is not None:
                 metadata["required_connectors"] = required_connectors
+            if requires_enricher is not None:
+                metadata["requires_enricher"] = requires_enricher
+            if requires_metric is not None:
+                metadata["requires_metric"] = requires_metric
+            if metric_from_config is not None:
+                metadata["metric_from_config"] = metric_from_config
+            if emits_metrics_from_config is not None:
+                metadata["emits_metrics_from_config"] = emits_metrics_from_config
+            if metric_config_corequisites is not None:
+                metadata["metric_config_corequisites"] = metric_config_corequisites
 
             # Store in registry directly — no wrapper overhead
             self._registry[node_id] = (func, metadata)
             return func
 
         return decorator
-
-    def node(
-        self, node_id: str, **kwargs: Unpack[_NodeRegisterKwargs]
-    ) -> Callable[[NodeFn], NodeFn]:
-        """Simpler alias for register."""
-        return self.register(node_id, **kwargs)
 
     def get_node(self, node_id: str) -> tuple[NodeFn, NodeMetadata]:
         """Get a node by ID.

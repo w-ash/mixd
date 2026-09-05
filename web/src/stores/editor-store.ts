@@ -10,10 +10,12 @@ import { addEdge, applyEdgeChanges, applyNodeChanges } from "@xyflow/react";
 import { create } from "zustand";
 
 import type {
+  ConfigFieldSchema,
   WorkflowDefSchemaInput,
   WorkflowTaskDefSchemaInput,
 } from "#/api/generated/model";
-import { getNodeCategoryName } from "#/lib/workflow-config";
+import { taskRefKeys } from "#/lib/config-fields";
+import { formatNodeTypeName, getNodeCategoryName } from "#/lib/workflow-config";
 import {
   buildEdges,
   generateNodeId,
@@ -26,6 +28,9 @@ interface HistoryEntry {
   nodes: Node[];
   edges: Edge[];
 }
+
+/** Config field declarations by node type, as served by the node-types API. */
+export type NodeSchemaMap = ReadonlyMap<string, ConfigFieldSchema[]>;
 
 interface EditorState {
   // React Flow state
@@ -43,6 +48,9 @@ interface EditorState {
   isDirty: boolean;
   selectedNodeId: string | null;
 
+  /** Field declarations the structural edits consult (see `mapTaskRefs`). */
+  nodeSchemas: NodeSchemaMap;
+
   // Actions - React Flow
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
@@ -58,6 +66,7 @@ interface EditorState {
   updateNodeConfig: (nodeId: string, config: Record<string, unknown>) => void;
   updateNodeTaskId: (nodeId: string, taskId: string) => void;
   selectNode: (nodeId: string | null) => void;
+  setNodeSchemas: (schemas: NodeSchemaMap) => void;
 
   // Actions - History
   undo: () => void;
@@ -74,6 +83,81 @@ interface EditorState {
   setNodes: (nodes: Node[]) => void;
   setEdges: (edges: Edge[]) => void;
 }
+
+/** One upstream task of a node, as offered by `task_ref` pickers. */
+export interface UpstreamRef {
+  id: string;
+  label: string;
+}
+
+/**
+ * Upstream tasks of `nodeId`: the sources of its incoming edges, in edge
+ * order. `label` is the node's display name (the task id when the node is
+ * unknown). Pure, so callers decide how reactively to read `nodes`/`edges`.
+ */
+export function selectIncomingUpstreams(
+  nodes: readonly Node[],
+  edges: readonly Edge[],
+  nodeId: string | null,
+): UpstreamRef[] {
+  if (!nodeId) return [];
+  return edges
+    .filter((e) => e.target === nodeId)
+    .map((e) => {
+      const source = nodes.find((n) => n.id === e.source);
+      const nodeType = source?.data.nodeType;
+      return {
+        id: e.source,
+        label:
+          typeof nodeType === "string"
+            ? formatNodeTypeName(nodeType)
+            : e.source,
+      };
+    });
+}
+
+/**
+ * Nodes with every `task_ref` config value passed through `mapRef`, which
+ * receives the current value and the node's upstream ids (edge sources) and
+ * returns the value to keep, or `undefined` to drop the key. Fields are found
+ * by their `task_ref` declaration in `schemas`, never by name. Returns
+ * `nodes` itself when nothing changed, so React Flow does not re-render.
+ */
+function mapTaskRefs(
+  nodes: Node[],
+  edges: readonly Edge[],
+  schemas: NodeSchemaMap,
+  mapRef: (ref: unknown, upstreamIds: ReadonlySet<string>) => unknown,
+): Node[] {
+  let changed = false;
+  const next = nodes.map((node) => {
+    const keys = taskRefKeys(schemas.get(node.data.nodeType as string) ?? []);
+    const config = node.data.config as Record<string, unknown>;
+    const present = keys.filter((k) => config[k] != null);
+    if (present.length === 0) return node;
+
+    const upstreamIds = new Set(
+      edges.filter((e) => e.target === node.id).map((e) => e.source),
+    );
+    const mapped = { ...config };
+    let nodeChanged = false;
+    for (const key of present) {
+      const value = mapRef(config[key], upstreamIds);
+      if (value === config[key]) continue;
+      if (value === undefined) delete mapped[key];
+      else mapped[key] = value;
+      nodeChanged = true;
+    }
+    if (!nodeChanged) return node;
+    changed = true;
+    return { ...node, data: { ...node.data, config: mapped } };
+  });
+  return changed ? next : nodes;
+}
+
+/** Drops a `task_ref` whose task is no longer one of the node's upstreams. */
+const dropStaleRef = (ref: unknown, upstreamIds: ReadonlySet<string>) =>
+  typeof ref === "string" && upstreamIds.has(ref) ? ref : undefined;
 
 /** The blank-canvas state, fresh each call (new array refs). Single source for
  *  the store's initial values and `resetWorkflow`, so they can't drift apart. */
@@ -105,6 +189,7 @@ function initialWorkflowState(): Pick<
 export const useEditorStore = create<EditorState>()((set, get) => ({
   // Initial state
   ...initialWorkflowState(),
+  nodeSchemas: new Map(),
 
   // React Flow event handlers
   onNodesChange: (changes) => {
@@ -119,10 +204,15 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   onEdgesChange: (changes) => {
-    set((state) => ({
-      edges: applyEdgeChanges(changes, state.edges),
-      isDirty: true,
-    }));
+    set((state) => {
+      const edges = applyEdgeChanges(changes, state.edges);
+      // A removed edge orphans any task_ref that named its source; the panel
+      // hides such a field, so scrub it here rather than let the save fail.
+      const nodes = changes.some((c) => c.type === "remove")
+        ? mapTaskRefs(state.nodes, edges, state.nodeSchemas, dropStaleRef)
+        : state.nodes;
+      return { nodes, edges, isDirty: true };
+    });
   },
 
   onConnect: (connection) => {
@@ -174,11 +264,17 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       const selectedIds = new Set(
         state.nodes.filter((n) => n.selected).map((n) => n.id),
       );
+      const edges = state.edges.filter(
+        (e) => !selectedIds.has(e.source) && !selectedIds.has(e.target),
+      );
       return {
-        nodes: state.nodes.filter((n) => !n.selected),
-        edges: state.edges.filter(
-          (e) => !selectedIds.has(e.source) && !selectedIds.has(e.target),
+        nodes: mapTaskRefs(
+          state.nodes.filter((n) => !n.selected),
+          edges,
+          state.nodeSchemas,
+          dropStaleRef,
         ),
+        edges,
         isDirty: true,
         selectedNodeId: selectedIds.has(state.selectedNodeId ?? "")
           ? null
@@ -197,11 +293,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   updateNodeTaskId: (nodeId, taskId) => {
-    set((state) => ({
-      nodes: state.nodes.map((n) =>
-        n.id === nodeId ? { ...n, id: taskId, data: { ...n.data, taskId } } : n,
-      ),
-      edges: state.edges.map((e) => {
+    set((state) => {
+      const edges = state.edges.map((e) => {
         const newSource = e.source === nodeId ? taskId : e.source;
         const newTarget = e.target === nodeId ? taskId : e.target;
         return {
@@ -210,15 +303,29 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
           source: newSource,
           target: newTarget,
         };
-      }),
-      selectedNodeId:
-        state.selectedNodeId === nodeId ? taskId : state.selectedNodeId,
-      isDirty: true,
-    }));
+      });
+      const renamed = state.nodes.map((n) =>
+        n.id === nodeId ? { ...n, id: taskId, data: { ...n.data, taskId } } : n,
+      );
+      return {
+        // Downstream task_refs follow the rename so they keep pointing here.
+        nodes: mapTaskRefs(renamed, edges, state.nodeSchemas, (ref) =>
+          ref === nodeId ? taskId : ref,
+        ),
+        edges,
+        selectedNodeId:
+          state.selectedNodeId === nodeId ? taskId : state.selectedNodeId,
+        isDirty: true,
+      };
+    });
   },
 
   selectNode: (nodeId) => {
     set({ selectedNodeId: nodeId });
+  },
+
+  setNodeSchemas: (schemas) => {
+    set({ nodeSchemas: schemas });
   },
 
   // History

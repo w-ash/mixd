@@ -5,7 +5,7 @@ Enforces business rules like progress monotonicity and valid status transitions.
 Designed to be display-agnostic and usable across CLI, web, and future interfaces.
 """
 
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime
 from enum import Enum
@@ -326,18 +326,25 @@ def create_progress_event(
 
 @asynccontextmanager
 async def tracked_operation(
-    emitter: ProgressEmitter, description: str, **metadata: JsonValue
-):
+    emitter: ProgressEmitter,
+    description: str,
+    *,
+    total_items: int | None = None,
+    **metadata: JsonValue,
+) -> AsyncGenerator[str]:
     """Context manager that wraps the start/complete lifecycle of a progress operation.
 
     Calls start_operation on entry, complete_operation(COMPLETED) on success,
     and complete_operation(FAILED) + re-raise on exception. Yields the operation_id
     for progress event emission within the block.
 
-    ``metadata`` matches ``create_progress_operation``'s — pass ``phase=`` so a
-    surface watching the parent can name the stage, not just report movement.
+    ``total_items`` and ``metadata`` match ``create_progress_operation``'s — pass
+    ``phase=`` so a surface watching the parent can name the stage, not just
+    report movement.
     """
-    operation = ProgressOperation(description=description, metadata=metadata)
+    operation = create_progress_operation(
+        description, total_items=total_items, **metadata
+    )
     operation_id = await emitter.start_operation(operation)
     try:
         yield operation_id

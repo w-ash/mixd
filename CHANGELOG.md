@@ -6,6 +6,21 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.6.1] — 2026-09-05
+
+**Every workflow node's settings are declared once, and the editor, the assistant, the validator, and the run all read the same declaration.** Play-history metrics and the period window are editable in the editor instead of only in hand-written JSON, combiners read their inputs from the graph rather than a duplicate list in config, deleting an input no longer leaves a hidden setting that blocks save, and a sort direction saved by an older editor shows the way it actually runs.
+
+- **Declared defaults are the runtime.** The executor applies each node's declared field defaults before the node runs, so node bodies read config without restating defaults. One `is_unset` rule (JSON null, or an empty multi-select) is shared by the validator and the runtime, closing two cases where a definition validated clean and crashed at run time. Every present field is type-checked; a wrong-typed optional value warns instead of being silently replaced by its default.
+- **Two new field types.** `multi_select` and `task_ref` with editor inputs; `enricher.play_history` exposes `metrics` and `period_days`; `filter.by_tracks`/`by_artists` declare `primary_input` and `exclusion_source` as task references; combiners drop their `sources`/`order` config in favour of `upstream` and `primary_input`.
+- **Dependency rules live on the node.** `requires_enricher`, `requires_metric`, `metric_from_config`, `emits_metrics_from_config`, and `metric_config_corequisites` are registry metadata checked once per process by `validate_registry`, replacing literal tables inside the validator.
+- **One capability gate.** `resolve_connector_capability()` serves both use-case resolvers and `NodeContext.get_connector`; the registry caches descriptors; MusicBrainz no longer claims `track_enrichment`; `library_contains` is a declared capability.
+- **Editor keeps its own references honest.** Legacy `"true"`/`"false"` strings are coerced in one place shared by the panel and validation; task references are cleared when their edge is removed and rewritten when the upstream task is renamed.
+- **Observers and executor collapsed.** One SSE-emitting observer base with a TaskGroup for persist-and-emit; the executor no longer copies the context per node, validates the registry once, and bounds the dropped-id debug log.
+- **Shared helpers.** `format_bound` and `ConfigFieldDef.json_default` replace three copies each across the chat prompt, chat schema, validator, tool executor, and API schema. The `workflows` package no longer re-exports its internals. Progress spans accept `total_items`.
+- **Templates corrected.** Rediscovery sorts via `sorter.by_release_date`; No Nah Mix's `exclude` is the declared string form.
+
+→ [details](docs/backlog/v0.11.x.md#v0116-application-layer-quality-sweep)
+
 ## [0.11.6] — 2026-09-03
 
 **A workflow run and an import can now share the database without one losing to a lock timeout, and the application layer asks a connector what it can do instead of guessing.** A per-user advisory lock taken before any row lock replaces the retry-after-collision dance, so two writers queue instead of deadlocking. Use cases resolve connectors through declared capabilities narrowed by runtime protocols, and every transform is pure domain code with no logging and no application imports.

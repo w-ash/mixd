@@ -229,6 +229,43 @@ class TestRunHistoryObserver:
         # SSE event should still be pushed even if DB failed
         assert not queue.empty()
 
+    @pytest.mark.parametrize("hook", ["starting", "completed", "failed"])
+    async def test_every_hook_persists_and_emits(self, task_def, sample_result, hook):
+        """Each lifecycle hook both writes node status and pushes one SSE event."""
+        queue: asyncio.Queue = asyncio.Queue()
+        mock_updater = AsyncMock()
+        observer = RunHistoryObserver(
+            run_id=10, update_node_status=mock_updater, sse_queue=queue
+        )
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
+
+        if hook == "starting":
+            await observer.on_node_starting(event)
+        elif hook == "completed":
+            await observer.on_node_completed(event, sample_result)
+        else:
+            await observer.on_node_failed(event, ValueError("x"))
+
+        mock_updater.assert_awaited_once()
+        assert queue.qsize() == 1
+        sse = await queue.get()
+        assert sse["data"]["status"] == mock_updater.call_args.kwargs["status"]
+
+    async def test_sse_failure_does_not_block_persist(self, task_def, sample_result):
+        """A failing SSE push is logged; the DB write still happens."""
+        queue = AsyncMock(spec=asyncio.Queue)
+        queue.put.side_effect = RuntimeError("queue closed")
+        mock_updater = AsyncMock()
+        observer = RunHistoryObserver(
+            run_id=10, update_node_status=mock_updater, sse_queue=queue
+        )
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
+
+        await observer.on_node_completed(event, sample_result)
+
+        mock_updater.assert_awaited_once()
+        assert observer.persist_failure_count == 0
+
     async def test_persist_failure_count_starts_at_zero(self):
         """New observer has zero persistence failures."""
         observer = RunHistoryObserver(run_id=10, update_node_status=AsyncMock())
@@ -284,6 +321,46 @@ class TestCompositeNodeObserver:
 
         await composite.on_node_starting(event)
         obs.on_node_starting.assert_called_once()
+
+    async def test_failing_observer_does_not_block_others(
+        self, task_def, sample_result
+    ):
+        """One observer raising is logged; the others still run and nothing propagates."""
+        obs_a = AsyncMock()
+        obs_a.on_node_starting.side_effect = RuntimeError("db down")
+        obs_a.on_node_completed.side_effect = RuntimeError("db down")
+        obs_a.on_node_failed.side_effect = RuntimeError("db down")
+        obs_b = AsyncMock()
+        composite = CompositeNodeObserver([obs_a, obs_b])
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
+
+        await composite.on_node_starting(event)
+        await composite.on_node_completed(event, sample_result)
+        await composite.on_node_failed(event, ValueError("boom"))
+
+        obs_b.on_node_starting.assert_called_once_with(event)
+        obs_b.on_node_completed.assert_called_once_with(event, sample_result)
+        obs_b.on_node_failed.assert_called_once()
+
+    async def test_external_cancellation_propagates(self, task_def):
+        """Cancelling the task that awaits the fan-out is not swallowed."""
+        started = asyncio.Event()
+
+        async def _hang(event: NodeExecutionEvent) -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        obs = AsyncMock()
+        obs.on_node_starting.side_effect = _hang
+        composite = CompositeNodeObserver([obs])
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
+
+        task = asyncio.create_task(composite.on_node_starting(event))
+        await started.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
 
 class TestNullNodeObserver:

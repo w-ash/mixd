@@ -113,7 +113,9 @@ def get_connector_config() -> ConnectorConfig:
         "display_name": "MusicBrainz",
         "category": "enrichment",
         "auth_method": "none",
-        "capabilities": frozenset({"track_enrichment"}),
+        # ISRC/recording resolution only: no TrackMetadataConnector implementation,
+        # so no workflow enricher capability is declared.
+        "capabilities": frozenset(),
         "status_fn": get_musicbrainz_status,
         "build_auth_url": None,
     }

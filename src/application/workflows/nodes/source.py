@@ -47,20 +47,22 @@ logger = get_logger(__name__)
 
 
 def _extract_library_config(
-    config: Mapping[str, JsonValue], default_sort: str
+    config: Mapping[str, JsonValue],
 ) -> tuple[int, str | None, str]:
     """Extract shared config for library source nodes (liked/played).
 
-    When no limit is specified in config, uses DEFAULT_LIBRARY_QUERY_LIMIT.
-    User-specified limits pass through without clamping — the command
-    validator enforces the upper bound (1M sanity guard).
+    An omitted ``limit`` means "everything", capped at
+    DEFAULT_LIBRARY_QUERY_LIMIT — not a declared field default, so it lives
+    here. User-specified limits pass through without clamping — the command
+    validator enforces the upper bound (1M sanity guard). ``sort_by`` carries
+    a declared default the executor has already applied.
     """
     limit = (
         cfg_int(config, "limit", BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT)
         or BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
     )
     connector_filter = cfg_str_or_none(config, "connector_filter")
-    sort_by = cfg_str(config, "sort_by", default_sort)
+    sort_by = cfg_str(config, "sort_by")
     return limit, connector_filter, sort_by
 
 
@@ -72,14 +74,15 @@ def _build_source_tracklist(
     Pure helper that eliminates the repeated pattern of building track source
     maps and wrapping them in a TrackList with standard metadata.
     """
-    track_source_map = {
-        track.id: {
-            "playlist_name": playlist_name,
-            "source": source,
-            "source_id": source_id,
-        }
-        for track in tracks
+    # One shared, read-only descriptor per source: every track of a playlist
+    # carries the same three values, and the map travels through every
+    # downstream node, so per-track copies were pure allocation.
+    source_meta: dict[str, str] = {
+        "playlist_name": playlist_name,
+        "source": source,
+        "source_id": source_id,
     }
+    track_source_map = {track.id: source_meta for track in tracks}
     return TrackList(
         tracks=tracks,
         metadata={
@@ -243,7 +246,7 @@ async def source_liked_tracks(
     Returns:
         Dict with 'tracklist' containing favorited tracks and metadata.
     """
-    limit, connector_filter, sort_by = _extract_library_config(config, "liked_at_desc")
+    limit, connector_filter, sort_by = _extract_library_config(config)
 
     # Get workflow context and execute use case
     ctx = NodeContext(context)
@@ -301,9 +304,7 @@ async def source_played_tracks(
     Returns:
         Dict with 'tracklist' containing played tracks and metadata.
     """
-    limit, connector_filter, sort_by_str = _extract_library_config(
-        config, "played_at_desc"
-    )
+    limit, connector_filter, sort_by_str = _extract_library_config(config)
     days_back = cfg_int(config, "days_back")
 
     # Get workflow context and execute use case

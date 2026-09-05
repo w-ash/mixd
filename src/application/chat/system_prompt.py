@@ -24,6 +24,7 @@ from src.application.chat.workflow_schema import workflow_def_to_dict
 from src.application.use_cases.get_dashboard_stats import DashboardStatsResult
 from src.application.workflows.nodes.config_fields import (
     ConfigFieldDef,
+    format_bound,
     get_node_config_fields,
 )
 from src.application.workflows.nodes.registry import list_nodes
@@ -64,21 +65,28 @@ def _xml_list_block(tag: str, items: list[str]) -> str:
 
 def _field_summary(field: ConfigFieldDef) -> str:
     """One ``key (type, required, default, range): description`` line."""
-    if field.field_type == "select" and 0 < len(field.options) <= _MAX_INLINE_OPTIONS:
+    inline = 0 < len(field.options) <= _MAX_INLINE_OPTIONS
+    if field.field_type == "select" and inline:
         type_part = "|".join(option.value for option in field.options)
+    elif field.field_type == "multi_select" and inline:
+        type_part = "list of " + "|".join(option.value for option in field.options)
+    elif field.field_type == "task_ref":
+        type_part = "upstream task id"
     else:
         type_part = field.field_type
     parts = [type_part]
     if field.required:
         parts.append("required")
-    if field.default is not None:
+    if isinstance(field.default, tuple):
+        parts.append(f"default [{', '.join(field.default)}]")
+    elif field.default is not None:
         parts.append(f"default {field.default}")
     if field.min is not None and field.max is not None:
-        parts.append(f"{field.min:g} to {field.max:g}")
+        parts.append(f"{format_bound(field.min)} to {format_bound(field.max)}")
     elif field.min is not None:
-        parts.append(f"min {field.min:g}")
+        parts.append(f"min {format_bound(field.min)}")
     elif field.max is not None:
-        parts.append(f"max {field.max:g}")
+        parts.append(f"max {format_bound(field.max)}")
     line = f"{field.key} ({', '.join(parts)})"
     if field.description:
         line += f": {field.description}"

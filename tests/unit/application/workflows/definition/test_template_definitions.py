@@ -16,7 +16,10 @@ from pathlib import Path
 import pytest
 
 from src.application.workflows.definition.loader import load_workflow_def
-from src.application.workflows.definition.validation import validate_workflow_def
+from src.application.workflows.definition.validation import (
+    validate_workflow_def,
+    validate_workflow_def_detailed,
+)
 
 # Registers every node type as a side effect; get_node() below depends on it.
 import src.application.workflows.nodes.catalog as _catalog
@@ -36,6 +39,9 @@ _DEFINITIONS_DIR = (
 # Production templates only — the dev/ subdirectory holds fixtures used by
 # other tests and isn't guaranteed to satisfy these invariants.
 _PRODUCTION_TEMPLATES: list[Path] = sorted(_DEFINITIONS_DIR.glob("*.json"))
+
+# Every shipped definition, dev and personal seeds included.
+_ALL_DEFINITIONS: list[Path] = sorted(_DEFINITIONS_DIR.rglob("*.json"))
 
 
 @pytest.mark.parametrize(
@@ -97,3 +103,28 @@ class TestProductionTemplate:
         """
         wf = load_workflow_def(template_path)
         validate_workflow_def(wf)
+
+    def test_yields_no_warnings(self, template_path: Path) -> None:
+        """Templates must also be free of advisory warnings.
+
+        A shipped template with an out-of-range value, an option the select
+        never offered, or a consumer with no upstream enricher would show a
+        warning badge the moment a user opened it in the editor.
+        """
+        wf = load_workflow_def(template_path)
+        assert validate_workflow_def_detailed(wf) == []
+
+
+@pytest.mark.parametrize(
+    "definition_path",
+    _ALL_DEFINITIONS,
+    ids=[str(p.relative_to(_DEFINITIONS_DIR)) for p in _ALL_DEFINITIONS],
+)
+def test_every_seed_validates_clean(definition_path: Path) -> None:
+    """Dev and personal seeds pass the detailed validator with zero items too.
+
+    dev/discovery_mix.json is the one seed exercising ``exclusion_source`` as a
+    task_ref, so this is where a regression in the task_ref check would show.
+    """
+    wf = load_workflow_def(definition_path)
+    assert validate_workflow_def_detailed(wf) == []

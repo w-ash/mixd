@@ -19,6 +19,7 @@ import functools
 
 from src.application.workflows.nodes.config_fields import (
     ConfigFieldDef,
+    format_bound,
     get_node_config_fields,
 )
 from src.application.workflows.nodes.registry import list_nodes
@@ -29,7 +30,12 @@ _FIELD_TYPE_TO_JSON: dict[str, str] = {
     "string": "string",
     "number": "number",
     "boolean": "boolean",
+    "task_ref": "string",
 }
+
+
+def _render_default(default: str | float | bool | tuple[str, ...]) -> str:
+    return ", ".join(default) if isinstance(default, tuple) else str(default)
 
 
 def _field_description(field: ConfigFieldDef) -> str:
@@ -39,13 +45,17 @@ def _field_description(field: ConfigFieldDef) -> str:
         text = field.description.strip()
         parts.append(text if text.endswith(".") else f"{text}.")
     if field.min is not None and field.max is not None:
-        parts.append(f"Must be between {field.min:g} and {field.max:g}.")
+        parts.append(
+            f"Must be between {format_bound(field.min)} and {format_bound(field.max)}."
+        )
     elif field.min is not None:
-        parts.append(f"Must be at least {field.min:g}.")
+        parts.append(f"Must be at least {format_bound(field.min)}.")
     elif field.max is not None:
-        parts.append(f"Must be at most {field.max:g}.")
+        parts.append(f"Must be at most {format_bound(field.max)}.")
+    if field.field_type == "task_ref":
+        parts.append("Must be the id of one of this task's upstream tasks.")
     if field.default is not None:
-        parts.append(f"Defaults to {field.default}.")
+        parts.append(f"Defaults to {_render_default(field.default)}.")
     return " ".join(parts)
 
 
@@ -55,6 +65,14 @@ def _field_schema(field: ConfigFieldDef) -> JsonDict:
         schema = {
             "type": "string",
             "enum": [option.value for option in field.options],
+        }
+    elif field.field_type == "multi_select":
+        schema = {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [option.value for option in field.options],
+            },
         }
     else:
         schema = {"type": _FIELD_TYPE_TO_JSON[field.field_type]}

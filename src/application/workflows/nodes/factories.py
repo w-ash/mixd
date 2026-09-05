@@ -16,11 +16,10 @@ definitions can focus on data flow rather than implementation details.
 
 import asyncio
 from collections.abc import Callable, Mapping
-from typing import TypedDict, cast
+from typing import cast
 
 # Import for enrichment functionality
 from src.application.connector_protocols import TrackMetadataConnector
-from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.use_cases.enrich_tracks import (
     EnrichmentConfig,
     EnrichmentType,
@@ -33,7 +32,6 @@ from src.domain.entities.track import TrackList
 from src.domain.transforms.core import require_database_tracks
 
 from .config_accessors import cfg_bool, cfg_int, cfg_str_list
-from .config_fields import DEFAULT_PLAY_HISTORY_METRICS, get_enricher_attributes
 from .execution_context import NodeContext
 from .registry import NodeFn
 from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
@@ -45,52 +43,6 @@ type _TransformFn = Callable[[TrackList], TrackList]
 type _TransformFactory = Callable[[NodeContext, Mapping[str, JsonValue]], _TransformFn]
 
 logger = get_logger(__name__)
-
-# === HELPER FUNCTIONS ===
-
-
-def _get_connector_metric_names(
-    metric_config: MetricConfigProvider,
-    connector_name: str,
-    requested_attributes: list[str],
-) -> list[str]:
-    """Get metric names supported by a connector using the metrics registry.
-
-    Uses the proper metrics registry instead of creating extractor functions.
-    Maps generic attribute names to service-specific metric names.
-
-    Args:
-        metric_config: Provider for metric configuration (from WorkflowContext DI)
-        connector_name: Music service identifier ("lastfm", "spotify", etc.)
-        requested_attributes: Metadata fields requested ("user_playcount", "explicit_flag", etc.)
-
-    Returns:
-        List of metric names that can be resolved for this connector
-    """
-    # Get all metrics supported by this connector from the registry
-    available_metrics = metric_config.get_connector_metrics(connector_name)
-
-    if not available_metrics:
-        logger.warning(f"No metrics registered for connector: {connector_name}")
-        return []
-
-    # Map requested attributes to actual metric names
-    metric_names: list[str] = []
-    for attr_name in requested_attributes:
-        # Try exact match first
-        if attr_name in available_metrics:
-            metric_names.append(attr_name)
-        # Try with connector prefix
-        elif f"{connector_name}_{attr_name}" in available_metrics:
-            metric_names.append(f"{connector_name}_{attr_name}")
-        else:
-            logger.warning(f"Unknown attribute: {attr_name} for {connector_name}")
-
-    logger.debug(
-        f"Mapped {len(requested_attributes)} attributes to {len(metric_names)} metrics for {connector_name}"
-    )
-    return metric_names
-
 
 # === SHARED NODE IMPLEMENTATION ===
 
@@ -225,45 +177,29 @@ type _EnrichmentConfigBuilder = Callable[
 ]
 
 
-class _EnricherStaticConfig(TypedDict, total=False):
-    """Static registration-time config for enricher nodes (used in nodes/catalog.py)."""
-
-    connector: str
-    enricher_type: str
-
-
-def build_external_enrichment_config(
-    static_config: _EnricherStaticConfig,
-) -> _EnrichmentConfigBuilder:
+def build_external_enrichment_config(connector: str) -> _EnrichmentConfigBuilder:
     """Build config builder for external-metadata enrichment (Last.fm, Spotify).
 
-    Captures the static registration-time config (connector name, attribute list)
-    and returns a builder that resolves metric names at execution time via DI.
-
-    Raises:
-        ValueError: If config doesn't specify a 'connector'
+    Captures the connector name and returns a builder that resolves the
+    connector's metric names at execution time via DI.
     """
-    connector = static_config.get("connector")
-    if not connector:
-        raise ValueError("Enricher configuration must specify a 'connector' type")
-    enricher_type = static_config.get("enricher_type", f"enricher.{connector}")
 
     def builder(ctx: NodeContext, _config: Mapping[str, JsonValue]) -> EnrichmentConfig:
-        # Attribute names resolve here, not at registration: the registry walk
-        # behind them is cached but can only see connectors that imported
-        # cleanly, so the lookup must not be frozen into module import order.
-        attribute_names = get_enricher_attributes(enricher_type)
+        # Metric names resolve here, not at registration: the registry behind
+        # them can only see connectors that imported cleanly, so the lookup
+        # must not be frozen into module import order.
         workflow_context = ctx.extract_workflow_context()
-        metric_names = _get_connector_metric_names(
-            workflow_context.metric_config, connector, attribute_names
-        )
         return EnrichmentConfig(
             enrichment_type="external_metadata",
             connector=connector,
-            connector_instance=cast(
-                TrackMetadataConnector, ctx.get_connector(connector)
+            connector_instance=ctx.get_connector(
+                connector,
+                capability="track_enrichment",
+                protocol=TrackMetadataConnector,
             ),
-            track_metric_names=metric_names,
+            track_metric_names=workflow_context.metric_config.get_connector_metrics(
+                connector
+            ),
         )
 
     return builder
@@ -272,11 +208,14 @@ def build_external_enrichment_config(
 def build_play_history_enrichment_config(
     _ctx: NodeContext, config: Mapping[str, JsonValue]
 ) -> EnrichmentConfig:
-    """Build config for play-history enrichment from internal database."""
-    metrics = cfg_str_list(config, "metrics") or list(DEFAULT_PLAY_HISTORY_METRICS)
+    """Build config for play-history enrichment from internal database.
+
+    ``metrics`` carries a declared default (``DEFAULT_PLAY_HISTORY_METRICS``)
+    that the executor has already applied.
+    """
     return EnrichmentConfig(
         enrichment_type="play_history",
-        metrics=metrics,
+        metrics=cfg_str_list(config, "metrics"),
         period_days=cfg_int(config, "period_days"),
     )
 
@@ -330,17 +269,17 @@ def create_enricher_node(
         )
 
         enrichment_config = build_config(ctx, config)
+        workflow_context = ctx.extract_workflow_context()
         command = EnrichTracksCommand(
-            user_id=ctx.extract_workflow_context().user_id,
+            user_id=workflow_context.user_id,
             tracklist=tracklist,
             enrichment_config=enrichment_config,
             progress_broker=ctx.get_progress_broker(),
             parent_operation_id=ctx.get_workflow_operation_id(),
         )
 
-        workflow_context = ctx.extract_workflow_context()
         result = await workflow_context.execute_use_case(
-            ctx.extract_use_cases().get_enrich_tracks_use_case, command
+            workflow_context.use_cases.get_enrich_tracks_use_case, command
         )
 
         # Failure is owned by the use case: EnrichTracksUseCase raises

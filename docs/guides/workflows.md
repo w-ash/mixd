@@ -68,7 +68,7 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 |----------------|-------------|--------------|
 | `enricher.lastfm` | Resolves tracks to Last.fm and fetches play counts | `username`: Optional Last.fm username<br>`batch_size`: Optional batch size for requests<br>`concurrency`: Optional concurrency limit |
 | `enricher.spotify` | Enriches tracks with Spotify explicit flag | (Freshness controlled via `FreshnessConfig` in settings) |
-| `enricher.play_history` | Enriches tracks with play counts and listening history from internal database | `metrics`: Array of metrics to include ["total_plays", "last_played_dates", "period_plays"]<br>`period_days`: Number of days back for period-based metrics |
+| `enricher.play_history` | Enriches tracks with play counts and listening history from internal database | `metrics`: Array of metrics to attach — any of `total_plays`, `period_plays`, `last_played_dates`, `first_played_dates` (default: `["total_plays", "last_played_dates"]`)<br>`period_days`: Window in days for `period_plays`; only applies when `period_plays` is in `metrics` |
 
 ### Filter Nodes
 
@@ -106,12 +106,16 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 
 ### Combiner Nodes
 
+Combiners read every task in `upstream`, in the order listed — there is no separate source list in `config`.
+
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
-| `combiner.merge_playlists` | Combines multiple playlists into one | `sources`: Array of task IDs to combine |
-| `combiner.concatenate_playlists` | Joins playlists in specified order | `order`: Array of task IDs in desired concatenation order |
-| `combiner.interleave_playlists` | Interleaves tracks from multiple playlists | `sources`: Array of task IDs to interleave |
-| `combiner.intersect_playlists` | Keeps only tracks common to all input sources | `sources`: Array of task IDs to intersect |
+| `combiner.merge_playlists` | Combines multiple playlists into one | `deduplicate`: Boolean — drop tracks that appear in more than one input (default: `false`) |
+| `combiner.concatenate_playlists` | Joins playlists in `upstream` order | `deduplicate`: Boolean (default: `false`) |
+| `combiner.interleave_playlists` | Interleaves tracks from multiple playlists | `deduplicate`: Boolean (default: `false`) |
+| `combiner.intersect_playlists` | Keeps only tracks common to all input sources | (No configuration required) |
+
+Every non-source node also accepts `primary_input`: the id of the upstream task whose tracklist it reads as its own input when it has more than one upstream (default: the first entry in `upstream`). `filter.by_tracks` / `filter.by_artists` use it alongside `exclusion_source`, which must also name a task in `upstream`.
 
 ### Destination Nodes
 
@@ -131,7 +135,7 @@ This pattern combines tracks from multiple sources:
   "tasks": [
     { "id": "source1", "type": "source.playlist", "config": {"playlist_id": "id1", "connector": "spotify"} },
     { "id": "source2", "type": "source.playlist", "config": {"playlist_id": "id2", "connector": "spotify"} },
-    { "id": "combine", "type": "combiner.merge_playlists", "config": {"sources": ["source1", "source2"]}, "upstream": ["source1", "source2"] }
+    { "id": "combine", "type": "combiner.merge_playlists", "config": {"deduplicate": true}, "upstream": ["source1", "source2"] }
   ]
 }
 ```

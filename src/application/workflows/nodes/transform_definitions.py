@@ -11,6 +11,10 @@ To add a new transform:
 
 Transforms are pure, so any diagnostic logging about their inputs — such as the
 missing-enricher warning below — belongs to this node layer, not the domain.
+
+Config defaults live in ``config_fields.py`` and are applied by the executor
+before a factory runs, so the ``cfg_*`` reads here carry no defaults of their
+own; an accessor's zero value is only reachable for undeclared keys.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -82,10 +86,20 @@ class CombinerFn(Protocol):
 
 
 class TransformEntry(NamedTuple):
-    """Transform factory with metadata for auto-registration."""
+    """Transform factory with metadata for auto-registration.
+
+    The trailing fields declare an enricher dependency that ``catalog.py``
+    forwards into the node registry, where the workflow validator reads it:
+    ``requires_enricher`` names the enricher type that must run upstream,
+    ``requires_metric`` the metric that enricher must be configured to emit,
+    and ``metric_from_config`` the config key that names the consumed metric.
+    """
 
     factory: TransformFactory
     description: str
+    requires_enricher: str | None = None
+    requires_metric: str | None = None
+    metric_from_config: str | None = None
 
 
 class CombinerEntry(NamedTuple):
@@ -137,14 +151,28 @@ def _play_history_kwargs(cfg: Mapping[str, JsonValue]) -> _PlayHistoryKwargs:
     }
 
 
-def _tf(factory: TransformFactory, description: str) -> TransformEntry:
+def _tf(
+    factory: TransformFactory,
+    description: str,
+    *,
+    requires_enricher: str | None = None,
+    requires_metric: str | None = None,
+    metric_from_config: str | None = None,
+) -> TransformEntry:
     """Typed TransformEntry constructor enabling lambda type inference.
 
     basedpyright can't infer lambda parameter types from NamedTuple field context,
     but CAN infer them from an explicit Callable parameter type via bidirectional
     type inference. This gives every lambda in the registry typed `ctx` and `cfg`.
+    The keyword-only dependency fields pass straight through to the entry.
     """
-    return TransformEntry(factory, description)
+    return TransformEntry(
+        factory,
+        description,
+        requires_enricher=requires_enricher,
+        requires_metric=requires_metric,
+        metric_from_config=metric_from_config,
+    )
 
 
 def _warn_when_metric_missing(
@@ -172,9 +200,7 @@ def _warn_when_metric_missing(
 def _sort_by_metric(cfg: Mapping[str, JsonValue]) -> Transform | TrackList:
     """Route a metric sort, warning when an external metric was never enriched."""
     metric_name = cfg_str(cfg, "metric_name")
-    transform = route_metric_sorting(
-        metric_name, reverse=cfg_bool(cfg, "reverse", True)
-    )
+    transform = route_metric_sorting(metric_name, reverse=cfg_bool(cfg, "reverse"))
     if classify_metric(metric_name) != "external_metric":
         return transform
     return _warn_when_metric_missing("Sort by", metric_name, transform)
@@ -228,6 +254,7 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
                 ),
             ),
             "Filters tracks based on metric value range",
+            metric_from_config="metric_name",
         ),
         "by_duration": _tf(
             lambda _ctx, cfg: filter_by_duration(
@@ -240,13 +267,13 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
         "by_liked_status": _tf(
             lambda _ctx, cfg: filter_by_liked_status(
                 service=cfg_str(cfg, "service"),
-                is_liked=cfg_bool(cfg, "is_liked", True),
+                is_liked=cfg_bool(cfg, "is_liked"),
             ),
             "Filters tracks by liked status on a specific service",
         ),
         "by_explicit": _tf(
             lambda _ctx, cfg: filter_by_explicit(
-                keep=cfg_str(cfg, "keep", "all"),
+                keep=cfg_str(cfg, "keep"),
             ),
             "Filters tracks by explicit content flag",
         ),
@@ -259,6 +286,8 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
                 date_source="first_played", **_play_history_kwargs(cfg)
             ),
             "Filters tracks by when they were first played (and/or play count)",
+            requires_enricher="enricher.play_history",
+            requires_metric="first_played_dates",
         ),
         "by_preference": _tf(
             lambda _ctx, cfg: filter_by_preference(
@@ -266,15 +295,15 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
                 exclude=_coerce_preference_states(cfg_str_list(cfg, "exclude")) or None,
             ),
             "Keeps (include=) or drops (exclude=) tracks by preference state",
+            requires_enricher="enricher.preferences",
         ),
         "by_tag": _tf(
             lambda _ctx, cfg: filter_by_tag(
                 tags=cfg_str_list(cfg, "tags"),
-                match_mode="all"
-                if cfg_str(cfg, "match_mode", "any") == "all"
-                else "any",
+                match_mode="all" if cfg_str(cfg, "match_mode") == "all" else "any",
             ),
             "Keeps tracks carrying any or all of the specified tags",
+            requires_enricher="enricher.tags",
         ),
         "by_tag_namespace": _tf(
             lambda _ctx, cfg: filter_by_tag_namespace(
@@ -282,12 +311,14 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
                 values=cfg_str_list(cfg, "values") or None,
             ),
             "Keeps tracks with a tag in the specified namespace (optionally restricted to values)",
+            requires_enricher="enricher.tags",
         ),
     },
     "sorter": {
         "by_metric": _tf(
             lambda _ctx, cfg: _sort_by_metric(cfg),
             "Sorts tracks by any metric specified in config",
+            metric_from_config="metric_name",
         ),
         "by_release_date": _tf(
             lambda _ctx, cfg: sort_by_key_function(
@@ -303,34 +334,35 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
                 end_date=cfg_str_or_none(cfg, "end_date"),
                 not_played_in_days=cfg_int(cfg, "not_played_in_days"),
                 played_within_days=cfg_int(cfg, "played_within_days"),
-                reverse=cfg_bool(cfg, "reverse", True),
+                reverse=cfg_bool(cfg, "reverse"),
             ),
             "Sorts tracks by play frequency within optional time windows",
         ),
         "by_preference": _tf(
             lambda _ctx, cfg: sort_by_preference(
-                reverse=cfg_bool(cfg, "reverse", True),
+                reverse=cfg_bool(cfg, "reverse"),
             ),
             "Sorts tracks by preference strength (star > yah > hmm > nah > unrated)",
+            requires_enricher="enricher.preferences",
         ),
         "by_added_at": _tf(
             lambda _ctx, cfg: sort_by_date(
                 date_source="added_at",
-                ascending=cfg_bool(cfg, "ascending", True),
+                ascending=cfg_bool(cfg, "ascending"),
             ),
             "Sorts tracks by date added to source playlist",
         ),
         "by_first_played": _tf(
             lambda _ctx, cfg: sort_by_date(
                 date_source="first_played",
-                ascending=cfg_bool(cfg, "ascending", True),
+                ascending=cfg_bool(cfg, "ascending"),
             ),
             "Sorts tracks by date first played",
         ),
         "by_last_played": _tf(
             lambda _ctx, cfg: sort_by_date(
                 date_source="last_played",
-                ascending=cfg_bool(cfg, "ascending", True),
+                ascending=cfg_bool(cfg, "ascending"),
             ),
             "Sorts tracks by date most recently played",
         ),
@@ -340,7 +372,7 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
         ),
         "weighted_shuffle": _tf(
             lambda _ctx, cfg: weighted_shuffle(
-                cfg_float(cfg, "shuffle_strength", 0.5),
+                cfg_float(cfg, "shuffle_strength", 0.0),
             ),
             "Shuffles tracks with configurable strength (0.0=original order, 1.0=fully random)",
         ),
@@ -348,15 +380,15 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
     "selector": {
         "limit_tracks": _tf(
             lambda _ctx, cfg: select_by_method(
-                cfg_int(cfg, "count", 10),
-                cfg_str(cfg, "method", "first"),
+                cfg_int(cfg, "count", 0),
+                cfg_str(cfg, "method"),
             ),
             "Limits playlist to specified number of tracks",
         ),
         "percentage": _tf(
             lambda _ctx, cfg: select_by_percentage(
                 percentage=cfg_float(cfg, "percentage", 0.0),
-                method=cfg_str(cfg, "method", "first"),
+                method=cfg_str(cfg, "method"),
             ),
             "Selects a percentage of tracks",
         ),

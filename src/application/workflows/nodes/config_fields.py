@@ -9,8 +9,10 @@ from the connector catalog and the metric registry, so the registry stays the
 one place a connector or metric is declared.
 
 The registry covers every cfg["key"] and cfg.get("key") usage across
-source.py, transform_definitions.py, destination.py, and
-enricher.py.
+source.py, transform_definitions.py, destination.py, enricher.py, and
+factories.py, plus the executor's ``primary_input`` read. A field's
+``default`` is applied once, by the executor through
+``apply_declared_defaults``; node code reads the key without restating it.
 """
 
 from collections.abc import Mapping
@@ -24,14 +26,20 @@ from src.application.use_cases._shared.connector_catalog import (
     default_connector_catalog,
 )
 from src.application.use_cases._shared.metric_config import default_metric_config
+from src.config.constants import BusinessLimits
 from src.domain.entities.connector import Capability, ConnectorDescriptor
+from src.domain.entities.shared import JsonValue
 
-type FieldType = Literal["string", "number", "boolean", "select"]
+from .registry import list_nodes
+
+type FieldType = Literal[
+    "string", "number", "boolean", "select", "multi_select", "task_ref"
+]
 
 
 @define(frozen=True, slots=True)
 class ConfigFieldOption:
-    """A selectable option for a 'select' field."""
+    """A selectable option for a 'select' or 'multi_select' field."""
 
     value: str
     label: str
@@ -47,11 +55,38 @@ class ConfigFieldDef:
     field_type: FieldType
     required: bool = False
     description: str | None = None
-    default: str | float | bool | None = None
+    default: str | float | bool | tuple[str, ...] | None = None
     placeholder: str | None = None
     min: float | None = None
     max: float | None = None
     options: tuple[ConfigFieldOption, ...] = ()
+
+    def json_default(self) -> str | float | bool | list[str] | None:
+        """The declared default as a JSON value: tuples become lists."""
+        return list(self.default) if isinstance(self.default, tuple) else self.default
+
+
+def format_bound(value: float) -> str:
+    """Render a ``min``/``max`` bound without an exponent.
+
+    ``1000000`` stays ``1000000`` (``:g`` would give ``1e+06``); ``0.5`` stays
+    ``0.5``. Every surface that prints a bound — validator warnings, the chat
+    node catalog, the JSON schema prose — goes through here.
+    """
+    return str(int(value)) if value == int(value) else f"{value:g}"
+
+
+def is_unset(field: ConfigFieldDef, value: JsonValue) -> bool:
+    """True when a present config value should count as absent.
+
+    JSON ``null`` is absent for every field; an empty list is absent for a
+    ``multi_select``. The one rule that both ``apply_declared_defaults`` and
+    the validator consult, so a value that falls back to the declared default
+    at run time is judged the same way at save time.
+    """
+    if value is None:
+        return True
+    return field.field_type == "multi_select" and value == []
 
 
 # ── Shared option tuples (reused across node types) ───────────────
@@ -191,21 +226,6 @@ EXPLICIT_FILTER_OPTIONS = (
     ConfigFieldOption("all", "All Tracks", "Don't filter by explicit status"),
 )
 
-SORT_ORDER_OPTIONS = (
-    ConfigFieldOption("true", "Highest first", "Sort from highest to lowest value"),
-    ConfigFieldOption("false", "Lowest first", "Sort from lowest to highest value"),
-)
-
-DATE_SORT_ORDER_OPTIONS = (
-    ConfigFieldOption("false", "Newest first", "Most recent dates first"),
-    ConfigFieldOption("true", "Oldest first", "Earliest dates first"),
-)
-
-LIKED_STATUS_OPTIONS = (
-    ConfigFieldOption("true", "Liked tracks", "Keep only liked/favorited tracks"),
-    ConfigFieldOption("false", "Unliked tracks", "Keep only tracks you haven't liked"),
-)
-
 SORT_BY_LIKED_OPTIONS = (
     ConfigFieldOption("liked_at_desc", "Recently liked", "Most recently liked first"),
     ConfigFieldOption("liked_at_asc", "Earliest liked", "Earliest liked first"),
@@ -232,11 +252,40 @@ INCLUDE_MISSING_FIELD = ConfigFieldDef(
 
 DATE_SORT_ORDER_FIELD = ConfigFieldDef(
     key="ascending",
-    label="Sort Order",
-    field_type="select",
-    description="Direction of the sort",
-    default="true",
-    options=DATE_SORT_ORDER_OPTIONS,
+    label="Oldest First",
+    field_type="boolean",
+    description="true = oldest dates first, false = newest first",
+    default=True,
+)
+
+# Sort direction for the value-ranked sorters (metric, play count, preference).
+HIGHEST_FIRST_FIELD = ConfigFieldDef(
+    key="reverse",
+    label="Highest First",
+    field_type="boolean",
+    description="true = highest value first, false = lowest first",
+    default=True,
+)
+
+# Which upstream a multi-input node reads as its own tracklist. The executor
+# reads it straight from the saved config (no default), so every non-source
+# node declares it and validation checks it names a real upstream.
+PRIMARY_INPUT_FIELD = ConfigFieldDef(
+    key="primary_input",
+    label="Primary Input",
+    field_type="task_ref",
+    description=(
+        "Which upstream feeds this node when it has more than one; "
+        "defaults to the first"
+    ),
+)
+
+DEDUPLICATE_FIELD = ConfigFieldDef(
+    key="deduplicate",
+    label="Remove Duplicates",
+    field_type="boolean",
+    description="Drop tracks that appear in more than one input",
+    default=False,
 )
 
 
@@ -324,26 +373,27 @@ def _require_options_for_required_selects(
     """
     for node_id, fields in registry.items():
         for field in fields:
-            if field.field_type == "select" and field.required and not field.options:
+            if (
+                field.field_type in ("select", "multi_select")
+                and field.required
+                and not field.options
+            ):
                 raise RuntimeError(
                     f"{node_id}.{field.key}: required select has no options"
                 )
 
 
 def _build_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
-    """Assemble the per-node field registry, resolving registry-derived options."""
-    registry = _assemble_node_config_fields()
-    _require_options_for_required_selects(registry)
-    return registry
+    """Assemble the per-node field registry, resolving registry-derived options.
 
-
-def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
-    """The raw per-node field registry, before the required-select check."""
+    Uncached so tests can exercise the required-select check with patched
+    option sources; production reads go through ``get_node_config_fields``.
+    """
     connector_options = _connector_options()
     service_options = _service_options()
     metric_options = get_metric_options()
 
-    return {
+    registry: dict[str, tuple[ConfigFieldDef, ...]] = {
         # === SOURCES ===
         # KNOWN TERMINOLOGY EXCEPTION — fix eventually.
         # ``playlist_id`` here is polymorphic: when ``connector`` is empty it is
@@ -378,7 +428,7 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 description="Maximum number of liked tracks to retrieve",
                 placeholder="500",
                 min=1,
-                max=10000,
+                max=BusinessLimits.MAX_USER_LIMIT,
             ),
             ConfigFieldDef(
                 key="connector_filter",
@@ -412,7 +462,7 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 description="Maximum number of tracks to retrieve",
                 placeholder="500",
                 min=1,
-                max=10000,
+                max=BusinessLimits.MAX_USER_LIMIT,
             ),
         ),
         "source.played_tracks": (
@@ -423,7 +473,7 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 description="Maximum number of played tracks to retrieve",
                 placeholder="500",
                 min=1,
-                max=10000,
+                max=BusinessLimits.MAX_USER_LIMIT,
             ),
             ConfigFieldDef(
                 key="days_back",
@@ -452,7 +502,27 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
         # === ENRICHERS ===
         "enricher.lastfm": (),
         "enricher.spotify": (),
-        "enricher.play_history": (),
+        "enricher.play_history": (
+            ConfigFieldDef(
+                key="metrics",
+                label="Metrics",
+                field_type="multi_select",
+                description="Which play-history metrics to attach to each track",
+                default=DEFAULT_PLAY_HISTORY_METRICS,
+                options=_PLAY_HISTORY_METRIC_DEFS,
+            ),
+            ConfigFieldDef(
+                key="period_days",
+                label="Period (days)",
+                field_type="number",
+                description=(
+                    "Window for the period_plays metric; only applies when "
+                    "period_plays is selected"
+                ),
+                placeholder="30",
+                min=1,
+            ),
+        ),
         "enricher.preferences": (),
         "enricher.tags": (),
         "enricher.spotify_liked_status": (),
@@ -507,20 +577,18 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
             ConfigFieldDef(
                 key="exclusion_source",
                 label="Exclude From",
-                field_type="string",
+                field_type="task_ref",
                 required=True,
-                description="Task ID whose tracks will be removed from this list",
-                placeholder="source_liked_1",
+                description="Upstream task whose tracks will be removed from this list",
             ),
         ),
         "filter.by_artists": (
             ConfigFieldDef(
                 key="exclusion_source",
                 label="Exclude From",
-                field_type="string",
+                field_type="task_ref",
                 required=True,
-                description="Task ID whose artists will be removed from this list",
-                placeholder="source_liked_1",
+                description="Upstream task whose artists will be removed from this list",
             ),
             ConfigFieldDef(
                 key="exclude_all_artists",
@@ -585,11 +653,10 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
             ),
             ConfigFieldDef(
                 key="is_liked",
-                label="Keep",
-                field_type="select",
-                description="Whether to keep liked or unliked tracks",
-                default="true",
-                options=LIKED_STATUS_OPTIONS,
+                label="Keep Liked",
+                field_type="boolean",
+                description="true = keep only liked tracks, false = keep only unliked",
+                default=True,
             ),
         ),
         "filter.by_explicit": (
@@ -685,44 +752,28 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 description="Which metric to sort by (requires matching enricher upstream)",
                 options=metric_options,
             ),
-            ConfigFieldDef(
-                key="reverse",
-                label="Sort Order",
-                field_type="select",
-                description="Direction of the sort",
-                default="true",
-                options=SORT_ORDER_OPTIONS,
-            ),
+            HIGHEST_FIRST_FIELD,
         ),
         "sorter.by_release_date": (
             ConfigFieldDef(
                 key="reverse",
-                label="Sort Order",
-                field_type="select",
-                description="Direction of the sort",
-                default="false",
-                options=DATE_SORT_ORDER_OPTIONS,
+                label="Newest First",
+                field_type="boolean",
+                description="true = newest releases first, false = oldest first",
+                default=False,
             ),
         ),
         "sorter.by_preference": (
             ConfigFieldDef(
                 key="reverse",
-                label="Sort Order",
-                field_type="select",
-                description="Direction of the sort (default puts starred first)",
-                default="true",
-                options=SORT_ORDER_OPTIONS,
+                label="Strongest First",
+                field_type="boolean",
+                description="true = starred first, false = weakest preference first",
+                default=True,
             ),
         ),
         "sorter.by_play_history": (
-            ConfigFieldDef(
-                key="reverse",
-                label="Sort Order",
-                field_type="select",
-                description="Direction of the sort",
-                default="true",
-                options=SORT_ORDER_OPTIONS,
-            ),
+            HIGHEST_FIRST_FIELD,
             *_date_range_fields(
                 min_days_label="Older Than (days)",
                 max_days_label="Within (days)",
@@ -785,9 +836,9 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
             ),
         ),
         # === COMBINERS ===
-        "combiner.merge_playlists": (),
-        "combiner.concatenate_playlists": (),
-        "combiner.interleave_playlists": (),
+        "combiner.merge_playlists": (DEDUPLICATE_FIELD,),
+        "combiner.concatenate_playlists": (DEDUPLICATE_FIELD,),
+        "combiner.interleave_playlists": (DEDUPLICATE_FIELD,),
         "combiner.intersect_playlists": (),
         # === DESTINATIONS ===
         "destination.create_playlist": (
@@ -804,6 +855,7 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 label="Description",
                 field_type="string",
                 description="Optional description for the playlist",
+                default="Created by Mixd",
                 placeholder="Created by Mixd",
             ),
             ConfigFieldDef(
@@ -854,6 +906,15 @@ def _assemble_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
             ),
         ),
     }
+    # Every node that takes input can name which upstream is its primary one.
+    # The registry owns the category, so the append follows it rather than the
+    # node id prefix.
+    categories = {nid: meta["category"] for nid, meta in list_nodes().items()}
+    for node_id, fields in registry.items():
+        if node_id in categories and categories[node_id] != "source":
+            registry[node_id] = (*fields, PRIMARY_INPUT_FIELD)
+    _require_options_for_required_selects(registry)
+    return registry
 
 
 @functools.cache
@@ -866,6 +927,26 @@ def get_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
     return _build_node_config_fields()
 
 
+def apply_declared_defaults(
+    node_type: str, config: Mapping[str, JsonValue]
+) -> dict[str, JsonValue]:
+    """Fill absent config keys with the defaults the node's fields declare.
+
+    The one place a declared ``default`` becomes a runtime value: the executor
+    calls this before a node runs, so node code reads keys without restating
+    the default. A key is absent when it is missing or when ``is_unset`` says
+    so (``null``, or ``[]`` on a multi_select); such keys are dropped before
+    the defaults fill in. Every other present value wins, falsy or not.
+    """
+    merged = dict(config)
+    for field in get_node_config_fields().get(node_type, ()):
+        if field.key in merged and is_unset(field, merged[field.key]):
+            del merged[field.key]
+        if field.key not in merged and field.default is not None:
+            merged[field.key] = field.json_default()
+    return merged
+
+
 @functools.cache
 def get_enricher_metric_names() -> dict[str, frozenset[str]]:
     """Derive enricher → metric name sets from the canonical mapping.
@@ -876,8 +957,3 @@ def get_enricher_metric_names() -> dict[str, frozenset[str]]:
         enricher: frozenset(opt.value for opt in opts)
         for enricher, opts in get_enricher_metric_defs().items()
     }
-
-
-def get_enricher_attributes(enricher_type: str) -> list[str]:
-    """Get the attribute name list for an enricher (for node-catalog registration)."""
-    return [opt.value for opt in get_enricher_metric_defs().get(enricher_type, ())]

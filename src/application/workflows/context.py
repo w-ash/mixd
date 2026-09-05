@@ -18,6 +18,7 @@ from src.application.use_cases._shared.metric_config import (
     default_metric_config,
 )
 from src.config.constants import BusinessLimits
+from src.domain.entities.connector import ConnectorDescriptor
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 from .protocols import (
@@ -38,6 +39,7 @@ class ConnectorRegistryImpl:
 
     _catalog: ConnectorCatalog
     _cache: dict[str, object]
+    _descriptors: dict[str, ConnectorDescriptor]
 
     def __init__(self, catalog: ConnectorCatalog | None = None) -> None:
         """Initialize the registry against a connector catalog.
@@ -48,6 +50,22 @@ class ConnectorRegistryImpl:
         """
         self._catalog = default_connector_catalog() if catalog is None else catalog
         self._cache = {}
+        self._descriptors = {}
+
+    def describe(self, name: str) -> ConnectorDescriptor:
+        """Return the static descriptor for one connector, cached per name.
+
+        The catalog rebuilds every descriptor on each call, so the first
+        lookup per registry lifetime pays that cost and later ones do not.
+
+        Raises:
+            ValueError: If connector name is not registered
+        """
+        descriptor = self._descriptors.get(name)
+        if descriptor is None:
+            descriptor = self._catalog.describe(name)
+            self._descriptors[name] = descriptor
+        return descriptor
 
     def get_connector(self, name: str) -> object:
         """Get (or create) a connector instance for the specified music service.

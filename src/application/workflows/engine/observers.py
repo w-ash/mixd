@@ -16,6 +16,7 @@ orchestration loop when no observer is provided.
 """
 
 import asyncio
+from collections.abc import Awaitable, Coroutine
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -45,68 +46,63 @@ class NodePreviewSummary:
     sample_titles: list[str]
 
 
-def _build_sse_node_event(
-    counter: int,
-    event: NodeExecutionEvent,
-    status: RunStatus,
-    *,
-    run_id: UUID | None = None,
-    error_message: str | None = None,
-) -> dict[str, object]:
-    """Build an SSE node_status event dict, shared by all observer types."""
-    data: dict[str, object] = {
-        "node_id": event.task_def.id,
-        "node_type": event.task_def.type,
-        "status": status,
-        "execution_order": event.execution_order,
-        "total_nodes": event.total_nodes,
-        "duration_ms": event.duration_ms,
-        "input_track_count": event.input_track_count,
-        "output_track_count": event.output_track_count,
-    }
-    if run_id is not None:
-        data["run_id"] = run_id
-    if error_message:
-        data["error_message"] = error_message
-    return {
-        "id": f"evt_{counter}",
-        "event": WorkflowConstants.SSE_EVENT_NODE_STATUS,
-        "data": data,
-    }
+class _SseEmittingObserver:
+    """Shared SSE ``node_status`` emission for observers that feed a live canvas.
 
+    Holds the queue and the monotonic event counter; subclasses call ``_emit``
+    from their lifecycle hooks. A ``None`` queue makes emission a no-op.
+    """
 
-async def _push_sse_node_event(
-    queue: asyncio.Queue[object] | None,
-    counter: int,
-    event: NodeExecutionEvent,
-    status: RunStatus,
-    *,
-    run_id: UUID | None = None,
-    error_message: str | None = None,
-) -> int:
-    """Push an SSE node_status event to the queue. Returns updated counter."""
-    if queue is None:
-        return counter
-    counter += 1
-    try:
-        await queue.put(
-            _build_sse_node_event(
-                counter,
-                event,
-                status,
-                run_id=run_id,
-                error_message=error_message,
+    _sse_queue: asyncio.Queue[object] | None
+    _event_counter: int
+    _sse_run_id: UUID | None
+
+    def __init__(
+        self, sse_queue: asyncio.Queue[object] | None, run_id: UUID | None = None
+    ) -> None:
+        self._sse_queue = sse_queue
+        self._event_counter = 0
+        self._sse_run_id = run_id
+
+    async def _emit(
+        self,
+        event: NodeExecutionEvent,
+        status: RunStatus,
+        *,
+        error_message: str | None = None,
+    ) -> None:
+        """Push one SSE node_status event; failures are logged, never raised."""
+        if self._sse_queue is None:
+            return
+        self._event_counter += 1
+        data: dict[str, object] = {
+            "node_id": event.task_def.id,
+            "node_type": event.task_def.type,
+            "status": status,
+            "execution_order": event.execution_order,
+            "total_nodes": event.total_nodes,
+            "duration_ms": event.duration_ms,
+            "input_track_count": event.input_track_count,
+            "output_track_count": event.output_track_count,
+        }
+        if self._sse_run_id is not None:
+            data["run_id"] = self._sse_run_id
+        if error_message:
+            data["error_message"] = error_message
+        try:
+            await self._sse_queue.put({
+                "id": f"evt_{self._event_counter}",
+                "event": WorkflowConstants.SSE_EVENT_NODE_STATUS,
+                "data": data,
+            })
+        except Exception:
+            logger.warning(
+                "Failed to push SSE node_status event",
+                run_id=self._sse_run_id,
+                node_id=event.task_def.id,
+                status=status,
+                exc_info=True,
             )
-        )
-    except Exception:
-        logger.warning(
-            "Failed to push SSE node_status event",
-            run_id=run_id,
-            node_id=event.task_def.id,
-            status=status,
-            exc_info=True,
-        )
-    return counter
 
 
 def _format_node_display_name(node_type: str) -> str:
@@ -130,26 +126,53 @@ class NullNodeObserver:
 
 
 class CompositeNodeObserver:
-    """Delegates to multiple observers — enables CLI progress + DB history simultaneously."""
+    """Delegates to multiple observers — enables CLI progress + DB history simultaneously.
+
+    Observers run concurrently and are isolated from each other: one
+    observer's failure is logged and never reaches the others or the
+    executing node. ``asyncio.gather(return_exceptions=True)`` is used
+    instead of a ``TaskGroup`` for the same reason as
+    ``ProgressBroker._broadcast`` — a TaskGroup would propagate the first
+    failure and cancel its siblings, breaking the isolation contract.
+    Cancelling the awaiting task still cancels the fan-out and re-raises,
+    so external cancellation is honoured.
+    """
 
     _observers: list[NodeExecutionObserver]
 
     def __init__(self, observers: list[NodeExecutionObserver]) -> None:
         self._observers = observers
 
+    async def _fan_out(self, hook: str, calls: list[Awaitable[None]]) -> None:
+        """Await every observer call; log failures per observer, never raise."""
+        results = await asyncio.gather(*calls, return_exceptions=True)
+        for obs, result in zip(self._observers, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "Node observer raised; other observers unaffected",
+                    hook=hook,
+                    observer=type(obs).__name__,
+                    exc_info=result,
+                )
+
     async def on_node_starting(self, event: NodeExecutionEvent) -> None:
-        for obs in self._observers:
-            await obs.on_node_starting(event)
+        await self._fan_out(
+            "on_node_starting", [obs.on_node_starting(event) for obs in self._observers]
+        )
 
     async def on_node_completed(
         self, event: NodeExecutionEvent, result: NodeResult
     ) -> None:
-        for obs in self._observers:
-            await obs.on_node_completed(event, result)
+        await self._fan_out(
+            "on_node_completed",
+            [obs.on_node_completed(event, result) for obs in self._observers],
+        )
 
     async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
-        for obs in self._observers:
-            await obs.on_node_failed(event, error)
+        await self._fan_out(
+            "on_node_failed",
+            [obs.on_node_failed(event, error) for obs in self._observers],
+        )
 
 
 class ProgressNodeObserver:
@@ -200,20 +223,17 @@ class ProgressNodeObserver:
         await self._progress_broker.emit_progress(progress_event)
 
 
-class PreviewNodeObserver:
+class PreviewNodeObserver(_SseEmittingObserver):
     """Lightweight observer for dry-run previews — SSE only, no DB persistence.
 
     Tracks per-node output summaries (track count + sample titles) and pushes
     SSE ``node_status`` events for live canvas updates during preview.
     """
 
-    _sse_queue: asyncio.Queue[object] | None
-    _event_counter: int
     _summaries: list[NodePreviewSummary]
 
     def __init__(self, sse_queue: asyncio.Queue[object] | None = None) -> None:
-        self._sse_queue = sse_queue
-        self._event_counter = 0
+        super().__init__(sse_queue)
         self._summaries = []
 
     def get_summaries(self) -> list[NodePreviewSummary]:
@@ -221,12 +241,7 @@ class PreviewNodeObserver:
         return self._summaries
 
     async def on_node_starting(self, event: NodeExecutionEvent) -> None:
-        self._event_counter = await _push_sse_node_event(
-            self._sse_queue,
-            self._event_counter,
-            event,
-            WorkflowConstants.RUN_STATUS_RUNNING,
-        )
+        await self._emit(event, WorkflowConstants.RUN_STATUS_RUNNING)
 
     async def on_node_completed(
         self, event: NodeExecutionEvent, result: NodeResult
@@ -241,36 +256,28 @@ class PreviewNodeObserver:
                 sample_titles=[t.title or "Unknown" for t in tracks[:5]],
             )
         )
-        self._event_counter = await _push_sse_node_event(
-            self._sse_queue,
-            self._event_counter,
-            event,
-            WorkflowConstants.RUN_STATUS_COMPLETED,
-        )
+        await self._emit(event, WorkflowConstants.RUN_STATUS_COMPLETED)
 
     async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
-        self._event_counter = await _push_sse_node_event(
-            self._sse_queue,
-            self._event_counter,
-            event,
-            WorkflowConstants.RUN_STATUS_FAILED,
-            error_message=str(error),
+        await self._emit(
+            event, WorkflowConstants.RUN_STATUS_FAILED, error_message=str(error)
         )
 
 
-class RunHistoryObserver:
+class RunHistoryObserver(_SseEmittingObserver):
     """Persists node execution to DB and emits SSE node_status events.
 
     DB persistence is handled by an injected ``NodeStatusUpdater`` callable
     (provided by the interface layer) so this observer stays free of
     infrastructure imports. Each call uses a short-lived independent session
     so node status updates survive workflow failures.
+
+    The DB write and the SSE push run concurrently per hook; each swallows
+    its own errors, so a slow or failing DB never delays the live canvas.
     """
 
     _run_id: UUID
     _update_node_status_fn: NodeStatusUpdater
-    _sse_queue: asyncio.Queue[object] | None
-    _event_counter: int
     _persist_failure_count: int
 
     def __init__(
@@ -279,10 +286,9 @@ class RunHistoryObserver:
         update_node_status: NodeStatusUpdater,
         sse_queue: asyncio.Queue[object] | None = None,
     ) -> None:
+        super().__init__(sse_queue, run_id)
         self._run_id = run_id
         self._update_node_status_fn = update_node_status
-        self._sse_queue = sse_queue
-        self._event_counter = 0
         self._persist_failure_count = 0
 
     @property
@@ -291,61 +297,60 @@ class RunHistoryObserver:
         return self._persist_failure_count
 
     async def on_node_starting(self, event: NodeExecutionEvent) -> None:
-        now = datetime.now(UTC)
-        await self._persist_node_status(
-            event,
-            status=WorkflowConstants.RUN_STATUS_RUNNING,
-            started_at=now,
-        )
-        self._event_counter = await _push_sse_node_event(
-            self._sse_queue,
-            self._event_counter,
-            event,
-            WorkflowConstants.RUN_STATUS_RUNNING,
-            run_id=self._run_id,
+        await self._persist_and_emit(
+            self._persist_node_status(
+                event,
+                status=WorkflowConstants.RUN_STATUS_RUNNING,
+                started_at=datetime.now(UTC),
+            ),
+            self._emit(event, WorkflowConstants.RUN_STATUS_RUNNING),
         )
 
     async def on_node_completed(
         self, event: NodeExecutionEvent, result: NodeResult
     ) -> None:
-        now = datetime.now(UTC)
-
-        await self._persist_node_status(
-            event,
-            status=WorkflowConstants.RUN_STATUS_COMPLETED,
-            completed_at=now,
-            duration_ms=event.duration_ms,
-            input_track_count=event.input_track_count,
-            output_track_count=event.output_track_count,
-            node_details=result.get("node_details"),
-        )
-        self._event_counter = await _push_sse_node_event(
-            self._sse_queue,
-            self._event_counter,
-            event,
-            WorkflowConstants.RUN_STATUS_COMPLETED,
-            run_id=self._run_id,
+        await self._persist_and_emit(
+            self._persist_node_status(
+                event,
+                status=WorkflowConstants.RUN_STATUS_COMPLETED,
+                completed_at=datetime.now(UTC),
+                duration_ms=event.duration_ms,
+                input_track_count=event.input_track_count,
+                output_track_count=event.output_track_count,
+                node_details=result.get("node_details"),
+            ),
+            self._emit(event, WorkflowConstants.RUN_STATUS_COMPLETED),
         )
 
     async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
-        now = datetime.now(UTC)
-        await self._persist_node_status(
-            event,
-            status=WorkflowConstants.RUN_STATUS_FAILED,
-            completed_at=now,
-            duration_ms=event.duration_ms,
-            error_message=str(error),
-        )
-        self._event_counter = await _push_sse_node_event(
-            self._sse_queue,
-            self._event_counter,
-            event,
-            WorkflowConstants.RUN_STATUS_FAILED,
-            run_id=self._run_id,
-            error_message=str(error),
+        await self._persist_and_emit(
+            self._persist_node_status(
+                event,
+                status=WorkflowConstants.RUN_STATUS_FAILED,
+                completed_at=datetime.now(UTC),
+                duration_ms=event.duration_ms,
+                error_message=str(error),
+            ),
+            self._emit(
+                event, WorkflowConstants.RUN_STATUS_FAILED, error_message=str(error)
+            ),
         )
 
     # -- internal helpers --
+
+    @staticmethod
+    async def _persist_and_emit(
+        persist: Coroutine[object, object, None],
+        emit: Coroutine[object, object, None],
+    ) -> None:
+        """Run the DB write and the SSE push concurrently.
+
+        Both coroutines swallow their own errors, so the TaskGroup only
+        provides structured cancellation — never a sibling-cancelling failure.
+        """
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(persist)
+            tg.create_task(emit)
 
     async def _persist_node_status(
         self,

@@ -53,6 +53,26 @@ class TestCreatePlaylist:
         wf = mock_context["workflow_context"]
         wf.execute_use_case.assert_called_once()
 
+    async def test_description_default_comes_from_the_declaration(self, mock_context):
+        """The node restates no default; the executor-applied one reaches the command."""
+        from src.application.use_cases.create_canonical_playlist import (
+            CreateCanonicalPlaylistCommand,
+        )
+        from src.application.workflows.nodes.config_fields import (
+            apply_declared_defaults,
+        )
+        from src.application.workflows.nodes.destination import create_playlist
+
+        config = apply_declared_defaults(
+            "destination.create_playlist", {"name": "My Playlist"}
+        )
+        await create_playlist(mock_context, config)
+
+        wf = mock_context["workflow_context"]
+        command = wf.execute_use_case.call_args[0][1]
+        assert isinstance(command, CreateCanonicalPlaylistCommand)
+        assert command.description == "Created by Mixd"
+
     async def test_create_with_connector(self, mock_context):
         """Create playlist with connector delegates to connector use case."""
         from src.application.workflows.nodes.destination import create_playlist

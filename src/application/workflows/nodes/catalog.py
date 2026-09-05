@@ -64,7 +64,7 @@ _ = node(
     required_connectors=["lastfm"],
 )(
     create_enricher_node(
-        build_external_enrichment_config({"connector": "lastfm"}),
+        build_external_enrichment_config("lastfm"),
         enricher_label="lastfm",
     ),
 )
@@ -77,7 +77,7 @@ _ = node(
     required_connectors=["spotify"],
 )(
     create_enricher_node(
-        build_external_enrichment_config({"connector": "spotify"}),
+        build_external_enrichment_config("spotify"),
         enricher_label="spotify",
     ),
 )
@@ -87,6 +87,8 @@ _ = node(
     description="Enriches tracks with play counts and listening history from internal database",
     input_type="tracklist",
     output_type="tracklist",
+    emits_metrics_from_config="metrics",
+    metric_config_corequisites={"period_days": "period_plays"},
 )(create_enricher_node(build_play_history_enrichment_config))
 
 _ = node(
@@ -123,6 +125,9 @@ for _category, _entries in TRANSFORM_REGISTRY.items():
             description=_entry.description,
             input_type="tracklist",
             output_type="tracklist",
+            requires_enricher=_entry.requires_enricher,
+            requires_metric=_entry.requires_metric,
+            metric_from_config=_entry.metric_from_config,
         )(make_node(_category, _node_type))
 
 # === COMBINER NODES (auto-registered from COMBINER_REGISTRY) ===

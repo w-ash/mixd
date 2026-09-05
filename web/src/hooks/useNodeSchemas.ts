@@ -4,12 +4,16 @@
  *
  * Replaces the static node-config-schema.ts with API-driven data.
  * Cached with staleTime: Infinity — node types don't change at runtime.
+ *
+ * Also registers the schemas with the editor store, whose structural edits
+ * (edge removal, task rename) consult field declarations.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import type { ConfigFieldSchema } from "#/api/generated/model";
 import { useListNodeTypesApiV1WorkflowsNodesGet } from "#/api/generated/workflows/workflows";
+import { useEditorStore } from "#/stores/editor-store";
 
 export interface NodeSchemas {
   /** Get all config field schemas for a node type. */
@@ -48,6 +52,10 @@ export function useNodeSchemas(): NodeSchemas {
 
     return { schemas, descriptions };
   }, [nodeTypes]);
+
+  useEffect(() => {
+    if (nodeTypes) useEditorStore.getState().setNodeSchemas(lookup.schemas);
+  }, [nodeTypes, lookup]);
 
   return useMemo(
     () => ({

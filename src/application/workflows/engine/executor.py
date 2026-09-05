@@ -15,6 +15,8 @@ results are all owned here and in ``workflow_runs``.
 
 import asyncio
 from collections.abc import Callable, Coroutine, Mapping
+from contextlib import nullcontext
+import functools
 import signal
 import time
 from typing import Final, cast
@@ -30,6 +32,7 @@ from src.application.workflows.definition.validation import (
     validate_connector_availability,
     validate_workflow_def,
 )
+from src.application.workflows.nodes.config_fields import apply_declared_defaults
 from src.application.workflows.nodes.registry import get_node
 from src.application.workflows.protocols import (
     NodeExecutionObserver,
@@ -39,10 +42,7 @@ from src.application.workflows.protocols import (
 from src.config.constants import BusinessLimits, NodeType, WorkflowConstants
 from src.config.logging import get_logger, logging_context
 from src.domain.entities.operations import OperationResult
-from src.domain.entities.progress import (
-    OperationStatus,
-    create_progress_operation,
-)
+from src.domain.entities.progress import tracked_operation
 from src.domain.entities.shared import JsonValue, MetricValue
 from src.domain.entities.workflow import (
     NodeExecutionEvent,
@@ -55,8 +55,13 @@ from .observers import NullNodeObserver, ProgressNodeObserver
 
 logger = get_logger(__name__)
 
-# One-time registry validation guard — runs before first workflow execution
-_registry_validated = False
+
+@functools.cache
+def _validate_registry_once() -> None:
+    """Run the registry integrity check once per process, before the first run."""
+    from src.application.workflows.nodes.registry_validation import validate_registry
+
+    validate_registry()
 
 
 # --- Fault tolerance ---
@@ -283,22 +288,23 @@ _CATEGORY_TIMEOUTS: dict[NodeType, int] = {
     "source": WorkflowConstants.SOURCE_TIMEOUT_SECONDS,
     "enricher": WorkflowConstants.ENRICHER_TIMEOUT_SECONDS,
     "destination": WorkflowConstants.DESTINATION_TIMEOUT_SECONDS,
-    "filter": WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS,
-    "sorter": WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS,
-    "selector": WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS,
 }
 
 
 def _get_node_timeout(category: NodeType) -> int:
     """Return asyncio.timeout budget (seconds) for a node category.
 
-    Falls back to TRANSFORM_TIMEOUT_SECONDS for categories with no entry
-    (combiners and any category added later).
+    Falls back to TRANSFORM_TIMEOUT_SECONDS for every category without an
+    entry (filters, sorters, selectors, combiners, and any added later).
     """
     return _CATEGORY_TIMEOUTS.get(category, WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS)
 
 
 # --- Node execution ---
+
+
+# Upper bound on dropped track ids written to the per-run debug log per node.
+_DROPPED_IDS_SAMPLE_SIZE: Final = 20
 
 
 async def execute_node(
@@ -313,25 +319,10 @@ async def execute_node(
     policies; transform nodes are pure and deterministic (retrying won't help).
     """
     node_func, _ = get_node(node_type)
-    enhanced_context = context.copy()
-    enhanced_context.update({"node_type": node_type})
-    return await node_func(enhanced_context, config)
+    return await node_func(context, config)
 
 
 # --- Flow building ---
-
-
-def _get_input_track_count(
-    task_def: WorkflowTaskDef, task_results: dict[str, NodeResult]
-) -> int | None:
-    """Extract track count from the primary upstream's result, if available."""
-    upstream_id = _primary_upstream_id(task_def)
-    if upstream_id is None:
-        return None
-    upstream_result = task_results.get(upstream_id)
-    if upstream_result:
-        return len(upstream_result["tracklist"].tracks)
-    return None
 
 
 @attrs.define
@@ -340,14 +331,10 @@ class _RunState:
 
     Exactly the values the former nested closures captured from
     ``workflow_flow`` — one instance per run, never shared across runs.
-    ``parameters`` is held by reference (never copied): ``workflow_flow``
-    injects ``workflow_name`` into the same dict the nodes read.
     """
 
-    flow_name: str
     total_nodes: int
     flat_order: dict[str, int]
-    parameters: dict[str, object]
     workflow_context: WorkflowContext
     node_observer: NodeExecutionObserver
     dry_run: bool
@@ -371,7 +358,9 @@ async def _run_task_inner(
     task_id = task_def.id
     node_type = task_def.type
     execution_order = state.flat_order[task_id]
-    config = task_def.config
+    # The one place declared field defaults become runtime values; node code
+    # reads config keys without restating them.
+    config = apply_declared_defaults(node_type, task_def.config)
 
     logger.info(f"Starting task: {task_id} (type: {node_type})")
 
@@ -379,25 +368,31 @@ async def _run_task_inner(
     # results. Avoids copying the whole context bag (which grows with
     # each completed node) — only what this task needs.
     task_context: dict[str, object] = {
-        "parameters": state.parameters,
         "workflow_context": state.workflow_context,
-        "workflow_name": state.flow_name,
         "progress_broker": state.workflow_progress_broker,
         "workflow_operation_id": state.workflow_operation_id,
-        "total_tasks": state.total_nodes,
         "dry_run": state.dry_run,
-        "current_step": execution_order,
     }
 
+    primary_upstream_id = _primary_upstream_id(task_def)
     if task_def.upstream:
-        task_context["upstream_task_id"] = _primary_upstream_id(task_def)
+        task_context["upstream_task_id"] = primary_upstream_id
         task_context["upstream_task_ids"] = task_def.upstream
 
         for upstream_id in task_def.upstream:
             if upstream_id in state.task_results:
                 task_context[upstream_id] = state.task_results[upstream_id]
 
-    input_track_count = _get_input_track_count(task_def, state.task_results)
+    primary_upstream_result = (
+        state.task_results.get(primary_upstream_id)
+        if primary_upstream_id is not None
+        else None
+    )
+    input_track_count = (
+        len(primary_upstream_result["tracklist"].tracks)
+        if primary_upstream_result
+        else None
+    )
     base_event = NodeExecutionEvent(
         task_def=task_def,
         execution_order=execution_order,
@@ -443,14 +438,8 @@ async def _run_task_inner(
         )
 
         # Fault tolerance: enricher failures degrade rather than kill
-        primary_upstream_id = _primary_upstream_id(task_def)
-        if (
-            _is_failure_recoverable(node_category)
-            and primary_upstream_id is not None
-            and primary_upstream_id in state.task_results
-        ):
-            upstream_result = state.task_results[primary_upstream_id]
-            result = upstream_result  # pass through primary tracklist
+        if _is_failure_recoverable(node_category) and primary_upstream_result:
+            result = primary_upstream_result  # pass through primary tracklist
             state.node_records.append(
                 failed_event.to_record(
                     status="degraded",
@@ -486,22 +475,20 @@ async def _run_task_inner(
         output_count=output_track_count,
         delta=delta,
     )
-    if delta > 0:
-        dropped_ids: list[UUID | None] = []
-        primary_id = _primary_upstream_id(task_def)
-        if input_track_count and primary_id is not None:
-            upstream_res = state.task_results.get(primary_id)
-            if upstream_res:
-                output_ids = {t.id for t in result["tracklist"].tracks}
-                dropped_ids = [
-                    t.id
-                    for t in upstream_res["tracklist"].tracks
-                    if t.id not in output_ids
-                ]
+    if delta > 0 and primary_upstream_result:
+        # The per-run JSONL sink records DEBUG, so keep this bounded: a full
+        # id list per filter node is hundreds of KB on a large library.
+        output_ids = {t.id for t in result["tracklist"].tracks}
+        dropped_ids = [
+            t.id
+            for t in primary_upstream_result["tracklist"].tracks
+            if t.id not in output_ids
+        ]
         logger.debug(
             "track_count_dropped_ids",
             node_id=task_id,
-            dropped_track_ids=dropped_ids,
+            dropped_count=len(dropped_ids),
+            dropped_track_ids_sample=dropped_ids[:_DROPPED_IDS_SAMPLE_SIZE],
         )
 
     # Emit completed event (degraded nodes already had on_node_failed)
@@ -590,7 +577,9 @@ async def _run_node_lifecycle(
 
 
 # Type of the executable workflow coroutine returned by build_flow.
-type _WorkflowFn = Callable[..., Coroutine[object, object, dict[str, object]]]
+type _WorkflowFn = Callable[
+    [ProgressBroker | None, str | None], Coroutine[object, object, dict[str, object]]
+]
 
 
 def build_flow(
@@ -625,9 +614,6 @@ def build_flow(
 
     node_observer = observer or NullNodeObserver()
 
-    # Extract workflow metadata
-    flow_name = workflow_def.name
-
     # Compute parallel execution levels from the DAG
     levels = compute_parallel_levels(workflow_def.tasks)
 
@@ -644,12 +630,9 @@ def build_flow(
     async def workflow_flow(
         workflow_progress_broker: ProgressBroker | None = None,
         workflow_operation_id: str | None = None,
-        **parameters: object,
     ) -> dict[str, object]:
         """Executes workflow tasks level-by-level with concurrent independent nodes."""
         logger.info("Starting workflow")
-
-        parameters["workflow_name"] = flow_name
 
         from src.application.workflows.context import create_workflow_context
 
@@ -658,10 +641,8 @@ def build_flow(
         workflow_context = create_workflow_context(user_id=user_id)
 
         state = _RunState(
-            flow_name=flow_name,
             total_nodes=total_nodes,
             flat_order=flat_order,
-            parameters=parameters,
             workflow_context=workflow_context,
             node_observer=node_observer,
             dry_run=dry_run,
@@ -777,9 +758,7 @@ def _aggregate_workflow_metrics(
                     key_count=len(values),
                 )
 
-            if metric_name not in all_metrics:
-                all_metrics[metric_name] = {}
-            all_metrics[metric_name].update(values.copy())
+            all_metrics.setdefault(metric_name, {}).update(values)
 
     logger.debug(
         "Aggregated workflow metrics",
@@ -808,9 +787,14 @@ def extract_workflow_result(
         Structured result with final tracks, aggregated metrics, and timing info
     """
 
-    # Find the destination task - it should be the last one in the workflow
+    # Find the destination task - it should be the last one in the workflow.
+    # The registry owns the node's category — never re-derive it from the id.
     destination_task = next(
-        (t for t in reversed(workflow_def.tasks) if t.type.startswith("destination.")),
+        (
+            t
+            for t in reversed(workflow_def.tasks)
+            if get_node(t.type)[1]["category"] == "destination"
+        ),
         None,
     )
 
@@ -847,7 +831,6 @@ async def _build_and_execute_workflow(
     effective_observer: NodeExecutionObserver | None,
     progress_broker: ProgressBroker | None,
     workflow_operation_id: str | None,
-    parameters: dict[str, object],
     *,
     dry_run: bool,
     user_id: str,
@@ -867,11 +850,7 @@ async def _build_and_execute_workflow(
         dry_run=dry_run,
         user_id=user_id,
     )
-    context = await workflow_fn(
-        workflow_progress_broker=progress_broker,
-        workflow_operation_id=workflow_operation_id,
-        **parameters,
-    )
+    context = await workflow_fn(progress_broker, workflow_operation_id)
 
     execution_time = timer.stop() / 1000
 
@@ -882,19 +861,11 @@ async def _build_and_execute_workflow(
     )
 
     # Extract result with actual execution time
-    result = extract_workflow_result(
+    return extract_workflow_result(
         workflow_def,
         task_results,
         execution_time,
     )
-
-    # Complete workflow-level progress tracking
-    if progress_broker and workflow_operation_id:
-        await progress_broker.complete_operation(
-            workflow_operation_id, OperationStatus.COMPLETED
-        )
-
-    return result
 
 
 async def run_workflow(
@@ -903,7 +874,6 @@ async def run_workflow(
     observer: NodeExecutionObserver | None = None,
     dry_run: bool = False,
     user_id: str = BusinessLimits.DEFAULT_USER_ID,
-    **parameters: object,
 ) -> OperationResult:
     """Executes complete playlist workflow from JSON definition to final result.
 
@@ -919,7 +889,6 @@ async def run_workflow(
             ProgressNodeObserver is created automatically.
         dry_run: When True, destination nodes skip external writes.
         user_id: Owner of the run.
-        **parameters: Dynamic parameters passed to workflow tasks.
 
     Returns:
         Structured operation result with final tracks and aggregated metrics.
@@ -931,15 +900,7 @@ async def run_workflow(
         workflow_name=workflow_def.name,
     )
 
-    global _registry_validated
-    if not _registry_validated:
-        from src.application.workflows.nodes.registry_validation import (
-            validate_registry,
-        )
-
-        validate_registry()
-        _registry_validated = True
-
+    _validate_registry_once()
     validate_workflow_def(workflow_def)
 
     # Pre-flight connector validation — fail fast before any I/O
@@ -974,60 +935,52 @@ async def run_workflow(
             workflow_name=workflow_name,
             workflow_run_id=workflow_run_id,
         ):
-            # Initialize workflow-level progress tracking
-            workflow_operation_id = None
-            if progress_broker:
-                total_tasks = len(workflow_def.tasks)
+            total_tasks = len(workflow_def.tasks)
+            logger.info(
+                f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
+            )
 
-                workflow_operation = create_progress_operation(
-                    description=f"Executing {workflow_name}", total_items=total_tasks
-                )
-                workflow_operation_id = await progress_broker.start_operation(
-                    workflow_operation
-                )
-                logger.info(
-                    f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
-                )
-
-            # Compose observers: always add ProgressNodeObserver when progress_broker
-            # is active, even if an explicit observer (e.g. RunHistoryObserver) is provided.
-            # This enables CLI to get both Rich progress bars AND DB run history.
-            from .observers import CompositeNodeObserver
-
-            typed_observers: list[NodeExecutionObserver] = []
-            if observer is not None:
-                typed_observers.append(observer)
-            if progress_broker and workflow_operation_id:
-                typed_observers.append(
-                    ProgressNodeObserver(progress_broker, workflow_operation_id)
-                )
-
-            effective_observer: NodeExecutionObserver | None
-            if len(typed_observers) > 1:
-                effective_observer = CompositeNodeObserver(typed_observers)
-            elif typed_observers:
-                effective_observer = typed_observers[0]
-            else:
-                effective_observer = None
-
-            try:
-                return await _build_and_execute_workflow(
-                    workflow_def,
-                    effective_observer,
+            # Workflow-level progress lifecycle: tracked_operation starts the
+            # operation on entry and marks it COMPLETED/FAILED on exit. Without
+            # a broker the id stays None and no ProgressNodeObserver is built.
+            async with (
+                tracked_operation(
                     progress_broker,
-                    workflow_operation_id,
-                    parameters,
-                    dry_run=dry_run,
-                    user_id=user_id,
+                    f"Executing {workflow_name}",
+                    total_items=total_tasks,
                 )
-            except Exception:
-                # Mark workflow progress as failed
-                if progress_broker and workflow_operation_id:
-                    await progress_broker.complete_operation(
-                        workflow_operation_id, OperationStatus.FAILED
-                    )
+                if progress_broker
+                else nullcontext(None)
+            ) as workflow_operation_id:
+                # Compose observers: always add ProgressNodeObserver when
+                # progress_broker is active, even if an explicit observer (e.g.
+                # RunHistoryObserver) is provided. This enables CLI to get both
+                # Rich progress bars AND DB run history.
+                from .observers import CompositeNodeObserver
 
-                logger.error("Workflow failed — see node error above")
-                raise
+                progress_observer = (
+                    ProgressNodeObserver(progress_broker, workflow_operation_id)
+                    if progress_broker and workflow_operation_id
+                    else None
+                )
+                observers: list[NodeExecutionObserver] = [
+                    o for o in (observer, progress_observer) if o is not None
+                ]
+                effective_observer = (
+                    CompositeNodeObserver(observers) if observers else None
+                )
+
+                try:
+                    return await _build_and_execute_workflow(
+                        workflow_def,
+                        effective_observer,
+                        progress_broker,
+                        workflow_operation_id,
+                        dry_run=dry_run,
+                        user_id=user_id,
+                    )
+                except Exception:
+                    logger.error("Workflow failed — see node error above")
+                    raise
     finally:
         remove_workflow_run_logger(run_sink_id)

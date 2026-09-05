@@ -7,6 +7,7 @@
  */
 
 import { Settings2, X } from "lucide-react";
+import { useMemo } from "react";
 
 import type { ConfigFieldSchema } from "#/api/generated/model";
 import { NodeTypeBadge } from "#/components/shared/NodeTypeBadge";
@@ -23,26 +24,42 @@ import { Switch } from "#/components/ui/switch";
 import { useAnimatedPresence } from "#/hooks/useAnimatedPresence";
 import { useFieldValidation } from "#/hooks/useFieldValidation";
 import { useNodeSchemas } from "#/hooks/useNodeSchemas";
+import { coerceFieldValue } from "#/lib/config-fields";
 import { formatNodeTypeName, getNodeCategory } from "#/lib/workflow-config";
-import { useEditorStore } from "#/stores/editor-store";
+import {
+  selectIncomingUpstreams,
+  type UpstreamRef,
+  useEditorStore,
+} from "#/stores/editor-store";
 
-function FieldInput({
-  field,
-  value,
-  onChange,
-  onBlur,
-  hasError,
-  fieldId,
-  errorId,
-}: {
+import { MultiSelectInput } from "./fields/MultiSelectInput";
+import { TaskRefInput } from "./fields/TaskRefInput";
+
+/** Optional `task_ref` every non-source node declares; only meaningful when
+ *  the node has more than one incoming edge to choose between. */
+const PRIMARY_INPUT_KEY = "primary_input";
+
+interface FieldControlProps {
   field: ConfigFieldSchema;
   value: unknown;
+  upstreams: readonly UpstreamRef[];
   onChange: (key: string, value: unknown) => void;
   onBlur: (key: string) => void;
   hasError: boolean;
   fieldId: string;
   errorId: string;
-}) {
+}
+
+function FieldInput({
+  field,
+  value,
+  upstreams,
+  onChange,
+  onBlur,
+  hasError,
+  fieldId,
+  errorId,
+}: FieldControlProps) {
   const ariaProps = {
     "aria-invalid": hasError || undefined,
     "aria-describedby": hasError ? errorId : undefined,
@@ -129,26 +146,44 @@ function FieldInput({
       );
     }
 
-    default:
-      return null;
+    case "task_ref":
+      return (
+        <TaskRefInput
+          field={field}
+          value={value}
+          upstreams={upstreams}
+          onChange={onChange}
+          onBlur={onBlur}
+          hasError={hasError}
+          fieldId={fieldId}
+          errorId={errorId}
+        />
+      );
+
+    case "multi_select":
+      return (
+        <MultiSelectInput
+          field={field}
+          value={value}
+          onChange={onChange}
+          onBlur={onBlur}
+          hasError={hasError}
+          fieldId={fieldId}
+          errorId={errorId}
+        />
+      );
   }
 }
 
 function ConfigField({
   field,
   value,
+  upstreams,
   onChange,
   onBlur,
   error,
   fieldId,
-}: {
-  field: ConfigFieldSchema;
-  value: unknown;
-  onChange: (key: string, value: unknown) => void;
-  onBlur: (key: string) => void;
-  error?: string;
-  fieldId: string;
-}) {
+}: Omit<FieldControlProps, "hasError" | "errorId"> & { error?: string }) {
   const errorId = `${fieldId}-error`;
   const hasError = !!error;
 
@@ -157,6 +192,7 @@ function ConfigField({
       <FieldInput
         field={field}
         value={value}
+        upstreams={upstreams}
         onChange={onChange}
         onBlur={onBlur}
         hasError={hasError}
@@ -189,12 +225,36 @@ export function NodeConfigPanel() {
   const { shouldRender, ref, state } = useAnimatedPresence(isOpen);
 
   const nodeType = node ? (node.data.nodeType as string) : "";
-  const schema = getSchema(nodeType);
+  const fullSchema = getSchema(nodeType);
+
+  // Edges change only on connect/disconnect/rename, never on drag, so the
+  // upstream list can read `nodes` non-reactively without going stale.
+  const edges = useEditorStore((s) => s.edges);
+  const upstreams = useMemo(
+    () =>
+      selectIncomingUpstreams(
+        useEditorStore.getState().nodes,
+        edges,
+        selectedNodeId,
+      ),
+    [edges, selectedNodeId],
+  );
+
+  // Hidden fields are not validated either: a stale `primary_input` on a
+  // single-upstream node would otherwise raise an error nobody can see.
+  const schema = useMemo(
+    () =>
+      upstreams.length >= 2
+        ? fullSchema
+        : fullSchema.filter((f) => f.key !== PRIMARY_INPUT_KEY),
+    [fullSchema, upstreams.length],
+  );
 
   const validation = useFieldValidation(
     schema,
     node ? (node.data.config as Record<string, unknown>) : {},
     selectedNodeId,
+    upstreams,
   );
 
   if (!shouldRender) return null;
@@ -313,6 +373,7 @@ export function NodeConfigPanel() {
           return (
             <div key={field.key} className="space-y-1.5">
               <label
+                id={`${fieldId}-label`}
                 htmlFor={fieldId}
                 className="flex items-baseline gap-1 font-display text-[11px] font-medium uppercase tracking-wider text-text-muted"
               >
@@ -330,7 +391,8 @@ export function NodeConfigPanel() {
               )}
               <ConfigField
                 field={field}
-                value={config[field.key]}
+                value={coerceFieldValue(field, config[field.key])}
+                upstreams={upstreams}
                 onChange={handleFieldChange}
                 onBlur={handleFieldBlur}
                 error={validation.getError(field.key)}

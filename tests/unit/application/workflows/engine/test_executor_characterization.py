@@ -278,11 +278,7 @@ class TestRunWorkflowSeam:
     async def test_run_workflow_returns_result_and_completes_progress(
         self, sample_tracklist
     ):
-        captured_params: dict[str, object] = {}
-
         async def mock_execute_node(node_type, context, config):
-            if node_type == "source.playlist":
-                captured_params.update(context["parameters"])
             return {"tracklist": sample_tracklist}
 
         broker = AsyncMock()
@@ -292,18 +288,13 @@ class TestRunWorkflowSeam:
             self._run_workflow_patches(mock_execute_node)
         )
         with exec_patch, session_patch, ctx_patch, add_log, rm_log as rm_mock:
-            result = await run_workflow(
-                _chain_dag(), progress_broker=broker, my_param="x"
-            )
+            result = await run_workflow(_chain_dag(), progress_broker=broker)
 
         assert result.operation_name == "Characterization Workflow"
         assert [t.title for t in result.tracks] == ["Track A", "Track B"]
         broker.complete_operation.assert_awaited_once_with(
             "op-1", OperationStatus.COMPLETED
         )
-        # Dynamic parameters splat through to nodes; workflow_name is injected.
-        assert captured_params["my_param"] == "x"
-        assert captured_params["workflow_name"] == "Characterization Workflow"
         rm_mock.assert_called_once_with("test-sink")
 
     @pytest.mark.usefixtures("_load_catalog")

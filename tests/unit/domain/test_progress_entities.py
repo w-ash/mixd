@@ -503,6 +503,25 @@ class TestTrackedOperation:
             "op-456", OperationStatus.FAILED
         )
 
+    async def test_total_items_and_metadata_reach_the_operation(self):
+        """total_items and metadata are carried onto the started ProgressOperation."""
+        from unittest.mock import AsyncMock
+
+        from src.domain.entities.progress import tracked_operation
+
+        emitter = AsyncMock()
+        emitter.start_operation.return_value = "op-789"
+
+        async with tracked_operation(
+            emitter, "Sized import", total_items=7, phase="fetch"
+        ):
+            pass
+
+        operation = emitter.start_operation.call_args.args[0]
+        assert operation.description == "Sized import"
+        assert operation.total_items == 7
+        assert operation.metadata == {"phase": "fetch"}
+
     async def test_null_emitter_integration(self):
         """tracked_operation works with NullProgressEmitter (no side effects)."""
         from src.domain.entities.progress import NullProgressEmitter, tracked_operation

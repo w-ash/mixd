@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6
+ * OpenAPI spec version: 0.11.6.1
  */
 
 export type Capability = typeof Capability[keyof typeof Capability];
@@ -16,5 +16,6 @@ export const Capability = {
   history_import_file: 'history_import_file',
   history_import_api: 'history_import_api',
   track_enrichment: 'track_enrichment',
+  library_contains: 'library_contains',
   love_tracks: 'love_tracks',
 } as const;

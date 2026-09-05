@@ -48,6 +48,37 @@ const schema: ConfigFieldSchema[] = [
   optionalField,
 ];
 
+const taskRefField: ConfigFieldSchema = {
+  key: "exclusion_source",
+  label: "Exclusion Source",
+  field_type: "task_ref",
+  required: true,
+};
+
+const primaryInputField: ConfigFieldSchema = {
+  key: "primary_input",
+  label: "Primary Input",
+  field_type: "task_ref",
+  required: false,
+};
+
+const multiSelectField: ConfigFieldSchema = {
+  key: "metrics",
+  label: "Metrics",
+  field_type: "multi_select",
+  required: false,
+  default: ["total_plays"],
+  options: [
+    { value: "total_plays", label: "Total Plays" },
+    { value: "period_plays", label: "Period Plays" },
+  ],
+};
+
+const upstreams = [
+  { id: "src_1", label: "liked tracks" },
+  { id: "src_2", label: "played tracks" },
+];
+
 // ─── Tests ──────────────────────────────────────────────────────
 
 describe("useFieldValidation", () => {
@@ -252,5 +283,140 @@ describe("useFieldValidation", () => {
 
     expect(result.current.hasErrors).toBe(false);
     expect(result.current.getError("name")).toBeUndefined();
+  });
+
+  describe("task_ref", () => {
+    it("requires a value on a required task_ref", () => {
+      const { result } = renderHook(() =>
+        useFieldValidation([taskRefField], {}, "n1", upstreams),
+      );
+
+      let errors = new Map<string, string>();
+      act(() => {
+        errors = result.current.attemptSave();
+      });
+
+      expect(errors.get("exclusion_source")).toBe(
+        "Exclusion Source is required",
+      );
+    });
+
+    it("rejects a value that is not one of the node's upstreams", () => {
+      const { result } = renderHook(() =>
+        useFieldValidation(
+          [taskRefField, primaryInputField],
+          { exclusion_source: "elsewhere", primary_input: "src_2" },
+          "n1",
+          upstreams,
+        ),
+      );
+
+      let errors = new Map<string, string>();
+      act(() => {
+        errors = result.current.attemptSave();
+      });
+
+      expect(errors.get("exclusion_source")).toBe(
+        "Must be one of this node's upstream tasks",
+      );
+      expect(errors.get("primary_input")).toBeUndefined();
+    });
+
+    it("accepts an absent optional task_ref", () => {
+      const { result } = renderHook(() =>
+        useFieldValidation([primaryInputField], {}, "n1", upstreams),
+      );
+
+      let errors = new Map<string, string>();
+      act(() => {
+        errors = result.current.attemptSave();
+      });
+
+      expect(errors.size).toBe(0);
+    });
+
+    it("clears the error once the field is corrected", () => {
+      const { result } = renderHook(() =>
+        useFieldValidation(
+          [taskRefField],
+          { exclusion_source: "elsewhere" },
+          "n1",
+          upstreams,
+        ),
+      );
+
+      act(() => {
+        result.current.attemptSave();
+      });
+      expect(result.current.getError("exclusion_source")).toBeDefined();
+
+      act(() => {
+        result.current.changeField("exclusion_source", "src_1");
+      });
+      expect(result.current.getError("exclusion_source")).toBeUndefined();
+    });
+  });
+
+  describe("multi_select", () => {
+    it("requires a non-empty array on a required multi_select", () => {
+      const required = { ...multiSelectField, required: true };
+      const { result } = renderHook(() =>
+        useFieldValidation([required], { metrics: [] }, "n1"),
+      );
+
+      let errors = new Map<string, string>();
+      act(() => {
+        errors = result.current.attemptSave();
+      });
+
+      expect(errors.get("metrics")).toBe("Metrics is required");
+    });
+
+    it("accepts an absent optional multi_select (declared default applies)", () => {
+      const { result } = renderHook(() =>
+        useFieldValidation([multiSelectField], {}, "n1"),
+      );
+
+      let errors = new Map<string, string>();
+      act(() => {
+        errors = result.current.attemptSave();
+      });
+
+      expect(errors.size).toBe(0);
+    });
+
+    it("rejects elements outside the declared options", () => {
+      const { result } = renderHook(() =>
+        useFieldValidation(
+          [multiSelectField],
+          { metrics: ["total_plays", "bogus"] },
+          "n1",
+        ),
+      );
+
+      let errors = new Map<string, string>();
+      act(() => {
+        errors = result.current.attemptSave();
+      });
+
+      expect(errors.get("metrics")).toBe("Unknown option: bogus");
+    });
+
+    it("accepts a subset of the declared options", () => {
+      const { result } = renderHook(() =>
+        useFieldValidation(
+          [multiSelectField],
+          { metrics: ["period_plays"] },
+          "n1",
+        ),
+      );
+
+      let errors = new Map<string, string>();
+      act(() => {
+        errors = result.current.attemptSave();
+      });
+
+      expect(errors.size).toBe(0);
+    });
   });
 });

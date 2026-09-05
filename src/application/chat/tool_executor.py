@@ -87,7 +87,7 @@ def _field_to_dict(f: ConfigFieldDef) -> JsonDict:
     if f.description is not None:
         out["description"] = f.description
     if f.default is not None:
-        out["default"] = f.default
+        out["default"] = f.json_default()
     if f.min is not None:
         out["min"] = f.min
     if f.max is not None:

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6
+ * OpenAPI spec version: 0.11.6.1
  */
 
 export type FieldType = typeof FieldType[keyof typeof FieldType];
@@ -14,4 +14,6 @@ export const FieldType = {
   number: 'number',
   boolean: 'boolean',
   select: 'select',
+  multi_select: 'multi_select',
+  task_ref: 'task_ref',
 } as const;

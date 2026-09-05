@@ -11,6 +11,7 @@ builders — the execution path itself is covered at the use-case layer
 
 from unittest.mock import AsyncMock, MagicMock
 
+from src.application.connector_protocols import LibraryContainsConnector
 from src.application.use_cases.enrich_tracks import EnrichmentConfig
 
 # Importing the node catalog runs @node(...) decorators that register every
@@ -35,6 +36,9 @@ def _make_context(
     wf_ctx = AsyncMock()
     wf_ctx.connectors = MagicMock()
     wf_ctx.connectors.list_connectors.return_value = ["spotify"]
+    wf_ctx.connectors.describe.return_value = MagicMock(
+        capabilities=frozenset({"library_contains"})
+    )
     wf_ctx.connectors.get_connector.return_value = connector
     if execute_service_side_effect:
         wf_ctx.execute_service.side_effect = execute_service_side_effect
@@ -48,8 +52,12 @@ def _make_context(
 
 
 def _make_mock_connector(saved_status: dict[str, bool]) -> AsyncMock:
-    """Build a mock SpotifyConnector with check_library_contains pre-wired."""
-    connector = AsyncMock()
+    """Build a mock SpotifyConnector with check_library_contains pre-wired.
+
+    ``spec`` limits the mock to the protocol's attributes so it passes the
+    ``isinstance`` narrowing in ``NodeContext.get_connector``.
+    """
+    connector = AsyncMock(spec=LibraryContainsConnector)
     connector.check_library_contains = AsyncMock(return_value=saved_status)
     return connector
 

@@ -1,13 +1,17 @@
 """Characterization tests for NodeContext.
 
 Locks down extract_tracklist, collect_tracklists, extract_workflow_context,
-extract_use_cases, and get_connector behavior.
+and get_connector behavior.
 """
 
 from unittest.mock import MagicMock
 
 import pytest
 
+from src.application.connector_protocols import (
+    LibraryContainsConnector,
+    TrackMetadataConnector,
+)
 from src.application.workflows.nodes.execution_context import NodeContext
 from src.domain.entities.track import Artist, Track, TrackList
 
@@ -131,54 +135,104 @@ class TestExtractWorkflowContext:
             ctx.extract_workflow_context()
 
 
-class TestExtractUseCases:
-    """Tests for NodeContext.extract_use_cases."""
-
-    def test_extracts_use_cases(self):
-        """Returns use case provider via workflow context."""
-        uc = MagicMock()
-        wf_ctx = MagicMock()
-        wf_ctx.use_cases = uc
-        ctx = NodeContext({"workflow_context": wf_ctx})
-        assert ctx.extract_use_cases() is uc
-
-    def test_missing_raises(self):
-        """Missing workflow context raises ValueError."""
-        ctx = NodeContext({})
-        with pytest.raises(ValueError, match="Workflow context not found"):
-            ctx.extract_use_cases()
+def _make_ctx(
+    registry: MagicMock, *, capabilities: frozenset[str] = frozenset()
+) -> NodeContext:
+    """Wrap a mock registry (with a descriptor stub) in a NodeContext."""
+    registry.describe.return_value = MagicMock(capabilities=capabilities)
+    registry.list_connectors.return_value = ["spotify", "lastfm"]
+    wf_ctx = MagicMock()
+    wf_ctx.connectors = registry
+    return NodeContext({"workflow_context": wf_ctx})
 
 
 class TestGetConnector:
-    """Tests for NodeContext.get_connector."""
+    """Tests for NodeContext.get_connector — capability and protocol gating."""
 
     def test_returns_connector(self):
-        """Returns connector instance via workflow context's registry."""
-        mock_connector = MagicMock()
+        """Declared capability + implemented protocol returns the instance."""
+        mock_connector = MagicMock(spec=LibraryContainsConnector)
         mock_registry = MagicMock()
         mock_registry.list_connectors.return_value = ["spotify", "lastfm"]
         mock_registry.get_connector.return_value = mock_connector
 
-        wf_ctx = MagicMock()
-        wf_ctx.connectors = mock_registry
-        ctx = NodeContext({"workflow_context": wf_ctx})
-        result = ctx.get_connector("spotify")
+        ctx = _make_ctx(mock_registry, capabilities=frozenset({"library_contains"}))
+        result = ctx.get_connector(
+            "spotify", capability="library_contains", protocol=LibraryContainsConnector
+        )
 
         assert result is mock_connector
+        mock_registry.describe.assert_called_once_with("spotify")
 
     def test_missing_workflow_context_raises(self):
         """Missing workflow context raises ValueError."""
         ctx = NodeContext({})
         with pytest.raises(ValueError, match="Workflow context not found"):
-            ctx.get_connector("spotify")
+            ctx.get_connector(
+                "spotify",
+                capability="library_contains",
+                protocol=LibraryContainsConnector,
+            )
 
     def test_unsupported_connector_raises(self):
-        """Unsupported connector name raises ValueError."""
+        """Unregistered connector name raises ValueError with the available list."""
         mock_registry = MagicMock()
         mock_registry.list_connectors.return_value = ["spotify"]
+        mock_registry.describe.side_effect = ValueError("not registered")
 
         wf_ctx = MagicMock()
         wf_ctx.connectors = mock_registry
         ctx = NodeContext({"workflow_context": wf_ctx})
-        with pytest.raises(ValueError, match="Unsupported connector: lastfm"):
-            ctx.get_connector("lastfm")
+        with pytest.raises(
+            ValueError,
+            match=r"Unsupported connector: lastfm\. Available: \['spotify'\]",
+        ):
+            ctx.get_connector(
+                "lastfm", capability="track_enrichment", protocol=TrackMetadataConnector
+            )
+        mock_registry.get_connector.assert_not_called()
+
+    def test_undeclared_capability_raises_value_error(self):
+        """A registered connector without the capability is a caller error."""
+        mock_registry = MagicMock()
+        ctx = _make_ctx(mock_registry, capabilities=frozenset({"track_enrichment"}))
+
+        with pytest.raises(
+            ValueError, match="Connector 'lastfm' does not declare 'library_contains'"
+        ):
+            ctx.get_connector(
+                "lastfm",
+                capability="library_contains",
+                protocol=LibraryContainsConnector,
+            )
+        mock_registry.get_connector.assert_not_called()
+
+    def test_registered_connector_failure_is_not_rewrapped(self):
+        """The 'Unsupported connector' wrapping applies only to unknown names."""
+        mock_registry = MagicMock()
+        ctx = _make_ctx(mock_registry, capabilities=frozenset())
+
+        with pytest.raises(ValueError) as exc_info:
+            ctx.get_connector(
+                "spotify",
+                capability="library_contains",
+                protocol=LibraryContainsConnector,
+            )
+        assert "Unsupported connector" not in str(exc_info.value)
+
+    def test_protocol_mismatch_raises_type_error(self):
+        """A declared capability whose class lacks the protocol is an adapter bug."""
+        mock_registry = MagicMock()
+        mock_registry.get_connector.return_value = object()
+        ctx = _make_ctx(mock_registry, capabilities=frozenset({"library_contains"}))
+
+        with pytest.raises(
+            TypeError,
+            match="declares 'library_contains' but does not implement "
+            "LibraryContainsConnector",
+        ):
+            ctx.get_connector(
+                "spotify",
+                capability="library_contains",
+                protocol=LibraryContainsConnector,
+            )

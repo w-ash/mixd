@@ -5,12 +5,17 @@
  * - After save attempt: validates all required fields, shows errors immediately
  * - On change: if field currently has an error, re-validates instantly (instant correction)
  *
+ * `task_ref` values must name one of `upstreams`; `multi_select` values must
+ * be a non-empty subset of the field's options.
+ *
  * Resets automatically when selectedNodeId changes.
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import type { ConfigFieldSchema } from "#/api/generated/model";
+import { coerceFieldValue } from "#/lib/config-fields";
+import type { UpstreamRef } from "#/stores/editor-store";
 
 interface ValidationState {
   touched: Set<string>;
@@ -65,15 +70,28 @@ function reducer(
   }
 }
 
+function isBlank(value: unknown): boolean {
+  return !value || (typeof value === "string" && !value.trim());
+}
+
 function validateField(
   field: ConfigFieldSchema,
-  value: unknown,
+  rawValue: unknown,
+  upstreamIds: ReadonlySet<string>,
 ): string | undefined {
+  const value = coerceFieldValue(field, rawValue);
   if (field.required) {
-    if (field.field_type === "string" || field.field_type === "select") {
-      if (!value || (typeof value === "string" && !value.trim())) {
-        return `${field.label} is required`;
-      }
+    switch (field.field_type) {
+      case "string":
+      case "select":
+      case "task_ref":
+        if (isBlank(value)) return `${field.label} is required`;
+        break;
+      case "multi_select":
+        if (!Array.isArray(value) || value.length === 0) {
+          return `${field.label} is required`;
+        }
+        break;
     }
   }
 
@@ -84,6 +102,20 @@ function validateField(
     }
     if (field.max != null && num > field.max) {
       return `Must be at most ${field.max}`;
+    }
+  }
+
+  if (field.field_type === "task_ref" && !isBlank(value)) {
+    if (typeof value !== "string" || !upstreamIds.has(value)) {
+      return "Must be one of this node's upstream tasks";
+    }
+  }
+
+  if (field.field_type === "multi_select" && Array.isArray(value)) {
+    const allowed = new Set((field.options ?? []).map((o) => o.value));
+    const invalid = value.find((v) => typeof v !== "string" || !allowed.has(v));
+    if (invalid !== undefined) {
+      return `Unknown option: ${String(invalid)}`;
     }
   }
 
@@ -104,12 +136,20 @@ export interface FieldValidation {
   hasErrors: boolean;
 }
 
+const NO_UPSTREAMS: readonly UpstreamRef[] = [];
+
 export function useFieldValidation(
   schema: ConfigFieldSchema[],
   config: Record<string, unknown>,
   selectedNodeId: string | null,
+  upstreams: readonly UpstreamRef[] = NO_UPSTREAMS,
 ): FieldValidation {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+
+  const upstreamIds = useMemo(
+    () => new Set(upstreams.map((u) => u.id)),
+    [upstreams],
+  );
 
   // Reset on node switch
   const prevNodeIdRef = useRef(selectedNodeId);
@@ -131,31 +171,31 @@ export function useFieldValidation(
       if (!field) return;
       // Only validate on blur if save was attempted or field already errored
       if (!state.hasAttemptedSave && !state.errors.has(key)) return;
-      const error = validateField(field, config[key]);
+      const error = validateField(field, config[key], upstreamIds);
       dispatch({ type: "BLUR_FIELD", key, error });
     },
-    [fieldMap, config, state.hasAttemptedSave, state.errors],
+    [fieldMap, config, upstreamIds, state.hasAttemptedSave, state.errors],
   );
 
   const changeField = useCallback(
     (key: string, value: unknown) => {
       const field = fieldMap.get(key);
       if (!field) return;
-      const error = validateField(field, value);
+      const error = validateField(field, value, upstreamIds);
       dispatch({ type: "CHANGE_FIELD", key, error });
     },
-    [fieldMap],
+    [fieldMap, upstreamIds],
   );
 
   const attemptSave = useCallback(() => {
     const errors = new Map<string, string>();
     for (const field of schema) {
-      const error = validateField(field, config[field.key]);
+      const error = validateField(field, config[field.key], upstreamIds);
       if (error) errors.set(field.key, error);
     }
     dispatch({ type: "ATTEMPT_SAVE", errors });
     return errors;
-  }, [schema, config]);
+  }, [schema, config, upstreamIds]);
 
   const getError = useCallback(
     (key: string) => state.errors.get(key),

@@ -100,6 +100,20 @@ async def test_describe_node_returns_config_fields_for_a_type() -> None:
     assert "playlist_id" in field_keys
 
 
+async def test_describe_node_renders_multi_select_default_as_a_list() -> None:
+    """Tuple defaults cross the JSON boundary through ``ConfigFieldDef.json_default``."""
+    result = await registry.execute_tool(
+        "describe_node", {"node_type": "enricher.play_history"}, _CTX
+    )
+
+    assert isinstance(result, dict)
+    metrics = next(f for f in result["config_fields"] if f["key"] == "metrics")
+    assert metrics["default"] == ["total_plays", "last_played_dates"]
+    assert "default" not in next(
+        f for f in result["config_fields"] if f["key"] == "period_days"
+    )
+
+
 async def test_describe_node_unknown_type_raises_actionable_error() -> None:
     with pytest.raises(ToolExecutionError) as exc:
         await registry.execute_tool("describe_node", {"node_type": "bogus.node"}, _CTX)

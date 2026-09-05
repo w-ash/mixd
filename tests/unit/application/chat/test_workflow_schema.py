@@ -72,12 +72,33 @@ class TestSchemaShape:
             b["properties"]["type"]["enum"][0]: b
             for b in _branches(build_workflow_def_schema())
         }
-        # source.preferred_tracks: state is a required select, limit is 1-10000.
+        # source.preferred_tracks: state is a required select, limit is 1-1000000.
         config = by_type["source.preferred_tracks"]["properties"]["config"][
             "properties"
         ]
         assert set(config["state"]["enum"]) == {"star", "yah", "hmm", "nah"}
-        assert "between 1 and 10000" in config["limit"]["description"]
+        assert "between 1 and 1000000" in config["limit"]["description"]
+
+    def test_multi_select_becomes_string_array_with_enum_items(self):
+        by_type = {
+            b["properties"]["type"]["enum"][0]: b
+            for b in _branches(build_workflow_def_schema())
+        }
+        config = by_type["enricher.play_history"]["properties"]["config"]["properties"]
+        metrics = config["metrics"]
+        assert metrics["type"] == "array"
+        assert set(metrics["items"]["enum"]) >= {"total_plays", "period_plays"}
+        assert "Defaults to total_plays, last_played_dates" in metrics["description"]
+
+    def test_task_ref_is_a_string_with_upstream_prose(self):
+        by_type = {
+            b["properties"]["type"]["enum"][0]: b
+            for b in _branches(build_workflow_def_schema())
+        }
+        config = by_type["filter.by_tracks"]["properties"]["config"]["properties"]
+        assert config["exclusion_source"]["type"] == "string"
+        assert "upstream tasks" in config["exclusion_source"]["description"]
+        assert config["primary_input"]["type"] == "string"
 
 
 class TestDeterminism:

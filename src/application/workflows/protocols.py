@@ -36,6 +36,7 @@ from src.application.use_cases.update_canonical_playlist import (
 from src.application.use_cases.update_connector_playlist import (
     UpdateConnectorPlaylistUseCase,
 )
+from src.domain.entities.connector import ConnectorDescriptor
 from src.domain.entities.track import TrackList
 from src.domain.entities.workflow import NodeExecutionEvent, RunStatus
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -60,6 +61,14 @@ class ConnectorRegistry(Protocol):
 
         Returns object; callers narrow via capability protocols
         (PlaylistConnector, LikedTrackConnector, etc.).
+        """
+        ...
+
+    def describe(self, name: str) -> ConnectorDescriptor:
+        """Return the static descriptor (capabilities etc.) for one connector.
+
+        Raises:
+            ValueError: If the connector is not registered.
         """
         ...
 

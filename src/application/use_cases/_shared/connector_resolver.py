@@ -15,6 +15,7 @@ from src.application.connector_protocols import (
     TidalFavoritesConnector,
     TrackConversionConnector,
     UserPlaylistsConnector,
+    resolve_connector_capability,
 )
 from src.domain.entities.connector import Capability
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -27,37 +28,22 @@ def resolve_capability[ConnectorT](
     capability: Capability,
     protocol: type[ConnectorT],
 ) -> ConnectorT:
-    """Resolve a connector that declares ``capability``, narrowed to ``protocol``.
+    """Resolve a connector from the UoW provider, gated on ``capability``.
 
-    Two distinct failures, deliberately different exception types: a service
-    that does not declare the capability is a caller error (``ValueError``),
-    while a service that declares it but does not implement the protocol is an
-    adapter bug (``TypeError``) — the registry and the class disagree.
-
-    Args:
-        service: Connector name (e.g., ``"spotify"``, ``"lastfm"``).
-        uow: Unit of work providing connector access.
-        capability: The registry capability the operation requires.
-        protocol: Runtime-checkable capability protocol to narrow to.
-
-    Returns:
-        The connector instance, typed as ``protocol``.
+    Thin binding of ``resolve_connector_capability`` to the UoW's service
+    connector provider; the gate, its exception types, and its messages live
+    there.
 
     Raises:
         ValueError: If the service is unregistered or lacks the capability.
         TypeError: If the connector does not implement ``protocol``.
     """
-    provider = uow.get_service_connector_provider()
-    descriptor = provider.describe(service)
-    if capability not in descriptor.capabilities:
-        raise ValueError(f"Connector '{service}' does not support '{capability}'")
-    connector = provider.get_connector(service)
-    if not isinstance(connector, protocol):
-        raise TypeError(
-            f"Connector '{service}' declares '{capability}' but does not "
-            f"implement {protocol.__name__}"
-        )
-    return connector
+    return resolve_connector_capability(
+        uow.get_service_connector_provider(),
+        service,
+        capability=capability,
+        protocol=protocol,
+    )
 
 
 def resolve_playlist_connector(

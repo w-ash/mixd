@@ -13,16 +13,18 @@ editor's verdict can never diverge from the save path:
 
 from collections import Counter
 from collections.abc import Mapping
-from typing import NamedTuple
 
-from src.application.workflows.nodes.config_accessors import cfg_int, cfg_str_list
+from src.application.workflows.nodes.config_accessors import cfg_str_list
 from src.application.workflows.nodes.config_fields import (
-    DEFAULT_PLAY_HISTORY_METRICS,
+    ConfigFieldDef,
     FieldType,
+    apply_declared_defaults,
+    format_bound,
     get_enricher_metric_names,
     get_node_config_fields,
+    is_unset,
 )
-from src.application.workflows.nodes.registry import get_node
+from src.application.workflows.nodes.registry import get_node, list_nodes
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.workflow import (
     WorkflowDef,
@@ -36,70 +38,136 @@ _FIELD_TYPE_MAP: dict[FieldType, type | tuple[type, ...]] = {
     "number": (int, float),
     "boolean": bool,
     "select": str,
+    "multi_select": list,
+    "task_ref": str,
 }
 
 
-def _validate_node_config(
+def _type_name(expected_type: type | tuple[type, ...]) -> str:
+    if isinstance(expected_type, type):
+        return expected_type.__name__
+    return " | ".join(t.__name__ for t in expected_type)
+
+
+def _constraint_warning(
+    field: ConfigFieldDef, value: JsonValue, task_id: str
+) -> str | None:
+    """Return a warning when a present value falls outside the field's constraints.
+
+    Covers ``options`` membership for select (the value) and multi_select
+    (every element) and ``min``/``max`` for number fields. Empty selects count
+    as unset — the editor's "leave empty" — so they pass. Values of the wrong
+    type are left to the error check; a constraint cannot be judged on them.
+    """
+    key = field.key
+    if field.field_type in ("select", "multi_select") and field.options:
+        allowed = [option.value for option in field.options]
+        if field.field_type == "select":
+            offending = (
+                [value]
+                if isinstance(value, str) and value and value not in allowed
+                else []
+            )
+        else:
+            offending = (
+                [v for v in value if not isinstance(v, str) or v not in allowed]
+                if isinstance(value, list)
+                else []
+            )
+        if offending:
+            return (
+                f"Task '{task_id}' config key '{key}' should be one of {allowed}, "
+                f"got {offending!r}"
+            )
+    if field.field_type == "number" and isinstance(value, (int, float)):
+        if isinstance(value, bool):
+            return None
+        below = field.min is not None and value < field.min
+        above = field.max is not None and value > field.max
+        if below or above:
+            low = format_bound(field.min) if field.min is not None else "-inf"
+            high = format_bound(field.max) if field.max is not None else "inf"
+            return (
+                f"Task '{task_id}' config key '{key}' should be between "
+                f"{low} and {high}, got {value!r}"
+            )
+    return None
+
+
+def _check_node_config(
     node_type: str, config: Mapping[str, JsonValue], task_id: str
-) -> None:
-    """Validate that a node's config contains all required keys with correct types.
+) -> tuple[str | None, list[tuple[str, str]]]:
+    """Return ``(first_error, [(config_key, warning), ...])`` for a task's config.
 
-    Derives required keys and type checks from the rich config field registry
-    in nodes/config_fields.py. Nodes with no fields pass unconditionally.
+    Derives every rule from the rich config field registry in
+    nodes/config_fields.py. Errors — a missing required key, a required value
+    of the wrong type, an empty required string — block save and execute;
+    only the first is reported, so the blocking and detailed validators agree
+    on item count. Warnings cover an optional value of the wrong type (the
+    runtime accessor falls back to the default, so the value is ignored, not
+    fatal) plus ``options`` membership and ``min``/``max`` for every declared
+    field present in config; the workflow still runs.
 
-    Raises:
-        ValueError: If required config keys are missing, have wrong types,
-            or are empty strings when a non-empty string is required.
+    A value ``is_unset`` (``null``, ``[]`` on a multi_select) counts as absent
+    here exactly as ``apply_declared_defaults`` drops it at run time: it is
+    "missing" when required and skipped otherwise, never a type problem.
     """
     fields = get_node_config_fields().get(node_type, ())
+    present = [f for f in fields if f.key in config and not is_unset(f, config[f.key])]
 
-    # Check for missing required keys
-    required_keys = [f.key for f in fields if f.required]
-    missing = [k for k in required_keys if k not in config]
+    missing = [f.key for f in fields if f.required and f not in present]
     if missing:
-        raise ValueError(
-            f"Task '{task_id}' (type '{node_type}') missing required config: {missing}"
-        )
-
-    # Validate value types for required keys
-    required_type_map = {
-        f.key: _FIELD_TYPE_MAP.get(f.field_type, str) for f in fields if f.required
-    }
-    for key, expected_type in required_type_map.items():
-        if key not in config:
-            continue
-        value = config[key]
-        if not isinstance(value, expected_type):
-            type_name = (
-                expected_type.__name__
-                if isinstance(expected_type, type)
-                else " | ".join(t.__name__ for t in expected_type)
-            )
-            raise ValueError(  # ruff:ignore[type-check-without-type-error]  # consistent with other config validation errors
-                f"Task '{task_id}' config key '{key}' must be {type_name}, "
-                f"got {type(value).__name__}: {value!r}"
-            )
-        # Reject empty strings for required string keys
-        if isinstance(value, str) and not value.strip():
-            raise ValueError(f"Task '{task_id}' config key '{key}' must not be empty")
-
-
-def _check_primary_input(task_def: WorkflowTaskDef) -> str | None:
-    """Return an error message if ``primary_input`` is set but not an upstream.
-
-    The executor uses ``config["primary_input"]`` to pick which upstream feeds a
-    multi-input node; when it names a task that isn't actually upstream it
-    silently falls back to ``upstream[0]``, producing plausible-but-wrong output.
-    """
-    primary = task_def.config.get("primary_input")
-    if primary is None:
-        return None
-    if primary not in task_def.upstream:
         return (
-            f"Task '{task_def.id}' sets primary_input '{primary}', which is not "
-            f"one of its upstream tasks {sorted(task_def.upstream)}"
+            f"Task '{task_id}' (type '{node_type}') missing required config: {missing}",
+            [],
         )
-    return None
+
+    warnings: list[tuple[str, str]] = []
+    for field in present:
+        key = field.key
+        value = config[key]
+        expected_type = _FIELD_TYPE_MAP[field.field_type]
+        if not isinstance(value, expected_type):
+            problem = (
+                f"Task '{task_id}' config key '{key}' must be "
+                f"{_type_name(expected_type)}, got {type(value).__name__}: {value!r}"
+            )
+            if field.required:
+                return problem, []
+            warnings.append((key, f"{problem} — the value is ignored"))
+            continue
+        if field.required and isinstance(value, str) and not value.strip():
+            return f"Task '{task_id}' config key '{key}' must not be empty", []
+        if warning := _constraint_warning(field, value, task_id):
+            warnings.append((key, warning))
+    return None, warnings
+
+
+def _check_task_refs(
+    task_def: WorkflowTaskDef, fields: tuple[ConfigFieldDef, ...]
+) -> list[tuple[str, str]]:
+    """Return ``(config_key, message)`` for each task_ref that is not an upstream.
+
+    A task_ref names another task whose result this node reads
+    (``primary_input``, ``exclusion_source``). The executor only has results for
+    declared upstreams: a ``primary_input`` naming anything else silently falls
+    back to ``upstream[0]``, and an ``exclusion_source`` fails at runtime.
+    """
+    problems: list[tuple[str, str]] = []
+    for field in fields:
+        if field.field_type != "task_ref" or field.key not in task_def.config:
+            continue
+        ref = task_def.config[field.key]
+        if ref is None or ref in task_def.upstream:
+            continue
+        problems.append((
+            field.key,
+            (
+                f"Task '{task_def.id}' sets {field.key} '{ref}', which is not "
+                f"one of its upstream tasks {sorted(task_def.upstream)}"
+            ),
+        ))
+    return problems
 
 
 def _check_source_placement(task_def: WorkflowTaskDef, category: str) -> str | None:
@@ -205,7 +273,8 @@ def _collect_validation_items(workflow_def: WorkflowDef) -> list[dict[str, str]]
                 })
 
     # Per-task: type resolvability, config completeness, and the silent-wrong
-    # guards (primary_input that isn't an upstream, non-source node with no input).
+    # guards (task_ref that isn't an upstream, non-source node with no input).
+    all_fields = get_node_config_fields()
     for task_def in workflow_def.tasks:
         try:
             _, metadata = get_node(task_def.type)
@@ -216,20 +285,40 @@ def _collect_validation_items(workflow_def: WorkflowDef) -> list[dict[str, str]]
                 "message": f"Task '{task_def.id}' has unknown node type '{task_def.type}'",
             })
             continue
-        try:
-            _validate_node_config(task_def.type, task_def.config, task_id=task_def.id)
-        except ValueError as e:
-            items.append({"task_id": task_def.id, "field": "config", "message": str(e)})
-        for error_field, message in (
-            ("config.primary_input", _check_primary_input(task_def)),
-            ("upstream", _check_source_placement(task_def, metadata["category"])),
-        ):
-            if message:
-                items.append({
-                    "task_id": task_def.id,
-                    "field": error_field,
-                    "message": message,
-                })
+        config_error, config_warnings = _check_node_config(
+            task_def.type, task_def.config, task_def.id
+        )
+        if config_error:
+            items.append({
+                "task_id": task_def.id,
+                "field": "config",
+                "message": config_error,
+            })
+        items.extend(
+            {
+                "task_id": task_def.id,
+                "field": f"config.{key}",
+                "message": message,
+                "severity": "warning",
+            }
+            for key, message in config_warnings
+        )
+        items.extend(
+            {
+                "task_id": task_def.id,
+                "field": f"config.{key}",
+                "message": message,
+            }
+            for key, message in _check_task_refs(
+                task_def, all_fields.get(task_def.type, ())
+            )
+        )
+        if placement := _check_source_placement(task_def, metadata["category"]):
+            items.append({
+                "task_id": task_def.id,
+                "field": "upstream",
+                "message": placement,
+            })
 
     # Reject result_key aliases that collide with a task id or duplicate another.
     items.extend(
@@ -257,7 +346,7 @@ def validate_workflow_def(workflow_def: WorkflowDef) -> None:
 
     Catches structural errors early — before any expensive I/O operations run.
     Checks for: non-empty tasks, no duplicate ids, valid upstream references,
-    resolvable node types, config completeness, primary_input/result_key
+    resolvable node types, config completeness, task_ref/result_key
     correctness, correct source placement, and acyclicity. Raises on the first
     blocking error; non-blocking warnings are ignored on this path.
 
@@ -301,59 +390,25 @@ def validate_connector_availability(
     return sorted(required - available_set)
 
 
-# The one enricher whose emitted metrics depend on its own ``metrics`` config
-# rather than being fixed by type — so validation must read config, not just
-# capability, when reasoning about what it produces.
-_PLAY_HISTORY_ENRICHER = "enricher.play_history"
-
-
-# Node types whose required enricher is derived from config["metric_name"]
-# via the enricher metric-def lookup (scalar-metric consumers).
-_METRIC_CONSUMER_TYPES: frozenset[str] = frozenset({
-    "filter.by_metric",
-    "sorter.by_metric",
-})
-
-
-class _EnricherRequirement(NamedTuple):
-    """A consumer node's fixed enricher dependency.
-
-    ``metric`` is set only when the enricher emits it *conditionally on its own
-    config* (play_history's ``first_played_dates``), so the enricher type being
-    upstream isn't enough — the upstream task must be configured to emit it.
-    ``None`` means the enricher always produces what the consumer needs.
-    """
-
-    enricher_type: str
-    metric: str | None = None
-
-
-# Node types whose required enricher is fixed (not metric-name-derived).
-_ENRICHER_CONSUMER_MAP: dict[str, _EnricherRequirement] = {
-    "filter.by_preference": _EnricherRequirement("enricher.preferences"),
-    "sorter.by_preference": _EnricherRequirement("enricher.preferences"),
-    "filter.by_tag": _EnricherRequirement("enricher.tags"),
-    "filter.by_tag_namespace": _EnricherRequirement("enricher.tags"),
-    "filter.by_first_played_date": _EnricherRequirement(
-        "enricher.play_history", metric="first_played_dates"
-    ),
-}
-
-
 def _enricher_emitted_metrics(enricher_task: WorkflowTaskDef) -> set[str]:
     """The metrics an enricher task is *configured* to emit (not just capable of).
 
-    ``enricher.play_history`` emits only the metrics named in its ``metrics``
-    config (defaulting to ``DEFAULT_PLAY_HISTORY_METRICS`` when unset), so its
-    output depends on config, not just type. Every other enricher has no
-    ``metrics`` config and always emits its full capability set.
+    An enricher whose registry metadata declares ``emits_metrics_from_config``
+    emits only the metrics named under that config key, so its output depends
+    on config, not just type. The key is read through
+    ``apply_declared_defaults`` — the same call the executor makes — so an
+    omitted, ``null`` or empty list falls back to the declared default here
+    exactly as it does at run time. Every other enricher always emits its
+    full capability set.
 
-    This is the config-aware view both consumer checks below rely on: "this
+    This is the config-aware view the consumer checks below rely on: "this
     enricher *can* emit X" (capability) is not "this enricher *will* emit X".
     """
-    if enricher_task.type == _PLAY_HISTORY_ENRICHER:
-        configured = cfg_str_list(enricher_task.config, "metrics")
-        return set(configured or DEFAULT_PLAY_HISTORY_METRICS)
+    metadata = list_nodes().get(enricher_task.type)
+    key = metadata.get("emits_metrics_from_config") if metadata else None
+    if key is not None:
+        config = apply_declared_defaults(enricher_task.type, enricher_task.config)
+        return set(cfg_str_list(config, key))
     return set(get_enricher_metric_names().get(enricher_task.type, frozenset[str]()))
 
 
@@ -371,17 +426,22 @@ def _validate_enrichment_dependencies(
 ) -> list[dict[str, str]]:
     """Walk the DAG and warn when filter/sorter nodes have no upstream enricher.
 
-    Covers two consumer families:
-    - Metric consumers (filter.by_metric, sorter.by_metric): required enricher
-      is derived from config["metric_name"] via the enricher metric defs.
-    - Enricher consumers (filter.by_preference, filter.by_tag, ...): required
-      enricher is fixed per consumer node type.
+    Every rule is driven by registry metadata (``NodeMetadata``), so a new
+    consumer or enricher declares its dependency at registration and needs no
+    edit here. Three rules:
+    - ``metric_from_config``: the required enricher is whichever upstream is
+      configured to emit the metric named by that config key.
+    - ``requires_enricher`` (+ optional ``requires_metric``): the enricher type
+      is fixed per consumer node type.
+    - ``metric_config_corequisites``: an enricher config key that only takes
+      effect when a given metric is among its emitted set.
 
     Returns structured warnings (not errors) — the workflow can still run,
     but the sort/filter will produce meaningless results.
     """
     warnings: list[dict[str, str]] = []
     task_by_id = {task.id: task for task in workflow_def.tasks}
+    registered = list_nodes()
 
     def _collect_upstream_enrichers(
         task_id: str, visited: set[str] | None = None
@@ -400,15 +460,21 @@ def _validate_enrichment_dependencies(
         if not task:
             return []
         enrichers: list[WorkflowTaskDef] = []
-        if task.type.startswith("enricher."):
+        # The registry owns the node's category — never re-derive it from the id.
+        # Unknown types were already reported above; skip them here.
+        if task.type in registered and registered[task.type]["category"] == "enricher":
             enrichers.append(task)
         for upstream_id in task.upstream:
             enrichers.extend(_collect_upstream_enrichers(upstream_id, visited))
         return enrichers
 
     for task_def in workflow_def.tasks:
-        if task_def.type in _METRIC_CONSUMER_TYPES:
-            metric_name = task_def.config.get("metric_name")
+        metadata = registered.get(task_def.type)
+        if metadata is None:
+            continue
+
+        if metric_key := metadata.get("metric_from_config"):
+            metric_name = task_def.config.get(metric_key)
             if not metric_name:
                 continue
 
@@ -423,7 +489,7 @@ def _validate_enrichment_dependencies(
             if metric_name not in available_metrics:
                 warnings.append({
                     "task_id": task_def.id,
-                    "field": "config.metric_name",
+                    "field": f"config.{metric_key}",
                     "severity": "warning",
                     "message": (
                         f"'{metric_name}' has no upstream enricher — "
@@ -431,17 +497,21 @@ def _validate_enrichment_dependencies(
                         f"Available metrics from upstream: {sorted(available_metrics) or 'none'}"
                     ),
                 })
-        elif requirement := _ENRICHER_CONSUMER_MAP.get(task_def.type):
+        elif enricher_type := metadata.get("requires_enricher"):
+            # ``requires_metric`` is set only when the enricher emits it
+            # conditionally on its own config, so the enricher type being
+            # upstream isn't enough — the task must be configured to emit it.
+            metric = metadata.get("requires_metric")
             upstream = _collect_upstream_enrichers(task_def.id)
-            matching = [e for e in upstream if e.type == requirement.enricher_type]
-            metric_ok = requirement.metric is None or any(
-                _enricher_emits(e, requirement.metric) for e in matching
+            matching = [e for e in upstream if e.type == enricher_type]
+            metric_ok = metric is None or any(
+                _enricher_emits(e, metric) for e in matching
             )
             if not (matching and metric_ok):
                 need = (
-                    f"upstream '{requirement.enricher_type}'"
-                    if requirement.metric is None
-                    else f"'{requirement.metric}' from upstream '{requirement.enricher_type}'"
+                    f"upstream '{enricher_type}'"
+                    if metric is None
+                    else f"'{metric}' from upstream '{enricher_type}'"
                 )
                 upstream_types = sorted({e.type for e in upstream})
                 warnings.append({
@@ -455,26 +525,25 @@ def _validate_enrichment_dependencies(
                     ),
                 })
 
-    # An enricher.play_history ``period_days`` only takes effect when
-    # ``period_plays`` is among its metrics (the runtime gates the window on it).
-    # Set without it, the day window is silently ignored — warn rather than let
-    # the user assume a recency window that never applies.
-    for task_def in workflow_def.tasks:
-        if task_def.type != _PLAY_HISTORY_ENRICHER:
-            continue
-        if cfg_int(task_def.config, "period_days") and (
-            "period_plays" not in _enricher_emitted_metrics(task_def)
-        ):
-            warnings.append({
-                "task_id": task_def.id,
-                "field": "config.period_days",
-                "severity": "warning",
-                "message": (
-                    "'period_days' is set but 'period_plays' is not in this "
-                    "enricher's metrics — the day window is ignored. Add "
-                    "'period_plays' to metrics to apply it."
-                ),
-            })
+        # A corequisite config key (play_history's ``period_days``) only takes
+        # effect when its metric is among the enricher's emitted set. Set
+        # without it, the key is silently ignored — warn rather than let the
+        # user assume a window that never applies.
+        for key, metric in metadata.get("metric_config_corequisites", {}).items():
+            if task_def.config.get(key) and (
+                metric not in _enricher_emitted_metrics(task_def)
+            ):
+                emits_key = metadata.get("emits_metrics_from_config", "metrics")
+                warnings.append({
+                    "task_id": task_def.id,
+                    "field": f"config.{key}",
+                    "severity": "warning",
+                    "message": (
+                        f"'{key}' is set but '{metric}' is not in this "
+                        f"enricher's {emits_key} — it has no effect. Add "
+                        f"'{metric}' to {emits_key} to apply it."
+                    ),
+                })
 
     return warnings
 

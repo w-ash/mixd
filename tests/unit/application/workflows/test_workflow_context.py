@@ -47,6 +47,35 @@ class TestWorkflowContext:
         spotify_connector = context.connectors.get_connector("spotify")
         assert spotify_connector is not None
 
+        # Descriptors are cached per name and carry the capability set
+        descriptor = context.connectors.describe("spotify")
+        assert descriptor is context.connectors.describe("spotify")
+        assert "library_contains" in descriptor.capabilities
+
+    async def test_describe_caches_per_name(self):
+        """describe() asks the catalog once per connector name."""
+        from src.application.workflows.context import ConnectorRegistryImpl
+
+        catalog = MagicMock()
+        catalog.describe.return_value = MagicMock(name="descriptor")
+        registry = ConnectorRegistryImpl(catalog=catalog)
+
+        first = registry.describe("spotify")
+        second = registry.describe("spotify")
+        registry.describe("lastfm")
+
+        assert first is second
+        assert catalog.describe.call_count == 2
+
+    async def test_describe_unknown_connector_raises(self):
+        """describe() surfaces the catalog's ValueError for unregistered names."""
+        import pytest
+
+        from src.application.workflows.context import ConnectorRegistryImpl
+
+        with pytest.raises(ValueError, match="Unknown connector: nonexistent"):
+            ConnectorRegistryImpl().describe("nonexistent")
+
     async def test_workflow_context_session_via_get_session(self, db_session):
         """Test that a database session works for the execute_service path."""
         assert db_session is not None

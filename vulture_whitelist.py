@@ -45,7 +45,6 @@ last_modified  # attrs field
 include_track_metadata  # attrs field
 source_count  # attrs field on Track
 source_playlist_name  # attrs field on Track
-factory_created  # attrs field
 incognito_excluded  # attrs field on ImportResult
 unique_tracks_processed  # attrs field on ImportResult
 spotify_enhanced_count  # attrs field on ImportResult

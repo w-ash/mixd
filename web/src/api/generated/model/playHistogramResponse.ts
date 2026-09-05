@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6
+ * OpenAPI spec version: 0.11.6.1
  */
 import type { HistogramBinSchema } from './histogramBinSchema.ts';
 import type { PlayHistogramResponseBucket } from './playHistogramResponseBucket.ts';

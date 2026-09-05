@@ -8,7 +8,8 @@ import pytest
 
 from src.application.workflows.definition.validation import (
     ConnectorNotAvailableError,
-    _validate_node_config,
+    _check_node_config,
+    _enricher_emitted_metrics,
     compute_parallel_levels,
     extract_required_connectors,
     validate_connector_availability,
@@ -16,6 +17,9 @@ from src.application.workflows.definition.validation import (
     validate_workflow_def_detailed,
 )
 import src.application.workflows.nodes.catalog as _catalog
+from src.application.workflows.nodes.config_fields import (
+    DEFAULT_PLAY_HISTORY_METRICS,
+)
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
 # Importing the node catalog above triggers @node() registration as a side effect.
@@ -155,19 +159,22 @@ class TestValidateWorkflowDef:
 
     def test_numeric_percentage_accepted(self):
         """Percentage config accepts both int and float values."""
-        _validate_node_config(
-            "selector.percentage", {"percentage": 50}, task_id="sel_1"
-        )
-        _validate_node_config(
-            "selector.percentage", {"percentage": 33.3}, task_id="sel_1"
-        )
+        assert _check_node_config(
+            "selector.percentage", {"percentage": 50}, "sel_1"
+        ) == (None, [])
+        assert _check_node_config(
+            "selector.percentage", {"percentage": 33.3}, "sel_1"
+        ) == (None, [])
 
     def test_string_as_number_config_raises(self):
-        """String value for numeric config key raises ValueError."""
-        with pytest.raises(ValueError, match=r"must be int \| float.*got str"):
-            _validate_node_config(
-                "selector.percentage", {"percentage": "50"}, task_id="sel_1"
-            )
+        """String value for numeric config key is reported."""
+        message, warnings = _check_node_config(
+            "selector.percentage", {"percentage": "50"}, "sel_1"
+        )
+        assert message is not None
+        assert "must be int | float" in message
+        assert "got str" in message
+        assert warnings == []
 
     def test_optional_config_keys_not_required(self):
         """Nodes without required config (e.g., filters with defaults) pass."""
@@ -497,6 +504,215 @@ class TestPrimaryInputValidation:
     def test_primary_input_in_upstream_passes(self):
         validate_workflow_def(self._multi_upstream("a"))  # no raise
         assert validate_workflow_def_detailed(self._multi_upstream("a")) == []
+
+
+class TestTaskRefValidation:
+    """Every task_ref field (not only primary_input) must name a real upstream."""
+
+    def _exclusion(self, exclusion_source: str) -> WorkflowDef:
+        return _def([
+            WorkflowTaskDef(id="candidates", type="source.liked_tracks"),
+            WorkflowTaskDef(id="already_heard", type="source.liked_tracks"),
+            WorkflowTaskDef(
+                id="exclude",
+                type="filter.by_tracks",
+                config={"exclusion_source": exclusion_source},
+                upstream=["candidates", "already_heard"],
+            ),
+        ])
+
+    def test_exclusion_source_not_in_upstream_is_an_error(self):
+        items = validate_workflow_def_detailed(self._exclusion("ghost"))
+        hits = _errors_for("config.exclusion_source", items)
+        assert len(hits) == 1
+        assert hits[0]["task_id"] == "exclude"
+        assert "severity" not in hits[0]
+        assert "not one of its upstream tasks" in hits[0]["message"]
+        with pytest.raises(ValueError, match="exclusion_source 'ghost'"):
+            validate_workflow_def(self._exclusion("ghost"))
+
+    def test_exclusion_source_in_upstream_passes(self):
+        assert validate_workflow_def_detailed(self._exclusion("already_heard")) == []
+
+
+class TestConstraintWarnings:
+    """options/min/max are advisory: they warn but never block save or execute."""
+
+    def _selector(self, node_type: str, config: dict[str, object]) -> WorkflowDef:
+        return _def([
+            WorkflowTaskDef(id="src", type="source.liked_tracks"),
+            WorkflowTaskDef(id="sel", type=node_type, config=config, upstream=["src"]),
+        ])
+
+    def _warnings_for(self, field: str, wf: WorkflowDef) -> list[dict[str, str]]:
+        return [
+            item
+            for item in _errors_for(field, validate_workflow_def_detailed(wf))
+            if item.get("severity") == "warning"
+        ]
+
+    def test_select_value_outside_options_warns(self):
+        wf = self._selector("selector.limit_tracks", {"count": 5, "method": "middle"})
+        hits = self._warnings_for("config.method", wf)
+        assert len(hits) == 1
+        assert "should be one of" in hits[0]["message"]
+        validate_workflow_def(wf)  # warning only — still saves
+
+    def test_number_outside_range_warns(self):
+        wf = self._selector("selector.percentage", {"percentage": 500})
+        hits = self._warnings_for("config.percentage", wf)
+        assert len(hits) == 1
+        assert "should be between 1 and 100" in hits[0]["message"]
+        validate_workflow_def(wf)
+
+    def test_multi_select_bad_element_warns(self):
+        wf = self._selector(
+            "enricher.play_history", {"metrics": ["total_plays", "bogus"]}
+        )
+        hits = self._warnings_for("config.metrics", wf)
+        assert len(hits) == 1
+        assert "['bogus']" in hits[0]["message"]
+        validate_workflow_def(wf)
+
+    def test_multi_select_wrong_type_is_an_error_when_required(self):
+        # multi_select maps to list; a bare string on a required field is an error.
+        message, _ = _check_node_config(
+            "filter.by_tracks", {"exclusion_source": ["a"]}, "t"
+        )
+        assert message is not None
+        assert "must be str" in message
+
+    def test_in_range_values_are_clean(self):
+        wf = self._selector("selector.limit_tracks", {"count": 5, "method": "last"})
+        assert validate_workflow_def_detailed(wf) == []
+
+    def test_boolean_config_values_are_not_flagged(self):
+        """Seeds write JSON booleans for reverse/ascending/is_liked."""
+        wf = _def([
+            WorkflowTaskDef(id="src", type="source.liked_tracks"),
+            WorkflowTaskDef(
+                id="liked",
+                type="filter.by_liked_status",
+                config={"service": "spotify", "is_liked": False},
+                upstream=["src"],
+            ),
+            WorkflowTaskDef(
+                id="by_added",
+                type="sorter.by_added_at",
+                config={"ascending": False},
+                upstream=["liked"],
+            ),
+            WorkflowTaskDef(
+                id="by_release",
+                type="sorter.by_release_date",
+                config={"reverse": True},
+                upstream=["by_added"],
+            ),
+        ])
+        assert validate_workflow_def_detailed(wf) == []
+
+
+class TestUnsetValues:
+    """null (and [] on a multi_select) is absent at save time as at run time."""
+
+    def _chain(self, node_type: str, config: dict[str, object]) -> WorkflowDef:
+        return _def([
+            WorkflowTaskDef(id="src", type="source.liked_tracks"),
+            WorkflowTaskDef(id="t", type=node_type, config=config, upstream=["src"]),
+        ])
+
+    def test_null_optional_values_validate_clean(self):
+        """The executor fills these from the declared defaults, so no issue."""
+        wf = self._chain("selector.limit_tracks", {"count": None, "method": None})
+        assert validate_workflow_def_detailed(wf) == []
+        validate_workflow_def(wf)
+
+    def test_null_required_value_is_missing_not_a_type_error(self):
+        message, warnings = _check_node_config(
+            "source.playlist", {"playlist_id": None}, "src_1"
+        )
+        assert message is not None
+        assert "missing required config: ['playlist_id']" in message
+        assert warnings == []
+
+    def test_empty_metrics_list_validates_clean(self):
+        wf = self._chain("enricher.play_history", {"metrics": []})
+        assert validate_workflow_def_detailed(wf) == []
+        validate_workflow_def(wf)
+
+    def test_empty_metrics_list_emits_the_declared_defaults(self):
+        """The validator's emitted-metrics view matches what the node will run with."""
+        for config in ({}, {"metrics": []}, {"metrics": None}):
+            task = WorkflowTaskDef(id="e", type="enricher.play_history", config=config)
+            assert _enricher_emitted_metrics(task) == set(DEFAULT_PLAY_HISTORY_METRICS)
+        explicit = WorkflowTaskDef(
+            id="e", type="enricher.play_history", config={"metrics": ["total_plays"]}
+        )
+        assert _enricher_emitted_metrics(explicit) == {"total_plays"}
+
+
+class TestOptionalTypeWarnings:
+    """A wrong-typed optional value is ignored at run time, so it warns, not blocks."""
+
+    def _chain(self, node_type: str, config: dict[str, object]) -> WorkflowDef:
+        return _def([
+            WorkflowTaskDef(id="src", type="source.liked_tracks"),
+            WorkflowTaskDef(id="t", type=node_type, config=config, upstream=["src"]),
+        ])
+
+    def _warnings_for(self, field: str, wf: WorkflowDef) -> list[dict[str, str]]:
+        return [
+            item
+            for item in _errors_for(field, validate_workflow_def_detailed(wf))
+            if item.get("severity") == "warning"
+        ]
+
+    def test_string_for_boolean_warns(self):
+        wf = self._chain(
+            "sorter.by_metric", {"metric_name": "total_plays", "reverse": "yes"}
+        )
+        hits = self._warnings_for("config.reverse", wf)
+        assert len(hits) == 1
+        assert "must be bool, got str: 'yes'" in hits[0]["message"]
+        assert "ignored" in hits[0]["message"]
+        validate_workflow_def(wf)  # warning only — still saves and runs
+
+    def test_string_for_number_warns(self):
+        wf = self._chain(
+            "enricher.play_history",
+            {"metrics": ["period_plays"], "period_days": "30"},
+        )
+        hits = self._warnings_for("config.period_days", wf)
+        assert len(hits) == 1
+        assert "must be int | float" in hits[0]["message"]
+        validate_workflow_def(wf)
+
+    def test_wrong_type_skips_the_constraint_check(self):
+        """A constraint cannot be judged on a mistyped value: one warning, not two."""
+        message, warnings = _check_node_config(
+            "selector.limit_tracks", {"count": "5"}, "t"
+        )
+        assert message is None
+        assert len(warnings) == 1
+        assert warnings[0][0] == "count"
+
+    def test_required_wrong_type_still_blocks(self):
+        message, _ = _check_node_config("source.playlist", {"playlist_id": 123}, "t")
+        assert message is not None
+        assert "must be str" in message
+
+    def test_range_warning_renders_bounds_without_exponent(self):
+        wf = _def([
+            WorkflowTaskDef(
+                id="src",
+                type="source.preferred_tracks",
+                config={"state": "star", "limit": 5_000_000},
+            )
+        ])
+        hits = self._warnings_for("config.limit", wf)
+        assert len(hits) == 1
+        assert "between 1 and 1000000" in hits[0]["message"]
+        assert "e+06" not in hits[0]["message"]
 
 
 class TestResultKeyValidation:

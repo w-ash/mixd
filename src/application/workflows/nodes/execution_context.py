@@ -10,20 +10,18 @@ from typing import cast
 
 from attrs import define
 
+from src.application.connector_protocols import resolve_connector_capability
 from src.application.services.progress_broker import ProgressBroker
 from src.application.workflows.protocols import (
     NodeResult,
-    UseCaseProvider,
     WorkflowContext,
 )
 from src.config import get_logger
 from src.config.constants import NodeType, Phase
+from src.domain.entities.connector import Capability
 from src.domain.entities.track import TrackList
 
 logger = get_logger(__name__)
-
-# Domain types
-type TaskID = str
 
 
 @define(frozen=True, slots=True)
@@ -31,9 +29,6 @@ class NodeContext:
     """Context extractor with path-based access."""
 
     data: dict[str, object]
-
-    def __init__(self, data: dict[str, object]) -> None:
-        object.__setattr__(self, "data", data)
 
     def extract_tracklist(self) -> TrackList:
         """Extract primary tracklist from context.
@@ -108,37 +103,48 @@ class NodeContext:
         # with its WorkflowContext implementation.
         return cast("WorkflowContext", raw)
 
-    def extract_use_cases(self) -> UseCaseProvider:
-        """Extract use case provider via workflow context.
+    def get_connector[ConnectorT](
+        self,
+        connector_name: str,
+        *,
+        capability: Capability,
+        protocol: type[ConnectorT],
+    ) -> ConnectorT:
+        """Resolve a connector that declares ``capability``, narrowed to ``protocol``.
 
-        Returns:
-            UseCaseProvider for getting use case instances
-
-        Raises:
-            ValueError: If workflow context or use case provider not found
-        """
-        return self.extract_workflow_context().use_cases
-
-    def get_connector(self, connector_name: str) -> object:
-        """Get connector instance via workflow context's connector registry.
+        Same gate as the use-case resolvers (``resolve_connector_capability``):
+        the registry descriptor is the gate, the runtime-checkable protocol
+        is the narrowing. The two failure modes stay distinct — a missing
+        capability is a caller error, a declared-but-unimplemented one is an
+        adapter bug.
 
         Args:
             connector_name: Name of connector to retrieve (e.g., "spotify", "lastfm")
+            capability: Registry capability the node requires.
+            protocol: Runtime-checkable capability protocol to narrow to.
 
         Returns:
-            Connector instance — callers narrow via capability protocols
+            Connector instance typed as ``protocol``.
 
         Raises:
-            ValueError: If connector registry or specific connector not found
+            ValueError: If the workflow context is missing, the connector is
+                unregistered, or it does not declare ``capability``.
+            TypeError: If the connector does not implement ``protocol``.
         """
         registry = self.extract_workflow_context().connectors
-        available_connectors = registry.list_connectors()
-        if connector_name not in available_connectors:
-            raise ValueError(
-                f"Unsupported connector: {connector_name}. Available: {available_connectors}"
+        try:
+            return resolve_connector_capability(
+                registry, connector_name, capability=capability, protocol=protocol
             )
-
-        return registry.get_connector(connector_name)
+        except ValueError as exc:
+            # list_connectors() rebuilds every descriptor per call, so the
+            # availability list is only assembled on the failure path.
+            available = registry.list_connectors()
+            if connector_name in available:
+                raise  # registered, but the capability gate rejected it
+            raise ValueError(
+                f"Unsupported connector: {connector_name}. Available: {available}"
+            ) from exc
 
     def get_upstream_task_ids(self) -> list[str]:
         """Extract upstream task IDs for combiner nodes."""

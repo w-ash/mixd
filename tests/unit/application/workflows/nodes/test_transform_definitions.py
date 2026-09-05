@@ -107,3 +107,65 @@ class TestTransformDefinitions:
         for op_name, entry in COMBINER_REGISTRY.items():
             assert callable(entry.fn), f"combiner.{op_name} fn is not callable"
             assert entry.description, f"combiner.{op_name} has no description"
+
+
+class TestEnricherDependencyDeclarations:
+    """Consumer entries declare the enricher dependency the validator reads."""
+
+    def test_metric_consumers_name_their_metric_config_key(self):
+        from src.application.workflows.nodes.transform_definitions import (
+            TRANSFORM_REGISTRY,
+        )
+
+        for category in ("filter", "sorter"):
+            entry = TRANSFORM_REGISTRY[category]["by_metric"]
+            assert entry.metric_from_config == "metric_name"
+            assert entry.requires_enricher is None
+
+    def test_fixed_enricher_consumers_name_their_enricher(self):
+        from src.application.workflows.nodes.transform_definitions import (
+            TRANSFORM_REGISTRY,
+        )
+
+        expected = {
+            ("filter", "by_preference"): ("enricher.preferences", None),
+            ("sorter", "by_preference"): ("enricher.preferences", None),
+            ("filter", "by_tag"): ("enricher.tags", None),
+            ("filter", "by_tag_namespace"): ("enricher.tags", None),
+            ("filter", "by_first_played_date"): (
+                "enricher.play_history",
+                "first_played_dates",
+            ),
+        }
+        for (category, op_name), (enricher, metric) in expected.items():
+            entry = TRANSFORM_REGISTRY[category][op_name]
+            assert entry.requires_enricher == enricher, f"{category}.{op_name}"
+            assert entry.requires_metric == metric, f"{category}.{op_name}"
+
+    def test_entries_without_a_dependency_declare_none(self):
+        """Intrinsic-data transforms carry no enricher dependency."""
+        from src.application.workflows.nodes.transform_definitions import (
+            TRANSFORM_REGISTRY,
+        )
+
+        entry = TRANSFORM_REGISTRY["filter"]["by_release_year"]
+        assert entry.requires_enricher is None
+        assert entry.requires_metric is None
+        assert entry.metric_from_config is None
+
+    def test_catalog_forwards_declarations_to_the_registry(self):
+        from src.application.workflows.nodes import catalog
+        from src.application.workflows.nodes.registry import list_nodes
+
+        assert catalog
+        nodes = list_nodes()
+        assert nodes["filter.by_metric"]["metric_from_config"] == "metric_name"
+        assert nodes["filter.by_first_played_date"]["requires_metric"] == (
+            "first_played_dates"
+        )
+        assert "requires_enricher" not in nodes["filter.by_release_year"]
+        play_history = nodes["enricher.play_history"]
+        assert play_history["emits_metrics_from_config"] == "metrics"
+        assert play_history["metric_config_corequisites"] == {
+            "period_days": "period_plays"
+        }

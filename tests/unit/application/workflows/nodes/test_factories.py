@@ -104,6 +104,117 @@ class TestCombinerNodeFactory:
             await node_func({}, {})
 
 
+class TestDeclaredDefaultsFlowIntoNodes:
+    """Node code restates no defaults: with ``apply_declared_defaults`` the
+    declared value is what the transform sees, and without it the accessor's
+    zero value is."""
+
+    async def test_limit_tracks_with_empty_config_keeps_first_ten(self) -> None:
+        from src.application.workflows.nodes.config_fields import (
+            apply_declared_defaults,
+        )
+        from src.application.workflows.nodes.factories import make_node
+        from tests.fixtures import make_persisted_track
+
+        tracks = [make_persisted_track(title=f"T{i}") for i in range(15)]
+        context = {
+            "upstream_task_id": "src",
+            "src": {"tracklist": TrackList(tracks=tracks)},
+        }
+        node_func = make_node("selector", "limit_tracks")
+
+        result = await node_func(
+            context, apply_declared_defaults("selector.limit_tracks", {})
+        )
+
+        assert [t.title for t in result["tracklist"].tracks] == [
+            f"T{i}" for i in range(10)
+        ]
+
+    def test_play_history_builder_reads_declared_metrics(self) -> None:
+        from src.application.workflows.nodes.config_fields import (
+            DEFAULT_PLAY_HISTORY_METRICS,
+            apply_declared_defaults,
+        )
+        from src.application.workflows.nodes.factories import (
+            build_play_history_enrichment_config,
+        )
+
+        ctx = MagicMock()
+        with_defaults = build_play_history_enrichment_config(
+            ctx, apply_declared_defaults("enricher.play_history", {})
+        )
+        assert with_defaults.metrics == list(DEFAULT_PLAY_HISTORY_METRICS)
+
+        # Without the executor's defaults there is no silent fallback: the
+        # enrichment config refuses an empty metric list.
+        with pytest.raises(ValueError, match="Metrics must be specified"):
+            build_play_history_enrichment_config(ctx, {})
+
+    def test_play_history_empty_metrics_falls_back_to_declared_defaults(self) -> None:
+        """``{"metrics": []}`` runs with the defaults, as the validator promised."""
+        from src.application.workflows.nodes.config_fields import (
+            DEFAULT_PLAY_HISTORY_METRICS,
+            apply_declared_defaults,
+        )
+        from src.application.workflows.nodes.factories import (
+            build_play_history_enrichment_config,
+        )
+
+        for config in ({"metrics": []}, {"metrics": None}):
+            built = build_play_history_enrichment_config(
+                MagicMock(), apply_declared_defaults("enricher.play_history", config)
+            )
+            assert built.metrics == list(DEFAULT_PLAY_HISTORY_METRICS)
+
+    async def test_limit_tracks_with_null_config_keeps_first_ten(self) -> None:
+        """``{"count": null, "method": null}`` runs with the declared defaults."""
+        from src.application.workflows.nodes.config_fields import (
+            apply_declared_defaults,
+        )
+        from src.application.workflows.nodes.factories import make_node
+        from tests.fixtures import make_persisted_track
+
+        tracks = [make_persisted_track(title=f"T{i}") for i in range(15)]
+        context = {
+            "upstream_task_id": "src",
+            "src": {"tracklist": TrackList(tracks=tracks)},
+        }
+        node_func = make_node("selector", "limit_tracks")
+
+        result = await node_func(
+            context,
+            apply_declared_defaults(
+                "selector.limit_tracks", {"count": None, "method": None}
+            ),
+        )
+
+        assert [t.title for t in result["tracklist"].tracks] == [
+            f"T{i}" for i in range(10)
+        ]
+
+    async def test_combiner_honors_declared_deduplicate(self, sample_tracklist) -> None:
+        from src.application.workflows.nodes.config_fields import (
+            apply_declared_defaults,
+        )
+        from src.application.workflows.nodes.factories import make_combiner_node
+
+        context = {
+            "upstream_task_ids": ["a", "b"],
+            "a": {"tracklist": sample_tracklist},
+            "b": {"tracklist": sample_tracklist},
+        }
+        node_func = make_combiner_node("merge_playlists")
+
+        kept = await node_func(
+            context, apply_declared_defaults("combiner.merge_playlists", {})
+        )
+        deduped = await node_func(context, {"deduplicate": True})
+
+        assert len(kept["tracklist"].tracks) == 2 * len(sample_tracklist.tracks)
+        assert len(deduped["tracklist"].tracks) == len(sample_tracklist.tracks)
+
+
 class TestTransformNodeWarnings:
     """Test that transform nodes warn on concerning outputs."""
 
@@ -205,7 +316,6 @@ class TestEnricherNodeFactory:
         mock_ctx = MagicMock()
         mock_ctx.extract_tracklist.return_value = sample_tracklist
         mock_ctx.get_connector.return_value = AsyncMock()
-        mock_ctx.extract_use_cases.return_value = MagicMock()
         mock_node_context_class.return_value = mock_ctx
 
         # Mock use case execution
@@ -221,9 +331,8 @@ class TestEnricherNodeFactory:
         mock_workflow_context.execute_use_case.return_value = mock_result
         mock_ctx.extract_workflow_context.return_value = mock_workflow_context
 
-        config = {"connector": "lastfm"}
         node_func = create_enricher_node(
-            build_external_enrichment_config(config), enricher_label="lastfm"
+            build_external_enrichment_config("lastfm"), enricher_label="lastfm"
         )
 
         context = {"test": "context"}
@@ -232,19 +341,6 @@ class TestEnricherNodeFactory:
         result = await node_func(context, node_config)
 
         assert result["tracklist"] == sample_tracklist
-
-    def test_create_enricher_node_missing_connector(self):
-        """Test enricher node creation with missing connector."""
-        from src.application.workflows.nodes.factories import (
-            build_external_enrichment_config,
-        )
-
-        config: dict[str, str] = {}  # Missing connector
-
-        with pytest.raises(
-            ValueError, match="Enricher configuration must specify a 'connector' type"
-        ):
-            build_external_enrichment_config(config)
 
     @patch("src.application.workflows.nodes.factories.NodeContext")
     async def test_create_play_history_enricher_node(
@@ -259,7 +355,6 @@ class TestEnricherNodeFactory:
         # Mock NodeContext
         mock_ctx = MagicMock()
         mock_ctx.extract_tracklist.return_value = sample_tracklist
-        mock_ctx.extract_use_cases.return_value = MagicMock()
         mock_ctx.extract_workflow_context.return_value = AsyncMock()
         mock_node_context_class.return_value = mock_ctx
 

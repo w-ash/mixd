@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6
+ * OpenAPI spec version: 0.11.6.1
  */
 import type { ConfigFieldOptionSchema } from './configFieldOptionSchema.ts';
 import type { FieldType } from './fieldType.ts';
@@ -14,7 +14,7 @@ export interface ConfigFieldSchema {
   field_type: FieldType;
   required?: boolean;
   description?: string | null;
-  default?: string | number | boolean | null;
+  default?: string | number | boolean | string[] | null;
   placeholder?: string | null;
   min?: number | null;
   max?: number | null;
