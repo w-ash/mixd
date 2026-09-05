@@ -154,8 +154,8 @@ This gate mirrors `.github/workflows/ci.yml`. If you change one, change both —
 **After the above complete:**
 - `uv run basedpyright src/` — strict type checking (slowest check, runs last)
 - **Playwright visual gate** — must run in the CI-pinned Docker image; native macOS runs false-fail. Procedure and current image tag live in `web/e2e/README.md`:
-  `docker run --rm -v "$PWD":/work -w /work/web mcr.microsoft.com/playwright:v1.62.1-noble bash -c "corepack enable && corepack prepare pnpm@11.20.0 --activate && pnpm install --frozen-lockfile && pnpm test:e2e"`
-  Then rerun `pnpm --prefix web install` on the host to restore native binaries.
+  `docker run --rm -e CI=true -v "$PWD":/work -w /work/web mcr.microsoft.com/playwright:v1.62.1-noble bash -c "corepack enable && corepack prepare pnpm@11.20.0 --activate && pnpm install --frozen-lockfile && pnpm test:e2e"`
+  Then rerun `CI=true pnpm --prefix web install` on the host to restore native binaries. `CI=true` is required on both: pnpm 11 prompts before purging a `node_modules` built for another platform and aborts without a TTY.
 
 ### Verifying results — read actual output, not wrappers
 

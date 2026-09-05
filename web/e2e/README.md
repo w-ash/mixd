@@ -82,8 +82,9 @@ remember.
 purging the macOS `node_modules` (and still exits 0 — nothing regenerates),
 and it makes Playwright run with the exact CI profile (workers=1, retries=2).
 
-Afterwards run `pnpm install` on the host again — the container install
-replaces `node_modules` platform binaries with Linux ones.
+Afterwards run `CI=true pnpm install` on the host again — the container install
+replaces `node_modules` platform binaries with Linux ones, and pnpm 11 prompts
+before purging them (aborting without a TTY) unless `CI=true` is set.
 
 PNGs that don't match CI font rendering will fail review.
 
