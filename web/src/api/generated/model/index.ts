@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
 
 export * from './activeAssignmentSchema.ts';
@@ -37,6 +37,7 @@ export * from './connectKeyRequest.ts';
 export * from './connectKeyResponse.ts';
 export * from './connectorAuthError.ts';
 export * from './connectorAuthMethod.ts';
+export * from './connectorBlockedReason.ts';
 export * from './connectorCategory.ts';
 export * from './connectorLinkBriefSchema.ts';
 export * from './connectorMappingSchema.ts';
@@ -77,6 +78,7 @@ export * from './importLastfmHistoryRequest.ts';
 export * from './importLastfmHistoryRequestMode.ts';
 export * from './importQueueEntrySchema.ts';
 export * from './importQueueResponse.ts';
+export * from './importQueueSchema.ts';
 export * from './importSpotifyLikesRequest.ts';
 export * from './importSpotifyRecentRequest.ts';
 export * from './jsonDict.ts';
@@ -110,6 +112,7 @@ export * from './mergeTagsRequest.ts';
 export * from './mergeTrackRequest.ts';
 export * from './methodHealthStatSchema.ts';
 export * from './musicKitConfigResponse.ts';
+export * from './nodeType.ts';
 export * from './nodeTypeInfoSchema.ts';
 export * from './operationRunDetailSchema.ts';
 export * from './operationRunDetailSchemaStatus.ts';
@@ -165,6 +168,25 @@ export * from './scheduleUpsertRequest.ts';
 export * from './scheduleUpsertRequestScheduleType.ts';
 export * from './setPreferenceRequest.ts';
 export * from './spotifyCallbackAuthSpotifyCallbackGetParams.ts';
+export * from './sseEventName.ts';
+export * from './sseFinalStatus.ts';
+export * from './sseNodePreviewSummary.ts';
+export * from './sseNodeStatusEvent.ts';
+export * from './sseNodeStatusEventStatus.ts';
+export * from './sseOperationProgressEvent.ts';
+export * from './sseOperationStartedEvent.ts';
+export * from './sseOperationStatus.ts';
+export * from './sseOperationTerminalEvent.ts';
+export * from './sseOperationTerminalEventCounts.ts';
+export * from './ssePreviewCompleteEvent.ts';
+export * from './ssePreviewCompleteEventOutputTracksItem.ts';
+export * from './sseProgressStatus.ts';
+export * from './sseRunAcceptedEvent.ts';
+export * from './sseSubOperationCompletedEvent.ts';
+export * from './sseSubOperationCompletedEventCounts.ts';
+export * from './sseSubOperationOutcome.ts';
+export * from './sseSubOperationStartedEvent.ts';
+export * from './sseSubProgressEvent.ts';
 export * from './syncLinkRequest.ts';
 export * from './syncPreviewResponse.ts';
 export * from './syncTargetListResponse.ts';

@@ -1,5 +1,5 @@
 import { Link2, ListMusic, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import { useCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPost } from "#/api/generated/playlists/playlists";
 import { STALE } from "#/api/query-client";
@@ -33,6 +33,9 @@ export function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
   const [pickedName, setPickedName] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [direction, setDirection] = useState<SyncDirection>("push");
+  // `null` until the user picks a service; the first linkable connector stands
+  // in until then, so no effect has to backfill it once the query lands.
+  const [pickedConnector, setPickedConnector] = useState<string | null>(null);
 
   const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet({
     query: { staleTime: STALE.STATIC },
@@ -47,13 +50,7 @@ export function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
         )
       : [];
 
-  const defaultConnector = linkableConnectors[0]?.name ?? "";
-  const [connector, setConnector] = useState(defaultConnector);
-
-  // Ensure the state reflects the first real connector once the query lands.
-  useEffect(() => {
-    if (!connector && defaultConnector) setConnector(defaultConnector);
-  }, [connector, defaultConnector]);
+  const connector = pickedConnector ?? linkableConnectors[0]?.name ?? "";
 
   const selectedConnector = linkableConnectors.find(
     (c) => c.name === connector,
@@ -101,7 +98,7 @@ export function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
             setPlaylistInput("");
             setPickedName(null);
             setPickerOpen(false);
-            setConnector(defaultConnector);
+            setPickedConnector(null);
             setDirection("push");
           }
         }}
@@ -131,7 +128,7 @@ export function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
               <Select
                 value={connector}
                 onValueChange={(next) => {
-                  setConnector(next);
+                  setPickedConnector(next);
                   // A picked/typed playlist belongs to the previous service —
                   // drop it so a switch can't submit one service's identifier
                   // against another.

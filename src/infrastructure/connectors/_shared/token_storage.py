@@ -7,13 +7,21 @@ The protocol is intentionally in infrastructure (_shared/), not domain —
 token storage is a pure infrastructure concern with no business logic.
 """
 
-from collections.abc import Mapping
-from typing import Protocol, TypedDict
+from collections.abc import Collection, Mapping
+from typing import Final, Protocol, TypedDict
 
 from src.config import get_logger
 from src.domain.services.oauth_grant import grant_scopes
 
 logger = get_logger(__name__).bind(service="token_storage")
+
+# ``StoredToken.token_type`` vocabulary — a label naming the kind of credential
+# in the row, never a secret. Values must fit ``oauth_tokens.token_type``
+# VARCHAR(20). Each connector's own kind lives beside that connector
+# (``discogs.token_service``, ``chat.credentials``); the shared kinds are here.
+OAUTH2_CREDENTIAL_KIND: Final = "oauth2"
+SESSION_CREDENTIAL_KIND: Final = "session"
+MUSIC_USER_CREDENTIAL_KIND: Final = "music_user_token"
 
 
 class StoredToken(TypedDict, total=False):
@@ -74,6 +82,18 @@ class TokenStorage(Protocol):
 
     async def load_token(self, service: str, user_id: str) -> StoredToken | None:
         """Load stored token for a service and user. Returns None if no token exists."""
+        ...
+
+    async def load_tokens(
+        self, services: Collection[str], user_id: str
+    ) -> Mapping[str, StoredToken | None]:
+        """Load one user's tokens for several services in a single read.
+
+        Every requested service is a key; a service with no stored token maps to
+        ``None``. For callers that judge a whole set of connectors at once (the
+        sync-target list), so the answer costs one connection rather than one
+        per connector.
+        """
         ...
 
     async def save_token(

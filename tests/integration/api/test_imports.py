@@ -96,9 +96,10 @@ async def _poll_queue_until_drained(
     while time.monotonic() < deadline:
         response = await client.get("/api/v1/imports/spotify/history/queue")
         assert response.status_code == 200
-        data = response.json()
-        if all(e["status"] not in ("queued", "running") for e in data["entries"]):
-            return data
+        queue = response.json()["queue"]
+        assert queue is not None
+        if all(e["status"] not in ("queued", "running") for e in queue["entries"]):
+            return queue
         await asyncio.sleep(0.05)
     raise AssertionError("import queue did not drain within the timeout")
 
@@ -493,9 +494,9 @@ class TestSpotifyHistoryUploadCaps:
         assert response.status_code == 413
         # The rejected request left no queue dir and started no queue.
         assert _queue_tmpdirs() == set()
-        assert (
-            await client.get("/api/v1/imports/spotify/history/queue")
-        ).status_code == 404
+        idle = await client.get("/api/v1/imports/spotify/history/queue")
+        assert idle.status_code == 200
+        assert idle.json()["queue"] is None
 
     async def test_total_cap_rejects_before_any_entry_starts(
         self, client: httpx2.AsyncClient, tmp_path, monkeypatch
@@ -512,9 +513,9 @@ class TestSpotifyHistoryUploadCaps:
 
         assert response.status_code == 413
         assert _queue_tmpdirs() == set()
-        assert (
-            await client.get("/api/v1/imports/spotify/history/queue")
-        ).status_code == 404
+        idle = await client.get("/api/v1/imports/spotify/history/queue")
+        assert idle.status_code == 200
+        assert idle.json()["queue"] is None
 
     async def test_too_many_files_422s(self, client: httpx2.AsyncClient) -> None:
         patcher = _patched_limits(max_queue_entries=2)
@@ -553,9 +554,15 @@ class TestSpotifyHistoryQueueContract:
     """Queue endpoints' request/response contract (launcher stubbed — the
     queue holds still, so pre-drain states are observable)."""
 
-    async def test_get_queue_404s_when_none_exists(self, client: httpx2.AsyncClient):
+    async def test_get_queue_reports_idle_when_none_exists(
+        self, client: httpx2.AsyncClient
+    ):
+        # 200, not 404: "nothing is importing" is an answer the client renders,
+        # not a failure it has to branch on.
         response = await client.get("/api/v1/imports/spotify/history/queue")
-        assert response.status_code == 404
+
+        assert response.status_code == 200
+        assert response.json() == {"queue": None}
 
     async def test_delete_404s_when_none_exists(self, client: httpx2.AsyncClient):
         response = await client.delete("/api/v1/imports/spotify/history/queue")
@@ -570,10 +577,37 @@ class TestSpotifyHistoryQueueContract:
 
         fetched = await client.get("/api/v1/imports/spotify/history/queue")
         assert fetched.status_code == 200
-        data = fetched.json()
+        data = fetched.json()["queue"]
         assert data["queue_id"] == posted.json()["queue_id"]
         assert [e["filename"] for e in data["entries"]] == ["a.json", "b.json"]
         assert [e["position"] for e in data["entries"]] == [0, 1]
+
+    async def test_post_and_delete_answer_with_a_queue_that_exists(
+        self, client: httpx2.AsyncClient
+    ):
+        # POST creates the queue and DELETE acts on an existing one, so neither
+        # can answer "there is no queue". Both answer with the queue itself,
+        # unwrapped — only the GET's ``queue`` envelope can be null, so
+        # a client has nothing to branch on here.
+        posted = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([("a.json", b"[]")]),
+        )
+        assert posted.status_code == 200
+        created = posted.json()
+        assert "queue" not in created
+        assert created["queue_id"]
+        assert created["operation_id"]
+        assert created["started_at"]
+        assert created["entries"] is not None
+
+        deleted = await client.delete("/api/v1/imports/spotify/history/queue")
+
+        assert deleted.status_code == 200
+        cancelled = deleted.json()
+        assert "queue" not in cancelled
+        assert cancelled["queue_id"] == created["queue_id"]
+        assert cancelled["operation_id"] == created["operation_id"]
 
     async def test_second_post_while_active_409s(self, client: httpx2.AsyncClient):
         first = await client.post(

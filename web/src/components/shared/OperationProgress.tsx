@@ -10,18 +10,9 @@ import type {
   OperationProgress as OperationProgressData,
   SubOperationProgress,
 } from "#/hooks/useOperationProgress";
+import { isTerminalProgress } from "#/hooks/useOperationProgress";
+import { formatEta, formatRate } from "#/lib/eta";
 import { cn } from "#/lib/utils";
-
-function formatEta(seconds: number): string {
-  if (seconds < 60) return `${Math.ceil(seconds)}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.ceil(seconds % 60);
-  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-}
-
-function formatRate(rate: number): string {
-  return rate >= 1 ? `${rate.toFixed(1)}/s` : `${(rate * 60).toFixed(1)}/min`;
-}
 
 const statusConfig = {
   pending: {
@@ -80,10 +71,7 @@ export function OperationProgress({
   className,
 }: OperationProgressProps) {
   const config = statusConfig[progress.status];
-  const isTerminal =
-    progress.status === "completed" ||
-    progress.status === "failed" ||
-    progress.status === "cancelled";
+  const isTerminal = isTerminalProgress(progress);
   const percentage = progress.completionPercentage ?? 0;
 
   return (

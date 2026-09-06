@@ -198,13 +198,14 @@ describe("WorkflowDetail", () => {
 
     renderWithProviders(<WorkflowDetail />);
 
+    // ResponsiveTable mounts one branch; the test viewport is wide, so the
+    // history renders as a table.
     await waitFor(() => {
-      // ResponsiveTable renders both the card and table layouts, so the badge
-      // appears more than once — assert presence, not uniqueness.
-      expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
+      expect(screen.getByText("Completed")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("20 tracks")).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "20" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "0:42" })).toBeInTheDocument();
   });
 
   it("shows version mismatch warning in last run card", async () => {
@@ -241,6 +242,24 @@ describe("WorkflowDetail", () => {
     await waitFor(() => {
       expect(screen.getByText("Workflow not found")).toBeInTheDocument();
     });
+  });
+
+  it("shows a load failure, not a not-found, for a non-404 error", async () => {
+    server.use(
+      http.get("*/api/v1/workflows/:id", () =>
+        HttpResponse.json(
+          { error: { code: "INTERNAL", message: "Boom" } },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<WorkflowDetail />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load workflow")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Workflow not found")).not.toBeInTheDocument();
   });
 
   it("shows back link to workflows list", async () => {

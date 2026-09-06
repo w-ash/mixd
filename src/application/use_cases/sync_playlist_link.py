@@ -54,12 +54,19 @@ def to_operation_result(result: SyncPlaylistLinkResult) -> OperationResult:
 
 @define(frozen=True, slots=True)
 class SyncPlaylistLinkCommand:
-    """Input for syncing a playlist link."""
+    """Input for syncing a playlist link.
+
+    ``playlist_id`` is the parent playlist the caller addressed the link under
+    (set by the nested API route). When set, a link belonging to a different
+    playlist is reported as missing. Callers that address a link by ID alone
+    leave it ``None``.
+    """
 
     user_id: str
     link_id: UUID
     direction_override: SyncDirection | None = None
     confirmed: bool = False
+    playlist_id: UUID | None = None
 
 
 @define(frozen=True, slots=True)
@@ -86,7 +93,10 @@ class SyncPlaylistLinkUseCase:
 
         async with uow:
             link = await require_playlist_link(
-                command.link_id, uow, user_id=command.user_id
+                command.link_id,
+                uow,
+                user_id=command.user_id,
+                playlist_id=command.playlist_id,
             )
             link_id = link.id
             direction = command.direction_override or link.sync_direction

@@ -45,6 +45,7 @@ from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     PlannedWrite,
+    ReuseMetadata,
     WritePlanningResolver,
     plan_isrc_write,
 )
@@ -101,6 +102,11 @@ class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
     @override
     def _normalize_id(self, raw_id: str) -> str:
         return str(raw_id).strip()
+
+    @override
+    def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
+        """No canonical reuse: a catalog id resolves by ISRC or not at all."""
+        return None
 
     @override
     async def _create_tracks_batch(

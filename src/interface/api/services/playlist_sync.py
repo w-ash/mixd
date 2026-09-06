@@ -34,6 +34,7 @@ async def launch_playlist_link_sync(
     user_id: str,
     direction_override: str | None,
     confirm_token: str | None,
+    playlist_id: UUID | None = None,
     initiated_by: str = "manual",
 ) -> OperationStartedResponse:
     """Confirm (synchronously) then launch a background playlist-link sync.
@@ -41,10 +42,14 @@ async def launch_playlist_link_sync(
     Returns immediately with ``{operation_id, run_id}``; progress streams via
     the shared operations SSE endpoint. A destructive sync whose ``confirm_token``
     is missing or stale raises ``ConfirmationRequiredError`` (→ HTTP 409) before
-    any background work is scheduled.
+    any background work is scheduled. ``playlist_id`` scopes the link to the
+    playlist the nested route names, so a link under another playlist is
+    reported as missing — both in the pre-flight and in the background sync.
     """
     parsed_direction = SyncDirection(direction_override) if direction_override else None
-    await _ensure_sync_confirmed(link_id, parsed_direction, user_id, confirm_token)
+    await _ensure_sync_confirmed(
+        link_id, parsed_direction, user_id, confirm_token, playlist_id
+    )
 
     async def _sync(_emitter: OperationBoundEmitter) -> object:
         command = SyncPlaylistLinkCommand(
@@ -52,6 +57,7 @@ async def launch_playlist_link_sync(
             link_id=link_id,
             direction_override=parsed_direction,
             confirmed=True,
+            playlist_id=playlist_id,
         )
         result = await execute_use_case(
             lambda uow: SyncPlaylistLinkUseCase().execute(command, uow),
@@ -73,6 +79,7 @@ async def _ensure_sync_confirmed(
     direction_override: SyncDirection | None,
     user_id: str,
     confirm_token: str | None,
+    playlist_id: UUID | None,
 ) -> None:
     """Raise ConfirmationRequiredError (→ 409) for an unconfirmed destructive sync.
 
@@ -84,7 +91,10 @@ async def _ensure_sync_confirmed(
     token + counts; a matching token (or a non-destructive plan) proceeds.
     """
     command = PreviewPlaylistSyncCommand(
-        user_id=user_id, link_id=link_id, direction_override=direction_override
+        user_id=user_id,
+        link_id=link_id,
+        direction_override=direction_override,
+        playlist_id=playlist_id,
     )
     preview = await execute_use_case(
         lambda uow: PreviewPlaylistSyncUseCase().execute(command, uow),

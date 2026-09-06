@@ -13,7 +13,6 @@ export interface WorkflowNodeData {
   outputTrackCount?: number;
   inputTrackCount?: number;
   errorMessage?: string;
-  mode?: "view" | "edit";
   selected?: boolean;
   diffStatus?: DiffStatus;
 }
@@ -24,6 +23,10 @@ interface BaseWorkflowNodeProps {
   accentColor: string;
   label: string;
   configLabels?: Record<string, string>;
+  /** Show the incoming-edge handle. False for nodes that take no input. */
+  hasInput?: boolean;
+  /** Show the outgoing-edge handle. False for nodes nothing can consume. */
+  hasOutput?: boolean;
 }
 
 const STATUS_STYLES: Record<
@@ -55,6 +58,8 @@ export function BaseWorkflowNode({
   accentColor,
   label,
   configLabels,
+  hasInput = true,
+  hasOutput = true,
 }: BaseWorkflowNodeProps) {
   const configEntries = Object.entries(data.config)
     .slice(0, 3)
@@ -76,13 +81,9 @@ export function BaseWorkflowNode({
           ? "ring-2 ring-[oklch(0.8_0.14_85)]/60"
           : undefined;
 
-  const isEditMode = data.mode === "edit";
-  const hideTarget = isEditMode && data.nodeType.startsWith("source");
-  const hideSource = isEditMode && data.nodeType.startsWith("destination");
-
   return (
     <>
-      {!hideTarget && (
+      {hasInput && (
         <Handle type="target" position={Position.Left} className="!bg-border" />
       )}
       <div
@@ -147,7 +148,7 @@ export function BaseWorkflowNode({
           ) : null}
         </div>
       </div>
-      {!hideSource && (
+      {hasOutput && (
         <Handle
           type="source"
           position={Position.Right}

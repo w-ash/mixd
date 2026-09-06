@@ -209,3 +209,40 @@ class TestSetPrimaryMappingEndpoint:
         )
 
         assert response.status_code == 400
+
+
+class TestMappingExternalUrl:
+    """``external_url`` is registry-declared, so the web renders links generically."""
+
+    async def test_spotify_mapping_links_to_the_track_page(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        track_id, _ = await _create_track_with_mapping(
+            client, connector="spotify", external_id="4cOdK2wGLETKBW3PvgPWqT"
+        )
+
+        body = (await client.get(f"/api/v1/tracks/{track_id}")).json()
+
+        mapping = next(
+            m for m in body["connector_mappings"] if m["connector_name"] == "spotify"
+        )
+        assert (
+            mapping["external_url"]
+            == "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"
+        )
+
+    async def test_connector_without_a_url_hook_is_null(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # Last.fm identifies tracks by an "artist::title" composite, which
+        # addresses no page — a guessed URL would be worse than none.
+        track_id, _ = await _create_track_with_mapping(
+            client, connector="lastfm", external_id="aphex twin::xtal"
+        )
+
+        body = (await client.get(f"/api/v1/tracks/{track_id}")).json()
+
+        mapping = next(
+            m for m in body["connector_mappings"] if m["connector_name"] == "lastfm"
+        )
+        assert mapping["external_url"] is None

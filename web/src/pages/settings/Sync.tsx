@@ -1,15 +1,11 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useEffect, useState } from "react";
 import {
   useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet,
-  useGetConnectorsApiV1ConnectorsGet,
   useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut,
 } from "#/api/generated/connectors/connectors";
 import {
-  getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryKey,
   useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete,
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
   useGetCheckpointsApiV1ImportsCheckpointsGet,
@@ -23,11 +19,9 @@ import {
 import type {
   CheckpointStatusSchema,
   ImportLastfmHistoryRequestMode,
-  ImportQueueEntrySchema,
-  OperationStartedResponse,
+  SyncTargetSchema,
   SyncTargetSchemaId,
 } from "#/api/generated/model";
-import { useListSyncTargetsApiV1SyncTargetsGet } from "#/api/generated/schedules/schedules";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
@@ -41,76 +35,41 @@ import { ScheduleCard } from "#/components/shared/ScheduleCard";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
+import { useImportOperation } from "#/hooks/useImportOperation";
 import type { OperationProgress as OperationProgressState } from "#/hooks/useOperationProgress";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
+import { useRunCompletedToast } from "#/hooks/useRunCompletedToast";
 import { useSyncScheduleController } from "#/hooks/useScheduleController";
-import { formatDateTime } from "#/lib/format";
+import { useSyncTargetBlock } from "#/hooks/useSyncTargetBlock";
+import { formatCount, formatDateTime } from "#/lib/format";
+import { isSettled } from "#/lib/import-queue";
 import { claimRunToast } from "#/lib/operation-toast-ledger";
 import { pluralSuffix } from "#/lib/pluralize";
 import { describeMinutes } from "#/lib/schedule";
-import {
-  issueCountFromCounts,
-  type RunOperationType,
-  toasts,
-} from "#/lib/toasts";
+import { type RunOperationType, toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 import { ImportQueueManifest } from "#/pages/settings/ImportQueueManifest";
 
-/** Build shared onSuccess/onError callbacks for import mutation triggers. */
-function makeOperationCallbacks(
-  label: string,
-  setOperationId: (id: string) => void,
-  setRunId: (id: string | null) => void,
-) {
-  return {
-    onSuccess: (res: { status: number; data: unknown }) => {
-      if (res.status === 200) {
-        const data = res.data as OperationStartedResponse;
-        setOperationId(data.operation_id);
-        setRunId(data.run_id ?? null);
-      } else {
-        toasts.message(`Failed to start ${label}`, {
-          description: `Unexpected response (${res.status})`,
-        });
-      }
-    },
-    onError: (error: unknown) => {
-      toasts.error(`Failed to start ${label}`, error);
-    },
-  };
-}
-
-// ─── Operation Card ──────────────────────────────────────────────
+// ─── Sync targets ───────────────────────────────────────────────
 
 /**
  * Automatic-sync control for a sync target. Only the background-syncable cards
- * pass one in; the file-upload imports (which can't run unattended) render none.
+ * have one; the file-upload imports (which can't run unattended) render none.
  *
- * Which control appears is the server's call, not a prop: `/sync/targets`
- * reports `self_managed` per target, and a self-managed one gets the read-only
- * cadence plus toggle instead of the daily/weekly picker. That is not cosmetic —
- * there is one schedule row per (user, target), and a self-managed target's
- * interval is rewritten by the poller after every poll, so saving it through the
- * picker would overwrite the adaptive cadence and switch the backoff off. The
- * backend enforces the same rule by keeping it out of `USER_SCHEDULABLE_TARGETS`,
- * which makes its upsert route 400.
+ * Which control appears is the server's call, not a prop: a `self_managed`
+ * target gets the read-only cadence plus toggle instead of the daily/weekly
+ * picker. That is not cosmetic — there is one schedule row per (user, target),
+ * and a self-managed target's interval is rewritten by the poller after every
+ * poll, so saving it through the picker would overwrite the adaptive cadence
+ * and switch the backoff off. The backend enforces the same rule by keeping it
+ * out of `USER_SCHEDULABLE_TARGETS`, which makes its upsert route 400.
  */
-function SyncScheduleField({ targetId }: { targetId: SyncTargetSchemaId }) {
-  const { data } = useListSyncTargetsApiV1SyncTargetsGet({
-    // The dispatchable set is the same for every user and changes on deploy.
-    query: { staleTime: STALE.STATIC },
-  });
-  const target =
-    data?.status === 200
-      ? data.data.data.find((t) => t.id === targetId)
-      : undefined;
-
-  if (target === undefined) return null;
+function SyncScheduleField({ target }: { target: SyncTargetSchema }) {
   if (target.self_managed) {
-    // The play-polling endpoints are keyed by service, not by target id.
-    return <PlayPollingField service={targetId.split(":")[0] ?? targetId} />;
+    // The play-polling endpoints are keyed by connector-registry service.
+    return <PlayPollingField service={target.service} />;
   }
-  return <UserScheduleField targetId={targetId} />;
+  return <UserScheduleField targetId={target.id} />;
 }
 
 function UserScheduleField({ targetId }: { targetId: SyncTargetSchemaId }) {
@@ -125,6 +84,8 @@ function UserScheduleField({ targetId }: { targetId: SyncTargetSchemaId }) {
   );
 }
 
+// ─── Operation Card ──────────────────────────────────────────────
+
 interface OperationCardProps {
   connector: string;
   title: string;
@@ -133,16 +94,15 @@ interface OperationCardProps {
   operationId: string | null;
   runId: string | null;
   operationType: RunOperationType;
-  /** When false, the trigger is disabled with a "connect first" hint. Omit for
-   * flows with no live connector (e.g. the Spotify GDPR file upload). */
-  connected?: boolean;
   isPending: boolean;
   onTrigger: () => void;
   triggerLabel?: string;
+  /** Card-local reason the trigger can't fire (nothing selected, work already
+   * in flight). Connector readiness comes from the sync target instead. */
   triggerDisabled?: boolean;
-  /** Background-sync target id (e.g. `lastfm:plays`). When set, the card shows
-   * an automatic-sync control; which one is the server's call — see
-   * `SyncScheduleField`. */
+  /** Background-sync target id (e.g. `lastfm:plays`). When set, the card gates
+   * its trigger on the target's readiness and shows an automatic-sync control;
+   * which one is the server's call — see `SyncScheduleField`. */
   syncTarget?: SyncTargetSchemaId;
   /** Extra card body rendered above the progress bar. */
   children?: React.ReactNode;
@@ -161,7 +121,6 @@ function OperationCard({
   operationId,
   runId,
   operationType,
-  connected,
   isPending,
   onTrigger,
   triggerLabel = "Import",
@@ -172,38 +131,12 @@ function OperationCard({
   hideProgressBar = false,
 }: OperationCardProps) {
   const { progress, isActive } = useOperationProgress(operationId);
-  const navigate = useNavigate();
-  const toastedForOpIdRef = useRef<string | null>(null);
+  const { target, block: blocked } = useSyncTargetBlock(
+    syncTarget,
+    triggerLabel.toLowerCase(),
+  );
 
-  useEffect(() => {
-    if (operationId === null || progress === null) return;
-    const isTerminal =
-      progress.status === "completed" ||
-      progress.status === "failed" ||
-      progress.status === "cancelled";
-    if (!isTerminal) return;
-    // A cancelled/superseded run is a deliberate stop, not news — the global
-    // watcher stays quiet on these too, so the two surfaces agree.
-    if (progress.status === "cancelled") return;
-    if (toastedForOpIdRef.current === operationId) return;
-    toastedForOpIdRef.current = operationId;
-    // Claim the shared ledger so the global operations watcher (which polls the
-    // same run's audit row) backs off — otherwise one run gets announced twice,
-    // once here off the stream and once there off the poll.
-    if (runId !== null && !claimRunToast(runId)) return;
-
-    toasts.runCompleted({
-      operationType,
-      counts: progress.counts ?? {},
-      // A partial run arrives on the stream as `completed` carrying an `errors`
-      // count — the only live signal that items were lost, and what earns this
-      // toast its warning styling and "View log" action.
-      issueCount: issueCountFromCounts(progress.counts),
-      runId,
-      failed: progress.status !== "completed",
-      onNavigate: navigate,
-    });
-  }, [operationId, progress, runId, operationType, navigate]);
+  useRunCompletedToast({ operationId, runId, progress, operationType });
 
   return (
     <div className="rounded-xl border border-border bg-surface-elevated shadow-elevated p-5">
@@ -218,7 +151,7 @@ function OperationCard({
         <Button
           size="sm"
           disabled={
-            isPending || isActive || triggerDisabled || connected === false
+            isPending || isActive || triggerDisabled || blocked !== null
           }
           onClick={onTrigger}
           className="self-start lg:self-auto"
@@ -227,10 +160,8 @@ function OperationCard({
         </Button>
       </div>
 
-      {connected === false && (
-        <p className="mt-2 text-xs text-text-faint">
-          Connect {connector} in Integrations to enable this.
-        </p>
+      {blocked && (
+        <p className={cn("mt-2 text-xs", blocked.className)}>{blocked.text}</p>
       )}
 
       {children && <div className="mt-3">{children}</div>}
@@ -241,7 +172,7 @@ function OperationCard({
         <OperationProgress progress={progress} className="mt-3" />
       )}
 
-      {syncTarget && <SyncScheduleField targetId={syncTarget} />}
+      {target && <SyncScheduleField target={target} />}
 
       <PollStatusLine checkpoint={checkpoint} />
 
@@ -391,26 +322,14 @@ function findCheckpoint(
 
 function LastfmHistoryImport({
   checkpoints,
-  connected,
 }: {
   checkpoints: CheckpointStatusSchema[];
-  connected: boolean;
 }) {
-  const [operationId, setOperationId] = useState<string | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
   const [mode, setMode] = useState<ImportLastfmHistoryRequestMode>("recent");
-  const mutation = useImportLastfmHistoryApiV1ImportsLastfmHistoryPost();
-
-  const trigger = () => {
-    mutation.mutate(
-      { data: { mode } },
-      makeOperationCallbacks(
-        "Last.fm history import",
-        setOperationId,
-        setRunId,
-      ),
-    );
-  };
+  const operation = useImportOperation(
+    useImportLastfmHistoryApiV1ImportsLastfmHistoryPost(),
+    "Last.fm history import",
+  );
 
   return (
     <OperationCard
@@ -418,12 +337,11 @@ function LastfmHistoryImport({
       title="Scrobble History"
       description="Pull listening history from your Last.fm account."
       checkpoint={findCheckpoint(checkpoints, "lastfm", "plays")}
-      operationId={operationId}
-      runId={runId}
+      operationId={operation.operationId}
+      runId={operation.runId}
       operationType="import_lastfm_history"
-      connected={connected}
-      isPending={mutation.isPending}
-      onTrigger={trigger}
+      isPending={operation.isPending}
+      onTrigger={() => operation.trigger({ data: { mode } })}
       syncTarget="lastfm:plays"
     >
       <div>
@@ -473,15 +391,14 @@ function LastfmHistoryImport({
 
 function SpotifyLikesImport({
   checkpoints,
-  connected,
 }: {
   checkpoints: CheckpointStatusSchema[];
-  connected: boolean;
 }) {
-  const [operationId, setOperationId] = useState<string | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
   const [reimportAll, setReimportAll] = useState(false);
-  const mutation = useImportSpotifyLikesApiV1ImportsSpotifyLikesPost();
+  const operation = useImportOperation(
+    useImportSpotifyLikesApiV1ImportsSpotifyLikesPost(),
+    "Spotify likes import",
+  );
   const checkpoint = findCheckpoint(checkpoints, "spotify", "likes");
 
   const hasGap =
@@ -489,43 +406,28 @@ function SpotifyLikesImport({
     checkpoint?.local_count != null &&
     checkpoint.local_count < checkpoint.remote_total * 0.95;
 
-  const trigger = () => {
-    const callbacks = makeOperationCallbacks(
-      "Spotify likes import",
-      setOperationId,
-      setRunId,
-    );
-    mutation.mutate(
-      { data: { force: reimportAll } },
-      {
-        ...callbacks,
-        onSuccess: (res) => {
-          setReimportAll(false);
-          callbacks.onSuccess(res);
-        },
-      },
-    );
-  };
-
   return (
     <OperationCard
       connector="spotify"
       title="Import Likes"
       description="Backup your Spotify liked tracks to the local database."
       checkpoint={checkpoint}
-      operationId={operationId}
-      runId={runId}
+      operationId={operation.operationId}
+      runId={operation.runId}
       operationType="import_spotify_likes"
-      connected={connected}
-      isPending={mutation.isPending}
-      onTrigger={trigger}
+      isPending={operation.isPending}
+      onTrigger={() =>
+        operation.trigger({ data: { force: reimportAll } }, () =>
+          setReimportAll(false),
+        )
+      }
       syncTarget="spotify:likes"
     >
       {checkpoint?.local_count != null && (
         <p className="mt-2 font-mono text-xs text-text-muted">
           {hasGap
-            ? `${checkpoint.local_count.toLocaleString()} of ${checkpoint.remote_total?.toLocaleString()} track${pluralSuffix(checkpoint.remote_total ?? 0)} imported`
-            : `${checkpoint.local_count.toLocaleString()} track${pluralSuffix(checkpoint.local_count)} imported`}
+            ? `${formatCount(checkpoint.local_count)} of ${formatCount(checkpoint.remote_total ?? 0)} track${pluralSuffix(checkpoint.remote_total ?? 0)} imported`
+            : `${formatCount(checkpoint.local_count)} track${pluralSuffix(checkpoint.local_count)} imported`}
         </p>
       )}
       {checkpoint != null && (
@@ -550,21 +452,13 @@ function SpotifyLikesImport({
 
 function LastfmLikesExport({
   checkpoints,
-  connected,
 }: {
   checkpoints: CheckpointStatusSchema[];
-  connected: boolean;
 }) {
-  const [operationId, setOperationId] = useState<string | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
-  const mutation = useExportLastfmLikesApiV1ImportsLastfmLikesPost();
-
-  const trigger = () => {
-    mutation.mutate(
-      { data: {} },
-      makeOperationCallbacks("Last.fm likes export", setOperationId, setRunId),
-    );
-  };
+  const operation = useImportOperation(
+    useExportLastfmLikesApiV1ImportsLastfmLikesPost(),
+    "Last.fm likes export",
+  );
 
   return (
     <OperationCard
@@ -572,13 +466,12 @@ function LastfmLikesExport({
       title="Export Loves"
       description="Love your liked tracks on Last.fm."
       checkpoint={findCheckpoint(checkpoints, "lastfm", "likes")}
-      operationId={operationId}
-      runId={runId}
+      operationId={operation.operationId}
+      runId={operation.runId}
       operationType="export_lastfm_likes"
-      connected={connected}
-      isPending={mutation.isPending}
+      isPending={operation.isPending}
       triggerLabel="Export"
-      onTrigger={trigger}
+      onTrigger={() => operation.trigger({ data: {} })}
       syncTarget="lastfm:likes"
     />
   );
@@ -586,25 +479,13 @@ function LastfmLikesExport({
 
 function SpotifyRecentImport({
   checkpoints,
-  needsReconnect,
 }: {
   checkpoints: CheckpointStatusSchema[];
-  needsReconnect: boolean;
 }) {
-  const [operationId, setOperationId] = useState<string | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
-  const mutation = useImportSpotifyRecentApiV1ImportsSpotifyRecentPost();
-
-  const trigger = () => {
-    mutation.mutate(
-      { data: {} },
-      makeOperationCallbacks(
-        "Spotify recent plays import",
-        setOperationId,
-        setRunId,
-      ),
-    );
-  };
+  const operation = useImportOperation(
+    useImportSpotifyRecentApiV1ImportsSpotifyRecentPost(),
+    "Spotify recent plays import",
+  );
 
   return (
     <OperationCard
@@ -614,21 +495,13 @@ function SpotifyRecentImport({
       // The API poll position, not the export's — this is the cursor the next
       // poll resumes from.
       checkpoint={findCheckpoint(checkpoints, "spotify", "plays")}
-      operationId={operationId}
-      runId={runId}
+      operationId={operation.operationId}
+      runId={operation.runId}
       operationType="import_spotify_recent"
-      isPending={mutation.isPending}
-      onTrigger={trigger}
-      // A pre-v0.10.1 grant reports connected (likes and playlists still work),
-      // so the shared connected gate can't catch this one.
-      triggerDisabled={needsReconnect}
+      isPending={operation.isPending}
+      onTrigger={() => operation.trigger({ data: {} })}
       syncTarget="spotify:plays"
     >
-      {needsReconnect && (
-        <p className="mt-2 text-xs text-status-expired">
-          Re-connect Spotify in Integrations to grant listening-history access.
-        </p>
-      )}
       <details className="mt-2 text-xs text-text-faint">
         <summary className="cursor-pointer hover:text-text-muted">
           Why only ~50 plays?
@@ -646,25 +519,13 @@ function SpotifyRecentImport({
 
 function AppleRecentImport({
   checkpoints,
-  connected,
 }: {
   checkpoints: CheckpointStatusSchema[];
-  connected: boolean;
 }) {
-  const [operationId, setOperationId] = useState<string | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
-  const mutation = useImportAppleRecentApiV1ImportsAppleRecentPost();
-
-  const trigger = () => {
-    mutation.mutate(
-      { data: {} },
-      makeOperationCallbacks(
-        "Apple Music recent plays import",
-        setOperationId,
-        setRunId,
-      ),
-    );
-  };
+  const operation = useImportOperation(
+    useImportAppleRecentApiV1ImportsAppleRecentPost(),
+    "Apple Music recent plays import",
+  );
 
   return (
     <OperationCard
@@ -674,56 +535,48 @@ function AppleRecentImport({
       // The API poll position, not an export's — this is the fingerprint the
       // next poll resumes from.
       checkpoint={findCheckpoint(checkpoints, "apple", "plays")}
-      operationId={operationId}
-      runId={runId}
+      operationId={operation.operationId}
+      runId={operation.runId}
       operationType="import_apple_recent"
-      connected={connected}
-      isPending={mutation.isPending}
-      onTrigger={trigger}
+      isPending={operation.isPending}
+      onTrigger={() => operation.trigger({ data: {} })}
       syncTarget="apple:plays"
     />
   );
 }
 
-/** A queue entry that can still run — "queued" or "running". */
-function isSettledEntry(entry: ImportQueueEntrySchema): boolean {
-  return entry.status !== "queued" && entry.status !== "running";
-}
-
 function SpotifyHistoryImport() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const mutation = useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost();
-  const queueQueryKey =
-    getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryKey();
 
   // The queue lives on the server; this query is how a reloaded tab re-attaches
-  // to a drain in progress. Polling while any entry is non-terminal is what
-  // advances the per-file chips; a fully drained (or absent, 404) queue stops it.
-  const { data: queueData } =
+  // to a drain in progress. Polling while any entry is unsettled is what
+  // advances the per-file chips; a drained (or absent) queue stops it.
+  const { data: queueData, refetch: refetchQueue } =
     useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet({
       query: {
-        retry: false,
         refetchInterval: (query) => {
           const res = query.state.data;
           if (res?.status !== 200) return false;
-          return res.data.entries.every(isSettledEntry) ? false : 2000;
+          return res.data.queue?.entries.some((entry) => !isSettled(entry))
+            ? 2000
+            : false;
         },
       },
     });
-  const queue = queueData?.status === 200 ? queueData.data : null;
-  const queueActive = queue != null && !queue.entries.every(isSettledEntry);
+  // `queue: null` is the idle answer, not a missing resource — the GET never
+  // 404s, so there is no error branch to render around.
+  const queue = queueData?.status === 200 ? queueData.data.queue : null;
+  const entries = queue?.entries ?? [];
+  const queueActive = entries.some((entry) => !isSettled(entry));
 
   // Each file is a real run, so the global watcher would announce all thirteen.
   // An export is one piece of work, and its result is the manifest below.
   useEffect(() => {
     for (const entry of queue?.entries ?? []) {
-      if (entry.run_id != null && isSettledEntry(entry)) {
-        claimRunToast(entry.run_id);
-      }
+      if (entry.run_id != null && isSettled(entry)) claimRunToast(entry.run_id);
     }
   }, [queue]);
-
-  const queryClient = useQueryClient();
 
   const cancelMutation =
     useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete({
@@ -740,11 +593,9 @@ function SpotifyHistoryImport() {
         onSuccess: (res) => {
           if (res.status === 200) {
             setSelectedFiles([]);
-            // Seed the queue cache from the POST response (same envelope the
-            // GET returns) so the queue section renders immediately — the
-            // pre-upload query sits in 404-error state, and depending on the
-            // route's own invalidation to recover it proved fragile.
-            queryClient.setQueryData(queueQueryKey, res);
+            // The POST registers the queue; one refetch makes the GET the only
+            // description of it the page ever reads.
+            void refetchQueue();
           } else {
             toasts.message("Failed to queue Spotify history import", {
               description: `Unexpected response (${res.status})`,
@@ -785,9 +636,9 @@ function SpotifyHistoryImport() {
       }
       hideProgressBar
       renderDetail={(progress) =>
-        queue != null && queue.entries.length > 0 ? (
+        entries.length > 0 ? (
           <ImportQueueManifest
-            entries={queue.entries}
+            entries={entries}
             subOperation={progress?.subOperation ?? null}
             onCancelRemaining={() => cancelMutation.mutate()}
             cancelDisabled={cancelMutation.isPending}
@@ -823,25 +674,6 @@ export function Sync() {
   const { data, isError, error } =
     useGetCheckpointsApiV1ImportsCheckpointsGet();
   const checkpoints = data?.status === 200 ? data.data : [];
-
-  // Gate the per-connector triggers on connected state (the backend 409s anyway —
-  // this is the friendlier pre-emptive disable). Optimistic during load: default
-  // connected so a slow status query doesn't flicker every button disabled.
-  const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet();
-  const connectedByName: Record<string, boolean> = {};
-  const authErrorByName: Record<string, string | null | undefined> = {};
-  if (connectorsData?.status === 200) {
-    for (const c of connectorsData.data) {
-      connectedByName[c.name] = c.connected;
-      authErrorByName[c.name] = c.auth_error;
-    }
-  }
-  const lastfmConnected = connectedByName.lastfm ?? true;
-  const spotifyConnected = connectedByName.spotify ?? true;
-  const appleConnected = connectedByName.apple_music ?? true;
-  // scope_missing ships with connected=true — likes and playlists still work,
-  // so only the surface that needs the new scope gates on it.
-  const spotifyNeedsReconnect = authErrorByName.spotify === "scope_missing";
 
   return (
     <div>
@@ -879,19 +711,13 @@ export function Sync() {
                   className="animate-fade-up"
                   style={{ animationDelay: "0ms" }}
                 >
-                  <LastfmHistoryImport
-                    checkpoints={checkpoints}
-                    connected={lastfmConnected}
-                  />
+                  <LastfmHistoryImport checkpoints={checkpoints} />
                 </div>
                 <div
                   className="animate-fade-up"
                   style={{ animationDelay: "75ms" }}
                 >
-                  <SpotifyRecentImport
-                    checkpoints={checkpoints}
-                    needsReconnect={spotifyNeedsReconnect}
-                  />
+                  <SpotifyRecentImport checkpoints={checkpoints} />
                 </div>
                 <div
                   className="animate-fade-up"
@@ -903,10 +729,7 @@ export function Sync() {
                   className="animate-fade-up"
                   style={{ animationDelay: "225ms" }}
                 >
-                  <AppleRecentImport
-                    checkpoints={checkpoints}
-                    connected={appleConnected}
-                  />
+                  <AppleRecentImport checkpoints={checkpoints} />
                 </div>
               </div>
             </section>
@@ -922,19 +745,13 @@ export function Sync() {
                   className="animate-fade-up"
                   style={{ animationDelay: "0ms" }}
                 >
-                  <SpotifyLikesImport
-                    checkpoints={checkpoints}
-                    connected={spotifyConnected}
-                  />
+                  <SpotifyLikesImport checkpoints={checkpoints} />
                 </div>
                 <div
                   className="animate-fade-up"
                   style={{ animationDelay: "75ms" }}
                 >
-                  <LastfmLikesExport
-                    checkpoints={checkpoints}
-                    connected={lastfmConnected}
-                  />
+                  <LastfmLikesExport checkpoints={checkpoints} />
                 </div>
               </div>
             </section>

@@ -482,8 +482,11 @@ class ServerConfig(BaseModel):
     """HTTP server and middleware configuration."""
 
     host: str = Field(
-        default="0.0.0.0",  # ruff:ignore[hardcoded-bind-all-interfaces]
-        description="Server bind address. Use 0.0.0.0 for all interfaces (Docker), 127.0.0.1 for local only.",
+        default="127.0.0.1",
+        description=(
+            "Bind address for the `mixd-api` dev server. Loopback by default; "
+            "containers bind all interfaces via uvicorn's own --host 0.0.0.0."
+        ),
     )
     port: int = Field(
         default=8000,

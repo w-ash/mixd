@@ -3,19 +3,25 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
+import type { ConnectorBlockedReason } from './connectorBlockedReason.ts';
 import type { SyncTargetSchemaId } from './syncTargetSchemaId.ts';
 
 /**
- * One dispatchable sync target: its id, label, and who owns its cadence.
+ * One dispatchable sync target: its id, label, cadence owner, and readiness.
  *
  * ``id`` reuses the application's ``SyncTarget`` alias rather than a wire copy,
  * which would reintroduce inside the backend the mirror this endpoint deletes
- * from the frontend.
+ * from the frontend. ``available`` and ``blocked_reason`` are per user and come
+ * from the same predicate the trigger routes 409 on, so a card the web renders
+ * as runnable always is.
  */
 export interface SyncTargetSchema {
   id: SyncTargetSchemaId;
   label: string;
+  service: string;
   self_managed: boolean;
+  available: boolean;
+  blocked_reason?: ConnectorBlockedReason | null;
 }

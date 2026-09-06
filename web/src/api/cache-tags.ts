@@ -96,10 +96,11 @@ const RULES: readonly Rule[] = [
   },
   { match: /^\/api\/v1\/plays/, owns: "plays" },
   { match: /^\/api\/v1\/reviews/, owns: "reviews", alsoReads: ["tracks"] },
-  {
-    match: /^\/api\/v1\/(schedules|sync\/schedules|sync\/targets)/,
-    owns: "schedules",
-  },
+  // The payload is entirely connector-derived (`available`/`blocked_reason`
+  // come from the connector list; there is no schedule field on it), so a
+  // connect or disconnect must refetch it, but a schedule write must not.
+  { match: /^\/api\/v1\/sync\/targets/, owns: "connectors" },
+  { match: /^\/api\/v1\/(schedules|sync\/schedules)/, owns: "schedules" },
   { match: /^\/api\/v1\/settings/, owns: "settings" },
   { match: /^\/api\/v1\/stats/, owns: "stats", alsoReads: ["tracks", "plays"] },
   { match: /^\/api\/v1\/tags/, owns: "tags", alsoReads: ["tracks"] },

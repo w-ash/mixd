@@ -1,7 +1,6 @@
 import { CheckCircle2, ExternalLink, Sparkles } from "lucide-react";
 import { useState } from "react";
 
-import { ApiError } from "#/api/client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { SectionHeader } from "#/components/shared/SectionHeader";
@@ -10,7 +9,7 @@ import { Input } from "#/components/ui/input";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useAssistantKey } from "#/hooks/useAssistantKey";
 import { useChatAvailable } from "#/hooks/useChatAvailable";
-import { toasts } from "#/lib/toasts";
+import { connectErrorMessage, toasts } from "#/lib/toasts";
 
 const CONSOLE_URL = "https://console.anthropic.com/settings/keys";
 
@@ -19,12 +18,6 @@ const CONSOLE_URL = "https://console.anthropic.com/settings/keys";
 // so the settings pages read as one family.
 const cardClass =
   "rounded-xl border border-border bg-surface-elevated p-5 shadow-elevated";
-
-function connectErrorMessage(error: unknown): string | null {
-  if (error instanceof ApiError) return error.message;
-  if (error) return "Something went wrong. Please try again.";
-  return null;
-}
 
 function NotConnected() {
   const { connect, isConnecting, connectError } = useAssistantKey();

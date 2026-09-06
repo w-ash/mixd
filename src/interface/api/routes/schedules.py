@@ -11,6 +11,8 @@ which holds the body shared with the workflow-schedule routes (they differ only
 in the target identity passed). The cross-target list lives here only.
 """
 
+from collections.abc import Mapping
+
 from fastapi import APIRouter, Depends, Response
 
 from src.application.runner import execute_use_case
@@ -18,7 +20,11 @@ from src.application.use_cases.schedules import (
     ListSchedulesCommand,
     ListSchedulesUseCase,
 )
-from src.interface.api.deps import get_current_user_id
+from src.interface.api.connector_access import ConnectorAccess
+from src.interface.api.deps import (
+    get_current_user_id,
+    sync_target_access,
+)
 from src.interface.api.routes._schedule_ops import (
     delete_schedule,
     get_schedule,
@@ -39,16 +45,17 @@ router = APIRouter(tags=["schedules"])
 
 @router.get("/sync/targets")
 async def list_sync_targets(
-    _user_id: str = Depends(get_current_user_id),
+    access: Mapping[str, ConnectorAccess] = Depends(sync_target_access),
 ) -> SyncTargetListResponse:
-    """The sync targets this server can dispatch, with their display labels.
+    """The sync targets this server can dispatch, and whether this user can run them.
 
-    Server truth for the Sync page's scheduler cards: the list, the labels, and
-    which cadences a user may edit. The set is identical for every user — the
-    auth dependency is router consistency, not scoping. No use case, because
-    reading a module-level mapping is not data access.
+    Server truth for the Sync page's scheduler cards: the list, the labels, which
+    cadences a user may edit, and — from the same predicate the trigger routes
+    409 on — whether the target's connector is connected and sufficiently scoped.
+    The readiness half is per user; the dispatch table is not. No use case: the
+    credential probe is the OAuth carve-out the dependency already owns.
     """
-    return SyncTargetListResponse.from_registry()
+    return SyncTargetListResponse.from_registry(access)
 
 
 @router.get("/schedules")

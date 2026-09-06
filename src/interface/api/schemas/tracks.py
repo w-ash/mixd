@@ -22,6 +22,7 @@ from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.tag import normalize_tag
 from src.domain.entities.track import Track
+from src.infrastructure.connectors._shared.external_urls import connector_track_url
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.playlists import ArtistSchema, to_artist_schema
 
@@ -170,6 +171,9 @@ class ConnectorMappingSchema(BaseModel):
     is_primary: bool
     connector_track_title: str
     connector_track_artists: list[str]
+    # The connector's own page for this track, when its ids address one. None
+    # for connectors whose identifiers are composites rather than addresses.
+    external_url: str | None = None
 
 
 class LikeStatusSchema(BaseModel):
@@ -290,6 +294,7 @@ def _to_connector_mapping_schema(info: ConnectorMappingInfo) -> ConnectorMapping
         is_primary=info.is_primary,
         connector_track_title=info.connector_track_title,
         connector_track_artists=info.connector_track_artists,
+        external_url=connector_track_url(info.connector_name, info.connector_track_id),
     )
 
 

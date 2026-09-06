@@ -14,6 +14,7 @@ import type { WorkflowRunSummarySchema } from "#/api/generated/model";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
 import { SectionHeader } from "#/components/shared/SectionHeader";
+import { TableCard } from "#/components/shared/TableCard";
 import {
   Table,
   TableBody,
@@ -23,6 +24,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { formatDuration, formatRelativeTime } from "#/lib/format";
+import { pluralize } from "#/lib/pluralize";
 import { numericCellClass } from "#/lib/utils";
 
 export function RunHistoryTable({
@@ -41,33 +43,29 @@ export function RunHistoryTable({
         cards={
           <div className="flex flex-col gap-2">
             {runs.map((run) => (
-              <article
-                key={`${run.id}-card`}
-                className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Link
-                      to={`/workflows/${workflowId}/runs/${run.id}`}
-                      className="font-mono text-sm text-text transition-colors hover:text-primary"
-                    >
-                      #{run.run_number}
-                    </Link>
-                    <RunStatusBadge status={run.status} />
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xs text-text-muted">
-                    <span>Duration {formatDuration(run.duration_ms)}</span>
-                    <span>
-                      {run.output_track_count ?? "—"} track
-                      {run.output_track_count === 1 ? "" : "s"}
-                    </span>
-                    <span>
-                      Started{" "}
-                      {formatRelativeTime(run.started_at ?? run.created_at)}
-                    </span>
-                  </div>
+              <TableCard key={`${run.id}-card`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    to={`/workflows/${workflowId}/runs/${run.id}`}
+                    className="font-mono text-sm text-text transition-colors hover:text-primary"
+                  >
+                    #{run.run_number}
+                  </Link>
+                  <RunStatusBadge status={run.status} />
                 </div>
-              </article>
+                <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xs text-text-muted">
+                  <span>Duration {formatDuration(run.duration_ms)}</span>
+                  <span>
+                    {run.output_track_count == null
+                      ? "— tracks"
+                      : pluralize(run.output_track_count, "track")}
+                  </span>
+                  <span>
+                    Started{" "}
+                    {formatRelativeTime(run.started_at ?? run.created_at)}
+                  </span>
+                </div>
+              </TableCard>
             ))}
           </div>
         }

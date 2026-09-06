@@ -4,6 +4,8 @@ Validates that the weighted shuffle always produces valid permutations:
 no duplicates, no missing tracks, correct edge-case behavior.
 """
 
+import random
+
 import pytest
 
 from src.domain.entities.track import Artist, Track, TrackList
@@ -84,3 +86,24 @@ class TestWeightedShuffle:
             weighted_shuffle(-0.1)
         with pytest.raises(ValueError, match="shuffle_strength must be between"):
             weighted_shuffle(1.5)
+
+    def test_seeded_rng_is_reproducible(self):
+        """The same seed produces the same order; a different seed may not."""
+        tl = _make_tracklist(30)
+
+        first = weighted_shuffle(0.5, rng=random.Random(1234))(tl)
+        second = weighted_shuffle(0.5, rng=random.Random(1234))(tl)
+        other = weighted_shuffle(0.5, rng=random.Random(4321))(tl)
+
+        assert [t.id for t in first.tracks] == [t.id for t in second.tracks]
+        assert [t.id for t in first.tracks] != [t.id for t in other.tracks]
+
+    def test_seeded_full_shuffle_is_reproducible(self):
+        """Strength 1.0 takes the same generator, so it seeds the same way."""
+        tl = _make_tracklist(30)
+
+        first = weighted_shuffle(1.0, rng=random.Random(7))(tl)
+        second = weighted_shuffle(1.0, rng=random.Random(7))(tl)
+
+        assert [t.id for t in first.tracks] == [t.id for t in second.tracks]
+        assert {t.id for t in first.tracks} == {t.id for t in tl.tracks}

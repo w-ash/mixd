@@ -150,6 +150,39 @@ class TestDeletePlaylistLink:
         assert response.status_code == 404
 
 
+class TestLinkScopedToItsPlaylist:
+    """The nested route acts only on links under the playlist it names."""
+
+    async def test_delete_under_wrong_playlist_returns_404(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        playlist_id, link_id = await _seed_link(client)
+        other = await client.post("/api/v1/playlists", json={"name": "Other"})
+        other_id = other.json()["id"]
+
+        response = await client.delete(f"/api/v1/playlists/{other_id}/links/{link_id}")
+
+        assert response.status_code == 404
+        links_resp = await client.get(f"/api/v1/playlists/{playlist_id}/links")
+        assert [link["id"] for link in links_resp.json()] == [link_id]
+
+    async def test_patch_under_wrong_playlist_returns_404(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        playlist_id, link_id = await _seed_link(client)
+        other = await client.post("/api/v1/playlists", json={"name": "Other Patch"})
+        other_id = other.json()["id"]
+
+        response = await client.patch(
+            f"/api/v1/playlists/{other_id}/links/{link_id}",
+            json={"sync_direction": "pull"},
+        )
+
+        assert response.status_code == 404
+        links_resp = await client.get(f"/api/v1/playlists/{playlist_id}/links")
+        assert links_resp.json()[0]["sync_direction"] == "push"
+
+
 class TestPlaylistDetailIncludesLinks:
     """GET /api/v1/playlists/{id} returns connector_links from links."""
 

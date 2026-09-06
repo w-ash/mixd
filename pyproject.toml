@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.11.6.1"
+version = "0.11.7"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -215,6 +215,9 @@ unfixable = []
 ]
 "src/infrastructure/connectors/musicbrainz/status.py" = [
     "unused-async",   # status_fn Protocol requires async callables even for stateless probes
+]
+"src/infrastructure/connectors/_shared/http_client.py" = [
+    "unused-async",   # httpx2 AsyncClient always awaits its event hooks; a sync hook raises TypeError
 ]
 "src/application/chat/tool_executor.py" = [
     "unused-async",   # ToolDispatch protocol requires async dispatchers even without await
@@ -526,6 +529,10 @@ ignore_imports = [
     # Same bridge shape for the connector registry: the `connector_catalog`
     # protocol's concrete provider, imported inside the method that needs it.
     "src.application.use_cases._shared.connector_catalog -> src.infrastructure.connectors",
+    # Same bridge module, second reader: the registry-declared external page
+    # links, so the application layer stores a real playlist URL instead of a
+    # guessed one. `_shared/external_urls` is the registry's single URL reader.
+    "src.application.use_cases._shared.connector_catalog -> src.infrastructure.connectors._shared.external_urls",
 ]
 
 [[tool.importlinter.contracts]]
@@ -565,10 +572,12 @@ ignore_imports = [
     "src.interface.api.routes.connectors -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.api.routes.connectors -> src.infrastructure.connectors.discovery",
     "src.interface.api.routes.connectors -> src.infrastructure.connectors.protocols",
-    # Same carve-out, v0.11.1: the Discogs BYO personal access token — the PUT
-    # route and `mixd discogs connect` share one live validator
-    # (discogs/token_service) and the token store, like the assistant key.
-    "src.interface.api.routes.connectors -> src.infrastructure.connectors.discogs.token_service",
+    # Connector registry metadata, not a credential: each connector declares the
+    # canonical web page for one of its tracks (`track_url`), and the track
+    # detail read-model renders the link. Static config the registry already
+    # publishes to `interface/` next door in `routes/connectors.py`; a port would
+    # carry a callable through the domain to no benefit.
+    "src.interface.api.schemas.tracks -> src.infrastructure.connectors._shared.external_urls",
     "src.interface.cli.discogs_commands -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.cli.discogs_commands -> src.infrastructure.connectors.discogs.token_service",
     # Same carve-out, v0.11.3: `mixd tidal auth` — the device-code flow with
@@ -592,6 +601,10 @@ ignore_imports = [
     # Same carve-out, factored into the FastAPI dependency module that the
     # OAuth/assistant-key routes above depend on.
     "src.interface.api.deps -> src.infrastructure.connectors._shared.token_storage",
+    # Same carve-out, narrowed: `connector_access` is the pure verdict predicate
+    # both `deps` and the schedule schemas read, so it names `StoredToken` (the
+    # credential TypedDict) and nothing else from infrastructure.
+    "src.interface.api.connector_access -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.api.deps -> src.infrastructure.chat.credentials",
     "src.interface.api.deps -> src.infrastructure.chat.anthropic_adapter",
     # interface-patterns.md, v0.9.0 assistant API-key carve-out — the acting

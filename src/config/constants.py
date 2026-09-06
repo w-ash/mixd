@@ -16,6 +16,15 @@ type NodeType = Literal[
 """Workflow node categories. Single source of truth: the node registry derives
 its valid category set from this alias, and every consumer imports it."""
 
+type SubOperationOutcome = Literal["succeeded", "skipped_unchanged", "failed"]
+"""Per-item verdict a batch sub-operation reports on itself.
+
+Single source of truth across the layers that never import each other: the
+application-layer producer types its ``outcome`` argument with it, the SSE
+schema aliases it for the wire, and the API-layer narrower drops anything
+outside it.
+"""
+
 
 class HTTPStatus:
     """HTTP status range boundaries for connector error classification.

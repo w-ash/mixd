@@ -89,23 +89,14 @@ describe("BaseWorkflowNode", () => {
     expect(screen.getByTestId("handle-source")).toBeInTheDocument();
   });
 
-  it("hides target handle for source nodes in edit mode", () => {
-    const data: WorkflowNodeData = {
-      ...baseData,
-      mode: "edit",
-    };
-    render(<BaseWorkflowNode {...defaultProps} data={data} />);
+  it("hides the target handle when the node takes no input", () => {
+    render(<BaseWorkflowNode {...defaultProps} hasInput={false} />);
     expect(screen.queryByTestId("handle-target")).not.toBeInTheDocument();
     expect(screen.getByTestId("handle-source")).toBeInTheDocument();
   });
 
-  it("hides source handle for destination nodes in edit mode", () => {
-    const data: WorkflowNodeData = {
-      ...baseData,
-      nodeType: "destination.save_playlist",
-      mode: "edit",
-    };
-    render(<BaseWorkflowNode {...defaultProps} data={data} />);
+  it("hides the source handle when nothing consumes the node output", () => {
+    render(<BaseWorkflowNode {...defaultProps} hasOutput={false} />);
     expect(screen.getByTestId("handle-target")).toBeInTheDocument();
     expect(screen.queryByTestId("handle-source")).not.toBeInTheDocument();
   });

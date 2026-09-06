@@ -11,6 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from src.application.workflows.nodes.config_fields import ConfigFieldDef, FieldType
+from src.config.constants import NodeType
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.workflow import (
     RunStatus,
@@ -142,8 +143,12 @@ class ConfigFieldSchema(BaseModel):
 
 class NodeTypeInfoSchema(BaseModel):
     type: str
-    category: str
+    category: NodeType
     description: str
+    #: Tracklist/playlist shapes the node consumes and produces. A source has no
+    #: input; every other category declares both. ``None`` means undeclared.
+    input_type: str | None = None
+    output_type: str | None = None
     config_fields: list[ConfigFieldSchema] = []
     required_config: list[str] = []
     optional_config: list[str] = []

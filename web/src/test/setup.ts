@@ -5,12 +5,36 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
 // jsdom polyfills — APIs missing from jsdom that components rely on
+// ResizeObserver stub reports a desktop-width box on observe() so container
+// queries default to the wide branch, mirroring the matchMedia stub below.
+// Tests that need a narrow container stub getBoundingClientRect instead.
 globalThis.ResizeObserver = class {
-  observe() {}
+  readonly callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+  }
+  observe(target: Element) {
+    const entry = {
+      target,
+      contentRect: { width: 1280, height: 800 },
+    } as ResizeObserverEntry;
+    this.callback([entry], this as unknown as ResizeObserver);
+  }
   unobserve() {}
   disconnect() {}
 };
 Element.prototype.scrollIntoView = () => {};
+// React Flow reads the canvas zoom through DOMMatrixReadOnly, which jsdom
+// lacks. Minimal shape from the @xyflow/react testing guide.
+class DOMMatrixReadOnlyStub {
+  readonly m22: number;
+  constructor(transform?: string) {
+    const scale = transform?.match(/scale\(([1-9.]+)\)/)?.[1];
+    this.m22 = scale === undefined ? 1 : Number(scale);
+  }
+}
+globalThis.DOMMatrixReadOnly =
+  DOMMatrixReadOnlyStub as unknown as typeof DOMMatrixReadOnly;
 // Pointer-capture APIs jsdom lacks — dnd-kit's PointerSensor calls these on
 // drag activation (and pointer events generally). Without them, jsdom throws
 // "setPointerCapture is not a function" on any pointer interaction in a

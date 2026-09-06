@@ -13,15 +13,16 @@
  *
  * It deliberately owns NO terminal semantics: the two worlds parse the `error`
  * channel differently (workflows read `final_status`/`error_message` and surface
- * a returned error; operations read `message`/`counts` and set their own progress
- * state). So every parsed frame is handed to the wrapper via `onDomainEvent`,
- * which decides what is terminal and calls `reportTerminal()` to arbitrate.
+ * a returned error; operations read `error_message`/`counts` and set their own
+ * progress state). So every decoded frame is handed to the wrapper via
+ * `onDomainEvent`, which decides what is terminal and calls `reportTerminal()`
+ * to arbitrate.
  */
 
 import { useCallback, useRef, useState } from "react";
 
 import { useSSEConnection } from "#/hooks/useSSEConnection";
-import type { SSEState } from "#/lib/sse-types";
+import type { SSEDomainEvent, SSEState } from "#/lib/sse-types";
 
 /**
  * Why the recovery gate is open.
@@ -50,11 +51,7 @@ export interface UseOperationSSEOptions {
    * semantics; it calls the supplied `reportTerminal` to arbitrate a terminal
    * (idempotent across the SSE channel and the recovery fetch).
    */
-  onDomainEvent: (
-    eventType: string,
-    data: Record<string, unknown>,
-    reportTerminal: () => boolean,
-  ) => void;
+  onDomainEvent: (event: SSEDomainEvent, reportTerminal: () => boolean) => void;
   /** Clear wrapper-owned domain state. Invoked on every start/adopt/reset. */
   onReset?: () => void;
   /** Called when the SSE stream ends normally (iterator exhausted, not aborted). */
@@ -126,12 +123,8 @@ export function useOperationSSE(
     lastEventAt,
   } = useSSEConnection(operationId, {
     resumeDelayMs: options.resumeDelayMs,
-    onEvent(eventType, data) {
-      onDomainEventRef.current(
-        eventType,
-        data as Record<string, unknown>,
-        reportTerminalRef.current,
-      );
+    onEvent(event) {
+      onDomainEventRef.current(event, reportTerminalRef.current);
     },
     onStreamEnd() {
       // Only an *abnormal* close (no terminal latched) needs wrapper handling.

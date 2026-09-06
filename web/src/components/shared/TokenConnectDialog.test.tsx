@@ -12,12 +12,25 @@ import {
   userEvent,
   waitFor,
 } from "#/test/test-utils";
-import { DiscogsTokenDialog } from "./DiscogsTokenDialog";
+import { TokenConnectDialog } from "./TokenConnectDialog";
 
-describe("DiscogsTokenDialog", () => {
+/** The dialog under its only shipped connector. */
+function DiscogsDialog(props: { onOpenChange?: (open: boolean) => void }) {
+  return (
+    <TokenConnectDialog
+      service="discogs"
+      displayName="Discogs"
+      open
+      onOpenChange={props.onOpenChange ?? (() => {})}
+    />
+  );
+}
+
+describe("TokenConnectDialog", () => {
   it("walks through the personal-access-token steps, not the OAuth app flow", () => {
-    renderWithProviders(<DiscogsTokenDialog open onOpenChange={() => {}} />);
+    renderWithProviders(<DiscogsDialog />);
 
+    expect(screen.getByText("Connect Discogs")).toBeInTheDocument();
     expect(screen.getByText(/Personal access token/)).toBeInTheDocument();
     expect(
       screen.getByText(/ignore the OAuth application fields/i),
@@ -31,10 +44,9 @@ describe("DiscogsTokenDialog", () => {
     seedQuery(queryClient, getGetConnectorsApiV1ConnectorsGetQueryKey());
     const onOpenChange = vi.fn();
 
-    renderWithProviders(
-      <DiscogsTokenDialog open onOpenChange={onOpenChange} />,
-      { queryClient },
-    );
+    renderWithProviders(<DiscogsDialog onOpenChange={onOpenChange} />, {
+      queryClient,
+    });
 
     await user.type(
       screen.getByLabelText("Discogs personal access token"),
@@ -58,8 +70,8 @@ describe("DiscogsTokenDialog", () => {
         return HttpResponse.json(
           {
             error: {
-              // The real backend envelope: middleware maps
-              // DiscogsInvalidTokenError to 400 DISCOGS_INVALID_TOKEN.
+              // The real backend envelope: middleware maps the connector's
+              // invalid-token error to a 400.
               code: "DISCOGS_INVALID_TOKEN",
               message: "Discogs rejected the token",
             },
@@ -69,7 +81,7 @@ describe("DiscogsTokenDialog", () => {
       }),
     );
 
-    renderWithProviders(<DiscogsTokenDialog open onOpenChange={() => {}} />);
+    renderWithProviders(<DiscogsDialog />);
 
     await user.type(
       screen.getByLabelText("Discogs personal access token"),
@@ -83,8 +95,43 @@ describe("DiscogsTokenDialog", () => {
   });
 
   it("disables submit while the token is empty", () => {
-    renderWithProviders(<DiscogsTokenDialog open onOpenChange={() => {}} />);
+    renderWithProviders(<DiscogsDialog />);
 
     expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
+  });
+
+  it("PUTs to the connector named in props, with generic copy", async () => {
+    const user = userEvent.setup();
+    let putUrl = "";
+    server.use(
+      http.put("*/api/v1/connectors/:service/token", ({ request }) => {
+        putUrl = new URL(request.url).pathname;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    // A token connector this build ships no instructions for: title, copy
+    // and field label still come from `display_name`, and the form works.
+    renderWithProviders(
+      <TokenConnectDialog
+        service="future_crate"
+        displayName="Future Crate"
+        open
+        onOpenChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Connect Future Crate")).toBeInTheDocument();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("Future Crate personal access token"),
+      "some-token",
+    );
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => {
+      expect(putUrl).toBe("/api/v1/connectors/future_crate/token");
+    });
   });
 });

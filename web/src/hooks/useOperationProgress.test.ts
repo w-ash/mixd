@@ -7,7 +7,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OperationRunSummarySchema } from "#/api/generated/model";
 import { server } from "#/test/setup";
 
-import { useOperationProgress } from "./useOperationProgress";
+import {
+  isTerminalProgress,
+  type OperationProgress,
+  type OperationStatus,
+  useOperationProgress,
+} from "./useOperationProgress";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
@@ -21,7 +26,11 @@ import {
   seedQuery,
   wasInvalidated,
 } from "#/test/query-utils";
-import { mockSSEOpenStream, mockSSEWithEvents } from "#/test/sse-test-utils";
+import {
+  mockSSEOpenStream,
+  mockSSEWithEvents,
+  sseFrame,
+} from "#/test/sse-test-utils";
 
 /** Mock connectToSSE to reject with an error. */
 function mockSSEError(message: string) {
@@ -92,8 +101,7 @@ describe("useOperationProgress", () => {
     });
 
     expect(result.current.progress).toBeNull();
-    expect(result.current.isConnected).toBe(false);
-    expect(result.current.error).toBeNull();
+    expect(result.current.isActive).toBe(false);
   });
 
   it("sets initial pending state before connection opens", () => {
@@ -121,25 +129,9 @@ describe("useOperationProgress", () => {
     );
   });
 
-  it("connects and sets isConnected on open", async () => {
-    const { close } = mockSSEOpenStream();
-
-    const { result } = renderHook(() => useOperationProgress("op-123"), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.isConnected).toBe(true);
-    });
-    close();
-  });
-
   it("handles started event", async () => {
     const { close } = mockSSEOpenStream([
-      {
-        event: "started",
-        data: JSON.stringify({ total: 200, description: "Importing tracks" }),
-      },
+      sseFrame("started", { total: 200, description: "Importing tracks" }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -160,17 +152,14 @@ describe("useOperationProgress", () => {
 
   it("handles progress event with metrics", async () => {
     const { close } = mockSSEOpenStream([
-      {
-        event: "progress",
-        data: JSON.stringify({
-          current: 50,
-          total: 100,
-          message: "Halfway there",
-          completion_percentage: 50.0,
-          items_per_second: 2.5,
-          eta_seconds: 20,
-        }),
-      },
+      sseFrame("progress", {
+        current: 50,
+        total: 100,
+        message: "Halfway there",
+        completion_percentage: 50.0,
+        items_per_second: 2.5,
+        eta_seconds: 20,
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -194,12 +183,7 @@ describe("useOperationProgress", () => {
   });
 
   it("handles complete event", async () => {
-    mockSSEWithEvents([
-      {
-        event: "complete",
-        data: JSON.stringify({ final_status: "completed" }),
-      },
-    ]);
+    mockSSEWithEvents([sseFrame("complete", { final_status: "completed" })]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
       wrapper: createWrapper(),
@@ -217,13 +201,10 @@ describe("useOperationProgress", () => {
 
   it("exposes per-operation counts from the terminal complete event", async () => {
     mockSSEWithEvents([
-      {
-        event: "complete",
-        data: JSON.stringify({
-          final_status: "completed",
-          counts: { track_plays: 42, errors: 0 },
-        }),
-      },
+      sseFrame("complete", {
+        final_status: "completed",
+        counts: { track_plays: 42, errors: 0 },
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -240,10 +221,7 @@ describe("useOperationProgress", () => {
 
   it("handles error event from server", async () => {
     mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({ message: "Import failed: rate limited" }),
-      },
+      sseFrame("error", { error_message: "Import failed: rate limited" }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -261,17 +239,26 @@ describe("useOperationProgress", () => {
   });
 
   it("ignores events with empty data", async () => {
-    const { close } = mockSSEOpenStream([{ event: "progress", data: "" }]);
+    // The empty frame must contribute nothing and must not break the stream:
+    // the event after it still lands.
+    const { close } = mockSSEOpenStream([
+      { event: "progress", data: "" },
+      sseFrame("progress", { current: 7, message: "After empty event" }),
+    ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
       wrapper: createWrapper(),
     });
 
-    // Wait for connection + stream consumption, then verify status unchanged
     await waitFor(() => {
-      expect(result.current.isConnected).toBe(true);
+      expect(result.current.progress).toEqual(
+        expect.objectContaining({
+          status: "running",
+          current: 7,
+          message: "After empty event",
+        }),
+      );
     });
-    expect(result.current.progress?.status).toBe("pending");
     close();
   });
 
@@ -286,20 +273,18 @@ describe("useOperationProgress", () => {
       },
     );
 
-    await waitFor(() => {
-      expect(result.current.isConnected).toBe(true);
-    });
+    expect(result.current.progress?.status).toBe("pending");
 
     rerender({ id: null });
 
     await waitFor(() => {
       expect(result.current.progress).toBeNull();
-      expect(result.current.isConnected).toBe(false);
+      expect(result.current.isActive).toBe(false);
     });
     close();
   });
 
-  it("surfaces the transport error once the bounded resume is spent", async () => {
+  it("keeps a run with no audit row yet unresolved, not failed", async () => {
     mockSSEError("SSE connection failed: 404");
     mockRunRows();
 
@@ -308,23 +293,20 @@ describe("useOperationProgress", () => {
       { wrapper: createWrapper() },
     );
 
+    // A dead socket is not a dead run — the card reads as reconnecting while
+    // the durable row is still being polled for.
     await waitFor(() => {
-      expect(result.current.error).toBeInstanceOf(Error);
-      expect(result.current.error?.message).toMatch(/SSE connection failed/);
+      expect(result.current.progress?.status).toBe("reconnecting");
     });
-    // A dead socket is not a dead run — the card must not read as failed yet.
-    expect(result.current.progress?.status).not.toBe("failed");
+    expect(result.current.isActive).toBe(true);
   });
 
   it("invalidates what the server says the run touched, on complete", async () => {
     mockSSEWithEvents([
-      {
-        event: "complete",
-        data: JSON.stringify({
-          final_status: "completed",
-          touched: ["checkpoints"],
-        }),
-      },
+      sseFrame("complete", {
+        final_status: "completed",
+        touched: ["checkpoints"],
+      }),
     ]);
 
     const queryClient = createTestQueryClient();
@@ -344,14 +326,11 @@ describe("useOperationProgress", () => {
   it("skips malformed JSON and processes subsequent valid events", async () => {
     const { close } = mockSSEOpenStream([
       { event: "progress", data: "not valid json{{{" },
-      {
-        event: "progress",
-        data: JSON.stringify({
-          current: 10,
-          total: 50,
-          message: "After bad event",
-        }),
-      },
+      sseFrame("progress", {
+        current: 10,
+        total: 50,
+        message: "After bad event",
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -367,8 +346,6 @@ describe("useOperationProgress", () => {
         }),
       );
     });
-    // No error surfaced — malformed events are silently skipped
-    expect(result.current.error).toBeNull();
     close();
   });
 
@@ -414,10 +391,7 @@ describe("useOperationProgress", () => {
 
     // Now switch to second operationId — should abort the first
     const { close } = mockSSEOpenStream([
-      {
-        event: "started",
-        data: JSON.stringify({ description: "Second operation" }),
-      },
+      sseFrame("started", { description: "Second operation" }),
     ]);
     rerender({ id: "op-second" });
 
@@ -436,7 +410,7 @@ describe("useOperationProgress", () => {
     close();
   });
 
-  it("suppresses AbortError without setting error state", async () => {
+  it("suppresses AbortError and stays in the pending state", async () => {
     vi.mocked(connectToSSE).mockRejectedValue(
       new DOMException("The operation was aborted", "AbortError"),
     );
@@ -450,20 +424,14 @@ describe("useOperationProgress", () => {
       // The pending state is set synchronously, so it should exist
       expect(result.current.progress?.status).toBe("pending");
     });
-
-    // AbortError should NOT surface — no error state set
-    expect(result.current.error).toBeNull();
   });
 
   it("invalidates on error too — a failed run may have written", async () => {
     mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({
-          message: "Rate limit exceeded",
-          touched: ["checkpoints"],
-        }),
-      },
+      sseFrame("error", {
+        error_message: "Rate limit exceeded",
+        touched: ["checkpoints"],
+      }),
     ]);
 
     const queryClient = createTestQueryClient();
@@ -482,19 +450,13 @@ describe("useOperationProgress", () => {
 
   it("handles sub_operation_started event", async () => {
     mockSSEWithEvents([
-      {
-        event: "started",
-        data: JSON.stringify({ total: 100, description: "Running workflow" }),
-      },
-      {
-        event: "sub_operation_started",
-        data: JSON.stringify({
-          operation_id: "sub-1",
-          description: "Fetching Last.fm metadata",
-          total: 50,
-          phase: "enrich",
-        }),
-      },
+      sseFrame("started", { total: 100, description: "Running workflow" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "sub-1",
+        description: "Fetching Last.fm metadata",
+        total: 50,
+        phase: "enrich",
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -515,28 +477,19 @@ describe("useOperationProgress", () => {
 
   it("handles sub_progress event", async () => {
     mockSSEWithEvents([
-      {
-        event: "started",
-        data: JSON.stringify({ total: 100, description: "Running workflow" }),
-      },
-      {
-        event: "sub_operation_started",
-        data: JSON.stringify({
-          operation_id: "sub-1",
-          description: "Fetching metadata",
-          total: 50,
-        }),
-      },
-      {
-        event: "sub_progress",
-        data: JSON.stringify({
-          operation_id: "sub-1",
-          current: 25,
-          total: 50,
-          message: "Processed 25/50",
-          completion_percentage: 50.0,
-        }),
-      },
+      sseFrame("started", { total: 100, description: "Running workflow" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "sub-1",
+        description: "Fetching metadata",
+        total: 50,
+      }),
+      sseFrame("sub_progress", {
+        operation_id: "sub-1",
+        current: 25,
+        total: 50,
+        message: "Processed 25/50",
+        completion_percentage: 50.0,
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -557,25 +510,16 @@ describe("useOperationProgress", () => {
 
   it("handles sub_operation_completed event", async () => {
     const { close } = mockSSEOpenStream([
-      {
-        event: "started",
-        data: JSON.stringify({ total: 100, description: "Running workflow" }),
-      },
-      {
-        event: "sub_operation_started",
-        data: JSON.stringify({
-          operation_id: "sub-1",
-          description: "Fetching metadata",
-          total: 50,
-        }),
-      },
-      {
-        event: "sub_operation_completed",
-        data: JSON.stringify({
-          operation_id: "sub-1",
-          final_status: "completed",
-        }),
-      },
+      sseFrame("started", { total: 100, description: "Running workflow" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "sub-1",
+        description: "Fetching metadata",
+        total: 50,
+      }),
+      sseFrame("sub_operation_completed", {
+        operation_id: "sub-1",
+        final_status: "completed",
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -601,33 +545,21 @@ describe("useOperationProgress", () => {
 
   it("attributes a nested phase's progress to the item that owns it", async () => {
     mockSSEWithEvents([
-      {
-        event: "started",
-        data: JSON.stringify({
-          total: 2,
-          description: "Import Spotify Export",
-        }),
-      },
-      {
-        event: "sub_operation_started",
-        data: JSON.stringify({
-          operation_id: "file-1",
-          item_operation_id: "file-1",
-          description: "Import Spotify History",
-        }),
-      },
-      {
-        event: "sub_progress",
-        data: JSON.stringify({
-          operation_id: "resolve-1",
-          item_operation_id: "file-1",
-          current: 812,
-          total: 1204,
-          message: "Resolved 812/1204 plays (spotify)",
-          completion_percentage: 67.4,
-          phase: "match",
-        }),
-      },
+      sseFrame("started", { total: 2, description: "Import Spotify Export" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "file-1",
+        item_operation_id: "file-1",
+        description: "Import Spotify History",
+      }),
+      sseFrame("sub_progress", {
+        operation_id: "resolve-1",
+        item_operation_id: "file-1",
+        current: 812,
+        total: 1204,
+        message: "Resolved 812/1204 plays (spotify)",
+        completion_percentage: 67.4,
+        phase: "match",
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("drain-op"), {
@@ -649,30 +581,18 @@ describe("useOperationProgress", () => {
     // These arrive exactly once, on the parent's stream. The item's own stream
     // closes moments later, so there is no second chance to read them.
     const { close } = mockSSEOpenStream([
-      {
-        event: "started",
-        data: JSON.stringify({
-          total: 2,
-          description: "Import Spotify Export",
-        }),
-      },
-      {
-        event: "sub_operation_started",
-        data: JSON.stringify({
-          operation_id: "file-1",
-          item_operation_id: "file-1",
-          description: "Import Spotify History",
-        }),
-      },
-      {
-        event: "sub_operation_completed",
-        data: JSON.stringify({
-          operation_id: "file-1",
-          item_operation_id: "file-1",
-          final_status: "completed",
-          counts: { track_plays: 14208 },
-        }),
-      },
+      sseFrame("started", { total: 2, description: "Import Spotify Export" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "file-1",
+        item_operation_id: "file-1",
+        description: "Import Spotify History",
+      }),
+      sseFrame("sub_operation_completed", {
+        operation_id: "file-1",
+        item_operation_id: "file-1",
+        final_status: "completed",
+        counts: { track_plays: 14208 },
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("drain-op"), {
@@ -690,34 +610,116 @@ describe("useOperationProgress", () => {
     close();
   });
 
+  it("records a crashed item as failed, and a cancelled one not at all", async () => {
+    // `completed` is not the only non-`failed` terminal an item can carry: a
+    // crash is a failure, and a cancellation is neither column.
+    const { close } = mockSSEOpenStream([
+      sseFrame("started", { total: 2, description: "Import Spotify Export" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "file-1",
+        item_operation_id: "file-1",
+        description: "Import Spotify History",
+      }),
+      sseFrame("sub_operation_completed", {
+        operation_id: "file-1",
+        item_operation_id: "file-1",
+        final_status: "crashed",
+      }),
+      sseFrame("sub_operation_started", {
+        operation_id: "file-2",
+        item_operation_id: "file-2",
+        description: "Import Spotify History",
+      }),
+      sseFrame("sub_operation_completed", {
+        operation_id: "file-2",
+        item_operation_id: "file-2",
+        final_status: "cancelled",
+      }),
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("drain-op"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.progress?.subOperationHistory["file-1"]?.outcome,
+      ).toBe("failed");
+    });
+    // A cancelled item is counted in no column, so its row keeps the null
+    // outcome the start frame opened it with.
+    expect(
+      result.current.progress?.subOperationHistory["file-2"]?.outcome,
+    ).toBeNull();
+    // It still retires the live row it was occupying.
+    expect(result.current.progress?.subOperation).toBeNull();
+    close();
+  });
+
+  it("keeps what earlier frames recorded as a row is folded together", async () => {
+    // No single frame carries the whole row: the name arrives with the start,
+    // the resolve counts with the progress, and the counts with the terminal.
+    const { close } = mockSSEOpenStream([
+      sseFrame("started", { total: 1, description: "Import playlists" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "sub-1",
+        connector_playlist_identifier: "spotify:1",
+        playlist_name: "Late Night",
+        phase: "fetch",
+        description: "Importing Late Night",
+      }),
+      sseFrame("sub_progress", {
+        operation_id: "sub-1",
+        connector_playlist_identifier: "spotify:1",
+        current: 10,
+        total: 10,
+        message: "Resolved",
+        resolved: 9,
+        unresolved: 1,
+        canonical_playlist_id: "pl-1",
+      }),
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("op-123"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.subOperationHistory["spotify:1"]).toEqual(
+        {
+          operationId: "sub-1",
+          connectorPlaylistIdentifier: "spotify:1",
+          // Carried over from the start frame, which the progress frame omits.
+          playlistName: "Late Night",
+          phase: "fetch",
+          outcome: null,
+          resolved: 9,
+          unresolved: 1,
+          errorMessage: null,
+          canonicalPlaylistId: "pl-1",
+          counts: null,
+        },
+      );
+    });
+    close();
+  });
+
   it("a phase finishing does not clear the item still running above it", async () => {
     // Otherwise the live row blanks between ingest and resolve — the same
     // between-things gap, one level down.
     const { close } = mockSSEOpenStream([
-      {
-        event: "started",
-        data: JSON.stringify({
-          total: 2,
-          description: "Import Spotify Export",
-        }),
-      },
-      {
-        event: "sub_operation_started",
-        data: JSON.stringify({
-          operation_id: "ingest-1",
-          item_operation_id: "file-1",
-          description: "Ingesting",
-          phase: "fetch",
-        }),
-      },
-      {
-        event: "sub_operation_completed",
-        data: JSON.stringify({
-          operation_id: "ingest-1",
-          item_operation_id: "file-1",
-          final_status: "completed",
-        }),
-      },
+      sseFrame("started", { total: 2, description: "Import Spotify Export" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "ingest-1",
+        item_operation_id: "file-1",
+        description: "Ingesting",
+        phase: "fetch",
+      }),
+      sseFrame("sub_operation_completed", {
+        operation_id: "ingest-1",
+        item_operation_id: "file-1",
+        final_status: "completed",
+      }),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("drain-op"), {
@@ -750,11 +752,7 @@ describe("useOperationProgress", () => {
       vi.mocked(connectToSSE)
         .mockImplementationOnce(async () =>
           (async function* () {
-            yield {
-              event: "progress",
-              data: JSON.stringify({ current: 10, total: 100 }),
-              id: "evt_9",
-            };
+            yield sseFrame("progress", { current: 10, total: 100 }, "evt_9");
             throw new Error("network error");
           })(),
         )
@@ -765,21 +763,17 @@ describe("useOperationProgress", () => {
       vi.mocked(connectToSSE)
         .mockImplementationOnce(async () =>
           (async function* () {
-            yield {
-              event: "progress",
-              data: JSON.stringify({ current: 10, total: 100 }),
-              id: "evt_9",
-            };
+            yield sseFrame("progress", { current: 10, total: 100 }, "evt_9");
             throw new Error("network error");
           })(),
         )
         .mockImplementationOnce(async () =>
           (async function* () {
-            yield {
-              event: "complete",
-              data: JSON.stringify({ counts: { track_plays: 42 } }),
-              id: "evt_10",
-            };
+            yield sseFrame(
+              "complete",
+              { counts: { track_plays: 42 } },
+              "evt_10",
+            );
           })(),
         );
 
@@ -908,12 +902,7 @@ describe("useOperationProgress", () => {
     it("recovers a stream that ended without a terminal frame", async () => {
       // A clean EOF never fires the stall watchdog — this used to latch the
       // card at "Connection lost" with no way back.
-      mockSSEWithEvents([
-        {
-          event: "progress",
-          data: JSON.stringify({ current: 10, total: 100 }),
-        },
-      ]);
+      mockSSEWithEvents([sseFrame("progress", { current: 10, total: 100 })]);
       mockRunRows(makeRunRow({ status: "complete" }));
 
       const { result } = renderHook(
@@ -952,21 +941,15 @@ describe("useOperationProgress", () => {
 
   it("clears a still-active sub-op on complete (lost sub_operation_completed)", async () => {
     mockSSEWithEvents([
-      {
-        event: "started",
-        data: JSON.stringify({ total: 100, description: "Running workflow" }),
-      },
-      {
-        event: "sub_operation_started",
-        data: JSON.stringify({
-          operation_id: "sub-1",
-          description: "Fetching metadata",
-          total: 50,
-        }),
-      },
+      sseFrame("started", { total: 100, description: "Running workflow" }),
+      sseFrame("sub_operation_started", {
+        operation_id: "sub-1",
+        description: "Fetching metadata",
+        total: 50,
+      }),
       // No sub_operation_completed — the terminal `complete` must still clear the
       // sub-op so the UI can't show a spinning bar under a "Complete" badge.
-      { event: "complete", data: JSON.stringify({}) },
+      sseFrame("complete", {}),
     ]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
@@ -977,5 +960,41 @@ describe("useOperationProgress", () => {
       expect(result.current.progress?.status).toBe("completed");
       expect(result.current.progress?.subOperation).toBeNull();
     });
+  });
+});
+
+describe("isTerminalProgress", () => {
+  function progressWith(status: OperationStatus): OperationProgress {
+    return {
+      status,
+      current: 0,
+      total: null,
+      message: "",
+      description: null,
+      completionPercentage: null,
+      itemsPerSecond: null,
+      etaSeconds: null,
+      counts: null,
+      subOperation: null,
+      subOperationHistory: {},
+    };
+  }
+
+  it.each<OperationStatus>(["completed", "failed", "cancelled"])(
+    "treats %s as terminal",
+    (status) => {
+      expect(isTerminalProgress(progressWith(status))).toBe(true);
+    },
+  );
+
+  it.each<OperationStatus>(["pending", "running", "reconnecting"])(
+    "treats %s as still live",
+    (status) => {
+      expect(isTerminalProgress(progressWith(status))).toBe(false);
+    },
+  );
+
+  it("treats a run that never started as not terminal", () => {
+    expect(isTerminalProgress(null)).toBe(false);
   });
 });

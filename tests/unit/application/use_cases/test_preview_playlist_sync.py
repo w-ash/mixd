@@ -8,6 +8,8 @@ SyncPlan into PreviewPlaylistSyncResult (counts, safety flag, direction).
 from unittest.mock import AsyncMock, patch
 from uuid import uuid7
 
+import pytest
+
 from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
     SyncPreview,
@@ -18,6 +20,7 @@ from src.application.use_cases.preview_playlist_sync import (
 )
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
+from src.domain.exceptions import NotFoundError
 from src.domain.playlist.reconciliation import SyncPlan
 from tests.fixtures import make_mock_uow
 
@@ -69,3 +72,18 @@ async def test_preview_maps_plan_to_result():
     assert result.safety_flagged is False
     assert result.has_comparison_data is True
     assert result.confirm_token == "tok-123"
+
+
+async def test_preview_rejects_link_under_another_playlist():
+    """A nested route naming playlist A cannot preview playlist B's link."""
+    link = _link()
+    uow = make_mock_uow()
+    uow.get_playlist_link_repository().get_link = AsyncMock(return_value=link)
+
+    with pytest.raises(NotFoundError, match="not found"):
+        await PreviewPlaylistSyncUseCase().execute(
+            PreviewPlaylistSyncCommand(
+                user_id="u", link_id=link.id, playlist_id=uuid7()
+            ),
+            uow,
+        )

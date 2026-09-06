@@ -13,7 +13,12 @@ import {
 // Mock the SSE hook so tests never open a real EventSource — we drive the
 // rendered progress purely from its return value.
 const useOperationProgress = vi.hoisted(() => vi.fn());
-vi.mock("#/hooks/useOperationProgress", () => ({ useOperationProgress }));
+vi.mock("#/hooks/useOperationProgress", async () => ({
+  ...(await vi.importActual<typeof import("#/hooks/useOperationProgress")>(
+    "#/hooks/useOperationProgress",
+  )),
+  useOperationProgress,
+}));
 
 function makeProgress(
   over: Partial<OperationProgress> = {},
@@ -45,8 +50,6 @@ function mockProgress(progress: OperationProgress | null) {
   useOperationProgress.mockReturnValue({
     progress,
     isActive: progress?.status === "running" || progress?.status === "pending",
-    isConnected: true,
-    error: null,
   });
 }
 

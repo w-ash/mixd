@@ -306,3 +306,29 @@ class TestStateBearingPolicies:
         from src.interface.api.caching import _get_cache_policy
 
         assert _get_cache_policy("/api/v1/settings") == "no-cache"
+
+    def test_sync_targets_is_private_no_cache(self) -> None:
+        """The target list carries per-user availability, so it may never sit in
+        a shared cache and must revalidate after a connect/disconnect.
+        """
+        from src.interface.api.caching import _get_cache_policy
+
+        assert _get_cache_policy("/api/v1/sync/targets") == "private, no-cache"
+
+    def test_import_queue_is_private_no_cache(self) -> None:
+        """The queue GET is per user and is refetched right after an upload, so a
+        cached idle answer would hide the queue that upload just registered.
+        """
+        from src.interface.api.caching import _get_cache_policy
+
+        assert (
+            _get_cache_policy("/api/v1/imports/spotify/history/queue")
+            == "private, no-cache"
+        )
+
+    def test_sibling_sync_paths_keep_the_default_policy(self) -> None:
+        # Only the target list is user-state-bearing; a longer sync path must
+        # not inherit the stricter policy by accident.
+        from src.interface.api.caching import _DEFAULT_POLICY, _get_cache_policy
+
+        assert _get_cache_policy("/api/v1/sync/likes") == _DEFAULT_POLICY

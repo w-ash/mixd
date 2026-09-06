@@ -1,4 +1,4 @@
-"""Narrow ``update_extra_data`` writes on ``DatabaseTokenStorage``.
+"""Narrow ``update_extra_data`` and batched ``load_tokens`` reads.
 
 The blind load→mutate→``save_token`` shape rewrites every column, so a
 cache write racing a refresh rotation could resurrect a dead refresh token
@@ -152,3 +152,37 @@ class TestUpdateExtraData:
         loaded = await storage.load_token(SERVICE, user_id)
         assert loaded is not None
         assert loaded.get("refresh_token") == "rt-1"
+
+
+class TestLoadTokens:
+    """One query answers "which of these connectors is this user holding?"."""
+
+    @pytest.mark.usefixtures("seeded_token")
+    async def test_returns_a_key_per_requested_service(self, user_id: str) -> None:
+        storage = DatabaseTokenStorage()
+
+        tokens = await storage.load_tokens([SERVICE, "spotify"], user_id)
+
+        # Absent is a key mapped to None, not a missing key — the caller judges
+        # every service it asked about.
+        assert set(tokens) == {SERVICE, "spotify"}
+        assert tokens["spotify"] is None
+        stored = tokens[SERVICE]
+        assert stored is not None
+        assert stored.get("access_token") == "at-0"
+        assert stored.get("extra_data") == {"authorized_at": 1700000000}
+
+    @pytest.mark.usefixtures("seeded_token")
+    async def test_never_reads_another_user_row(self, user_id: str) -> None:
+        # Same predicate as load_token: user_id scoping plus the RLS context.
+        storage = DatabaseTokenStorage()
+
+        tokens = await storage.load_tokens([SERVICE], f"{user_id}-other")
+
+        assert tokens == {SERVICE: None}
+
+    @pytest.mark.usefixtures("standalone_db")
+    async def test_empty_request_opens_no_session(self, user_id: str) -> None:
+        storage = DatabaseTokenStorage()
+
+        assert await storage.load_tokens([], user_id) == {}

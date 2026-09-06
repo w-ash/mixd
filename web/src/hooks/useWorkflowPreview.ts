@@ -6,13 +6,13 @@
  */
 
 import { useCallback, useState } from "react";
-
+import type { SseNodePreviewSummary } from "#/api/generated/model";
 import {
   usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost,
   usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPost,
 } from "#/api/generated/workflows/workflows";
 import { useWorkflowSSE } from "#/hooks/useWorkflowSSE";
-import type { NodeStatus } from "#/lib/sse-types";
+import { type NodeStatus, SSE_EVENT } from "#/lib/sse-types";
 import { toasts } from "#/lib/toasts";
 import { useEditorStore } from "#/stores/editor-store";
 
@@ -24,12 +24,7 @@ export interface PreviewTrack {
   metrics?: Record<string, number | string | null>;
 }
 
-export interface NodePreviewSummary {
-  node_id: string;
-  node_type: string;
-  track_count: number;
-  sample_titles: string[];
-}
+export type NodePreviewSummary = SseNodePreviewSummary;
 
 export interface PreviewResult {
   output_tracks: PreviewTrack[];
@@ -47,8 +42,8 @@ export interface UseWorkflowPreviewReturn {
 }
 
 const PREVIEW_COMPLETION_EVENTS: ReadonlySet<string> = new Set([
-  "complete",
-  "preview_complete",
+  SSE_EVENT.COMPLETE,
+  SSE_EVENT.PREVIEW_COMPLETE,
 ]);
 
 export function useWorkflowPreview(): UseWorkflowPreviewReturn {
@@ -69,14 +64,14 @@ export function useWorkflowPreview(): UseWorkflowPreviewReturn {
     completionEvents: PREVIEW_COMPLETION_EVENTS,
     errorFallbackMessage: "Preview failed",
     onComplete: (_eventType, data) => {
-      const d = data as Record<string, unknown>;
-      if (d.output_tracks !== undefined) {
-        setPreviewResult({
-          output_tracks: (d.output_tracks as PreviewTrack[]) ?? [],
-          node_summaries: (d.node_summaries as NodePreviewSummary[]) ?? [],
-          metric_columns: (d.metric_columns as string[]) ?? [],
-        });
-      }
+      if (!("output_tracks" in data)) return;
+      setPreviewResult({
+        // The backend types a preview row as a free-form dict — the metric
+        // columns vary with the pipeline — so the row shape is asserted here.
+        output_tracks: data.output_tracks as unknown as PreviewTrack[],
+        node_summaries: data.node_summaries,
+        metric_columns: data.metric_columns,
+      });
     },
   });
 

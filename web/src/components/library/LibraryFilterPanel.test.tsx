@@ -2,34 +2,39 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { LibraryFilters } from "#/hooks/useLibraryFilters";
 import { mockMatchMedia } from "#/test/test-utils";
 
-import { countActiveFilters, LibraryFilterPanel } from "./LibraryFilterPanel";
+import { LibraryFilterPanel } from "./LibraryFilterPanel";
+
+function makeFilters(overrides: Partial<LibraryFilters> = {}): LibraryFilters {
+  return {
+    search: null,
+    preference: null,
+    liked: null,
+    connector: null,
+    tags: [],
+    tagMode: "and",
+    minPlays: null,
+    neverPlayed: false,
+    playedWithin: null,
+    notPlayedWithin: null,
+    sort: { field: "last_played", dir: "desc" },
+    ...overrides,
+  };
+}
 
 function baseProps() {
   return {
     expanded: true,
-    preference: null as null,
-    liked: null as null,
-    connector: null as null,
-    tags: [] as string[],
-    tagMode: "and" as const,
+    filters: makeFilters(),
+    setFilter: vi.fn(),
+    setFilters: vi.fn(),
     connectors: [
       { name: "spotify", display_name: "Spotify" },
       { name: "lastfm", display_name: "Last.fm" },
       // biome-ignore lint/suspicious/noExplicitAny: minimal test shape
     ] as any,
-    minPlays: null as number | null,
-    neverPlayed: false,
-    playedWithin: null as number | null,
-    notPlayedWithin: null as number | null,
-    onPreferenceChange: vi.fn(),
-    onLikedChange: vi.fn(),
-    onConnectorChange: vi.fn(),
-    onTagsChange: vi.fn(),
-    onTagModeChange: vi.fn(),
-    onPlayCountChange: vi.fn(),
-    onRecencyChange: vi.fn(),
   };
 }
 
@@ -50,16 +55,29 @@ describe("LibraryFilterPanel", () => {
     expect(panel).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("clicking a preference button fires onPreferenceChange", async () => {
-    const onPreferenceChange = vi.fn();
+  it("clicking a preference button writes the preference filter", async () => {
+    const setFilter = vi.fn();
+    render(<LibraryFilterPanel {...baseProps()} setFilter={setFilter} />);
+    await userEvent.click(screen.getByRole("button", { name: /Star/ }));
+    expect(setFilter).toHaveBeenCalledWith("preference", "star");
+  });
+
+  it("editing the minimum play count writes both play params at once", async () => {
+    const setFilters = vi.fn();
     render(
       <LibraryFilterPanel
         {...baseProps()}
-        onPreferenceChange={onPreferenceChange}
+        filters={makeFilters({ neverPlayed: true })}
+        setFilters={setFilters}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: /Star/ }));
-    expect(onPreferenceChange).toHaveBeenCalledWith("star");
+
+    await userEvent.type(screen.getByLabelText("Minimum play count"), "5");
+    // One navigation, so "never played" can't survive a min-plays edit.
+    expect(setFilters).toHaveBeenCalledWith({
+      minPlays: 5,
+      neverPlayed: false,
+    });
   });
 
   it("renders liked/connector selects with expected labels", () => {
@@ -99,51 +117,5 @@ describe("LibraryFilterPanel — mobile branch", () => {
       screen.getByRole("button", { name: "Close filters" }),
     );
     expect(onClose).toHaveBeenCalled();
-  });
-});
-
-describe("countActiveFilters", () => {
-  it("is 0 for an empty state", () => {
-    expect(
-      countActiveFilters({
-        preference: null,
-        liked: null,
-        connector: null,
-        tags: [],
-      }),
-    ).toBe(0);
-  });
-
-  it("counts each filter group at most once", () => {
-    expect(
-      countActiveFilters({
-        preference: "star",
-        liked: "true",
-        connector: "spotify",
-        tags: ["mood:chill", "energy:low"],
-      }),
-    ).toBe(4); // tags counts as 1 regardless of length
-  });
-
-  it("treats liked='false' as an active filter", () => {
-    expect(
-      countActiveFilters({
-        preference: null,
-        liked: "false",
-        connector: null,
-        tags: [],
-      }),
-    ).toBe(1);
-  });
-
-  it("treats liked='all'/garbage as inactive", () => {
-    expect(
-      countActiveFilters({
-        preference: null,
-        liked: "all",
-        connector: null,
-        tags: [],
-      }),
-    ).toBe(0);
   });
 });

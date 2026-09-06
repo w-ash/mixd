@@ -8,7 +8,7 @@ vi.mock("#/api/auth", () => ({
   getAuthToken: (...args: unknown[]) => mockGetAuthToken(...(args as [])),
 }));
 
-import { connectToSSE } from "./sse-client";
+import { connectToSSE, SSEHttpError } from "./sse-client";
 
 // ─── Helpers ───────────────────────────────────────────────────
 
@@ -99,6 +99,47 @@ describe("connectToSSE", () => {
     });
   });
 
+  describe("request shape", () => {
+    it("defaults to GET with no body", async () => {
+      mockFetchOk();
+
+      try {
+        await connectToSSE(
+          "/api/v1/operations/op-1/progress",
+          new AbortController().signal,
+        );
+      } catch {
+        // Body stream parsing fails in jsdom — expected
+      }
+
+      const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+      expect(init.method).toBe("GET");
+      expect(init.body).toBeUndefined();
+    });
+
+    it("sends a POST body and merges caller headers", async () => {
+      mockFetchOk();
+
+      try {
+        await connectToSSE("/api/v1/chat", new AbortController().signal, {
+          method: "POST",
+          body: '{"messages":[]}',
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch {
+        // Body stream parsing fails in jsdom — expected
+      }
+
+      const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe('{"messages":[]}');
+      expect(init.headers).toMatchObject({
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+      });
+    });
+  });
+
   describe("resume", () => {
     it("sends Last-Event-ID so the server replays only what was missed", async () => {
       mockFetchOk();
@@ -169,6 +210,34 @@ describe("connectToSSE", () => {
       // If timeout wasn't cleared, the signal would have been aborted.
       // No error means the timeout was properly cleaned up.
     });
+
+    it("never abandons a handshake given a zero budget", async () => {
+      // A handshake that does committed work before its first byte — the chat
+      // POST runs confirmed tool calls — must not be dropped on a deadline.
+      mockFetchHanging();
+      vi.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        const outcome = connectToSSE("/api/v1/chat", controller.signal, {
+          connectionTimeoutMs: 0,
+        }).then(
+          () => "resolved",
+          (error: Error) => error.message,
+        );
+        const stillPending = Symbol("pending");
+
+        await vi.advanceTimersByTimeAsync(10 * 60_000);
+        expect(
+          await Promise.race([outcome, Promise.resolve(stillPending)]),
+        ).toBe(stillPending);
+
+        // The caller's own abort is still the way out.
+        controller.abort(new Error("stopped"));
+        expect(await outcome).toBe("stopped");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("error handling", () => {
@@ -182,6 +251,29 @@ describe("connectToSSE", () => {
           { connectionTimeoutMs: 1000 },
         ),
       ).rejects.toThrow("SSE connection failed: 401");
+    });
+
+    it("carries the unread response on the rejection so callers can read it", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: { code: "NOPE" } }), {
+            status: 403,
+          }),
+        ),
+      );
+
+      const error = await connectToSSE(
+        "/api/v1/chat",
+        new AbortController().signal,
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(SSEHttpError);
+      const httpError = error as SSEHttpError;
+      expect(httpError.status).toBe(403);
+      await expect(httpError.response.json()).resolves.toEqual({
+        error: { code: "NOPE" },
+      });
     });
 
     it("propagates user-initiated abort as-is", async () => {

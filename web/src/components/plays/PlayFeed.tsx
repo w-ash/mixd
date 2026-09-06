@@ -1,7 +1,12 @@
+import { useCallback, useMemo } from "react";
 import { Link } from "react-router";
 import { GroupedVirtuoso } from "react-virtuoso";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
-import { formatRelativeTime, formatTimeOfDay } from "#/lib/format";
+import {
+  formatDateTime,
+  formatRelativeTime,
+  formatTimeOfDay,
+} from "#/lib/format";
 import type { CollapsedPlayRow, PlayDayGroup } from "#/lib/play-feed";
 
 interface PlayFeedProps {
@@ -20,7 +25,7 @@ function PlayRow({
   row: CollapsedPlayRow;
   isToday: boolean;
 }) {
-  const exact = new Date(row.newestAt).toLocaleString();
+  const exact = formatDateTime(row.newestAt);
   const timeLabel = isToday
     ? formatRelativeTime(row.newestAt)
     : formatTimeOfDay(row.newestAt);
@@ -74,30 +79,44 @@ export function PlayFeed({
   initialItemCount,
   className,
 }: PlayFeedProps) {
-  const rows = groups.flatMap((g) => g.rows);
-  const todayLabelSet = new Set(
-    groups.filter((g) => g.label === "Today").map((g) => g.dayKey),
+  const { rows, todayLabelSet, dayKeyByRowIndex, groupCounts } = useMemo(() => {
+    const rows = groups.flatMap((g) => g.rows);
+    const todayLabelSet = new Set(
+      groups.filter((g) => g.label === "Today").map((g) => g.dayKey),
+    );
+    const dayKeyByRowIndex: string[] = groups.flatMap((g) =>
+      g.rows.map(() => g.dayKey),
+    );
+    const groupCounts = groups.map((g) => g.rows.length);
+    return { rows, todayLabelSet, dayKeyByRowIndex, groupCounts };
+  }, [groups]);
+
+  const groupContent = useCallback(
+    (index: number) => (
+      <div className="border-b border-border bg-surface px-4 py-2 font-display text-xs uppercase tracking-wider text-text-muted">
+        {groups[index].label}
+      </div>
+    ),
+    [groups],
   );
-  const dayKeyByRowIndex: string[] = groups.flatMap((g) =>
-    g.rows.map(() => g.dayKey),
+
+  const itemContent = useCallback(
+    (index: number) => (
+      <PlayRow
+        row={rows[index]}
+        isToday={todayLabelSet.has(dayKeyByRowIndex[index])}
+      />
+    ),
+    [rows, todayLabelSet, dayKeyByRowIndex],
   );
 
   return (
     <div className={className ?? "h-[65vh]"} data-testid="play-feed">
       <GroupedVirtuoso
-        groupCounts={groups.map((g) => g.rows.length)}
+        groupCounts={groupCounts}
         initialItemCount={initialItemCount}
-        groupContent={(index) => (
-          <div className="border-b border-border bg-surface px-4 py-2 font-display text-xs uppercase tracking-wider text-text-muted">
-            {groups[index].label}
-          </div>
-        )}
-        itemContent={(index) => (
-          <PlayRow
-            row={rows[index]}
-            isToday={todayLabelSet.has(dayKeyByRowIndex[index])}
-          />
-        )}
+        groupContent={groupContent}
+        itemContent={itemContent}
         endReached={onEndReached}
       />
     </div>

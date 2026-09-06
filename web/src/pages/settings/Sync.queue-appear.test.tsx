@@ -1,7 +1,7 @@
 /**
  * Repro for the prod sequence the generated MSW defaults never exercise:
- * the page loads with NO queue (GET 404 → query error state), the user
- * uploads, and the queue section must appear without a reload.
+ * the page loads with no queue (`queue: null`), the user uploads, and the
+ * queue section must appear without a reload.
  */
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,14 +16,15 @@ import {
 
 import { Sync } from "./Sync";
 
-vi.mock("#/hooks/useOperationProgress", () => ({
-  useOperationProgress: () => ({
-    progress: null,
-    isActive: false,
-    isConnected: false,
-    error: null,
-  }),
-}));
+vi.mock("#/hooks/useOperationProgress", async () => {
+  const actual = await vi.importActual<
+    typeof import("#/hooks/useOperationProgress")
+  >("#/hooks/useOperationProgress");
+  return {
+    ...actual,
+    useOperationProgress: () => ({ progress: null, isActive: false }),
+  };
+});
 
 describe("Spotify Data Export queue appearance", () => {
   beforeEach(() => {
@@ -47,17 +48,16 @@ describe("Spotify Data Export queue appearance", () => {
     server.use(
       http.get("*/api/v1/imports/checkpoints", () => HttpResponse.json([])),
       http.get("*/api/v1/imports/spotify/history/queue", () => {
-        if (!queueExists) {
-          return HttpResponse.json(
-            { detail: "No import queue" },
-            { status: 404 },
-          );
-        }
+        // The idle answer is a 200, not a 404 — "nothing is importing" is a
+        // successful read, so the page needs no error branch to render it.
+        if (!queueExists) return HttpResponse.json({ queue: null });
         return HttpResponse.json({
-          queue_id: "q-1",
-          operation_id: "drain-op",
-          started_at: "2026-08-09T10:00:00Z",
-          entries: entries("running", "queued"),
+          queue: {
+            queue_id: "q-1",
+            operation_id: "drain-op",
+            started_at: "2026-08-09T10:00:00Z",
+            entries: entries("running", "queued"),
+          },
         });
       }),
       http.post("*/api/v1/imports/spotify/history", () => {

@@ -23,7 +23,11 @@ from src.interface.api.schemas.cache_tags import (
 # The calls that turn an ``operation_type`` into cache tags. ``launch_sse_operation``
 # starts a tracked run; ``build_terminal_event`` is the other door — the workflow
 # and import-queue terminals reach the client without ever launching one.
-_TAGGED_CALLS = frozenset({"launch_sse_operation", "build_terminal_event"})
+_TAGGED_CALLS = frozenset({
+    "launch_sse_operation",
+    "build_terminal_event",
+    "push_terminal_best_effort",
+})
 
 
 def _discover_launched_operation_types() -> set[str]:

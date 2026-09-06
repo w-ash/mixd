@@ -1,6 +1,10 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 
+import { useContainerQuery } from "#/hooks/useContainerQuery";
 import { cn } from "#/lib/utils";
+
+/** Below this content width, table columns become unreadable (Tailwind `@2xl`). */
+const TABLE_MIN_WIDTH_PX = 672;
 
 interface ResponsiveTableProps {
   /**
@@ -18,23 +22,27 @@ interface ResponsiveTableProps {
 }
 
 /**
- * Container-query swap between table and card-list views. The breakpoint
- * is the *content-area* width, not the viewport — iPad portrait at 820px
- * with a sidebar still has a narrow content area and falls back to cards.
+ * Renders a row collection as a table or a card list, whichever fits the
+ * *content-area* width — not the viewport, so iPad portrait at 820px with a
+ * sidebar still gets cards.
  *
- * Threshold is `@2xl` (672px) — below that, columns become unreadable.
- * Both slots are always in the DOM; CSS handles visibility, so screen
- * readers see both. For SR-only consumers, prefer the table render.
+ * Exactly one branch is mounted, so rows are built once and assistive
+ * technology sees a single copy of the data. The wrapper measures itself in a
+ * layout effect, before the browser paints; until then the branch follows the
+ * document width, so a desktop viewer mounts the table without the cards
+ * running their effects first.
  */
 export function ResponsiveTable({
   table,
   cards,
   className,
 }: ResponsiveTableProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const isWide = useContainerQuery(wrapperRef, TABLE_MIN_WIDTH_PX);
+
   return (
-    <div className={cn("@container/table", className)}>
-      <div className="@2xl/table:hidden">{cards}</div>
-      <div className="hidden @2xl/table:block">{table}</div>
+    <div ref={wrapperRef} className={cn("@container/table", className)}>
+      {isWide ? table : cards}
     </div>
   );
 }

@@ -133,6 +133,7 @@ async def require_playlist_link(
     uow: UnitOfWorkProtocol,
     *,
     user_id: str,
+    playlist_id: UUID | None = None,
 ) -> PlaylistLink:
     """Fetch a playlist link and verify the user owns its parent playlist.
 
@@ -144,17 +145,24 @@ async def require_playlist_link(
         link_id: The playlist link UUID.
         uow: Unit of work for repository access.
         user_id: Authenticated user ID for ownership scoping.
+        playlist_id: Parent playlist the caller addressed the link under.
+            When given, a link belonging to a different playlist is reported
+            as missing — callers that address links by nested route
+            (``/playlists/{playlist_id}/links/{link_id}``) must pass it so the
+            URL cannot name one playlist and act on another's link. Callers
+            that address a link by ID alone (CLI, chat tools) omit it.
 
     Returns:
         The validated playlist link.
 
     Raises:
         NotFoundError: If the link or its parent playlist is not found
-            (or belongs to another user).
+            (or belongs to another user), or the link belongs to a playlist
+            other than ``playlist_id``.
     """
     link_repo = uow.get_playlist_link_repository()
     link = await link_repo.get_link(link_id)
-    if link is None:
+    if link is None or (playlist_id is not None and link.playlist_id != playlist_id):
         raise NotFoundError(f"Playlist link {link_id} not found")
     # Ownership check: raises NotFoundError for a wrong-user parent playlist
     await require_owned_playlist(link.playlist_id, uow, user_id=user_id)
@@ -166,6 +174,7 @@ async def mutate_owned_link[ResultT](
     uow: UnitOfWorkProtocol,
     *,
     user_id: str,
+    playlist_id: UUID | None = None,
     mutate: Callable[[PlaylistLinkRepositoryProtocol], Awaitable[ResultT | None]],
 ) -> ResultT:
     """Ownership-gate a playlist link, apply one mutation, and commit.
@@ -179,17 +188,21 @@ async def mutate_owned_link[ResultT](
         link_id: The playlist link UUID (from the request URL).
         uow: Unit of work; this helper owns the transaction envelope.
         user_id: Authenticated user ID for ownership scoping.
+        playlist_id: Parent playlist scope, forwarded to
+            ``require_playlist_link``.
         mutate: Single repository call to apply, given the link repo.
 
     Returns:
         The mutation's (truthy) result.
 
     Raises:
-        NotFoundError: If the link doesn't exist, belongs to another user,
-            or the mutation reports no affected row.
+        NotFoundError: If the link doesn't exist, belongs to another user or
+            another playlist, or the mutation reports no affected row.
     """
     async with uow:
-        await require_playlist_link(link_id, uow, user_id=user_id)
+        await require_playlist_link(
+            link_id, uow, user_id=user_id, playlist_id=playlist_id
+        )
         result = await mutate(uow.get_playlist_link_repository())
         if not result:
             raise NotFoundError(f"Playlist link {link_id} not found")

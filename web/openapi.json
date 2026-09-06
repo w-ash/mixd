@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.11.6.1"
+    "version": "0.11.7"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -1187,7 +1187,7 @@
           "playlists"
         ],
         "summary": "Delete Playlist Link",
-        "description": "Unlink a playlist from an external service.",
+        "description": "Unlink a playlist from an external service.\n\n404 if the link does not belong to ``playlist_id``.",
         "operationId": "delete_playlist_link_api_v1_playlists__playlist_id__links__link_id__delete",
         "parameters": [
           {
@@ -1232,7 +1232,7 @@
           "playlists"
         ],
         "summary": "Update Playlist Link",
-        "description": "Update a playlist link's sync direction.",
+        "description": "Update a playlist link's sync direction.\n\n404 if the link does not belong to ``playlist_id``.",
         "operationId": "update_playlist_link_api_v1_playlists__playlist_id__links__link_id__patch",
         "parameters": [
           {
@@ -1296,7 +1296,7 @@
           "playlists"
         ],
         "summary": "Preview Playlist Sync",
-        "description": "Preview what a sync would change without executing it.",
+        "description": "Preview what a sync would change without executing it.\n\n404 if the link does not belong to ``playlist_id``.",
         "operationId": "preview_playlist_sync_api_v1_playlists__playlist_id__links__link_id__sync_preview_get",
         "parameters": [
           {
@@ -1366,7 +1366,7 @@
           "playlists"
         ],
         "summary": "Sync Playlist Link",
-        "description": "Start a playlist-link sync, tracked via SSE with a durable audit row.\n\nReturns immediately with ``{operation_id, run_id}``; progress streams via\nGET /operations/{operation_id}/progress. A destructive sync whose\n``confirm_token`` is missing or stale returns HTTP 409 (CONFIRMATION_REQUIRED)\n*synchronously* \u2014 before any background work \u2014 with a fresh token + the\nremoval counts, so the client can show the confirm dialog and retry.",
+        "description": "Start a playlist-link sync, tracked via SSE with a durable audit row.\n\nReturns immediately with ``{operation_id, run_id}``; progress streams via\nGET /operations/{operation_id}/progress. A destructive sync whose\n``confirm_token`` is missing or stale returns HTTP 409 (CONFIRMATION_REQUIRED)\n*synchronously* \u2014 before any background work \u2014 with a fresh token + the\nremoval counts, so the client can show the confirm dialog and retry.\n404 if the link does not belong to ``playlist_id``.",
         "operationId": "sync_playlist_link_api_v1_playlists__playlist_id__links__link_id__sync_post",
         "parameters": [
           {
@@ -3912,23 +3912,34 @@
         }
       }
     },
-    "/api/v1/connectors/discogs/token": {
+    "/api/v1/connectors/{service}/token": {
       "put": {
         "tags": [
           "connectors"
         ],
-        "summary": "Put Discogs Token",
-        "description": "Validate and store the user's Discogs personal access token.\n\nThe v0.6.5 credential carve-out shape (like the assistant BYO-key): the\ntoken is validated live via the shared ``discogs/token_service`` \u2014 which\nalso caches the collection count for the status probe \u2014 then stored\nencrypted. Write-only: never returned by any endpoint. An invalid token\nraises ``DiscogsInvalidTokenError``, which the middleware maps to a 400\n``DISCOGS_INVALID_TOKEN`` envelope (the shape the token form reads);\ndisconnect is the generic ``DELETE /connectors/discogs/token``.",
-        "operationId": "put_discogs_token_api_v1_connectors_discogs_token_put",
+        "summary": "Put Connector Token",
+        "description": "Validate and store a user's BYO personal access token for a connector.\n\nThe v0.6.5 credential carve-out shape (like the assistant BYO-key): the\ntoken is proved live by the connector's own ``validate_token`` hook \u2014 which\nalso caches whatever its status probe renders \u2014 then stored encrypted.\nWrite-only: never returned by any endpoint. A rejected token raises the\nconnector's own invalid-token error, which the middleware maps to a 400\nenvelope (the shape the token form reads); disconnect is the generic\n``DELETE /connectors/{service}/token``.",
+        "operationId": "put_connector_token_api_v1_connectors__service__token_put",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Service"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ConnectorTokenRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "204": {
@@ -3945,9 +3956,7 @@
             }
           }
         }
-      }
-    },
-    "/api/v1/connectors/{service}/token": {
+      },
       "delete": {
         "tags": [
           "connectors"
@@ -4233,7 +4242,7 @@
           "imports"
         ],
         "summary": "Import Spotify Recent",
-        "description": "Poll Spotify's recently-played API for new plays.\n\nScope-gated rather than merely connection-gated: a grant minted before\nv0.10.1 still works for likes and playlists, so the generic connected check\nwould let it through and fail later inside the operation.",
+        "description": "Poll Spotify's recently-played API for new plays.\n\nScope-gated rather than merely connection-gated: a grant minted before\nv0.10.1 still works for likes and playlists, so a bare connected check would\nlet it through and fail later inside the operation. The scope demand is the\nsync target's own, not a second copy stated here.",
         "operationId": "import_spotify_recent_api_v1_imports_spotify_recent_post",
         "requestBody": {
           "content": {
@@ -4275,7 +4284,7 @@
           "imports"
         ],
         "summary": "Import Apple Recent",
-        "description": "Poll Apple Music's recently-played API for new plays.\n\nConnection-gated rather than scope-gated: Apple's browser-bridge MUTs\ncarry no OAuth scopes, so token presence is the whole precondition \u2014 the\nstatus probe is storage-only, exactly what `require_connector_connected`\nchecks.",
+        "description": "Poll Apple Music's recently-played API for new plays.\n\nConnection-gated rather than scope-gated: Apple's browser-bridge MUTs\ncarry no OAuth scopes, so token presence is the whole precondition \u2014 which\nis what the target's empty ``required_scopes`` says.",
         "operationId": "import_apple_recent_api_v1_imports_apple_recent_post",
         "requestBody": {
           "content": {
@@ -4419,7 +4428,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ImportQueueResponse"
+                  "$ref": "#/components/schemas/ImportQueueSchema"
                 }
               }
             }
@@ -4443,7 +4452,7 @@
           "imports"
         ],
         "summary": "Get Spotify History Queue",
-        "description": "The user's current import queue, so a reloaded tab re-attaches to it.",
+        "description": "The user's current import queue, so a reloaded tab re-attaches to it.\n\nAlways 200: \"no import is running\" is an answer, and the client renders it\nas the idle state rather than as a failed request.",
         "operationId": "get_spotify_history_queue_api_v1_imports_spotify_history_queue_get",
         "responses": {
           "200": {
@@ -4471,7 +4480,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ImportQueueResponse"
+                  "$ref": "#/components/schemas/ImportQueueSchema"
                 }
               }
             }
@@ -4892,7 +4901,7 @@
           "schedules"
         ],
         "summary": "List Sync Targets",
-        "description": "The sync targets this server can dispatch, with their display labels.\n\nServer truth for the Sync page's scheduler cards: the list, the labels, and\nwhich cadences a user may edit. The set is identical for every user \u2014 the\nauth dependency is router consistency, not scoping. No use case, because\nreading a module-level mapping is not data access.",
+        "description": "The sync targets this server can dispatch, and whether this user can run them.\n\nServer truth for the Sync page's scheduler cards: the list, the labels, which\ncadences a user may edit, and \u2014 from the same predicate the trigger routes\n409 on \u2014 whether the target's connector is connected and sufficiently scoped.\nThe readiness half is per user; the dispatch table is not. No use case: the\ncredential probe is the OAuth carve-out the dependency already owns.",
         "operationId": "list_sync_targets_api_v1_sync_targets_get",
         "responses": {
           "200": {
@@ -6134,6 +6143,13 @@
           "coming_soon"
         ]
       },
+      "ConnectorBlockedReason": {
+        "type": "string",
+        "enum": [
+          "CONNECTOR_NOT_CONNECTED",
+          "CONNECTOR_SCOPE_MISSING"
+        ]
+      },
       "ConnectorCategory": {
         "type": "string",
         "enum": [
@@ -6208,6 +6224,17 @@
             },
             "type": "array",
             "title": "Connector Track Artists"
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
           }
         },
         "type": "object",
@@ -7007,6 +7034,26 @@
       },
       "ImportQueueResponse": {
         "properties": {
+          "queue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportQueueSchema"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "queue"
+        ],
+        "title": "ImportQueueResponse",
+        "description": "The user's import queue, in upload order \u2014 or the absence of one.\n\nThe GET's shape alone, because it is the only endpoint that can answer with\n\"there is no queue\". The nesting is the discriminator: ``queue`` is null when\nthis user has no queue registered, so absence is stated once instead of as a\nflag plus four fields that have to agree with it. A read of \"nothing is\nimporting\" is a successful answer, not a missing resource, so the GET never\n404s and the client needs no error branch for its idle state."
+      },
+      "ImportQueueSchema": {
+        "properties": {
           "queue_id": {
             "type": "string",
             "title": "Queue Id"
@@ -7035,8 +7082,8 @@
           "started_at",
           "entries"
         ],
-        "title": "ImportQueueResponse",
-        "description": "The user's current import queue, in upload order.\n\n``operation_id`` is the drain's SSE handle \u2014 one id for the whole export,\nwith each file a sub-operation of it, so the client attaches once instead of\nre-attaching per entry. Unregistered after the drain's grace period, so a\nlate re-attach 404s and reads this response instead."
+        "title": "ImportQueueSchema",
+        "description": "A queue that exists, in upload order.\n\nThe response of every endpoint that either creates the queue or acts on an\nexisting one, so nothing here is nullable and there is no \"is there a queue\"\nflag to branch on.\n\n``operation_id`` is the drain's SSE handle \u2014 one id for the whole export,\nwith each file a sub-operation of it, so the client attaches once instead of\nre-attaching per entry."
       },
       "ImportSpotifyLikesRequest": {
         "properties": {
@@ -7749,6 +7796,18 @@
         "title": "MusicKitConfigResponse",
         "description": "MusicKit JS configuration for the SPA's in-app connect flow."
       },
+      "NodeType": {
+        "type": "string",
+        "enum": [
+          "source",
+          "enricher",
+          "destination",
+          "filter",
+          "sorter",
+          "selector",
+          "combiner"
+        ]
+      },
       "NodeTypeInfoSchema": {
         "properties": {
           "type": {
@@ -7756,12 +7815,33 @@
             "title": "Type"
           },
           "category": {
-            "type": "string",
-            "title": "Category"
+            "$ref": "#/components/schemas/NodeType"
           },
           "description": {
             "type": "string",
             "title": "Description"
+          },
+          "input_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Type"
+          },
+          "output_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Type"
           },
           "config_fields": {
             "items": {
@@ -9764,19 +9844,39 @@
             "type": "string",
             "title": "Label"
           },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
           "self_managed": {
             "type": "boolean",
             "title": "Self Managed"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorBlockedReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
         "required": [
           "id",
           "label",
-          "self_managed"
+          "service",
+          "self_managed",
+          "available"
         ],
         "title": "SyncTargetSchema",
-        "description": "One dispatchable sync target: its id, label, and who owns its cadence.\n\n``id`` reuses the application's ``SyncTarget`` alias rather than a wire copy,\nwhich would reintroduce inside the backend the mirror this endpoint deletes\nfrom the frontend."
+        "description": "One dispatchable sync target: its id, label, cadence owner, and readiness.\n\n``id`` reuses the application's ``SyncTarget`` alias rather than a wire copy,\nwhich would reintroduce inside the backend the mirror this endpoint deletes\nfrom the frontend. ``available`` and ``blocked_reason`` are per user and come\nfrom the same predicate the trigger routes 409 on, so a card the web renders\nas runnable always is."
       },
       "TagOperationResult": {
         "properties": {
@@ -11207,6 +11307,944 @@
           "definition"
         ],
         "title": "WorkflowVersionSchema"
+      },
+      "SseOperationStartedEvent": {
+        "additionalProperties": false,
+        "description": "``started`` \u2014 the request operation opened its own stream.",
+        "properties": {
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Total"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SseOperationStatus"
+          }
+        },
+        "required": [
+          "operation_id",
+          "description",
+          "status"
+        ],
+        "title": "SseOperationStartedEvent",
+        "type": "object"
+      },
+      "SseOperationStatus": {
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "type": "string"
+      },
+      "SseOperationProgressEvent": {
+        "additionalProperties": false,
+        "description": "``progress`` \u2014 a tick on the operation the client is attached to.",
+        "properties": {
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "current": {
+            "title": "Current",
+            "type": "integer"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Total"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SseProgressStatus"
+          },
+          "completion_percentage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Completion Percentage"
+          },
+          "items_per_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Items Per Second"
+          },
+          "eta_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Eta Seconds"
+          }
+        },
+        "required": [
+          "operation_id",
+          "current",
+          "message",
+          "status"
+        ],
+        "title": "SseOperationProgressEvent",
+        "type": "object"
+      },
+      "SseProgressStatus": {
+        "enum": [
+          "in_progress",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "type": "string"
+      },
+      "SseSubOperationStartedEvent": {
+        "additionalProperties": false,
+        "description": "``sub_operation_started`` \u2014 a child operation opened, seen from above.",
+        "properties": {
+          "parent_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Operation Id"
+          },
+          "item_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Item Operation Id"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Total"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Phase"
+          },
+          "node_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Node Type"
+          },
+          "connector_playlist_identifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Connector Playlist Identifier"
+          },
+          "playlist_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Playlist Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SseOperationStatus"
+          }
+        },
+        "required": [
+          "operation_id",
+          "description",
+          "status"
+        ],
+        "title": "SseSubOperationStartedEvent",
+        "type": "object"
+      },
+      "SseSubProgressEvent": {
+        "additionalProperties": false,
+        "description": "``sub_progress`` \u2014 a child operation's tick, seen from an ancestor.",
+        "properties": {
+          "parent_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Operation Id"
+          },
+          "item_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Item Operation Id"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "current": {
+            "title": "Current",
+            "type": "integer"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Total"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SseProgressStatus"
+          },
+          "completion_percentage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Completion Percentage"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Phase"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SseSubOperationOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "resolved": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resolved"
+          },
+          "unresolved": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unresolved"
+          },
+          "canonical_playlist_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Canonical Playlist Id"
+          },
+          "connector_playlist_identifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Connector Playlist Identifier"
+          },
+          "playlist_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Playlist Name"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Message"
+          }
+        },
+        "required": [
+          "operation_id",
+          "current",
+          "message",
+          "status"
+        ],
+        "title": "SseSubProgressEvent",
+        "type": "object"
+      },
+      "SseSubOperationOutcome": {
+        "enum": [
+          "succeeded",
+          "skipped_unchanged",
+          "failed"
+        ],
+        "type": "string"
+      },
+      "SseSubOperationCompletedEvent": {
+        "additionalProperties": false,
+        "description": "``sub_operation_completed`` \u2014 a child operation settled.\n\nA child that is itself an audited run signs off with ``run_id``, ``counts``\nand the per-item cache tags; a plain sub-operation carries only its verdict.",
+        "properties": {
+          "parent_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Operation Id"
+          },
+          "item_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Item Operation Id"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "final_status": {
+            "$ref": "#/components/schemas/SseFinalStatus"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run Id"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Counts"
+          },
+          "touched": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "assistant",
+                    "checkpoints",
+                    "connector-playlists",
+                    "connectors",
+                    "import-queue",
+                    "operation-runs",
+                    "playlist-assignments",
+                    "playlists",
+                    "plays",
+                    "reviews",
+                    "schedules",
+                    "settings",
+                    "stats",
+                    "tags",
+                    "tracks",
+                    "workflow-catalog",
+                    "workflow-runs",
+                    "workflows"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Touched"
+          }
+        },
+        "required": [
+          "operation_id",
+          "final_status"
+        ],
+        "title": "SseSubOperationCompletedEvent",
+        "type": "object"
+      },
+      "SseFinalStatus": {
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "cancelled",
+          "crashed"
+        ],
+        "type": "string"
+      },
+      "SseOperationTerminalEvent": {
+        "additionalProperties": false,
+        "description": "``complete`` / ``error`` \u2014 the frame that closes an operation stream.\n\nOne model for both frames and for all three producers (long operations,\nworkflow runs, workflow previews): they share the envelope and differ only\nin which optional fields the producer fills \u2014 ``counts`` for a long\noperation, ``output_track_count``/``duration_ms`` for a finished run,\n``error_message`` for any failure.",
+        "properties": {
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "final_status": {
+            "$ref": "#/components/schemas/SseFinalStatus"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run Id"
+          },
+          "touched": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "assistant",
+                    "checkpoints",
+                    "connector-playlists",
+                    "connectors",
+                    "import-queue",
+                    "operation-runs",
+                    "playlist-assignments",
+                    "playlists",
+                    "plays",
+                    "reviews",
+                    "schedules",
+                    "settings",
+                    "stats",
+                    "tags",
+                    "tracks",
+                    "workflow-catalog",
+                    "workflow-runs",
+                    "workflows"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Touched"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Counts"
+          },
+          "output_track_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Track Count"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Duration Ms"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Message"
+          }
+        },
+        "required": [
+          "operation_id",
+          "final_status"
+        ],
+        "title": "SseOperationTerminalEvent",
+        "type": "object"
+      },
+      "SseRunAcceptedEvent": {
+        "additionalProperties": false,
+        "description": "``run_accepted`` \u2014 the run row exists and background execution is queued.",
+        "properties": {
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "task_count": {
+            "title": "Task Count",
+            "type": "integer"
+          },
+          "accepted_at": {
+            "format": "date-time",
+            "title": "Accepted At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "run_id",
+          "workflow_id",
+          "task_count",
+          "accepted_at"
+        ],
+        "title": "SseRunAcceptedEvent",
+        "type": "object"
+      },
+      "SsePreviewCompleteEvent": {
+        "additionalProperties": false,
+        "description": "``preview_complete`` \u2014 a dry run finished, with its output tracklist.",
+        "properties": {
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "final_status": {
+            "$ref": "#/components/schemas/SseFinalStatus"
+          },
+          "touched": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "assistant",
+                    "checkpoints",
+                    "connector-playlists",
+                    "connectors",
+                    "import-queue",
+                    "operation-runs",
+                    "playlist-assignments",
+                    "playlists",
+                    "plays",
+                    "reviews",
+                    "schedules",
+                    "settings",
+                    "stats",
+                    "tags",
+                    "tracks",
+                    "workflow-catalog",
+                    "workflow-runs",
+                    "workflows"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Touched"
+          },
+          "output_tracks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Output Tracks",
+            "type": "array"
+          },
+          "total_track_count": {
+            "title": "Total Track Count",
+            "type": "integer"
+          },
+          "metric_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Columns",
+            "type": "array"
+          },
+          "node_summaries": {
+            "items": {
+              "$ref": "#/components/schemas/SseNodePreviewSummary"
+            },
+            "title": "Node Summaries",
+            "type": "array"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Duration Ms"
+          }
+        },
+        "required": [
+          "operation_id",
+          "final_status",
+          "output_tracks",
+          "total_track_count",
+          "metric_columns",
+          "node_summaries"
+        ],
+        "title": "SsePreviewCompleteEvent",
+        "type": "object"
+      },
+      "SseNodePreviewSummary": {
+        "additionalProperties": false,
+        "description": "One node's contribution to a preview result.",
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_type": {
+            "title": "Node Type",
+            "type": "string"
+          },
+          "track_count": {
+            "title": "Track Count",
+            "type": "integer"
+          },
+          "sample_titles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sample Titles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "node_id",
+          "node_type",
+          "track_count",
+          "sample_titles"
+        ],
+        "title": "SseNodePreviewSummary",
+        "type": "object"
+      },
+      "SseNodeStatusEvent": {
+        "additionalProperties": false,
+        "description": "``node_status`` \u2014 one workflow node changed state, for the live canvas.",
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_type": {
+            "title": "Node Type",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled",
+              "crashed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "execution_order": {
+            "title": "Execution Order",
+            "type": "integer"
+          },
+          "total_nodes": {
+            "title": "Total Nodes",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Duration Ms"
+          },
+          "input_track_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input Track Count"
+          },
+          "output_track_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Track Count"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run Id"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Message"
+          }
+        },
+        "required": [
+          "node_id",
+          "node_type",
+          "status",
+          "execution_order",
+          "total_nodes"
+        ],
+        "title": "SseNodeStatusEvent",
+        "type": "object"
+      },
+      "SseEventName": {
+        "title": "SseEventName",
+        "description": "Wire name of an SSE event.",
+        "type": "string",
+        "enum": [
+          "complete",
+          "error",
+          "node_status",
+          "preview_complete",
+          "progress",
+          "run_accepted",
+          "started",
+          "sub_operation_completed",
+          "sub_operation_started",
+          "sub_progress"
+        ]
       }
     }
   }

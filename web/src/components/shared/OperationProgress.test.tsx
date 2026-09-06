@@ -81,7 +81,7 @@ describe("OperationProgress", () => {
       />,
     );
 
-    expect(screen.getByText("2.5/s")).toBeInTheDocument();
+    expect(screen.getByText("2.5/sec")).toBeInTheDocument();
     expect(screen.getByText("~1m 30s")).toBeInTheDocument();
   });
 

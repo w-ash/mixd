@@ -24,8 +24,17 @@ import { EmptyState } from "#/components/shared/EmptyState";
 import { QueryStates } from "#/components/shared/QueryStates";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { ListRowsSkeleton } from "#/components/shared/skeletons";
+import { TableCard } from "#/components/shared/TableCard";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "#/components/ui/table";
 import { formatDate } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
@@ -93,28 +102,27 @@ function TagRowActions({
 
 function TagCard({ tag, onRename, onMerge, onDelete }: TagRowActionsProps) {
   return (
-    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-mono text-sm text-text">{tag.tag}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-text-muted">
-          {tag.namespace && <span>ns: {tag.namespace}</span>}
-          <span className="tabular-nums">
-            {tag.track_count} track{pluralSuffix(tag.track_count)}
-          </span>
-          {tag.last_used_at && (
-            <span>Last used {formatDate(tag.last_used_at)}</span>
-          )}
-        </div>
-      </div>
-      <div className="shrink-0">
+    <TableCard
+      trailing={
         <TagRowActions
           tag={tag}
           onRename={onRename}
           onMerge={onMerge}
           onDelete={onDelete}
         />
+      }
+    >
+      <p className="truncate font-mono text-sm text-text">{tag.tag}</p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-text-muted">
+        {tag.namespace && <span>ns: {tag.namespace}</span>}
+        <span className="tabular-nums">
+          {tag.track_count} track{pluralSuffix(tag.track_count)}
+        </span>
+        {tag.last_used_at && (
+          <span>Last used {formatDate(tag.last_used_at)}</span>
+        )}
       </div>
-    </article>
+    </TableCard>
   );
 }
 
@@ -340,57 +348,45 @@ export function Tags() {
             </div>
           }
           table={
-            <div className="overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-elevated">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border bg-surface-sunken text-left">
-                    <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                      Tag
-                    </th>
-                    <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                      Namespace
-                    </th>
-                    <th className="px-4 py-2.5 text-right font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                      Tracks
-                    </th>
-                    <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                      Last used
-                    </th>
-                    <th className="px-4 py-2.5 text-right font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {tags.map((tag) => (
-                    <tr key={tag.tag} className="hover:bg-surface-sunken">
-                      <td className="px-4 py-3 font-mono text-sm text-text">
-                        {tag.tag}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-text-muted">
-                        {tag.namespace ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-sm text-text">
-                        {tag.track_count}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-text-muted">
-                        {formatDate(tag.last_used_at)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end">
-                          <TagRowActions
-                            tag={tag}
-                            onRename={(t) => openDialog("rename", t)}
-                            onMerge={(t) => openDialog("merge", t)}
-                            onDelete={(t) => openDialog("delete", t)}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tag</TableHead>
+                  <TableHead>Namespace</TableHead>
+                  <TableHead className="text-right">Tracks</TableHead>
+                  <TableHead>Last used</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tags.map((tag) => (
+                  <TableRow key={tag.tag}>
+                    <TableCell className="font-mono text-sm text-text">
+                      {tag.tag}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-text-muted">
+                      {tag.namespace ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm text-text">
+                      {tag.track_count}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-text-muted">
+                      {formatDate(tag.last_used_at)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end">
+                        <TagRowActions
+                          tag={tag}
+                          onRename={(t) => openDialog("rename", t)}
+                          onMerge={(t) => openDialog("merge", t)}
+                          onDelete={(t) => openDialog("delete", t)}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           }
         />
       </QueryStates>

@@ -570,14 +570,15 @@ def _discogs_stored_token() -> StoredToken:
     )
 
 
-class TestDiscogsToken:
-    """PUT /api/v1/connectors/discogs/token — validate, rate-limit, store.
+class TestConnectorToken:
+    """PUT /api/v1/connectors/{service}/token — validate, rate-limit, store.
 
-    ``validate_and_build_token`` is stubbed on the route module's binding
-    (no live Discogs probe); storage + status probe run against the real
-    stack. Each test acts as a unique user because ``oauth_tokens`` is a
-    preserved table — sharing ``default`` would leak credentials across
-    tests, and the probe-rate budget is per-user.
+    Exercised through Discogs, the one connector declaring ``validate_token``.
+    That hook is stubbed on the cached registry entry (no live Discogs probe);
+    storage + status probe run against the real stack. Each test acts as a
+    unique user because ``oauth_tokens`` is a preserved table — sharing
+    ``default`` would leak credentials across tests, and the probe-rate budget
+    is per user.
     """
 
     @pytest.fixture
@@ -602,12 +603,11 @@ class TestDiscogsToken:
         """Fresh sliding window per test — the limiter is module-global state."""
         monkeypatch.setattr(
             connectors_route,
-            "_discogs_token_limiter",
+            "_token_limiter",
             InMemoryRateLimiter(
                 max_requests=5,
                 window_seconds=60,
-                message="Too many Discogs token attempts. "
-                "Please wait a minute and try again.",
+                message="Too many token attempts. Please wait a minute and try again.",
             ),
         )
 
@@ -622,7 +622,7 @@ class TestDiscogsToken:
             if error is not None
             else AsyncMock(return_value=stored)
         )
-        monkeypatch.setattr(connectors_route, "validate_and_build_token", mock)
+        monkeypatch.setitem(discover_connectors()["discogs"], "validate_token", mock)
         return mock
 
     async def test_put_valid_token_stores_and_connects(
@@ -740,3 +740,33 @@ class TestDiscogsToken:
         discogs = next(c for c in status.json() if c["name"] == "discogs")
         assert discogs["connected"] is False
         assert discogs["status"] == "disconnected"
+
+    async def test_oauth_connector_rejects_a_pasted_token(
+        self,
+        user_client: tuple[httpx2.AsyncClient, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Spotify mints its credential through a redirect, so there is nothing
+        # for a pasted secret to be: 400 before storage is touched.
+        client, uid = user_client
+        validate = self._stub_validate(monkeypatch, stored=_discogs_stored_token())
+
+        resp = await client.put(
+            "/api/v1/connectors/spotify/token", json={"token": "not-a-spotify-thing"}
+        )
+
+        assert resp.status_code == 400
+        validate.assert_not_awaited()
+        with user_context(uid):
+            assert await get_token_storage().load_token("spotify", uid) is None
+
+    async def test_unknown_connector_is_404(
+        self, user_client: tuple[httpx2.AsyncClient, str]
+    ) -> None:
+        client, _uid = user_client
+
+        resp = await client.put(
+            "/api/v1/connectors/nope/token", json={"token": "whatever"}
+        )
+
+        assert resp.status_code == 404

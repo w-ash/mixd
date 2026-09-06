@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
 
 /**
@@ -19,4 +19,5 @@ export interface ConnectorMappingSchema {
   is_primary: boolean;
   connector_track_title: string;
   connector_track_artists: string[];
+  external_url?: string | null;
 }

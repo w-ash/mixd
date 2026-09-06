@@ -65,6 +65,7 @@ def _spec(run: AsyncMock, **kwargs: object) -> SyncTargetSpec:
         label="Test target",
         run=run,
         operation_type="import_lastfm_history",
+        service="lastfm",
         **kwargs,  # pyright: ignore[reportArgumentType]
     )
 

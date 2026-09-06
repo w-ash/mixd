@@ -52,8 +52,8 @@ from src.interface.api.services.progress import (
 )
 from src.interface.api.services.sse_operations import (
     acquire_operation_slot,
-    build_terminal_event,
     launch_sse_operation,
+    push_terminal_best_effort,
     release_operation_slot,
     safe_complete_operation,
     safe_start_operation,
@@ -472,6 +472,10 @@ async def _push_drain_terminal(queue: ImportQueue, status: OperationStatus) -> N
     Written here, not by the subscriber, which sees the lifecycle but not the
     outcome. The tally stays per-status because "12 of 13 imported, 1 failed"
     is the part a user acts on.
+
+    Never raises — ``push_terminal_best_effort`` logs a rejected payload rather
+    than leaving the export open from the ``finally`` that still owes the drain
+    its coordinator completion and SSE teardown.
     """
     registry = get_operation_registry()
     sse_queue = await registry.get_queue(queue.operation_id)
@@ -481,23 +485,23 @@ async def _push_drain_terminal(queue: ImportQueue, status: OperationStatus) -> N
     for entry in queue.entries:
         key = f"files_{entry.status}"
         tally[key] = tally.get(key, 0) + 1
-    await sse_queue.put(
-        build_terminal_event(
-            "evt_final",
-            WorkflowConstants.SSE_EVENT_ERROR
-            if status == "error"
-            else WorkflowConstants.SSE_EVENT_COMPLETE,
-            queue.operation_id,
-            "failed" if status == "error" else "completed",
-            # The drain owns no OperationRun row of its own, but it ran the same
-            # import its children did — so it names the same operation type, and
-            # a client attached to the export gets one invalidation at the end
-            # rather than one per file.
-            operation_type=_OPERATION_TYPE,
-            # Same ``counts`` slot a single run's terminal uses, so a client
-            # reads an export's outcome through the code path it already has.
-            counts=tally,
-        )
+    await push_terminal_best_effort(
+        sse_queue,
+        "evt_final",
+        WorkflowConstants.SSE_EVENT_ERROR
+        if status == "error"
+        else WorkflowConstants.SSE_EVENT_COMPLETE,
+        queue.operation_id,
+        "failed" if status == "error" else "completed",
+        log_context={"queue_id": queue.queue_id},
+        # The drain owns no OperationRun row of its own, but it ran the same
+        # import its children did — so it names the same operation type, and a
+        # client attached to the export gets one invalidation at the end rather
+        # than one per file.
+        operation_type=_OPERATION_TYPE,
+        # Same ``counts`` slot a single run's terminal uses, so a client reads an
+        # export's outcome through the code path it already has.
+        counts=tally,
     )
 
 

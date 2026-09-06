@@ -19,6 +19,10 @@ from src.application.use_cases._shared.command_validators import (
     non_empty_string,
     validate_tracklist_has_tracks,
 )
+from src.application.use_cases._shared.connector_catalog import (
+    ConnectorCatalog,
+    default_connector_catalog,
+)
 from src.application.use_cases._shared.timed_execution import timed_query
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
@@ -90,6 +94,8 @@ class CreateConnectorPlaylistUseCase:
     (Spotify, Apple Music) and syncing the results to the internal database.
     Uses optimistic updates to maintain data consistency across systems.
     """
+
+    catalog: ConnectorCatalog = field(factory=default_connector_catalog)
 
     async def execute(
         self, command: CreateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
@@ -216,14 +222,18 @@ class CreateConnectorPlaylistUseCase:
                 description=command.playlist_description,
             )
 
-            # Build metadata response (format may vary by connector)
+            # Build metadata response (format may vary by connector). The
+            # external link is registry-declared, so a connector that publishes
+            # no playlist page stores None instead of an invented URL.
             external_metadata: dict[str, JsonValue] = {
                 "created_at": datetime.now(UTC).isoformat(),
                 "owner": "mixd",
                 "public": False,  # Default for privacy
                 "collaborative": False,
                 "follower_count": 0,
-                "external_url": f"https://{command.connector}.com/playlist/{external_playlist_id}",
+                "external_url": self.catalog.playlist_url(
+                    command.connector, external_playlist_id
+                ),
             }
 
             logger.info(

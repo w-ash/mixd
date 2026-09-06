@@ -1,17 +1,22 @@
 import { Loader2, Settings } from "lucide-react";
 import { Collapsible } from "radix-ui";
-import { useState } from "react";
+import { type ComponentType, useState } from "react";
 
 import type { ConnectorMetadataSchema } from "#/api/generated/model";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
-import { DiscogsTokenDialog } from "#/components/shared/DiscogsTokenDialog";
+import { TokenConnectDialog } from "#/components/shared/TokenConnectDialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { useAppleMusicConnect } from "#/hooks/useAppleMusicConnect";
 import { useConnectorAuth } from "#/hooks/useConnectorAuth";
 import { type ConnectorBrand, connectorBrand } from "#/lib/connector-brand";
-import { humanizeAuthError, isConnectable } from "#/lib/connectors";
+import {
+  type ConnectStrategyKind,
+  connectStrategyFor,
+  humanizeAuthError,
+  isConnectable,
+} from "#/lib/connectors";
 import { formatRelativeTime } from "#/lib/format";
 import { cn } from "#/lib/utils";
 
@@ -127,23 +132,143 @@ function SettingsGear({
   );
 }
 
+interface ConnectActionProps {
+  connector: ConnectorMetadataSchema;
+  /** Button copy for the card's current state. */
+  label: string;
+  className: string;
+}
+
+function ConnectButton({
+  label,
+  className,
+  isConnecting,
+  onClick,
+}: {
+  label: string;
+  className: string;
+  isConnecting: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      onClick={onClick}
+      disabled={isConnecting}
+      className={className}
+      size="xs"
+    >
+      {isConnecting && <Loader2 className="mr-1 size-3 animate-spin" />}
+      {label}
+    </Button>
+  );
+}
+
+/** Fetch an auth URL and hand the browser to the provider. */
+function OAuthConnectAction({
+  connector,
+  label,
+  className,
+}: ConnectActionProps) {
+  const { connect, isConnecting } = useConnectorAuth(
+    connector.name,
+    connector.display_name,
+  );
+  return (
+    <ConnectButton
+      label={label}
+      className={className}
+      isConnecting={isConnecting}
+      onClick={connect}
+    />
+  );
+}
+
+/** Open the BYO-token form instead of redirecting anywhere. */
+function TokenConnectAction({
+  connector,
+  label,
+  className,
+}: ConnectActionProps) {
+  const [showForm, setShowForm] = useState(false);
+  return (
+    <>
+      <ConnectButton
+        label={label}
+        className={className}
+        isConnecting={false}
+        onClick={() => setShowForm(true)}
+      />
+      <TokenConnectDialog
+        service={connector.name}
+        displayName={connector.display_name}
+        open={showForm}
+        onOpenChange={setShowForm}
+      />
+    </>
+  );
+}
+
+/**
+ * Connect in-app through a provider SDK, with no navigation.
+ *
+ * `useAppleMusicConnect` is Apple-specific — Apple Music is the only
+ * `browser_bridge` connector, and its token POST is a documented special
+ * case. Mounting the hook here rather than in the card also makes the
+ * prewarm structural: this component exists only while the card offers a
+ * connect action, which is exactly when the setup is worth running early.
+ */
+function BridgeConnectAction({ label, className }: ConnectActionProps) {
+  const { connect, isConnecting } = useAppleMusicConnect({ prewarm: true });
+  return (
+    <ConnectButton
+      label={label}
+      className={className}
+      isConnecting={isConnecting}
+      onClick={connect}
+    />
+  );
+}
+
+/**
+ * Connect flow per strategy kind.
+ *
+ * Each flow owns state a sibling has no use for — a mutation, a redirect
+ * flag, a dialog — and hooks cannot be called conditionally, so the choice
+ * is made by mounting one component rather than by composing all three in
+ * one hook. React's own guidance for state behind a condition: extract a
+ * component. Module-level definitions keep the identity stable, so switching
+ * card state remounts only when the kind actually changes.
+ */
+const connectActions: Record<
+  ConnectStrategyKind,
+  ComponentType<ConnectActionProps> | null
+> = {
+  oauth: OAuthConnectAction,
+  token: TokenConnectAction,
+  browser_bridge: BridgeConnectAction,
+  none: null,
+};
+
+function ConnectAction(props: ConnectActionProps) {
+  const Action =
+    connectActions[connectStrategyFor(props.connector.auth_method).kind];
+  return Action ? <Action {...props} /> : null;
+}
+
 function RowAction({
   state,
-  label,
+  connector,
   brand,
-  connect,
-  isConnecting,
   hasSettings,
   showSettings,
 }: {
   state: CardState;
-  label: string;
+  connector: ConnectorMetadataSchema;
   brand: ConnectorBrand | undefined;
-  connect: () => void;
-  isConnecting: boolean;
   hasSettings: boolean;
   showSettings: boolean;
 }) {
+  const label = connector.display_name;
   const gear = hasSettings && (
     <SettingsGear label={label} showSettings={showSettings} />
   );
@@ -172,29 +297,21 @@ function RowAction({
       return (
         <div className="flex items-center gap-2">
           {gear}
-          <Button
-            onClick={connect}
-            disabled={isConnecting}
+          <ConnectAction
+            connector={connector}
+            label="Reconnect"
             className={brand?.buttonClass ?? ""}
-            size="xs"
-          >
-            {isConnecting && <Loader2 className="mr-1 size-3 animate-spin" />}
-            Reconnect
-          </Button>
+          />
         </div>
       );
     case "error":
     case "disconnected":
       return (
-        <Button
-          onClick={connect}
-          disabled={isConnecting}
+        <ConnectAction
+          connector={connector}
+          label={state === "error" ? "Try again" : `Connect ${label}`}
           className={cn("min-h-[36px]", brand?.buttonClass ?? "")}
-          size="xs"
-        >
-          {isConnecting && <Loader2 className="mr-1 size-3 animate-spin" />}
-          {state === "error" ? "Try again" : `Connect ${label}`}
-        </Button>
+        />
       );
   }
 }
@@ -211,39 +328,14 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
   // Connect-capable methods store a disconnectable per-user credential via
   // some connect flow (oauth redirect, MusicKit bridge, token, device code).
   const connectable = isConnectable(connector.auth_method);
-  const { connect, disconnect, isConnecting, isDisconnecting } =
-    useConnectorAuth(connector.name, connector.display_name);
-  // browser_bridge (Apple Music) connects in-app via MusicKit JS — no
-  // navigation, no auth-url fetch; the only popup is Apple's login sheet.
-  // The hook is Apple-specific, so a second browser_bridge connector needs
-  // its own flow here (same caveat as the Discogs dialog below).
-  const isBrowserBridge = connector.auth_method === "browser_bridge";
-  // Whenever the card offers a connect/reconnect action, prewarm the
-  // MusicKit setup (config fetch + script load + configure) so the click
-  // chain shrinks to authorize() — Safari's activation budget is strict.
-  const showsConnectAction =
-    state === "disconnected" ||
-    state === "needs_reauth" ||
-    state === "expired" ||
-    state === "error";
-  const appleMusic = useAppleMusicConnect({
-    prewarm: isBrowserBridge && showsConnectAction,
-  });
+  // Connecting belongs to the per-kind action below; the card owns only the
+  // removal, which is the same DELETE for every connect flow.
+  const { disconnect, isDisconnecting } = useConnectorAuth(
+    connector.name,
+    connector.display_name,
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [showDisconnect, setShowDisconnect] = useState(false);
-  const [showTokenForm, setShowTokenForm] = useState(false);
-
-  // Token-auth connectors (Discogs) have no provider redirect — Connect
-  // opens the BYO-token form instead of fetching an auth URL. The PUT
-  // endpoint is per-connector, so a future second token connector needs its
-  // own dialog here.
-  const isTokenAuth = connector.auth_method === "token";
-  const onConnect = isTokenAuth
-    ? () => setShowTokenForm(true)
-    : isBrowserBridge
-      ? appleMusic.connect
-      : connect;
-  const connectBusy = isBrowserBridge ? appleMusic.isConnecting : isConnecting;
 
   const brand = connectorBrand[connector.name];
   const label = connector.display_name;
@@ -279,10 +371,8 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
             </div>
             <RowAction
               state={state}
-              label={label}
+              connector={connector}
               brand={brand}
-              connect={onConnect}
-              isConnecting={connectBusy}
               hasSettings={hasSettings}
               showSettings={showSettings}
             />
@@ -302,14 +392,6 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
           </Collapsible.Content>
         </div>
       </Collapsible.Root>
-
-      {/* BYO-token connect form (opened in place of the OAuth redirect) */}
-      {isTokenAuth && (
-        <DiscogsTokenDialog
-          open={showTokenForm}
-          onOpenChange={setShowTokenForm}
-        />
-      )}
 
       {/* Disconnect confirmation dialog */}
       {connectable && (

@@ -6,24 +6,36 @@
  * with no terminal frame) this is what tells the UI how the run actually ended.
  *
  * Endpoint choice: the LIST endpoint (`GET /api/v1/operation-runs?type=all`),
- * filtered client-side on `operation_id`. The per-run detail endpoint is keyed
- * by `run_id`, which not every caller holds (chat cards and dialogs only ever
- * see the `operation_id` SSE handle), and the workflow `snapshot` endpoint
- * returns workflow_runs — no counts, no issues. The list row carries exactly
- * what the terminal UI needs: `status`, `counts`, and `issue_count`.
+ * selected down to one `operation_id`. The per-run detail endpoint is keyed by
+ * `run_id`, which not every caller holds (chat cards and dialogs only ever see
+ * the `operation_id` SSE handle), and the workflow `snapshot` endpoint returns
+ * workflow_runs — no counts, no issues. The list row carries exactly what the
+ * terminal UI needs: `status`, `counts`, and `issue_count`.
+ *
+ * Every caller shares the generated list key, so a page full of recovering
+ * cards makes one request per poll rather than one per card.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
 
-import type { OperationRunSummarySchema } from "#/api/generated/model";
+import type {
+  ListOperationRunsApiV1OperationRunsGetParams,
+  OperationRunSummarySchema,
+} from "#/api/generated/model";
 import { OperationRunSummarySchemaStatus } from "#/api/generated/model";
-import { listOperationRunsApiV1OperationRunsGet } from "#/api/generated/operation-runs/operation-runs";
+import {
+  type listOperationRunsApiV1OperationRunsGetResponse,
+  useListOperationRunsApiV1OperationRunsGet,
+} from "#/api/generated/operation-runs/operation-runs";
 
 /** Poll cadence while waiting for a run to reach a terminal status. */
 export const RUN_ROW_POLL_INTERVAL_MS = 3_000;
 
 /** One page is plenty: the run we lost the stream to is among the newest. */
-const RUN_ROW_PAGE_LIMIT = 20;
+const RUN_ROW_PARAMS: ListOperationRunsApiV1OperationRunsGetParams = {
+  type: "all",
+  limit: 20,
+};
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
   OperationRunSummarySchemaStatus.complete,
@@ -36,10 +48,6 @@ export function isTerminalRunRow(row: OperationRunSummarySchema): boolean {
   return TERMINAL_RUN_STATUSES.has(row.status);
 }
 
-export function operationRunRowQueryKey(operationId: string) {
-  return ["operation-run-row", operationId] as const;
-}
-
 export interface UseOperationRunRowOptions {
   /** Only poll while the stream can't answer. */
   enabled: boolean;
@@ -49,34 +57,35 @@ export interface UseOperationRunRowOptions {
 
 /**
  * The audit row for `operationId`, or null when the user has no such run yet.
- * Throws (→ `isError`) when the API itself is unreachable — the caller's cue
- * that the network, not just the stream, is down.
+ * Reports `isError` when the API itself is unreachable — the caller's cue that
+ * the network, not just the stream, is down.
  */
 export function useOperationRunRow(
   operationId: string | null,
   options: UseOperationRunRowOptions,
 ) {
-  return useQuery({
-    queryKey: operationRunRowQueryKey(operationId ?? "unknown"),
-    queryFn: async (): Promise<OperationRunSummarySchema | null> => {
-      if (!operationId) throw new Error("operationId required");
-      const resp = await listOperationRunsApiV1OperationRunsGet({
-        type: "all",
-        limit: RUN_ROW_PAGE_LIMIT,
-      });
-      if (resp.status !== 200) {
-        throw new Error(`operation-runs lookup failed: ${resp.status}`);
-      }
-      const rows = resp.data.data ?? [];
-      return rows.find((row) => row.operation_id === operationId) ?? null;
+  // Memoised so Tanstack keeps the selected row's identity across renders and
+  // does not re-run the scan on every one.
+  const select = useCallback(
+    (res: listOperationRunsApiV1OperationRunsGetResponse) =>
+      res.status === 200
+        ? (res.data.data.find((row) => row.operation_id === operationId) ??
+          null)
+        : null,
+    [operationId],
+  );
+
+  return useListOperationRunsApiV1OperationRunsGet(RUN_ROW_PARAMS, {
+    query: {
+      select,
+      enabled: options.enabled && operationId !== null,
+      refetchInterval: options.enabled
+        ? (options.refetchInterval ?? RUN_ROW_POLL_INTERVAL_MS)
+        : false,
+      // A stale row is worse than a round trip here — we're polling for a
+      // transition, and retrying a hard failure just delays the honest verdict.
+      staleTime: 0,
+      retry: false,
     },
-    enabled: options.enabled && operationId !== null,
-    refetchInterval: options.enabled
-      ? (options.refetchInterval ?? RUN_ROW_POLL_INTERVAL_MS)
-      : false,
-    // A stale row is worse than a round trip here — we're polling for a
-    // transition, and retrying a hard failure just delays the honest verdict.
-    staleTime: 0,
-    retry: false,
   });
 }

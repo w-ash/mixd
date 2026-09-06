@@ -100,6 +100,17 @@ describe("tag matching", () => {
 
     expect(wasInvalidated(client, CONNECTORS)).toBe(false);
   });
+
+  it("refetches /sync/targets on a connect but not on a schedule write", async () => {
+    const SYNC_TARGETS = ["/api/v1/sync/targets"];
+    client.setQueryData(SYNC_TARGETS, { data: [] });
+
+    await invalidateTags(client, ["schedules"]);
+    expect(wasInvalidated(client, SYNC_TARGETS)).toBe(false);
+
+    await invalidateTags(client, ["connectors"]);
+    expect(wasInvalidated(client, SYNC_TARGETS)).toBe(true);
+  });
 });
 
 describe("the first-fetch race", () => {

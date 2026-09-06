@@ -2,9 +2,10 @@
 
 A leaf protocol (no workflow or infrastructure dependencies) so any use case or
 service can read the static connector registry — display names, categories,
-auth methods, capabilities — and build connector clients, without importing
-infrastructure. The per-user runtime half (``ConnectorStatus``) stays with the
-status probes; this is the declarative half only.
+auth methods, capabilities, external page links — and build connector clients,
+without importing infrastructure. The per-user runtime half
+(``ConnectorStatus``) stays with the status probes; this is the declarative
+half only.
 """
 
 from typing import Protocol
@@ -35,6 +36,14 @@ class ConnectorCatalog(Protocol):
 
         Raises:
             ValueError: If the connector is not registered.
+        """
+        ...
+
+    def playlist_url(self, name: str, playlist_id: str) -> str | None:
+        """Return the connector's own web page for one of its playlists.
+
+        Returns None when the connector is unregistered or declares no playlist
+        link, so callers store nothing rather than a guessed URL.
         """
         ...
 
@@ -72,6 +81,13 @@ class _DiscoveryConnectorCatalog:
         if config is None:
             raise ValueError(f"Unknown connector: {name}")
         return config["factory"]()
+
+    def playlist_url(self, name: str, playlist_id: str) -> str | None:
+        from src.infrastructure.connectors._shared.external_urls import (
+            connector_playlist_url,
+        )
+
+        return connector_playlist_url(name, playlist_id)
 
 
 def default_connector_catalog() -> ConnectorCatalog:

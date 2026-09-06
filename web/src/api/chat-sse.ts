@@ -1,16 +1,40 @@
 /**
  * SSE client for the chat endpoint.
  *
- * Uses fetch + ReadableStream (not EventSource) because the endpoint is POST.
- * Distinct from `api/sse-client.ts` (the GET/EventSource operations-progress
- * transport) — chat is ephemeral and POST-bodied, so it needs the streaming
- * `fetch` reader instead.
+ * Shares the `connectToSSE` transport with the operations stream — chat only
+ * differs in being POST-bodied and ephemeral (no `Last-Event-ID` reconnect).
+ * Frames carry no `event:` name, only a `type`-tagged JSON payload.
  */
 
-import { getAuthToken } from "#/api/auth";
+import { connectToSSE, SSEHttpError } from "#/api/sse-client";
 import type { ToolKind } from "#/stores/chat-store";
 
-const TERMINAL_TYPES = new Set(["done", "error"]);
+/**
+ * Frames the chat stream emits, mirroring `src/interface/api/chat_sse.py`.
+ *
+ * Declared here rather than generated: the endpoint streams bespoke JSON lines
+ * instead of a response model, so these shapes are not in `openapi.json`.
+ */
+type ChatStreamEvent =
+  | { type: "token"; text: string }
+  | { type: "tool_start"; name: string; id: string; kind: string }
+  | {
+      type: "tool_result";
+      name: string;
+      id: string;
+      summary: unknown;
+      is_error: boolean;
+    }
+  | { type: "code_start"; id: string; command: string }
+  | {
+      type: "code_result";
+      id: string;
+      stdout: string;
+      stderr: string;
+      return_code: number;
+    }
+  | { type: "done" }
+  | { type: "error"; code: string; message: string };
 
 /** Local calendar date (YYYY-MM-DD) so "this month" resolves to the user's clock. */
 function localISODate(): string {
@@ -40,98 +64,79 @@ export interface ChatSSECallbacks {
   onError: (code: string, message: string) => void;
 }
 
-function parseSSELine(line: string): Record<string, unknown> | null {
-  if (!line.startsWith("data: ")) return null;
-  const json = line.slice(6);
-  if (json === "[DONE]") return null;
+/** Decode one frame. Null for the `[DONE]` sentinel or anything unparseable. */
+function parseChatEvent(data: string): ChatStreamEvent | null {
+  if (!data || data === "[DONE]") return null;
   try {
-    return JSON.parse(json) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(data);
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      typeof (parsed as { type?: unknown }).type === "string"
+      ? (parsed as ChatStreamEvent)
+      : null;
   } catch {
     return null;
   }
 }
 
-async function readSSEStream(
-  response: Response,
-  onEvent: (event: Record<string, unknown>) => void,
-  signal: AbortSignal,
-): Promise<{ completed: boolean }> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Response body is not readable");
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let completed = false;
-
-  const flush = (raw: string): void => {
-    const event = parseSSELine(raw.trim());
-    if (!event) return;
-    if (TERMINAL_TYPES.has(event.type as string)) completed = true;
-    onEvent(event);
-  };
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line.trim()) flush(line);
-      }
-    }
-    if (buffer.trim()) flush(buffer);
-  } catch (error) {
-    if (signal.aborted) return { completed: true };
-    throw error;
+function dispatch(event: ChatStreamEvent, callbacks: ChatSSECallbacks): void {
+  switch (event.type) {
+    case "token":
+      callbacks.onToken(event.text);
+      break;
+    case "tool_start":
+      callbacks.onToolStart(
+        event.name,
+        event.id,
+        event.kind === "write" || event.kind === "agentic"
+          ? event.kind
+          : "read",
+      );
+      break;
+    case "tool_result":
+      callbacks.onToolResult(
+        event.name,
+        event.id,
+        event.summary,
+        event.is_error ?? false,
+      );
+      break;
+    case "code_start":
+      callbacks.onCodeStart(event.id, event.command);
+      break;
+    case "code_result":
+      callbacks.onCodeResult(
+        event.id,
+        event.stdout,
+        event.stderr,
+        event.return_code,
+      );
+      break;
+    case "done":
+      callbacks.onDone();
+      break;
+    case "error":
+      callbacks.onError(event.code, event.message);
+      break;
   }
-
-  return { completed };
 }
 
-function handleChatEvents(callbacks: ChatSSECallbacks) {
-  return (event: Record<string, unknown>): void => {
-    switch (event.type) {
-      case "token":
-        callbacks.onToken(event.text as string);
-        break;
-      case "tool_start":
-        callbacks.onToolStart(
-          event.name as string,
-          event.id as string,
-          event.kind === "write" || event.kind === "agentic"
-            ? event.kind
-            : "read",
-        );
-        break;
-      case "tool_result":
-        callbacks.onToolResult(
-          event.name as string,
-          event.id as string,
-          event.summary,
-          (event.is_error as boolean) ?? false,
-        );
-        break;
-      case "code_start":
-        callbacks.onCodeStart(event.id as string, event.command as string);
-        break;
-      case "code_result":
-        callbacks.onCodeResult(
-          event.id as string,
-          event.stdout as string,
-          event.stderr as string,
-          event.return_code as number,
-        );
-        break;
-      case "done":
-        callbacks.onDone();
-        break;
-      case "error":
-        callbacks.onError(event.code as string, event.message as string);
-        break;
-    }
-  };
+/** Read the API's JSON error envelope from a rejected handshake. */
+async function errorEnvelope(
+  response: Response,
+  status: number,
+): Promise<{ code: string; message: string }> {
+  try {
+    const body = (await response.json()) as {
+      error?: { code?: string; message?: string };
+    };
+    return {
+      code: body.error?.code ?? "REQUEST_FAILED",
+      message: body.error?.message ?? `HTTP ${status}`,
+    };
+  } catch {
+    return { code: "REQUEST_FAILED", message: `HTTP ${status}` };
+  }
 }
 
 export interface ConfirmationPayload {
@@ -161,42 +166,24 @@ export async function sendChatMessage(
   if (page !== undefined) body.page = page;
 
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    const token = await getAuthToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-
-    const response = await fetch("/api/v1/chat", {
+    const events = await connectToSSE("/api/v1/chat", signal, {
       method: "POST",
-      headers,
       body: JSON.stringify(body),
-      signal,
+      headers: { "Content-Type": "application/json" },
+      // No handshake budget: the turn runs its confirmed tool calls before the
+      // first byte, so a long one is work in progress, not a dead connection.
+      // The user's Stop button is the way out of a turn that runs too long.
+      connectionTimeoutMs: 0,
     });
 
-    if (!response.ok) {
-      let code = "REQUEST_FAILED";
-      let message = `HTTP ${response.status}`;
-      try {
-        const errBody = (await response.json()) as {
-          error?: { code?: string; message?: string };
-        };
-        if (errBody.error) {
-          code = errBody.error.code ?? code;
-          message = errBody.error.message ?? message;
-        }
-      } catch {
-        // ignore parse errors
-      }
-      callbacks.onError(code, message);
-      return;
+    let completed = false;
+    for await (const frame of events) {
+      const event = parseChatEvent(frame.data);
+      if (!event) continue;
+      if (event.type === "done" || event.type === "error") completed = true;
+      dispatch(event, callbacks);
     }
 
-    const { completed } = await readSSEStream(
-      response,
-      handleChatEvents(callbacks),
-      signal,
-    );
     if (!completed && !signal.aborted) {
       callbacks.onError(
         "STREAM_ENDED",
@@ -207,6 +194,14 @@ export async function sendChatMessage(
     // A user-initiated abort is not an error — the store already finalized the
     // message on stop, so stay silent rather than flashing a failure.
     if (signal.aborted) return;
+    if (error instanceof SSEHttpError) {
+      const { code, message } = await errorEnvelope(
+        error.response,
+        error.status,
+      );
+      callbacks.onError(code, message);
+      return;
+    }
     callbacks.onError(
       "NETWORK_ERROR",
       error instanceof Error ? error.message : "Network request failed",

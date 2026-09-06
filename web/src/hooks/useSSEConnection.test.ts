@@ -73,7 +73,7 @@ describe("useSSEConnection", () => {
     close();
   });
 
-  it("calls onEvent with parsed JSON for each SSE event", async () => {
+  it("calls onEvent with the decoded event for each SSE frame", async () => {
     const onEvent = vi.fn();
     mockSSEWithEvents([
       {
@@ -82,7 +82,7 @@ describe("useSSEConnection", () => {
       },
       {
         event: "complete",
-        data: JSON.stringify({ done: true }),
+        data: JSON.stringify({ final_status: "completed" }),
       },
     ]);
 
@@ -94,11 +94,34 @@ describe("useSSEConnection", () => {
       expect(onEvent).toHaveBeenCalledTimes(2);
     });
 
-    expect(onEvent).toHaveBeenCalledWith("node_status", {
-      node_id: "src_1",
-      status: "running",
+    expect(onEvent).toHaveBeenCalledWith({
+      event: "node_status",
+      data: { node_id: "src_1", status: "running" },
     });
-    expect(onEvent).toHaveBeenCalledWith("complete", { done: true });
+    expect(onEvent).toHaveBeenCalledWith({
+      event: "complete",
+      data: { final_status: "completed" },
+    });
+  });
+
+  it("skips a frame whose event name is not in the SSE vocabulary", async () => {
+    const onEvent = vi.fn();
+    mockSSEWithEvents([
+      { event: "message", data: JSON.stringify({ hello: true }) },
+      { event: "progress", data: JSON.stringify({ current: 3 }) },
+    ]);
+
+    renderHook(() => useSSEConnection("op-123", { onEvent }), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(onEvent).toHaveBeenCalledTimes(1);
+    });
+    expect(onEvent).toHaveBeenCalledWith({
+      event: "progress",
+      data: { current: 3 },
+    });
   });
 
   it("skips events with empty data", async () => {
@@ -118,7 +141,10 @@ describe("useSSEConnection", () => {
     await waitFor(() => {
       expect(onEvent).toHaveBeenCalledTimes(1);
     });
-    expect(onEvent).toHaveBeenCalledWith("progress", { current: 5 });
+    expect(onEvent).toHaveBeenCalledWith({
+      event: "progress",
+      data: { current: 5 },
+    });
   });
 
   it("skips malformed JSON without breaking the stream", async () => {
@@ -138,7 +164,10 @@ describe("useSSEConnection", () => {
     await waitFor(() => {
       expect(onEvent).toHaveBeenCalledTimes(1);
     });
-    expect(onEvent).toHaveBeenCalledWith("progress", { current: 10 });
+    expect(onEvent).toHaveBeenCalledWith({
+      event: "progress",
+      data: { current: 10 },
+    });
   });
 
   it("suppresses AbortError without setting error state", async () => {
@@ -393,7 +422,7 @@ describe("useSSEConnection", () => {
         { lastEventId: "evt_2" },
       );
       // The resumed stream's events keep flowing to the consumer.
-      expect(onEvent).toHaveBeenCalledWith("complete", {});
+      expect(onEvent).toHaveBeenCalledWith({ event: "complete", data: {} });
       expect(result.current.error).toBeNull();
     });
 

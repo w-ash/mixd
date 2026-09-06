@@ -104,7 +104,7 @@ export function PlaysHistoryView({
     if (feed.hasNextPage && !feed.isFetchingNextPage) {
       void feed.fetchNextPage();
     }
-  }, [feed]);
+  }, [feed.hasNextPage, feed.isFetchingNextPage, feed.fetchNextPage]);
 
   return (
     <div className="space-y-4">

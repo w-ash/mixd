@@ -1,11 +1,11 @@
-import { AlertTriangle, Check, Clock, Loader2, X } from "lucide-react";
+import type { ReactNode } from "react";
 
 import type { ImportQueueEntrySchema } from "#/api/generated/model";
+import { getStatusConfig } from "#/components/shared/RunStatusBadge";
 import { Button } from "#/components/ui/button";
 import type { SubOperationProgress } from "#/hooks/useOperationProgress";
 import { formatCount, formatTotalDuration } from "#/lib/format";
 import {
-  isSettled,
   orderedEntries,
   placementOf,
   summarizeQueue,
@@ -159,56 +159,47 @@ function EntryRow({
   );
 }
 
+/**
+ * Status mark for one file, sharing the run badge's vocabulary — a queued file
+ * and the audit row it becomes must not disagree about what its status is
+ * called or which colour it wears.
+ */
 function EntryIcon({ status }: { status: string }) {
-  const shared = "size-3 shrink-0";
-  if (status === "running")
-    return (
-      <Loader2
-        className={cn(shared, "animate-spin text-primary")}
-        aria-label="Running"
-      />
-    );
-  if (status === "complete")
-    return (
-      <Check
-        className={cn(shared, "text-status-connected")}
-        aria-label="Complete"
-      />
-    );
-  if (status === "partial")
-    return (
-      <AlertTriangle
-        className={cn(shared, "text-status-expired")}
-        aria-label="Completed with issues"
-      />
-    );
-  if (status === "error")
-    return (
-      <AlertTriangle
-        className={cn(shared, "text-destructive")}
-        aria-label="Failed"
-      />
-    );
-  if (status === "cancelled")
-    return (
-      <X className={cn(shared, "text-text-faint")} aria-label="Cancelled" />
-    );
+  const config = getStatusConfig(status);
   return (
-    <Clock className={cn(shared, "text-text-faint")} aria-label="Queued" />
+    <span
+      role="img"
+      aria-label={config.label}
+      className={cn(
+        "flex size-4 shrink-0 items-center justify-center rounded-full",
+        config.className,
+      )}
+    >
+      {config.icon}
+    </span>
   );
 }
 
+type EntryDetailRenderer = (
+  entry: ImportQueueEntrySchema,
+  entries: ImportQueueEntrySchema[],
+) => ReactNode;
+
+/** A file that has finished: what it produced, and how long it took. */
+const settledDetail: EntryDetailRenderer = (entry) => {
+  const plays = entry.counts?.track_plays;
+  const parts = [
+    typeof plays === "number" ? `${formatCount(plays)} plays` : null,
+    elapsedLabel(entry),
+  ].filter((part): part is string => part !== null);
+  return <span className="font-mono tabular-nums">{parts.join(" · ")}</span>;
+};
+
 /** The trailing half of a row: what this file is waiting on, or what it did. */
-function EntryDetail({
-  entry,
-  entries,
-}: {
-  entry: ImportQueueEntrySchema;
-  entries: ImportQueueEntrySchema[];
-}) {
-  if (entry.status === "queued") {
+const ENTRY_DETAIL: Record<string, EntryDetailRenderer> = {
+  queued: (entry, entries) => {
     const placement = placementOf(entries, entry);
-    if (placement === null) return <>Queued</>;
+    if (placement === null) return "Queued";
     return (
       <>
         Queued · #{placement.place}
@@ -216,20 +207,24 @@ function EntryDetail({
           ` · starts in ~${formatTotalDuration(placement.startsInSeconds * 1000)}`}
       </>
     );
-  }
-  if (entry.status === "cancelled") return <>Cancelled</>;
-  if (entry.status === "error") {
+  },
+  running: (entry) => elapsedLabel(entry),
+  cancelled: () => "Cancelled",
+  error: (entry) => {
     const reason = entry.counts?.error_message;
-    return <>Failed{typeof reason === "string" ? ` — ${reason}` : ""}</>;
-  }
-  if (!isSettled(entry)) return <>{elapsedLabel(entry)}</>;
+    return `Failed${typeof reason === "string" ? ` — ${reason}` : ""}`;
+  },
+};
 
-  const plays = entry.counts?.track_plays;
-  const parts = [
-    typeof plays === "number" ? `${formatCount(plays)} plays` : null,
-    elapsedLabel(entry),
-  ].filter((part): part is string => part !== null);
-  return <span className="font-mono tabular-nums">{parts.join(" · ")}</span>;
+function EntryDetail({
+  entry,
+  entries,
+}: {
+  entry: ImportQueueEntrySchema;
+  entries: ImportQueueEntrySchema[];
+}) {
+  const render = ENTRY_DETAIL[entry.status] ?? settledDetail;
+  return <>{render(entry, entries)}</>;
 }
 
 function elapsedLabel(entry: ImportQueueEntrySchema): string {

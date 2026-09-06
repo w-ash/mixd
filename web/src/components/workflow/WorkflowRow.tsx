@@ -11,6 +11,7 @@ import { Button } from "#/components/ui/button";
 import { TableCell, TableRow } from "#/components/ui/table";
 import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { formatDate } from "#/lib/format";
+import { pluralize, pluralSuffix } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 import { writeWorkflowDetail } from "#/lib/workflow-queries";
@@ -195,11 +196,11 @@ export const WorkflowRow = memo(function WorkflowRow({
         )}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
           <span className="tabular-nums">
-            {wf.task_count} task{wf.task_count === 1 ? "" : "s"}
+            {pluralize(wf.task_count, "task")}
           </span>
           {runCount > 0 && (
             <span className="font-mono tabular-nums">
-              {runCount} run{runCount === 1 ? "" : "s"}
+              {pluralize(runCount, "run")}
             </span>
           )}
           {runConf && (
@@ -245,7 +246,7 @@ export const WorkflowRow = memo(function WorkflowRow({
       <TableCell className="text-right tabular-nums">{wf.task_count}</TableCell>
       <TableCell
         className="text-right font-mono text-sm tabular-nums"
-        title={`${runCount} successful run${runCount === 1 ? "" : "s"}`}
+        title={`${runCount} successful run${pluralSuffix(runCount)}`}
       >
         {runCount > 0 ? (
           runCount

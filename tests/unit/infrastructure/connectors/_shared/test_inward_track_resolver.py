@@ -48,6 +48,9 @@ class FakeInwardResolver(InwardTrackResolver):
     def _normalize_id(self, raw_id: str) -> str:
         return raw_id.strip().lower()
 
+    def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
+        return None
+
     async def _reuse_existing_canonical_tracks(
         self,
         missing_ids: list[str],
@@ -677,6 +680,9 @@ class PipelineResolver(WritePlanningResolver[str]):
 
     def _normalize_id(self, raw_id: str) -> str:
         return raw_id
+
+    def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
+        return None
 
     async def _create_tracks_batch(
         self,

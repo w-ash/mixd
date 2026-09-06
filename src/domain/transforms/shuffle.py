@@ -11,10 +11,16 @@ import random
 from src.domain.entities.track import TrackList
 from src.domain.transforms.core import Transform, dual_mode
 
+# Shared generator for callers that do not supply one: OS entropy, so shuffling
+# never draws from — or reseeds — the process-wide `random` generator. Callers
+# that need a reproducible order pass their own seeded `random.Random`.
+_DEFAULT_RNG: random.Random = random.SystemRandom()
+
 
 def weighted_shuffle(
     shuffle_strength: float,
     tracklist: TrackList | None = None,
+    rng: random.Random | None = None,
 ) -> Transform | TrackList:
     """
     Shuffle tracks with configurable strength between original order and random.
@@ -27,6 +33,8 @@ def weighted_shuffle(
         shuffle_strength: Float between 0.0-1.0 controlling shuffle intensity
                          0.0 = original order, 1.0 = fully random
         tracklist: Optional tracklist to transform immediately
+        rng: Optional generator, for a reproducible order from a seeded
+             ``random.Random``. Defaults to a shared module-level instance.
 
     Returns:
         Transformation function or transformed tracklist if provided
@@ -53,6 +61,8 @@ def weighted_shuffle(
             f"shuffle_strength must be between 0.0 and 1.0, got {shuffle_strength}"
         )
 
+    generator = rng if rng is not None else _DEFAULT_RNG
+
     def transform(t: TrackList) -> TrackList:
         """Apply weighted shuffle transformation."""
         if not t.tracks:
@@ -63,9 +73,9 @@ def weighted_shuffle(
             # No shuffle - return as-is
             return t
         if shuffle_strength >= 1.0:
-            # Full shuffle - use random.shuffle for efficiency
+            # Full shuffle - shuffle in place for efficiency
             shuffled_tracks = t.tracks.copy()
-            random.shuffle(shuffled_tracks)
+            generator.shuffle(shuffled_tracks)
             return t.with_tracks(shuffled_tracks)
 
         # Weighted sort key: blend normalized position with random value.
@@ -76,7 +86,7 @@ def weighted_shuffle(
             indexed,
             key=lambda pair: (
                 (1 - shuffle_strength) * (pair[0] / track_count)
-                + shuffle_strength * random.random()  # ruff:ignore[suspicious-non-cryptographic-random-usage]
+                + shuffle_strength * generator.random()
             ),
         )
         return t.with_tracks([track for _, track in blended])

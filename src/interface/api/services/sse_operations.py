@@ -23,11 +23,14 @@ Reusable primitives:
   operation on the broker without letting a progress-tracking failure break the
   work being observed. Used here for each request operation, and by the import
   queue for the drain operation it owns directly.
+- ``build_terminal_event`` / ``push_terminal_best_effort`` — build one validated
+  terminal frame, and put it on a stream without letting a rejected payload
+  break the teardown around it. Every terminal push goes through the latter.
 """
 
 import asyncio
 from asyncio import CancelledError
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 import contextlib
 from typing import Final
 from uuid import UUID, uuid4
@@ -54,6 +57,7 @@ from src.interface.api.schemas.cache_tags import (
     touches_for,
 )
 from src.interface.api.schemas.imports import OperationStartedResponse
+from src.interface.api.schemas.sse_events import SSE_EVENT_SCHEMAS, sse_frame
 from src.interface.api.services.background import (
     finalize_sse_operation,
     launch_background,
@@ -423,8 +427,8 @@ async def _push_terminal_event(
     the ``errors`` count rides along in ``counts`` so the live toast still shows
     what went wrong. Only the durable audit row draws the finer distinction — the
     SSE terminal vocabulary is shared with the workflow/preview streams and is not
-    the place to introduce a third outcome. ``counts`` are spread into the event
-    data so the toast can render the real per-operation numbers (``track_plays``,
+    the place to introduce a third outcome. ``counts`` rides the event as its own
+    object so the toast can render the real per-operation numbers (``track_plays``,
     ``imported``, ``errors``, …). Best-effort: if the queue is already gone the run
     still finalized via the audit row.
 
@@ -437,6 +441,11 @@ async def _push_terminal_event(
     on the drain's stream is the cost that narrowing avoids — while the queue
     manifest still advances as each file lands. The drain's own terminal carries
     the full set once, and each file's own stream carries its own.
+
+    Never raises. It is called from the ``finally`` that still owes the operation
+    its coordinator completion, its concurrency slot and its ``on_terminal``
+    callback (which is what releases the import queue's sequencer), so a rejected
+    payload is logged where it happens rather than stranding all three.
     """
     registry = get_operation_registry()
     event_type = (
@@ -448,34 +457,34 @@ async def _push_terminal_event(
 
     queue = await registry.get_queue(operation_id)
     if queue is not None:
-        await queue.put(
-            build_terminal_event(
-                "evt_final",
-                event_type,
-                operation_id,
-                final_status,
-                run_id=run_id,
-                operation_type=operation_type,
-                counts=counts or {},
-            )
+        await push_terminal_best_effort(
+            queue,
+            "evt_final",
+            event_type,
+            operation_id,
+            final_status,
+            run_id=run_id,
+            operation_type=operation_type,
+            counts=counts or {},
         )
 
     for target in await registry.ancestor_streams(operation_id):
         # The ancestor's stream continues past this child, so its ids stay on the
         # shared sequence rather than borrowing the resume-skipped ``evt_final``.
         event_id = await registry.next_event_id(target.stream_operation_id)
-        await target.queue.put(
-            build_terminal_event(
-                event_id,
-                WorkflowConstants.SSE_EVENT_SUB_OPERATION_COMPLETED,
-                operation_id,
-                final_status,
-                run_id=run_id,
-                counts=counts or {},
-                touched=list(per_item_touches_for(operation_type)),
-                parent_operation_id=target.stream_operation_id,
-                item_operation_id=target.item_operation_id,
-            )
+        await push_terminal_best_effort(
+            target.queue,
+            event_id,
+            WorkflowConstants.SSE_EVENT_SUB_OPERATION_COMPLETED,
+            operation_id,
+            final_status,
+            log_message="Failed to push terminal SSE event to ancestor stream",
+            log_context={"stream_operation_id": target.stream_operation_id},
+            run_id=run_id,
+            counts=counts or {},
+            touched=list(per_item_touches_for(operation_type)),
+            parent_operation_id=target.stream_operation_id,
+            item_operation_id=target.item_operation_id,
         )
 
 
@@ -551,27 +560,78 @@ def build_terminal_event(
     operation_type: str | None = None,
     **extra: object,
 ) -> dict[str, object]:
-    """Build a terminal SSE event dict with shared structure.
+    """Build a terminal SSE event frame with shared structure.
 
-    Used by playlist sync (complete/error), workflow runs, and workflow
-    previews to construct the final event pushed to the SSE queue.
+    Used by playlist sync (complete/error), the import queue's drain, workflow
+    runs, and workflow previews to construct the final event pushed to the SSE
+    queue. The payload is validated against the event name's schema in
+    ``sse_events`` — ``event_type`` selects it, and ``extra`` carries the fields
+    that shape differs by (``counts``, ``output_track_count``, ``error_message``,
+    the preview tracklist), so an unknown field or a bad value fails here rather
+    than reaching a client.
 
     ``operation_type`` names what ran; the envelope turns it into ``touched`` —
     the cache-invalidation tags the client applies mechanically, so no caller has
     to know (or guess) which query keys its operation staled. The lookup lives
     here because this is the one place every terminal frame is built.
     """
-    data: dict[str, object] = {
+    schema = SSE_EVENT_SCHEMAS.get(event_type)
+    if schema is None:
+        raise ValueError(f"No SSE payload schema registered for event '{event_type}'")
+    fields: dict[str, object] = {
         "operation_id": operation_id,
         "final_status": status,
         **extra,
     }
     if run_id is not None:
-        data["run_id"] = run_id
+        fields["run_id"] = run_id
     if operation_type is not None:
-        data["touched"] = list(touches_for(operation_type))
-    return {
-        "id": event_id,
-        "event": event_type,
-        "data": data,
-    }
+        fields["touched"] = list(touches_for(operation_type))
+    return sse_frame(event_id, event_type, schema.model_validate(fields))
+
+
+async def push_terminal_best_effort(
+    queue: asyncio.Queue[object],
+    event_id: str,
+    event_type: str,
+    operation_id: str,
+    status: str,
+    *,
+    run_id: UUID | None = None,
+    operation_type: str | None = None,
+    log_message: str = "Failed to push terminal SSE event",
+    log_context: Mapping[str, object] | None = None,
+    **extra: object,
+) -> None:
+    """Build one terminal frame and put it on ``queue``; log instead of raising.
+
+    Every terminal push runs from a ``finally`` that still owes its operation
+    something — a coordinator completion, a concurrency slot, an ``on_terminal``
+    callback (which is what releases the import queue's sequencer), or the SSE
+    teardown itself. ``build_terminal_event`` validates the payload and rejects a
+    malformed one, so the single place that failure belongs is here: logged where
+    it happens rather than stranding the cleanup behind it.
+
+    ``run_id``, ``operation_type`` and ``extra`` forward to
+    ``build_terminal_event``; ``log_context`` names the stream at fault when the
+    operation id alone does not identify it.
+    """
+    try:
+        await queue.put(
+            build_terminal_event(
+                event_id,
+                event_type,
+                operation_id,
+                status,
+                run_id=run_id,
+                operation_type=operation_type,
+                **extra,
+            )
+        )
+    except Exception:
+        context = {
+            "operation_id": operation_id,
+            "event_type": event_type,
+            **(log_context or {}),
+        }
+        logger.error(log_message, exc_info=True, **context)

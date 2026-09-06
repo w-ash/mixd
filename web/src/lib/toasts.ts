@@ -16,6 +16,14 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 
 import { ApiError } from "#/api/client";
+import {
+  isRunOperationType,
+  OPERATION_TYPES,
+  type RunOperationType,
+} from "#/lib/operation-types";
+import { pluralize } from "#/lib/pluralize";
+
+export type { RunOperationType };
 
 export interface ToastAction {
   label: string;
@@ -34,6 +42,16 @@ export interface ToastOptions {
    * on (vs. a raw `setTimeout`, which keeps ticking while the toast is paused).
    */
   onAutoClose?: () => void;
+}
+
+/**
+ * Message for a connect-flow's inline error: `ApiError.message`, a generic
+ * fallback for any other truthy error, or `null` for none.
+ */
+export function connectErrorMessage(error: unknown): string | null {
+  if (error instanceof ApiError) return error.message;
+  if (error) return "Something went wrong. Please try again.";
+  return null;
 }
 
 /** Human-readable `{ title, description }` for any thrown error. */
@@ -86,81 +104,6 @@ export function formatApiError(err: unknown): {
   return { title: "Something went wrong" };
 }
 
-/** Operation types that produce an OperationRun audit row (matches v0.7.7 backend). */
-export type RunOperationType =
-  | "import_lastfm_history"
-  | "import_spotify_likes"
-  | "export_lastfm_likes"
-  | "import_spotify_history"
-  | "import_spotify_recent"
-  | "import_apple_recent"
-  | "import_connector_playlists"
-  | "apply_assignments_bulk";
-
-/**
- * Per-run-type terminal-toast spec: the count keys that feed the title and the
- * title itself. `countKeys` are the REAL backend `summary_metrics` names emitted
- * in the terminal event's `counts` (from `OperationResult.to_counts()`); the
- * first that resolves to a number wins, else 0 → the bare "… complete" title.
- */
-const RUN_TYPES: Record<
-  RunOperationType,
-  { countKeys: readonly string[]; title: (count: number) => string }
-> = {
-  import_lastfm_history: {
-    countKeys: ["track_plays", "connector_plays", "raw_plays"],
-    title: (n) =>
-      n > 0
-        ? `Imported ${n} ${n === 1 ? "scrobble" : "scrobbles"}`
-        : "Import complete",
-  },
-  import_spotify_likes: {
-    countKeys: ["imported", "already_liked", "candidates"],
-    title: (n) =>
-      n > 0 ? `Imported ${n} ${n === 1 ? "like" : "likes"}` : "Import complete",
-  },
-  export_lastfm_likes: {
-    countKeys: ["exported", "already_loved", "candidates"],
-    title: (n) =>
-      n > 0 ? `Exported ${n} ${n === 1 ? "love" : "loves"}` : "Export complete",
-  },
-  import_spotify_recent: {
-    countKeys: ["track_plays", "connector_plays", "raw_plays"],
-    title: (n) =>
-      n > 0
-        ? `Imported ${n} recent ${n === 1 ? "play" : "plays"}`
-        : "Already up to date",
-  },
-  import_spotify_history: {
-    countKeys: ["track_plays", "connector_plays", "raw_plays"],
-    title: (n) =>
-      n > 0
-        ? `Imported ${n} ${n === 1 ? "scrobble" : "scrobbles"}`
-        : "Import complete",
-  },
-  import_apple_recent: {
-    countKeys: ["track_plays", "connector_plays", "raw_plays"],
-    title: (n) =>
-      n > 0
-        ? `Imported ${n} recent ${n === 1 ? "play" : "plays"}`
-        : "Already up to date",
-  },
-  import_connector_playlists: {
-    countKeys: ["succeeded", "imported"],
-    title: (n) =>
-      n > 0
-        ? `Imported ${n} ${n === 1 ? "playlist" : "playlists"}`
-        : "Import complete",
-  },
-  apply_assignments_bulk: {
-    countKeys: ["updated", "assignments_processed"],
-    title: (n) =>
-      n > 0
-        ? `Applied ${n} ${n === 1 ? "assignment" : "assignments"}`
-        : "Apply complete",
-  },
-};
-
 /**
  * Per-item failure count carried on a *live* terminal SSE event.
  *
@@ -188,8 +131,10 @@ function runTitle(
   counts: Record<string, unknown>,
   failed: boolean,
 ): string {
-  const spec = RUN_TYPES[operationType as RunOperationType];
-  if (!spec) return failed ? "Operation failed" : "Operation complete";
+  if (!isRunOperationType(operationType)) {
+    return failed ? "Operation failed" : "Operation complete";
+  }
+  const spec = OPERATION_TYPES[operationType];
   for (const key of spec.countKeys) {
     const v = counts[key];
     if (typeof v === "number") return spec.title(v);
@@ -256,8 +201,8 @@ export const toasts = {
    * Pass ``action`` to override it (e.g. "Retry failed only").
    *
    * ``operationType`` is a plain string: known types get a tailored title from
-   * {@link RUN_TITLES}; anything else falls back to a generic phrase, so the
-   * global operations watcher can announce any run.
+   * {@link OPERATION_TYPES}; anything else falls back to a generic phrase, so
+   * the global operations watcher can announce any run.
    */
   runCompleted({
     operationType,
@@ -280,7 +225,7 @@ export const toasts = {
     const title = runTitle(operationType, counts, failed);
     const description =
       issueCount > 0
-        ? `${issueCount} ${issueCount === 1 ? "item" : "items"} had issues`
+        ? `${pluralize(issueCount, "item")} had issues`
         : undefined;
     const defaultAction: ToastAction | undefined =
       runId !== null && (issueCount > 0 || failed)

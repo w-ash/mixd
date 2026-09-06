@@ -5,6 +5,7 @@ and status determination to the connector_status application service.
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -35,9 +36,9 @@ from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.infrastructure.connectors._shared.connector_status import (
     get_all_connector_statuses,
 )
-from src.infrastructure.connectors._shared.token_storage import get_token_storage
-from src.infrastructure.connectors.discogs.token_service import (
-    validate_and_build_token,
+from src.infrastructure.connectors._shared.token_storage import (
+    StoredToken,
+    get_token_storage,
 )
 from src.infrastructure.connectors.discovery import discover_connectors
 from src.infrastructure.connectors.protocols import ConnectorConfig
@@ -58,15 +59,16 @@ from src.interface.api.services.sse_operations import launch_sse_operation
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 
-# The token-connect path runs a live Discogs identity + collection probe,
-# which makes it a validation oracle (submit-and-observe) and spends the
-# instance-wide per-IP Discogs budget. A tight per-user window throttles
-# that without impeding legitimate use — mirrors the assistant key-probe
-# limiter (routes/assistant.py).
-_discogs_token_limiter = InMemoryRateLimiter(
+# The token-connect path runs the connector's live validation probe, which
+# makes it a validation oracle (submit-and-observe) and spends that provider's
+# instance-wide budget. A tight window keyed on service + user throttles it
+# without impeding legitimate use, and without one connector's attempts
+# exhausting another's — mirrors the assistant key-probe limiter
+# (routes/assistant.py).
+_token_limiter = InMemoryRateLimiter(
     max_requests=5,
     window_seconds=60,
-    message="Too many Discogs token attempts. Please wait a minute and try again.",
+    message="Too many token attempts. Please wait a minute and try again.",
 )
 
 
@@ -147,24 +149,44 @@ async def _last_synced_by_service(user_id: str) -> dict[str, datetime]:
     return latest
 
 
-@router.put("/discogs/token", status_code=204)
-async def put_discogs_token(
+def _require_token_validator(
+    service: str,
+) -> Callable[[str], Awaitable[StoredToken]]:
+    """Resolve a connector's live BYO-token validator, or 400.
+
+    Declaring ``validate_token`` is what makes a ``token`` connector reachable
+    here: an OAuth or browser-bridge connector has no pasted secret to prove,
+    so it is rejected before any storage is touched.
+    """
+    config = _require_connector(service)
+    validate = config.get("validate_token")
+    if config["auth_method"] != "token" or validate is None:
+        raise HTTPException(
+            status_code=400, detail=f"{service} does not accept a pasted token"
+        )
+    return validate
+
+
+@router.put("/{service}/token", status_code=204)
+async def put_connector_token(
+    service: str,
     body: ConnectorTokenRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> None:
-    """Validate and store the user's Discogs personal access token.
+    """Validate and store a user's BYO personal access token for a connector.
 
     The v0.6.5 credential carve-out shape (like the assistant BYO-key): the
-    token is validated live via the shared ``discogs/token_service`` — which
-    also caches the collection count for the status probe — then stored
-    encrypted. Write-only: never returned by any endpoint. An invalid token
-    raises ``DiscogsInvalidTokenError``, which the middleware maps to a 400
-    ``DISCOGS_INVALID_TOKEN`` envelope (the shape the token form reads);
-    disconnect is the generic ``DELETE /connectors/discogs/token``.
+    token is proved live by the connector's own ``validate_token`` hook — which
+    also caches whatever its status probe renders — then stored encrypted.
+    Write-only: never returned by any endpoint. A rejected token raises the
+    connector's own invalid-token error, which the middleware maps to a 400
+    envelope (the shape the token form reads); disconnect is the generic
+    ``DELETE /connectors/{service}/token``.
     """
-    _discogs_token_limiter.check(user_id)
-    stored = await validate_and_build_token(body.token.strip())
-    await get_token_storage().save_token("discogs", user_id, stored)
+    validate = _require_token_validator(service)
+    _token_limiter.check(f"{service}:{user_id}")
+    stored = await validate(body.token.strip())
+    await get_token_storage().save_token(service, user_id, stored)
 
 
 @router.delete("/{service}/token", status_code=204)

@@ -18,7 +18,9 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
+import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
+import { getNodeCategoryName } from "#/lib/workflow-config";
 import { writeWorkflowDetail } from "#/lib/workflow-queries";
 
 /** One selectable template card in the gallery list. */
@@ -33,9 +35,7 @@ function TemplateCard({
 }) {
   // De-dupe the category badges — a template often has multiple nodes of the
   // same category and we only want one chip per category in the summary.
-  const categories = [
-    ...new Set(template.node_types.map((t) => t.split(".")[0])),
-  ];
+  const categories = [...new Set(template.node_types.map(getNodeCategoryName))];
 
   return (
     <button
@@ -49,7 +49,7 @@ function TemplateCard({
           {template.name}
         </span>
         <span className="shrink-0 tabular-nums text-xs text-text-muted">
-          {template.task_count} task{template.task_count === 1 ? "" : "s"}
+          {pluralize(template.task_count, "task")}
         </span>
       </div>
       {template.description && (

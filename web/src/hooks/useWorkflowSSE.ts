@@ -22,9 +22,22 @@ import {
   useOperationSnapshot,
 } from "#/hooks/useOperationSnapshot";
 import { useOperationSSE } from "#/hooks/useOperationSSE";
-import { type NodeStatus, SSE_EVENT, type SSEState } from "#/lib/sse-types";
+import {
+  type NodeStatus,
+  SSE_EVENT,
+  type SSEDomainEvent,
+  type SSEState,
+} from "#/lib/sse-types";
 
-const DEFAULT_COMPLETION_EVENTS: ReadonlySet<string> = new Set(["complete"]);
+const DEFAULT_COMPLETION_EVENTS: ReadonlySet<string> = new Set([
+  SSE_EVENT.COMPLETE,
+]);
+
+/** What closed the run: the terminal SSE frame, or the recovery snapshot that
+ *  stood in for one that never arrived. */
+export type WorkflowCompletionPayload =
+  | SSEDomainEvent["data"]
+  | OperationSnapshot;
 
 /** Snapshot of the most recent sub_progress event, keyed by its sub-op id. */
 export interface SubProgressUpdate {
@@ -33,15 +46,13 @@ export interface SubProgressUpdate {
   current: number;
   total: number | null;
   message: string;
-  itemsPerSecond: number | null;
-  etaSeconds: number | null;
 }
 
 export interface UseWorkflowSSEOptions {
   /** Which event types signal completion (default: {"complete"}) */
   completionEvents?: ReadonlySet<string>;
   /** Called when a completion event fires */
-  onComplete?: (eventType: string, data: unknown) => void;
+  onComplete?: (eventType: string, data: WorkflowCompletionPayload) => void;
   /** Called after an error event is processed */
   onError?: () => void;
   /** Fallback for missing error_message (default: "Operation failed") */
@@ -113,32 +124,29 @@ export function useWorkflowSSE(
       setSubProgress(null);
       resetNodeStatuses();
     },
-    onDomainEvent(eventType, d, reportTerminal) {
-      switch (eventType) {
+    onDomainEvent(event, reportTerminal) {
+      switch (event.event) {
         case SSE_EVENT.RUN_ACCEPTED: {
           setRunAccepted(true);
           return;
         }
         case SSE_EVENT.NODE_STATUS: {
-          handleNodeStatusEvent(d);
+          handleNodeStatusEvent(event.data);
           return;
         }
         case SSE_EVENT.SUB_PROGRESS: {
-          const subOperationId = String(d.operation_id ?? "");
-          if (!subOperationId) return;
+          const d = event.data;
+          if (!d.operation_id) return;
           setSubProgress({
-            subOperationId,
-            current: (d.current as number) ?? 0,
-            total: (d.total as number | null | undefined) ?? null,
-            message: (d.message as string) ?? "",
-            itemsPerSecond:
-              (d.items_per_second as number | null | undefined) ?? null,
-            etaSeconds: (d.eta_seconds as number | null | undefined) ?? null,
+            subOperationId: d.operation_id,
+            current: d.current,
+            total: d.total ?? null,
+            message: d.message,
           });
           return;
         }
         case SSE_EVENT.SUB_OPERATION_COMPLETED: {
-          const subOperationId = String(d.operation_id ?? "");
+          const subOperationId = event.data.operation_id;
           setSubProgress((prev) =>
             prev?.subOperationId === subOperationId ? null : prev,
           );
@@ -150,22 +158,23 @@ export function useWorkflowSSE(
           // deploy/autoscale), not a failure — resolve it as a terminal
           // completion so the UI shows a neutral "Cancelled" badge rather than a
           // spurious error. failed/crashed remain errors.
-          const finalStatus = d.final_status as string | undefined;
-          if (finalStatus === "cancelled") {
+          const d = event.data;
+          if (d.final_status === "cancelled") {
             if (reportTerminal()) onCompleteRef.current?.("cancelled", d);
           } else if (reportTerminal()) {
             setDomainError(
-              new Error(
-                (d.error_message as string) ?? errorFallbackRef.current,
-              ),
+              new Error(d.error_message ?? errorFallbackRef.current),
             );
             onErrorRef.current?.();
           }
           return;
         }
         default: {
-          if (completionEventsRef.current.has(eventType) && reportTerminal()) {
-            onCompleteRef.current?.(eventType, d);
+          if (
+            completionEventsRef.current.has(event.event) &&
+            reportTerminal()
+          ) {
+            onCompleteRef.current?.(event.event, event.data);
           }
         }
       }
@@ -204,10 +213,10 @@ export function useWorkflowSSE(
         status: node.status,
         execution_order: node.execution_order,
         total_nodes: totalNodes,
-        duration_ms: node.duration_ms ?? undefined,
-        input_track_count: node.input_track_count ?? undefined,
-        output_track_count: node.output_track_count ?? undefined,
-        error_message: node.error_message ?? undefined,
+        duration_ms: node.duration_ms,
+        input_track_count: node.input_track_count,
+        output_track_count: node.output_track_count,
+        error_message: node.error_message,
       })),
     );
 

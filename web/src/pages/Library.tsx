@@ -1,18 +1,18 @@
-import { ArrowUp, Bookmark, Heart, Music, X } from "lucide-react";
+import { ArrowUp, Bookmark, Heart, Music } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
-import type { LibraryTrackSchema, TrackSortBy } from "#/api/generated/model";
+import type { LibraryTrackSchema } from "#/api/generated/model";
 import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ActiveFilterChips } from "#/components/library/ActiveFilterChips";
 import {
-  countActiveFilters,
   FilterPanelChevron,
   LibraryFilterPanel,
 } from "#/components/library/LibraryFilterPanel";
 import { SaveFiltersAsWorkflowDialog } from "#/components/library/SaveFiltersAsWorkflowDialog";
+import { BulkSelectionBar } from "#/components/shared/BulkSelectionBar";
 import { BulkTagDialog } from "#/components/shared/BulkTagDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
@@ -36,11 +36,11 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table";
-import { useFilterState } from "#/hooks/useFilterState";
+import type { SortDir, SortField } from "#/hooks/useLibraryFilters";
+import { SORT_LABELS, useLibraryFilters } from "#/hooks/useLibraryFilters";
 import { usePagination } from "#/hooks/usePagination";
-import { useTrackSearch } from "#/hooks/useTrackSearch";
+import { useSelectionSet } from "#/hooks/useSelectionSet";
 import { isConnectable } from "#/lib/connectors";
-import { parsePreferenceParam } from "#/lib/filters-to-workflow";
 import {
   formatArtists,
   formatCount,
@@ -48,7 +48,6 @@ import {
   formatList,
   formatRelativeTime,
 } from "#/lib/format";
-import { countPlayFilters } from "#/lib/play-filters";
 import { pluralSuffix } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 
@@ -140,36 +139,6 @@ function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
   );
 }
 
-// No artist sort until artists are first-class (v0.12.1) — `artists_text` is a
-// joined display string, so ordering by it sorts by "Bowie, Eno", not by artist.
-type SortField = "title" | "duration" | "added" | "plays" | "last_played";
-type SortDir = "asc" | "desc";
-
-const SORT_LABELS: Record<SortField, string> = {
-  title: "Title",
-  duration: "Duration",
-  added: "Added",
-  plays: "Plays",
-  last_played: "Last Played",
-};
-
-/** Map column name to API sort param */
-function toSortParam(field: SortField, dir: SortDir): TrackSortBy {
-  return `${field}_${dir}`;
-}
-
-/** Parse API sort param back to field + direction */
-function parseSortParam(param: string): { field: SortField; dir: SortDir } {
-  const lastUnderscore = param.lastIndexOf("_");
-  if (lastUnderscore === -1) return { field: "last_played", dir: "desc" };
-  const field = param.slice(0, lastUnderscore) as SortField;
-  const dir = param.slice(lastUnderscore + 1) as SortDir;
-  if (!SORT_LABELS[field] || (dir !== "asc" && dir !== "desc")) {
-    return { field: "last_played", dir: "desc" };
-  }
-  return { field, dir };
-}
-
 /** Sortable column header — clicking toggles direction or sets new sort */
 function SortableHead({
   field,
@@ -219,111 +188,55 @@ function SortableHead({
 
 export function Library() {
   const cursorMapRef = useRef<Map<number, string>>(new Map());
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // Shared URL-filter mutations — clears cursor cache + selection on every
-  // write so the user can't silently bulk-tag tracks they can no longer see.
-  const resetLocalState = useCallback(() => {
-    cursorMapRef.current.clear();
-    setSelectedIds(new Set());
-  }, []);
-  const { searchParams, setFilter, setFilters, setMultiFilter, clearAll } =
-    useFilterState({
-      onMutate: resetLocalState,
-    });
-  const { search, setSearch, deferredSearch, isSearching } = useTrackSearch(
-    searchParams.get("q") ?? "",
-  );
-
-  // URL-driven filter state
-  const likedParam = searchParams.get("liked");
-  const connectorParam = searchParams.get("connector");
-  // Validate preference param so ?preference=garbage doesn't flow downstream.
-  const preferenceParam = parsePreferenceParam(searchParams.get("preference"));
-  const tagParams = searchParams.getAll("tag");
-  const tagModeParam: "and" | "or" =
-    searchParams.get("tag_mode") === "or" ? "or" : "and";
-  const minPlaysParam = searchParams.get("min_plays");
-  const playedWithinParam = searchParams.get("played_within");
-  const notPlayedWithinParam = searchParams.get("not_played_within");
-  const neverPlayedParam = searchParams.get("never_played") === "true";
-  const { field: sortField, dir: sortDir } = parseSortParam(
-    searchParams.get("sort") ?? "last_played_desc",
-  );
-  // Round-trip through the parser so garbage URL values normalize to a
-  // valid TrackSortBy instead of reaching the API as a raw string.
-  const sortParam = toSortParam(sortField, sortDir);
-
-  // Build query params for the API
-  const querySearch = deferredSearch.length >= 2 ? deferredSearch : undefined;
-  const likedFilter =
-    likedParam === "true" ? true : likedParam === "false" ? false : undefined;
-
-  // Pagination — offset derived from URL ?page= before query fires;
-  // usePagination called after query for totalPages/setPage (needs total).
-  const pageParam = Number(searchParams.get("page") ?? "1");
-  const queryOffset = (pageParam - 1) * PAGE_SIZE;
-
-  // Keyset pagination: cache cursors from API responses for sequential nav.
-  // Map: page number → cursor for the *next* page after that page.
-  // (cursorMapRef + selectedIds are declared at the top of the function so
-  //  useFilterState's onMutate callback can reset them.)
-
+  // The selection lives below the tracks query, but the filter-write callback
+  // above it has to clear it — the ref bridges the two without re-running.
+  const clearSelectionRef = useRef<(() => void) | null>(null);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
-
-  // Filter panel + save-as-workflow UI state. Panel auto-opens whenever
-  // filters become active (via URL nav, chip dismiss, or panel interaction)
-  // and stays open once the user has engaged with it — we never auto-close
-  // it on filter clear, so the user can keep editing without losing their
-  // place. Manual toggle via the toolbar button still works.
-  // Play filters have no workflow-node mapping yet — Save as Workflow keys
-  // on the subset filtersToWorkflowDef can express, so that subset is counted
-  // on its own and the play groups are added on top for the panel badge.
-  const mappableFilterCount = useMemo(
-    () =>
-      countActiveFilters({
-        preference: preferenceParam,
-        liked: likedParam,
-        connector: connectorParam,
-        tags: tagParams,
-      }),
-    [preferenceParam, likedParam, connectorParam, tagParams],
-  );
-  const activeFilterCount =
-    mappableFilterCount +
-    countPlayFilters({
-      minPlays: minPlaysParam,
-      neverPlayed: neverPlayedParam,
-      playedWithin: playedWithinParam,
-      notPlayedWithin: notPlayedWithinParam,
-    });
-  const [filterPanelOpen, setFilterPanelOpen] = useState(activeFilterCount > 0);
-  useEffect(() => {
-    if (activeFilterCount > 0) setFilterPanelOpen(true);
-  }, [activeFilterCount]);
   const [saveWorkflowOpen, setSaveWorkflowOpen] = useState(false);
 
-  // Use cursor if available from the previous page (sequential next-page)
+  // Every filter write clears the cursor cache and the selection, so the user
+  // can't silently bulk-tag tracks they can no longer see.
+  const resetLocalState = useCallback(() => {
+    cursorMapRef.current.clear();
+    clearSelectionRef.current?.();
+  }, []);
+  const {
+    filters,
+    setFilter,
+    setFilters,
+    clear,
+    activeCount,
+    mappableCount,
+    searchInput,
+    isSearching,
+    toQueryParams,
+    searchParams,
+  } = useLibraryFilters({ onMutate: resetLocalState });
+
+  // Pagination — offset derived from URL ?page= before the query fires;
+  // usePagination runs after it for totalPages/setPage (both need `total`).
+  const pageParam = Number(searchParams.get("page") ?? "1");
+  const queryOffset = (pageParam - 1) * PAGE_SIZE;
+  // Keyset pagination: cache cursors from API responses for sequential nav.
+  // Map: page number → cursor for the *next* page after that page.
   const cursorForPage = cursorMapRef.current.get(pageParam - 1);
+
+  // Auto-open when filters become active — from a chip or the URL as much as
+  // from the panel itself — and never auto-close: only the user closes it.
+  // Adjusted during render rather than in an effect, so the panel opens in the
+  // same pass the count grows in, and an unrelated URL write (a search
+  // keystroke, a sort) leaves a user's collapse alone.
+  const [filterPanelOpen, setFilterPanelOpen] = useState(() => activeCount > 0);
+  const [prevActiveCount, setPrevActiveCount] = useState(activeCount);
+  if (activeCount !== prevActiveCount) {
+    setPrevActiveCount(activeCount);
+    if (activeCount > prevActiveCount) setFilterPanelOpen(true);
+  }
 
   const { data, isLoading, isError, error, isPlaceholderData } =
     useListTracksApiV1TracksGet(
       {
-        q: querySearch,
-        liked: likedFilter,
-        connector: connectorParam ?? undefined,
-        preference: preferenceParam ?? undefined,
-        tag: tagParams.length > 0 ? tagParams : undefined,
-        tag_mode: tagModeParam,
-        min_plays: minPlaysParam ? Number(minPlaysParam) : undefined,
-        played_within: playedWithinParam
-          ? Number(playedWithinParam)
-          : undefined,
-        not_played_within: notPlayedWithinParam
-          ? Number(notPlayedWithinParam)
-          : undefined,
-        never_played: neverPlayedParam || undefined,
-        sort: sortParam,
+        ...toQueryParams(),
         limit: PAGE_SIZE,
         offset: queryOffset,
         // Only pay for GROUP BYs when the user is looking at the filters.
@@ -337,6 +250,10 @@ export function Library() {
   const tracks = response?.data ?? [];
   const total = response?.total ?? 0;
   const facets = response?.facets ?? null;
+
+  const trackIds = useMemo(() => tracks.map((t) => t.id), [tracks]);
+  const selection = useSelectionSet(trackIds);
+  clearSelectionRef.current = selection.clear;
 
   // Cache the next_cursor from the latest response
   const nextCursor = response?.next_cursor;
@@ -354,25 +271,12 @@ export function Library() {
   });
   const connectors = connectorsData?.status === 200 ? connectorsData.data : [];
 
-  const setTagFilters = useCallback(
-    (tags: string[]) => setMultiFilter("tag", tags),
-    [setMultiFilter],
-  );
-
   const handleSort = useCallback(
-    (field: SortField, dir: SortDir) => {
-      setFilter("sort", toSortParam(field, dir));
-    },
+    (field: SortField, dir: SortDir) => setFilter("sort", { field, dir }),
     [setFilter],
   );
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearch(value);
-    setFilter("q", value);
-  };
-
-  const hasFilters = activeFilterCount > 0 || Boolean(querySearch);
+  const hasFilters = activeCount > 0 || Boolean(filters.search);
 
   return (
     <div>
@@ -381,7 +285,7 @@ export function Library() {
         title="Library"
         description={
           total > 0
-            ? `${total.toLocaleString()} track${pluralSuffix(total)} across all services.`
+            ? `${formatCount(total)} track${pluralSuffix(total)} across all services.`
             : "Your complete track collection."
         }
       />
@@ -389,7 +293,7 @@ export function Library() {
           applied or cleared. WCAG 2.2 "status messages" guidance. */}
       <span className="sr-only" aria-live="polite">
         {total > 0
-          ? `${total.toLocaleString()} track${pluralSuffix(total)} match${total === 1 ? "es" : ""} current filters.`
+          ? `${formatCount(total)} track${pluralSuffix(total)} match${total === 1 ? "es" : ""} current filters.`
           : "No tracks match current filters."}
       </span>
 
@@ -399,13 +303,12 @@ export function Library() {
           <Input
             type="search"
             placeholder="Search tracks, artists, albums..."
-            value={search}
-            onChange={handleSearchChange}
+            value={searchInput}
+            onChange={(e) => setFilter("search", e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Escape" && search !== "") {
+              if (e.key === "Escape" && searchInput !== "") {
                 e.preventDefault();
-                setSearch("");
-                setFilter("q", null);
+                setFilter("search", null);
               }
             }}
             aria-label="Search tracks"
@@ -424,18 +327,18 @@ export function Library() {
         <Button
           type="button"
           variant="outline"
-          onClick={() => setFilterPanelOpen((v) => !v)}
+          onClick={() => setFilterPanelOpen(!filterPanelOpen)}
           aria-expanded={filterPanelOpen}
           aria-controls="library-filter-panel"
           className="gap-2"
         >
           <span>Filters</span>
-          {activeFilterCount > 0 && (
+          {activeCount > 0 && (
             <Badge variant="default" className="min-w-5 px-1.5 py-0">
-              {activeFilterCount}
+              {activeCount}
               <span className="sr-only">
                 {" "}
-                active filter{pluralSuffix(activeFilterCount)}
+                active filter{pluralSuffix(activeCount)}
               </span>
             </Badge>
           )}
@@ -445,10 +348,10 @@ export function Library() {
         <Button
           type="button"
           variant="outline"
-          disabled={mappableFilterCount === 0}
+          disabled={mappableCount === 0}
           onClick={() => setSaveWorkflowOpen(true)}
           title={
-            mappableFilterCount === 0
+            mappableCount === 0
               ? "Apply a preference, liked, source, or tag filter first"
               : "Save the current filters as a reusable workflow"
           }
@@ -462,104 +365,40 @@ export function Library() {
       <LibraryFilterPanel
         expanded={filterPanelOpen}
         onClose={() => setFilterPanelOpen(false)}
-        preference={preferenceParam}
-        liked={
-          likedParam === "true" || likedParam === "false" ? likedParam : null
-        }
-        connector={connectorParam}
-        tags={tagParams}
-        tagMode={tagModeParam}
+        filters={filters}
+        setFilter={setFilter}
+        setFilters={setFilters}
         connectors={connectors}
         facets={facets}
-        onPreferenceChange={(value) => setFilter("preference", value)}
-        onLikedChange={(value) => setFilter("liked", value)}
-        onConnectorChange={(value) => setFilter("connector", value)}
-        onTagsChange={setTagFilters}
-        onTagModeChange={(mode) =>
-          setFilter("tag_mode", mode === "and" ? null : mode)
-        }
-        minPlays={minPlaysParam ? Number(minPlaysParam) : null}
-        neverPlayed={neverPlayedParam}
-        playedWithin={playedWithinParam ? Number(playedWithinParam) : null}
-        notPlayedWithin={
-          notPlayedWithinParam ? Number(notPlayedWithinParam) : null
-        }
-        onPlayCountChange={({ minPlays, neverPlayed }) => {
-          setFilters({
-            min_plays: minPlays === null ? null : String(minPlays),
-            never_played: neverPlayed ? "true" : null,
-          });
-        }}
-        onRecencyChange={({ playedWithin, notPlayedWithin }) => {
-          setFilters({
-            played_within: playedWithin === null ? null : String(playedWithin),
-            not_played_within:
-              notPlayedWithin === null ? null : String(notPlayedWithin),
-          });
-        }}
       />
 
       <ActiveFilterChips
-        search={querySearch ?? null}
-        liked={likedParam}
-        connector={connectorParam}
-        preference={preferenceParam}
-        tags={tagParams}
-        minPlays={minPlaysParam}
-        neverPlayed={neverPlayedParam}
-        playedWithin={playedWithinParam}
-        notPlayedWithin={notPlayedWithinParam}
-        onClearFilter={(key) => {
-          if (key === "q") {
-            setSearch("");
-            setFilter("q", null);
-          } else {
-            setFilter(key, null);
-          }
-        }}
-        onRemoveTag={(tag) => setTagFilters(tagParams.filter((t) => t !== tag))}
-        onClearAll={() => {
-          setSearch("");
-          clearAll();
-        }}
+        filters={filters}
+        setFilter={setFilter}
+        onClearAll={clear}
       />
 
-      <SaveFiltersAsWorkflowDialog
-        open={saveWorkflowOpen}
-        onOpenChange={setSaveWorkflowOpen}
-        filters={{
-          preference: preferenceParam,
-          tags: tagParams,
-          tagMode: tagModeParam,
-          liked: likedFilter ?? null,
-          connector: connectorParam,
-        }}
-        narrowsToLiked={!preferenceParam && likedFilter !== true}
-      />
-
-      {/* Bulk-action toolbar — only visible while a selection exists. */}
-      {selectedIds.size > 0 && (
-        <section
-          aria-label="Bulk selection"
-          className="mb-3 flex items-center gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
-        >
-          <span className="font-display text-text">
-            {selectedIds.size} selected
-          </span>
-          <Button size="sm" onClick={() => setBulkTagOpen(true)}>
-            Tag selected
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setSelectedIds(new Set())}
-            aria-label="Clear selection"
-          >
-            <X className="mr-1 size-3.5" />
-            Clear
-          </Button>
-        </section>
+      {/* Mounted only while open so the form starts empty every time. */}
+      {saveWorkflowOpen && (
+        <SaveFiltersAsWorkflowDialog
+          open
+          onOpenChange={setSaveWorkflowOpen}
+          filters={{
+            preference: filters.preference,
+            tags: filters.tags,
+            tagMode: filters.tagMode,
+            liked: filters.liked === null ? null : filters.liked === "true",
+            connector: filters.connector,
+          }}
+          narrowsToLiked={!filters.preference && filters.liked !== "true"}
+        />
       )}
+
+      <BulkSelectionBar count={selection.size} onClear={selection.clear}>
+        <Button size="sm" onClick={() => setBulkTagOpen(true)}>
+          Tag selected
+        </Button>
+      </BulkSelectionBar>
 
       <QueryStates
         loading={isLoading}
@@ -612,15 +451,10 @@ export function Library() {
                   <TrackCard
                     key={track.id}
                     track={track}
-                    selected={selectedIds.has(track.id)}
-                    onSelectedChange={(checked) => {
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        if (checked) next.add(track.id);
-                        else next.delete(track.id);
-                        return next;
-                      });
-                    }}
+                    selected={selection.isSelected(track.id)}
+                    onSelectedChange={(checked) =>
+                      selection.toggle(track.id, checked)
+                    }
                   />
                 ))}
               </div>
@@ -632,22 +466,8 @@ export function Library() {
                     <TableHead className="w-8">
                       <Checkbox
                         aria-label="Select all rows on this page"
-                        checked={
-                          tracks.length === 0
-                            ? false
-                            : tracks.every((t) => selectedIds.has(t.id))
-                              ? true
-                              : tracks.some((t) => selectedIds.has(t.id))
-                                ? "indeterminate"
-                                : false
-                        }
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setSelectedIds(new Set(tracks.map((t) => t.id)));
-                          } else {
-                            setSelectedIds(new Set());
-                          }
-                        }}
+                        checked={selection.headerChecked}
+                        onCheckedChange={selection.toggleAll}
                       />
                     </TableHead>
                     <TableHead className="w-8">
@@ -655,8 +475,8 @@ export function Library() {
                     </TableHead>
                     <SortableHead
                       field="title"
-                      currentField={sortField}
-                      currentDir={sortDir}
+                      currentField={filters.sort.field}
+                      currentDir={filters.sort.dir}
                       onSort={handleSort}
                     >
                       Title
@@ -670,8 +490,8 @@ export function Library() {
                     </TableHead>
                     <SortableHead
                       field="duration"
-                      currentField={sortField}
-                      currentDir={sortDir}
+                      currentField={filters.sort.field}
+                      currentDir={filters.sort.dir}
                       onSort={handleSort}
                       className="w-20 text-right"
                     >
@@ -679,8 +499,8 @@ export function Library() {
                     </SortableHead>
                     <SortableHead
                       field="plays"
-                      currentField={sortField}
-                      currentDir={sortDir}
+                      currentField={filters.sort.field}
+                      currentDir={filters.sort.dir}
                       onSort={handleSort}
                       className="w-16 text-right"
                     >
@@ -688,8 +508,8 @@ export function Library() {
                     </SortableHead>
                     <SortableHead
                       field="last_played"
-                      currentField={sortField}
-                      currentDir={sortDir}
+                      currentField={filters.sort.field}
+                      currentDir={filters.sort.dir}
                       onSort={handleSort}
                       className="w-28"
                     >
@@ -719,15 +539,10 @@ export function Library() {
                       <TableCell className="w-8 text-center">
                         <Checkbox
                           aria-label={`Select ${track.title}`}
-                          checked={selectedIds.has(track.id)}
-                          onCheckedChange={(checked) => {
-                            setSelectedIds((prev) => {
-                              const next = new Set(prev);
-                              if (checked) next.add(track.id);
-                              else next.delete(track.id);
-                              return next;
-                            });
-                          }}
+                          checked={selection.isSelected(track.id)}
+                          onCheckedChange={(checked) =>
+                            selection.toggle(track.id, checked === true)
+                          }
                         />
                       </TableCell>
                       {/* Liked */}
@@ -815,7 +630,7 @@ export function Library() {
             total={total}
             limit={PAGE_SIZE}
             onPageChange={(nextPage) => {
-              setSelectedIds(new Set());
+              selection.clear();
               setPage(nextPage);
             }}
           />
@@ -825,8 +640,8 @@ export function Library() {
       <BulkTagDialog
         open={bulkTagOpen}
         onOpenChange={setBulkTagOpen}
-        trackIds={Array.from(selectedIds)}
-        onTagged={() => setSelectedIds(new Set())}
+        trackIds={Array.from(selection.selected)}
+        onTagged={selection.clear}
       />
     </div>
   );

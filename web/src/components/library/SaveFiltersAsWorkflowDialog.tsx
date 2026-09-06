@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useCreateWorkflowApiV1WorkflowsPost } from "#/api/generated/workflows/workflows";
@@ -39,6 +39,9 @@ interface SaveFiltersAsWorkflowDialogProps {
  * Error handling: the create mutation's error is surfaced inline in the
  * dialog footer. The user stays on the dialog and can retry — consistent
  * with ConfirmationDialog-style interactions elsewhere in the app.
+ *
+ * Mount it only while it is open: the form fields are plain local state, so
+ * a fresh mount is what starts them empty.
  */
 export function SaveFiltersAsWorkflowDialog({
   open,
@@ -50,14 +53,6 @@ export function SaveFiltersAsWorkflowDialog({
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-
-  // Reset form state every time the dialog opens so old input doesn't linger.
-  useEffect(() => {
-    if (open) {
-      setName("");
-      setDescription("");
-    }
-  }, [open]);
 
   // The dialog renders its own inline error, so the global toast would be a
   // duplicate report of the same failure.

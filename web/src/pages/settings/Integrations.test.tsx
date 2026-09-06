@@ -192,9 +192,6 @@ describe("Integrations", () => {
             ...allConnectors,
             makeConnectorMetadata({
               name: "discogs",
-              category: "physical",
-              auth_method: "token",
-              capabilities: [],
               connected: true,
               detail: "3 releases",
             }),

@@ -202,7 +202,8 @@ class TestServerConfig:
 
     def test_defaults(self):
         config = ServerConfig()
-        assert config.host == "0.0.0.0"  # ruff:ignore[hardcoded-bind-all-interfaces]
+        # Loopback: containers bind all interfaces via uvicorn's own --host flag.
+        assert config.host == "127.0.0.1"
         assert config.port == 8000
         assert config.cors_origins == ["http://localhost:5173"]
 

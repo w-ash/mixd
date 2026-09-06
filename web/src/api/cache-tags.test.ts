@@ -48,6 +48,14 @@ describe("read dependencies", () => {
     );
     expect(tagsForPath("/api/v1/connectors")).toEqual(["connectors"]);
   });
+
+  it("ties sync targets to the connector family, not schedules", () => {
+    // The payload has no schedule-derived field — only `available`/
+    // `blocked_reason`, both connector state — so a schedule write must not
+    // force a per-user token read, but a connect/disconnect must refetch it.
+    expect(tagsForPath("/api/v1/sync/targets")).toEqual(["connectors"]);
+    expect(writeTags("/api/v1/sync/targets")).toEqual(["connectors"]);
+  });
 });
 
 describe("write tags", () => {

@@ -1,5 +1,5 @@
 import { AlertTriangle, Info, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { ApiError } from "#/api/client";
 import type {
@@ -131,8 +131,8 @@ export function SyncConfirmationDialog({
   const [directionOverride, setDirectionOverride] = useState<string | null>(
     null,
   );
-  // Token sent with the sync POST: seeded from the preview, refreshed by a 409.
-  const [confirmToken, setConfirmToken] = useState<string | undefined>();
+  // Set only by a stale-token 409; otherwise the preview's token is the token.
+  const [tokenOverride, setTokenOverride] = useState<string | undefined>();
   // Fresh counts from a stale-token 409 (remote moved since the preview).
   const [staleCounts, setStaleCounts] = useState<DestructiveCounts | null>(
     null,
@@ -156,17 +156,15 @@ export function SyncConfirmationDialog({
   const preview: SyncPreviewResponse | undefined =
     previewData?.status === 200 ? previewData.data : undefined;
 
-  // Seed the confirm token from the preview; a new direction → new preview → new
-  // token. A 409 overwrites this with the server's fresh token.
-  useEffect(() => {
-    if (preview?.confirm_token) setConfirmToken(preview.confirm_token);
-  }, [preview?.confirm_token]);
+  // The token the sync POST carries. A new direction loads a new preview and
+  // therefore a new token; a 409 overrides it with the server's fresh one until
+  // the next direction change or reset.
+  const confirmToken = tokenOverride ?? preview?.confirm_token;
 
-  // Per-direction sync state: the confirm token plus any 409-derived destructive
-  // counts/error. Cleared on a full reset and whenever the direction switches
-  // (a new direction loads a fresh preview + token, so the old gate must drop).
+  // Per-direction sync state: the 409's token, counts and error. Cleared on a
+  // full reset and whenever the direction switches, so the old gate drops.
   const clearSyncState = () => {
-    setConfirmToken(undefined);
+    setTokenOverride(undefined);
     setStaleCounts(null);
     setSyncError(null);
   };
@@ -200,7 +198,7 @@ export function SyncConfirmationDialog({
             err.code === "CONFIRMATION_REQUIRED"
           ) {
             const d = err.details ?? {};
-            if (d.confirm_token) setConfirmToken(d.confirm_token);
+            if (d.confirm_token) setTokenOverride(d.confirm_token);
             setStaleCounts({
               removals: Number(d.removals ?? 0),
               total: Number(d.total ?? 0),

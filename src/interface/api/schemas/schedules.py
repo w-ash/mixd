@@ -6,6 +6,7 @@ from ``day_of_week`` alone (the domain's single source of truth), so the request
 validator enforces the two stay consistent before the command is built.
 """
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Annotated, Literal, Self, cast
 from uuid import UUID
@@ -16,6 +17,7 @@ from src.application.use_cases._shared.schedule_validators import (
     validate_iana_timezone,
 )
 from src.application.use_cases._shared.sync_targets import SYNC_TARGETS, SyncTarget
+from src.interface.api.connector_access import ConnectorAccess, ConnectorBlockedReason
 
 # Every cadence a schedule can HAVE. "interval" is read-only over the API: it
 # belongs to self-managed targets that rewrite their own cadence, so it appears
@@ -132,34 +134,45 @@ class ScheduleListResponse(BaseModel):
 
 
 class SyncTargetSchema(BaseModel):
-    """One dispatchable sync target: its id, label, and who owns its cadence.
+    """One dispatchable sync target: its id, label, cadence owner, and readiness.
 
     ``id`` reuses the application's ``SyncTarget`` alias rather than a wire copy,
     which would reintroduce inside the backend the mirror this endpoint deletes
-    from the frontend.
+    from the frontend. ``available`` and ``blocked_reason`` are per user and come
+    from the same predicate the trigger routes 409 on, so a card the web renders
+    as runnable always is.
     """
 
     id: SyncTarget
     label: str
+    # Connector-registry key, which is not always the target id's prefix
+    # (``apple:plays`` runs on ``apple_music``). The web keys its connect
+    # prompt on this rather than splitting the id.
+    service: str
     # True for targets whose cadence the server manages (the adaptive play
     # poller — see the sync_targets module docstring). The web renders these
     # with a read-only cadence line and a toggle, not the daily/weekly picker.
     self_managed: bool
+    available: bool
+    blocked_reason: ConnectorBlockedReason | None = None
 
 
 class SyncTargetListResponse(BaseModel):
     data: list[SyncTargetSchema]
 
     @classmethod
-    def from_registry(cls) -> Self:
-        """Project the dispatch table into wire rows."""
+    def from_registry(cls, access: Mapping[str, ConnectorAccess]) -> Self:
+        """Project the dispatch table into wire rows for one user."""
         return cls(
             data=[
                 SyncTargetSchema(
                     # Pinned by ``test_cache_tags``: literal and registry match.
                     id=cast(SyncTarget, target),
                     label=spec.label,
+                    service=spec.service,
                     self_managed=not spec.user_schedulable,
+                    available=access[target].available,
+                    blocked_reason=access[target].blocked_reason,
                 )
                 for target, spec in sorted(SYNC_TARGETS.items())
             ]

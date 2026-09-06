@@ -31,6 +31,23 @@ export interface ProgressLabelInput {
   etaSeconds?: number | null;
 }
 
+/** Rate as "12/sec" (integer at 10+/sec, one decimal below, per minute under 1/sec). */
+export function formatRate(itemsPerSecond: number): string {
+  if (itemsPerSecond < 1) return `${(itemsPerSecond * 60).toFixed(1)}/min`;
+  return `${itemsPerSecond.toFixed(itemsPerSecond < 10 ? 1 : 0)}/sec`;
+}
+
+/** Remaining time as "45s" or "2m 5s". */
+export function formatEta(seconds: number): string {
+  // Round before splitting: rounding each part separately carries 119.5s to
+  // "1m 60s".
+  const total = Math.ceil(seconds);
+  if (total < 60) return `${total}s`;
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+}
+
 const COMPLETION_LIMIT = 0.8;
 const MIN_ETA_SECONDS = 3;
 
@@ -73,7 +90,7 @@ export function formatProgressLabel(input: ProgressLabelInput): FormatResult {
 
   const rate = itemsPerSecond as number;
   const eta = etaSeconds as number;
-  const ratePart = `${rate.toFixed(rate < 10 ? 1 : 0)}/sec`;
-  const etaPart = `ETA ${Math.round(eta)}s`;
+  const ratePart = formatRate(rate);
+  const etaPart = `ETA ${formatEta(eta)}`;
   return { hasEta: true, label: `${baseLabel} · ${ratePart} · ${etaPart}` };
 }

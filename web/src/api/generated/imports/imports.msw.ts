@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
 import {
   HttpResponse,
@@ -16,6 +16,7 @@ import type {
 import type {
   CheckpointStatusSchema,
   ImportQueueResponse,
+  ImportQueueSchema,
   OperationStartedResponse
 } from '../model';
 
@@ -94,7 +95,7 @@ export const getExportLastfmLikesApiV1ImportsLastfmLikesPostMockHandler = (overr
   }, options)
 }
 
-export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler = (overrideResponse?: ImportQueueResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ImportQueueResponse> | ImportQueueResponse), options?: RequestHandlerOptions) => {
+export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler = (overrideResponse?: ImportQueueSchema | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ImportQueueSchema> | ImportQueueSchema), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/imports/spotify/history', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
 
@@ -118,7 +119,7 @@ export const getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetMockHand
   }, options)
 }
 
-export const getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMockHandler = (overrideResponse?: ImportQueueResponse | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<ImportQueueResponse> | ImportQueueResponse), options?: RequestHandlerOptions) => {
+export const getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMockHandler = (overrideResponse?: ImportQueueSchema | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<ImportQueueSchema> | ImportQueueSchema), options?: RequestHandlerOptions) => {
   return http.delete('*/api/v1/imports/spotify/history/queue', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
 
 

@@ -2,7 +2,7 @@
  * Shared SSE connection lifecycle hook.
  *
  * Owns the transport plumbing (AbortController, connectToSSE, event iteration,
- * AbortError suppression, malformed-JSON skip) so consumer hooks only handle
+ * AbortError suppression, frame decoding) so consumer hooks only handle
  * domain-specific event semantics via the onEvent callback.
  *
  * Exposes a discriminated SSEState union and lastEventAt timestamp for
@@ -25,16 +25,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { connectToSSE } from "#/api/sse-client";
 import {
+  parseSSEEvent,
   SSE_MAX_RESUME_ATTEMPTS,
   SSE_RESUME_DELAY_MS,
   SSE_STALL_THRESHOLD_MS,
   SSE_WATCHDOG_TICK_MS,
+  type SSEDomainEvent,
   type SSEState,
 } from "#/lib/sse-types";
 
 export interface UseSSEConnectionOptions {
-  /** Called for each parsed SSE event. eventType is the SSE "event" field, data is the parsed JSON. */
-  onEvent: (eventType: string, data: unknown) => void;
+  /** Called for each decoded SSE event. Keepalives, unknown event names and
+   *  malformed JSON never reach it. */
+  onEvent: (event: SSEDomainEvent) => void;
   /** Called when the SSE stream ends normally (iterator exhausted). */
   onStreamEnd?: () => void;
   /** Backoff before the resume attempt. Defaults to {@link SSE_RESUME_DELAY_MS}. */
@@ -216,14 +219,8 @@ export function useSSEConnection(
               return { kind: "streaming", lastEventAt: now };
             });
 
-            if (!event.data) continue;
-
-            try {
-              const data = JSON.parse(event.data);
-              onEventRef.current(event.event, data);
-            } catch {
-              // Skip malformed JSON — don't break the stream
-            }
+            const domainEvent = parseSSEEvent(event);
+            if (domainEvent) onEventRef.current(domainEvent);
           }
 
           if (ctrl.signal.aborted) return;

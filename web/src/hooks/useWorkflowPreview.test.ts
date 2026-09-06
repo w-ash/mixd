@@ -12,7 +12,7 @@ vi.mock("#/api/sse-client", () => ({
 }));
 
 import { connectToSSE } from "#/api/sse-client";
-import { mockSSEWithEvents } from "#/test/sse-test-utils";
+import { mockSSEWithEvents, sseFrame } from "#/test/sse-test-utils";
 
 // ─── Mock editor store (mutable so tests can flip isDirty) ──────────
 
@@ -146,17 +146,14 @@ describe("useWorkflowPreview", () => {
 
   it("processes node_status events into nodeStatuses map", async () => {
     mockSSEWithEvents([
-      {
-        event: "node_status",
-        data: JSON.stringify({
-          node_id: "src_1",
-          node_type: "source.liked_tracks",
-          status: "completed",
-          execution_order: 1,
-          total_nodes: 2,
-          output_track_count: 50,
-        }),
-      },
+      sseFrame("node_status", {
+        node_id: "src_1",
+        node_type: "source.liked_tracks",
+        status: "completed",
+        execution_order: 1,
+        total_nodes: 2,
+        output_track_count: 50,
+      }),
     ]);
 
     const { result } = renderHook(() => useWorkflowPreview(), {
@@ -182,22 +179,19 @@ describe("useWorkflowPreview", () => {
 
   it("sets previewResult on preview_complete event", async () => {
     mockSSEWithEvents([
-      {
-        event: "preview_complete",
-        data: JSON.stringify({
-          output_tracks: [
-            { rank: 1, title: "Song A", artists: "Artist 1", isrc: "US1234" },
-          ],
-          node_summaries: [
-            {
-              node_id: "src_1",
-              node_type: "source.liked_tracks",
-              track_count: 1,
-              sample_titles: ["Song A"],
-            },
-          ],
-        }),
-      },
+      sseFrame("preview_complete", {
+        output_tracks: [
+          { rank: 1, title: "Song A", artists: "Artist 1", isrc: "US1234" },
+        ],
+        node_summaries: [
+          {
+            node_id: "src_1",
+            node_type: "source.liked_tracks",
+            track_count: 1,
+            sample_titles: ["Song A"],
+          },
+        ],
+      }),
     ]);
 
     const { result } = renderHook(() => useWorkflowPreview(), {
@@ -225,10 +219,7 @@ describe("useWorkflowPreview", () => {
 
   it("sets error on SSE error event", async () => {
     mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({ error_message: "Source node failed" }),
-      },
+      sseFrame("error", { error_message: "Source node failed" }),
     ]);
 
     const { result } = renderHook(() => useWorkflowPreview(), {
@@ -270,13 +261,10 @@ describe("useWorkflowPreview", () => {
 
   it("clearPreview resets all state", async () => {
     mockSSEWithEvents([
-      {
-        event: "preview_complete",
-        data: JSON.stringify({
-          output_tracks: [{ rank: 1, title: "X", artists: "Y", isrc: null }],
-          node_summaries: [],
-        }),
-      },
+      sseFrame("preview_complete", {
+        output_tracks: [{ rank: 1, title: "X", artists: "Y", isrc: null }],
+        node_summaries: [],
+      }),
     ]);
 
     const { result } = renderHook(() => useWorkflowPreview(), {

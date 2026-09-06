@@ -8,6 +8,7 @@ Modern test fixtures providing:
 
 import os
 import sys
+from unittest.mock import patch
 
 import pytest
 from pytest_asyncio import fixture as async_fixture
@@ -68,6 +69,45 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.unit)
         elif "/tests/integration/" in path:
             item.add_marker(pytest.mark.integration)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _structlog_never_caches():
+    """Keep structlog reconfigurable for the whole session.
+
+    ``setup_logging()`` configures structlog with ``cache_logger_on_first_use``
+    so production loggers bind their processor chain once. A test that calls it
+    would freeze every module-level logger on that xdist worker, and every later
+    ``structlog.testing.capture_logs()`` on the same worker would see nothing.
+    Forcing the flag off here keeps log capture order-independent.
+    """
+    import structlog
+
+    real_configure = structlog.configure
+
+    def configure(**kwargs: object) -> None:
+        kwargs["cache_logger_on_first_use"] = False
+        real_configure(**kwargs)
+
+    with patch.object(structlog, "configure", configure):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _restore_structlog_config():
+    """Put structlog's configuration back after every test.
+
+    Module-level loggers bind at import to the processor *list object* in force
+    then, and ``capture_logs()`` works by mutating the current list in place. A
+    test that calls ``setup_logging()`` installs a new list, so every logger
+    bound before it stops reaching later captures on that worker. Restoring the
+    pre-test config (same list identity) after each test undoes that.
+    """
+    import structlog
+
+    saved = structlog.get_config()
+    yield
+    structlog.configure(**saved)
 
 
 @pytest.fixture(autouse=True, scope="session")

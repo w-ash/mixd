@@ -32,6 +32,52 @@ interface Entry {
   counts: Record<string, unknown> | null;
 }
 
+/** Every sync target connected, so each card renders its trigger enabled. */
+const SYNC_TARGETS = {
+  data: [
+    {
+      id: "lastfm:plays",
+      label: "Last.fm plays",
+      self_managed: false,
+      service: "lastfm",
+      available: true,
+      blocked_reason: null,
+    },
+    {
+      id: "apple:plays",
+      label: "Apple Music plays",
+      self_managed: false,
+      service: "apple_music",
+      available: true,
+      blocked_reason: null,
+    },
+    {
+      id: "spotify:likes",
+      label: "Spotify likes",
+      self_managed: false,
+      service: "spotify",
+      available: true,
+      blocked_reason: null,
+    },
+    {
+      id: "lastfm:likes",
+      label: "Last.fm likes",
+      self_managed: false,
+      service: "lastfm",
+      available: true,
+      blocked_reason: null,
+    },
+    {
+      id: "spotify:plays",
+      label: "Spotify plays",
+      self_managed: true,
+      service: "spotify",
+      available: true,
+      blocked_reason: null,
+    },
+  ],
+};
+
 const at = (minute: number) =>
   new Date(Date.UTC(2026, 7, 9, 10, minute)).toISOString();
 
@@ -128,17 +174,19 @@ async function installRoutes(page: Page, entries: Entry[] | null) {
       });
 
     if (url.includes("/imports/spotify/history/queue")) {
-      return entries === null
-        ? json(404, {
-            error: { code: "NOT_FOUND", message: "No import queue" },
-          })
-        : json(200, {
-            queue_id: "q-1",
-            operation_id: "drain-op",
-            started_at: at(0),
-            entries,
-          });
+      return json(200, {
+        queue:
+          entries === null
+            ? null
+            : {
+                queue_id: "q-1",
+                operation_id: "drain-op",
+                started_at: at(0),
+                entries,
+              },
+      });
     }
+    if (url.includes("/sync/targets")) return json(200, SYNC_TARGETS);
     if (url.includes("/imports/checkpoints")) return json(200, []);
     if (url.includes("/play-polling"))
       return json(200, { service: "spotify", enabled: false });

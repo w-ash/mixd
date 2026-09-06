@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from src.config import get_logger
 from src.infrastructure.connectors._shared.token_storage import (
+    MUSIC_USER_CREDENTIAL_KIND,
     StoredToken,
     get_token_storage,
 )
@@ -97,7 +98,7 @@ async def store_apple_music_token(
     now = int(datetime.now(UTC).timestamp())
     token: StoredToken = {
         "access_token": body.music_user_token,
-        "token_type": "music_user_token",
+        "token_type": MUSIC_USER_CREDENTIAL_KIND,
         "expires_at": now + int(MUT_TTL.total_seconds()),
         "extra_data": {"authorized_at": now},
     }

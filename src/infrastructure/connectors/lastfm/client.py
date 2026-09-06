@@ -28,7 +28,10 @@ from src.infrastructure.connectors._shared.http_client import parse_json_respons
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryPolicyFactory,
 )
-from src.infrastructure.connectors._shared.token_storage import TokenStorage
+from src.infrastructure.connectors._shared.token_storage import (
+    SESSION_CREDENTIAL_KIND,
+    TokenStorage,
+)
 from src.infrastructure.connectors.base import BaseAPIClient
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.models import (
@@ -338,7 +341,7 @@ class LastFMAPIClient(BaseAPIClient):
                 self.user_id,
                 {
                     "session_key": self._session_key,
-                    "token_type": "session",
+                    "token_type": SESSION_CREDENTIAL_KIND,
                     "account_name": self.lastfm_username,
                 },
             )

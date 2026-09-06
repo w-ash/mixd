@@ -9,7 +9,10 @@
  */
 
 import type { ScheduleListItem } from "#/api/generated/model";
-import { useListSchedulesApiV1SchedulesGet } from "#/api/generated/schedules/schedules";
+import {
+  type listSchedulesApiV1SchedulesGetResponse,
+  useListSchedulesApiV1SchedulesGet,
+} from "#/api/generated/schedules/schedules";
 import { STALE } from "#/api/query-client";
 import { isScheduleFailing } from "#/lib/schedule";
 
@@ -18,11 +21,24 @@ export interface ScheduleFailures {
   count: number;
 }
 
+/** Stable empty array so consumers don't see a new reference every render. */
+const NONE: ScheduleListItem[] = [];
+
+/**
+ * Module-level so its identity is stable across renders: Tanstack memoises
+ * `select` on `(data, selectFn)`, so an inline arrow would re-filter and mint a
+ * fresh array on every render of every consumer.
+ */
+function selectFailing(
+  res: listSchedulesApiV1SchedulesGetResponse,
+): ScheduleListItem[] {
+  return res.status === 200 ? res.data.data.filter(isScheduleFailing) : NONE;
+}
+
 export function useScheduleFailures(): ScheduleFailures {
   const { data } = useListSchedulesApiV1SchedulesGet({
-    query: { staleTime: STALE.SLOW },
+    query: { staleTime: STALE.SLOW, select: selectFailing },
   });
-  const rows = data?.status === 200 ? data.data.data : [];
-  const failing = rows.filter(isScheduleFailing);
+  const failing = data ?? NONE;
   return { failing, count: failing.length };
 }

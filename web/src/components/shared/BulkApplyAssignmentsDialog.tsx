@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useState } from "react";
 
 import { useApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost } from "#/api/generated/playlist-assignments/playlist-assignments";
-import { useOperationProgress } from "#/hooks/useOperationProgress";
-import { claimRunToast } from "#/lib/operation-toast-ledger";
-import { issueCountFromCounts, toasts } from "#/lib/toasts";
+import {
+  isTerminalProgress,
+  useOperationProgress,
+} from "#/hooks/useOperationProgress";
+import { useRunCompletedToast } from "#/hooks/useRunCompletedToast";
 
 import { ConfirmationDialog } from "./ConfirmationDialog";
 import { OperationProgress } from "./OperationProgress";
@@ -32,7 +33,6 @@ export function BulkApplyAssignmentsDialog({
 }: BulkApplyAssignmentsDialogProps) {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
-  const navigate = useNavigate();
 
   const applyMut = useApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost(
     {
@@ -49,39 +49,20 @@ export function BulkApplyAssignmentsDialog({
 
   const { progress } = useOperationProgress(operationId);
 
-  const isTerminal =
-    progress !== null &&
-    (progress.status === "completed" ||
-      progress.status === "failed" ||
-      progress.status === "cancelled");
+  const isTerminal = isTerminalProgress(progress);
 
-  const toastedForOpIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!isTerminal || !operationId || progress === null) return;
-    if (toastedForOpIdRef.current === operationId) return;
-    toastedForOpIdRef.current = operationId;
-    // Claim the shared ledger so the global operations watcher's poll doesn't
-    // announce the same run a second time.
-    if (runId !== null && !claimRunToast(runId)) return;
-
-    toasts.runCompleted({
-      operationType: "apply_assignments_bulk",
-      counts: progress.counts ?? {},
-      // A partial run streams as `completed` with an `errors` count — see
-      // `issueCountFromCounts`. Hardcoding 0 mislabels it as a clean success.
-      issueCount: issueCountFromCounts(progress.counts),
-      runId,
-      failed: progress.status !== "completed",
-      onNavigate: navigate,
-    });
-  }, [isTerminal, operationId, progress, runId, navigate]);
+  useRunCompletedToast({
+    operationId,
+    runId,
+    progress,
+    operationType: "apply_assignments_bulk",
+  });
 
   const handleOpenChange = (nextOpen: boolean) => {
     onOpenChange(nextOpen);
     if (!nextOpen) {
       setOperationId(null);
       setRunId(null);
-      toastedForOpIdRef.current = null;
     }
   };
 

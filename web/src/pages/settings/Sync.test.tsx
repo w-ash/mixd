@@ -1,10 +1,13 @@
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CheckpointStatusSchema } from "#/api/generated/model";
+import type {
+  CheckpointStatusSchema,
+  ConnectorMetadataSchema,
+  SyncTargetSchema,
+} from "#/api/generated/model";
 import type { OperationProgress } from "#/hooks/useOperationProgress";
 import { __resetRunToastLedger } from "#/lib/operation-toast-ledger";
-import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -21,17 +24,20 @@ import { Sync } from "./Sync";
 // recorded so tests can assert which id a card attached its stream to.
 let mockProgress: OperationProgress | null = null;
 const seenOperationIds: (string | null)[] = [];
-vi.mock("#/hooks/useOperationProgress", () => ({
-  useOperationProgress: (operationId: string | null) => {
-    seenOperationIds.push(operationId);
-    return {
-      progress: mockProgress,
-      isActive: false,
-      isConnected: false,
-      error: null,
-    };
-  },
-}));
+vi.mock("#/hooks/useOperationProgress", async () => {
+  const actual = await vi.importActual<
+    typeof import("#/hooks/useOperationProgress")
+  >("#/hooks/useOperationProgress");
+  return {
+    ...actual,
+    // Progress only exists once a card has started something, as in prod: a
+    // card with no operation is not looking at anyone else's run.
+    useOperationProgress: (operationId: string | null) => {
+      seenOperationIds.push(operationId);
+      return { progress: operationId ? mockProgress : null, isActive: false };
+    },
+  };
+});
 
 const mockRunCompleted = vi.fn();
 vi.mock("#/lib/toasts", async () => {
@@ -94,18 +100,34 @@ function setupCheckpointsMock() {
   );
 }
 
-function setupSyncTargetsMock() {
+function syncTarget(overrides: Partial<SyncTargetSchema>): SyncTargetSchema {
+  return {
+    id: "lastfm:plays",
+    label: "Last.fm plays",
+    service: "lastfm",
+    self_managed: false,
+    available: true,
+    blocked_reason: null,
+    ...overrides,
+  };
+}
+
+function setupSyncTargetsMock(...targets: SyncTargetSchema[]) {
   server.use(
     http.get("*/api/v1/sync/targets", () =>
       HttpResponse.json({
-        data: [
-          { id: "lastfm:plays", label: "Last.fm plays", self_managed: false },
-          {
-            id: "spotify:plays",
-            label: "Spotify recent plays",
-            self_managed: true,
-          },
-        ],
+        data:
+          targets.length > 0
+            ? targets
+            : [
+                syncTarget({}),
+                syncTarget({
+                  id: "spotify:plays",
+                  label: "Spotify recent plays",
+                  service: "spotify",
+                  self_managed: true,
+                }),
+              ],
       }),
     ),
     http.get("*/api/v1/connectors/spotify/play-polling", () =>
@@ -114,6 +136,32 @@ function setupSyncTargetsMock() {
         enabled: true,
         interval_minutes: 30,
       }),
+    ),
+  );
+}
+
+/**
+ * Pin the connector status probe. The default faker mock names connectors
+ * randomly, so a card only sees a verdict when a test supplies one.
+ */
+function setupConnectorsMock(
+  ...connectors: Partial<ConnectorMetadataSchema>[]
+) {
+  server.use(
+    http.get("*/api/v1/connectors", () =>
+      HttpResponse.json(
+        connectors.map((overrides) => ({
+          name: "spotify",
+          display_name: "Spotify",
+          category: "streaming",
+          auth_method: "oauth",
+          status: "connected",
+          connected: true,
+          capabilities: [],
+          auth_error: null,
+          ...overrides,
+        })),
+      ),
     ),
   );
 }
@@ -245,25 +293,29 @@ describe("Sync page", () => {
   });
 
   it("gates Recent Plays on the listening-history scope", async () => {
-    // scope_missing keeps connected=true — likes and playlists still work —
-    // so only this card may disable itself.
+    // The server reports the scope gap per target: likes and playlists still
+    // work, so only the target that needs the new scope is blocked.
     setupCheckpointsMock();
-    server.use(
-      http.get("*/api/v1/connectors", () =>
-        HttpResponse.json([
-          makeConnectorMetadata({
-            name: "spotify",
-            connected: true,
-            auth_error: "scope_missing",
-          }),
-        ]),
-      ),
+    setupSyncTargetsMock(
+      syncTarget({
+        id: "spotify:plays",
+        label: "Spotify recent plays",
+        service: "spotify",
+        self_managed: true,
+        available: false,
+        blocked_reason: "CONNECTOR_SCOPE_MISSING",
+      }),
+      syncTarget({
+        id: "spotify:likes",
+        label: "Spotify likes",
+        service: "spotify",
+      }),
     );
     renderWithProviders(<Sync />);
 
     expect(
       await screen.findByText(
-        /Re-connect Spotify in Integrations to grant listening-history access/i,
+        /Reconnect Spotify in Integrations to grant recently-played access/i,
       ),
     ).toBeInTheDocument();
 
@@ -282,6 +334,54 @@ describe("Sync page", () => {
     expect(
       within(likesCard).getByRole("button", { name: "Import" }),
     ).toBeEnabled();
+  });
+
+  it("gates a card on the live probe when the credential check cannot see the revocation", async () => {
+    // A revoked grant leaves the token row in place, so `/sync/targets` still
+    // reports the target available; only the connector probe knows. Without it
+    // the button renders enabled and the run fails inside the importer.
+    setupCheckpointsMock();
+    setupSyncTargetsMock(
+      syncTarget({
+        id: "spotify:plays",
+        label: "Spotify recent plays",
+        service: "spotify",
+        self_managed: true,
+      }),
+    );
+    setupConnectorsMock({ connected: false, auth_error: "refresh_failed" });
+    renderWithProviders(<Sync />);
+
+    expect(
+      await screen.findByText("Connect Spotify in Integrations to import."),
+    ).toBeInTheDocument();
+    const card = screen
+      .getByText("Spotify Recent Plays")
+      .closest("div.rounded-xl") as HTMLElement;
+    expect(within(card).getByRole("button", { name: "Import" })).toBeDisabled();
+  });
+
+  it("names the connect step for a target with no credential", async () => {
+    setupCheckpointsMock();
+    setupSyncTargetsMock(
+      syncTarget({
+        id: "lastfm:likes",
+        label: "Last.fm loves",
+        available: false,
+        blocked_reason: "CONNECTOR_NOT_CONNECTED",
+      }),
+    );
+    renderWithProviders(<Sync />);
+
+    // The copy names the action that unblocks the card, and matches the verb on
+    // its own button — this card exports, it does not import.
+    expect(
+      await screen.findByText("Connect Last.fm in Integrations to export."),
+    ).toBeInTheDocument();
+    const card = screen
+      .getByText("Export Loves")
+      .closest("div.rounded-xl") as HTMLElement;
+    expect(within(card).getByRole("button", { name: "Export" })).toBeDisabled();
   });
 
   it("toasts a foreground partial run as completed-with-issues, not success", async () => {
@@ -389,12 +489,14 @@ type QueueEntry = {
 
 function queueJson(entries: QueueEntry[]) {
   return {
-    queue_id: "queue-1",
-    // One id for the whole export — the card attaches to this and never to a
-    // per-file id, which is what removes the gap between files.
-    operation_id: "drain-op",
-    started_at: "2026-08-09T10:00:00Z",
-    entries,
+    queue: {
+      queue_id: "queue-1",
+      // One id for the whole export — the card attaches to this and never to a
+      // per-file id, which is what removes the gap between files.
+      operation_id: "drain-op",
+      started_at: "2026-08-09T10:00:00Z",
+      entries,
+    },
   };
 }
 

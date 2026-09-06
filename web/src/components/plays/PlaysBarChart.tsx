@@ -8,6 +8,7 @@ import {
 } from "recharts";
 import type { HistogramBinSchema } from "#/api/generated/model";
 import type { PlayHistogramResponseBucket } from "#/api/generated/model/playHistogramResponseBucket";
+import { pluralize } from "#/lib/pluralize";
 
 interface PlaysBarChartProps {
   bins: HistogramBinSchema[];
@@ -51,7 +52,7 @@ function ChartTooltip({
         {formatBinLabel(bin.bucket_start, bucket)}
       </p>
       <p className="font-mono text-sm tabular-nums text-text">
-        {bin.count} play{bin.count === 1 ? "" : "s"}
+        {pluralize(bin.count, "play")}
       </p>
     </div>
   );

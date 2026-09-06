@@ -1,14 +1,16 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useMemo, useState } from "react";
 import { invalidateTags } from "#/api/cache-tags";
 import { useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost } from "#/api/generated/connectors/connectors";
 import type {
   ConnectorMetadataSchema,
   OperationStartedResponse,
 } from "#/api/generated/model";
-import { useOperationProgress } from "#/hooks/useOperationProgress";
-import { claimRunToast } from "#/lib/operation-toast-ledger";
+import {
+  isTerminalProgress,
+  useOperationProgress,
+} from "#/hooks/useOperationProgress";
+import { useRunCompletedToast } from "#/hooks/useRunCompletedToast";
 import { pluralize } from "#/lib/pluralize";
 import type { SyncDirection } from "#/lib/sync-direction";
 import { toasts } from "#/lib/toasts";
@@ -55,7 +57,6 @@ export function ImportPlaylistsConfirmDialog({
   const [operationId, setOperationId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const label = connector.display_name;
 
   const importMut =
@@ -73,11 +74,7 @@ export function ImportPlaylistsConfirmDialog({
 
   const { progress } = useOperationProgress(operationId);
 
-  const isTerminal =
-    progress !== null &&
-    (progress.status === "completed" ||
-      progress.status === "failed" ||
-      progress.status === "cancelled");
+  const isTerminal = isTerminalProgress(progress);
 
   // Aggregate outcomes off the running sub_operation_history. We key by
   // connector_playlist_identifier to line up with the picker's selection.
@@ -93,31 +90,27 @@ export function ImportPlaylistsConfirmDialog({
     return counts;
   }, [progress?.subOperationHistory]);
 
-  // Fire the final toast exactly once per operation, when the SSE stream
-  // reaches a terminal state. The ref guards against re-firing if React
-  // re-renders while the terminal progress object is still the same.
-  const toastedForOpIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!isTerminal || !operationId || progress === null) return;
-    if (toastedForOpIdRef.current === operationId) return;
-    toastedForOpIdRef.current = operationId;
-    // Claim the shared ledger; if the global operations watcher already
-    // announced this run (it won the poll race), back off our toast — but still
-    // run onImported so the picker refreshes either way.
-    const claimed = runId === null || claimRunToast(runId);
-
-    const { succeeded, skippedUnchanged, failed } = summary;
-    const history = progress.subOperationHistory;
-    // Add "View log" deep-link when an audit run was persisted AND
-    // there's something worth investigating (failure or partial outcome).
-    const logAction =
-      runId !== null && (failed > 0 || succeeded > 0)
-        ? {
-            label: "View log",
-            onClick: () => navigate(`/settings/imports?run=${runId}`),
-          }
-        : undefined;
-    if (claimed) {
+  // The generic run toast counts items; this one counts playlists and names the
+  // ones that failed, so it replaces the default rather than adding to it.
+  // `onTerminal` runs whoever won the ledger claim, so the picker refreshes
+  // even when the global watcher announced the run first.
+  useRunCompletedToast({
+    operationId,
+    runId,
+    progress,
+    operationType: "import_connector_playlists",
+    buildToast: ({ progress: terminal, runId: auditRunId, navigate }) => {
+      const { succeeded, skippedUnchanged, failed } = summary;
+      const history = terminal.subOperationHistory;
+      // "View log" deep-link when an audit run was persisted AND there is
+      // something worth investigating (failure or partial outcome).
+      const logAction =
+        auditRunId !== null && (failed > 0 || succeeded > 0)
+          ? {
+              label: "View log",
+              onClick: () => navigate(`/settings/imports?run=${auditRunId}`),
+            }
+          : undefined;
       if (failed > 0) {
         const firstFailures = Object.values(history)
           .filter((r) => r.outcome === "failed")
@@ -140,9 +133,9 @@ export function ImportPlaylistsConfirmDialog({
           `${pluralize(skippedUnchanged, "playlist")} already up to date`,
         );
       }
-    }
-    onImported?.();
-  }, [isTerminal, operationId, progress, summary, onImported, runId, navigate]);
+    },
+    onTerminal: () => onImported?.(),
+  });
 
   const count = playlists.length;
   const countLabel = pluralize(count, "playlist");

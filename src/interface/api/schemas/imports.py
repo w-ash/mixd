@@ -111,21 +111,36 @@ class ImportQueueEntrySchema(BaseModel):
     counts: JsonDict | None = None
 
 
-class ImportQueueResponse(BaseModel):
-    """The user's current import queue, in upload order.
+class ImportQueueSchema(BaseModel):
+    """A queue that exists, in upload order.
+
+    The response of every endpoint that either creates the queue or acts on an
+    existing one, so nothing here is nullable and there is no "is there a queue"
+    flag to branch on.
 
     ``operation_id`` is the drain's SSE handle — one id for the whole export,
     with each file a sub-operation of it, so the client attaches once instead of
-    re-attaching per entry. Unregistered after the drain's grace period, so a
-    late re-attach 404s and reads this response instead.
+    re-attaching per entry.
     """
-
-    model_config = ConfigDict(from_attributes=True)
 
     queue_id: str
     operation_id: str
     started_at: datetime
     entries: list[ImportQueueEntrySchema]
+
+
+class ImportQueueResponse(BaseModel):
+    """The user's import queue, in upload order — or the absence of one.
+
+    The GET's shape alone, because it is the only endpoint that can answer with
+    "there is no queue". The nesting is the discriminator: ``queue`` is null when
+    this user has no queue registered, so absence is stated once instead of as a
+    flag plus four fields that have to agree with it. A read of "nothing is
+    importing" is a successful answer, not a missing resource, so the GET never
+    404s and the client needs no error branch for its idle state.
+    """
+
+    queue: ImportQueueSchema | None
 
 
 class CheckpointStatusSchema(BaseModel):

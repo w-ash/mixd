@@ -134,7 +134,7 @@ interface UseAppleMusicConnectOptions {
  * is Apple's documented configure-at-load integration shape. On connect:
  * await the (usually settled) setup, `authorize()`, POST the resulting
  * Music User Token, then await the connectors refetch settle (same
- * ordering contract as `useDiscogsToken`) before the success toast — the
+ * ordering contract as `useTokenConnect`) before the success toast — the
  * toast never races ahead of the card flip.
  *
  * Gesture context: `authorize()` opens Apple's sheet, which rides the
@@ -162,9 +162,12 @@ export function useAppleMusicConnect({
   // rejection.
   const ensureSetup = useCallback((): Promise<MusicKitInstance> => {
     setupRef.current ??= (async () => {
-      const config =
-        await getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet();
-      const musicKit = await loadMusicKitImpl();
+      // Independent prerequisites: the CDN load never waits on our config
+      // round trip.
+      const [config, musicKit] = await Promise.all([
+        getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet(),
+        loadMusicKitImpl(),
+      ]);
       await musicKit.configure({
         developerToken: config.data.developer_token,
         app: { name: "Mixd", build: __APP_VERSION__ || "web" },

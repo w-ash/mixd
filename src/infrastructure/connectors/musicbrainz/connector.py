@@ -118,4 +118,6 @@ def get_connector_config() -> ConnectorConfig:
         "capabilities": frozenset(),
         "status_fn": get_musicbrainz_status,
         "build_auth_url": None,
+        # Mappings store the recording MBID, which addresses this page directly.
+        "track_url": lambda mbid: f"https://musicbrainz.org/recording/{mbid}",
     }

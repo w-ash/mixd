@@ -321,4 +321,8 @@ def get_connector_config() -> ConnectorConfig:
         # The recently-played channel has an adaptive poll heartbeat; the
         # policy (application-owned) still targets spotify:plays only.
         "supports_play_polling": True,
+        "track_url": lambda track_id: f"https://open.spotify.com/track/{track_id}",
+        "playlist_url": lambda playlist_id: (
+            f"https://open.spotify.com/playlist/{playlist_id}"
+        ),
     }

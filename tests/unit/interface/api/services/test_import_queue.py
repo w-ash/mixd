@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 import pytest
+import structlog.testing
 
 from src.interface.api.schemas.imports import (
     OperationStartedResponse,
@@ -441,6 +442,52 @@ class TestDrainAsOneOperation:
 
         parents = [call["parent_operation_id"] for call in launcher.calls]
         assert parents == [queue.operation_id, queue.operation_id]
+
+
+class TestDrainTerminalPushIsBestEffort:
+    """The drain's terminal push runs from the ``finally`` that still owes the
+    export its coordinator completion and SSE teardown. A rejected payload must
+    be logged there, not raised — raising would leave the export's stream open
+    with no verdict on it."""
+
+    async def test_rejected_payload_still_tears_the_drain_down(self, tmp_path):
+        launcher = _CapturedLaunch()
+        with (
+            patch.object(import_queue, "launch_sse_operation", launcher),
+            patch.object(
+                sse_operations,
+                "build_terminal_event",
+                side_effect=ValueError("not_a_field"),
+            ),
+            patch.object(
+                import_queue, "safe_complete_operation", new=AsyncMock()
+            ) as completed,
+            patch.object(
+                import_queue, "finalize_sse_operation", new=AsyncMock()
+            ) as finalized,
+            structlog.testing.capture_logs() as logs,
+        ):
+            queue = await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
+            )
+            await _yield_loop()
+            launcher.terminals[0]("complete", None)
+            await _yield_loop()
+
+            assert completed.await_count == 1
+            assert finalized.await_count == 1
+
+        assert queue.entries[0].status == "complete"
+        assert (
+            import_queue._queue_slot_token(queue.queue_id)
+            not in sse_operations._active_operations
+        )
+        assert any(
+            entry["log_level"] == "error"
+            and entry["event"] == "Failed to push terminal SSE event"
+            and entry["queue_id"] == queue.queue_id
+            for entry in logs
+        )
 
 
 class TestQueuePositionReporting:

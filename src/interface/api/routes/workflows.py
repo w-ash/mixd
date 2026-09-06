@@ -254,6 +254,8 @@ async def list_node_types() -> list[NodeTypeInfoSchema]:
                 type=node_id,
                 category=meta["category"],
                 description=meta.get("description", ""),
+                input_type=meta.get("input_type"),
+                output_type=meta.get("output_type"),
                 config_fields=[config_field_to_schema(f) for f in fields],
                 required_config=[f.key for f in fields if f.required],
                 optional_config=[f.key for f in fields if not f.required],

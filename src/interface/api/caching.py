@@ -36,6 +36,13 @@ _CACHE_POLICIES: tuple[tuple[str, str], ...] = tuple(
             # Settings has a PATCH route — a GET after a write must revalidate
             # (same staleness class as the connectors bug).
             ("/api/v1/settings", "no-cache"),
+            # Per-user availability rides this list (a connect must light the
+            # card up on the next fetch), so it may never sit in a shared cache
+            # and must revalidate every time.
+            ("/api/v1/sync/targets", "private, no-cache"),
+            # The import queue is the page's only description of a drain: a cached
+            # idle answer would hide a queue registered seconds later.
+            ("/api/v1/imports/spotify/history/queue", "private, no-cache"),
             ("/api/v1/health", "no-cache"),
             ("/api/v1/tracks", "max-age=10, stale-while-revalidate=60"),
             ("/api/v1/playlists", "max-age=10, stale-while-revalidate=60"),

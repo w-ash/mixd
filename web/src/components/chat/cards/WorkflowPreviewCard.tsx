@@ -15,6 +15,7 @@ import type { ChatFeedbackRequest } from "#/api/generated/model";
 import { ChatCard } from "#/components/chat/ChatCard";
 import { WorkflowGraph } from "#/components/shared/WorkflowGraph";
 import { Button } from "#/components/ui/button";
+import { pluralize } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 import {
   findLatestGenerateToolCallId,
@@ -229,7 +230,7 @@ export function WorkflowPreviewCard({
             {def.name}
           </p>
           <span className="shrink-0 font-mono text-[10px] text-text-muted">
-            {result.task_count} node{result.task_count === 1 ? "" : "s"}
+            {pluralize(result.task_count, "node")}
           </span>
         </div>
       }

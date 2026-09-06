@@ -93,20 +93,17 @@ function PipelineStripImpl({
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
   }, [tasks.length]);
 
+  // The smooth scroll fires `onScroll` for every frame including the last, so
+  // the edge fades follow it without a settling timer.
   const activeNodeId = currentStep?.nodeId;
   useEffect(() => {
-    // Re-runs when active node changes — activeNodeId triggers the effect
-    if (activeNodeId) {
-      activeNodeRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "center",
-      });
-    }
-    // Defer edge update to let scrollIntoView settle
-    const id = setTimeout(updateScrollEdges, 350);
-    return () => clearTimeout(id);
-  }, [activeNodeId, updateScrollEdges]);
+    if (!activeNodeId) return;
+    activeNodeRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [activeNodeId]);
 
   // Detect overflow on mount and resize
   useEffect(() => {
@@ -230,8 +227,6 @@ function PipelineStripImpl({
                       current: subProgress.current,
                       total: subProgress.total,
                       message: subProgress.message,
-                      itemsPerSecond: subProgress.itemsPerSecond,
-                      etaSeconds: subProgress.etaSeconds,
                     }).label
                   }
                 </p>

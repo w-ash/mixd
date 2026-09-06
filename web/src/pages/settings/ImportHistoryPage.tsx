@@ -1,6 +1,5 @@
 import { ChevronDown, Sparkles, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
 import type {
   OperationRunDetailSchema,
   OperationRunSummarySchema,
@@ -16,24 +15,11 @@ import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
 import { BlocksSkeleton } from "#/components/shared/skeletons";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
+import { useFilterState } from "#/hooks/useFilterState";
 import { formatDateTime } from "#/lib/format";
+import { operationLabel } from "#/lib/operation-types";
 import { pluralize } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
-
-const OPERATION_LABELS: Record<string, string> = {
-  import_lastfm_history: "Last.fm history import",
-  import_spotify_likes: "Spotify likes import",
-  export_lastfm_likes: "Last.fm likes export",
-  import_spotify_history: "Spotify history import",
-  import_spotify_recent: "Spotify recent plays import",
-  import_apple_recent: "Apple Music recent plays import",
-  import_connector_playlists: "Spotify playlist import",
-  apply_assignments_bulk: "Apply all assignments",
-};
-
-function operationLabel(operationType: string): string {
-  return OPERATION_LABELS[operationType] ?? operationType;
-}
 
 /**
  * Attribution badge for an assistant-initiated run. Sits next to the status
@@ -208,7 +194,7 @@ function RunRowDetail({ runId }: { runId: string }) {
 }
 
 export function ImportHistoryPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { searchParams, setFilter } = useFilterState();
   const deepLinkRunId = searchParams.get("run");
   const [expandedRunId, setExpandedRunId] = useState<string | null>(
     deepLinkRunId,
@@ -235,15 +221,7 @@ export function ImportHistoryPage() {
   const toggleExpand = (runId: string) => {
     const next = expandedRunId === runId ? null : runId;
     setExpandedRunId(next);
-    setSearchParams(
-      (prev) => {
-        const params = new URLSearchParams(prev);
-        if (next === null) params.delete("run");
-        else params.set("run", next);
-        return params;
-      },
-      { replace: true },
-    );
+    setFilter("run", next);
   };
 
   const runs = data?.status === 200 ? data.data.data : [];

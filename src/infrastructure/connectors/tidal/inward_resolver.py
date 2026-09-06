@@ -55,6 +55,7 @@ from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     PlannedWrite,
+    ReuseMetadata,
     WritePlanningResolver,
     plan_isrc_write,
 )
@@ -122,6 +123,11 @@ class TidalInwardResolver(WritePlanningResolver[TidalTrackDetail]):
     @override
     def _normalize_id(self, raw_id: str) -> str:
         return str(raw_id).strip()
+
+    @override
+    def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
+        """No canonical reuse: a Tidal id resolves by ISRC or not at all."""
+        return None
 
     async def _fetch_detail(self, tidal_id: str) -> TidalTrackDetail | None:
         """One id's fetched detail, memoized for the current resolution pass.

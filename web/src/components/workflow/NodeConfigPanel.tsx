@@ -25,7 +25,7 @@ import { useAnimatedPresence } from "#/hooks/useAnimatedPresence";
 import { useFieldValidation } from "#/hooks/useFieldValidation";
 import { useNodeSchemas } from "#/hooks/useNodeSchemas";
 import { coerceFieldValue } from "#/lib/config-fields";
-import { formatNodeTypeName, getNodeCategory } from "#/lib/workflow-config";
+import { formatNodeTypeName, resolveNodeCategory } from "#/lib/workflow-config";
 import {
   selectIncomingUpstreams,
   type UpstreamRef,
@@ -219,7 +219,7 @@ export function NodeConfigPanel() {
   const updateNodeConfig = useEditorStore((s) => s.updateNodeConfig);
   const updateNodeTaskId = useEditorStore((s) => s.updateNodeTaskId);
   const selectNode = useEditorStore((s) => s.selectNode);
-  const { getSchema, getNodeDescription } = useNodeSchemas();
+  const { getSchema, getNodeDescription, getCategory } = useNodeSchemas();
 
   const isOpen = !!selectedNodeId;
   const { shouldRender, ref, state } = useAnimatedPresence(isOpen);
@@ -274,7 +274,7 @@ export function NodeConfigPanel() {
 
   const config = node.data.config as Record<string, unknown>;
   const taskId = node.data.taskId as string;
-  const categoryConfig = getNodeCategory(nodeType);
+  const categoryConfig = resolveNodeCategory(getCategory(nodeType), nodeType);
   const nodeDescription = getNodeDescription(nodeType);
 
   const handleFieldChange = (key: string, value: unknown) => {

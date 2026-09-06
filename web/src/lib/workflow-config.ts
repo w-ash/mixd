@@ -15,13 +15,20 @@ import {
   Target,
 } from "lucide-react";
 
+import type { NodeType } from "#/api/generated/model";
+
 export interface NodeCategoryConfig {
   Icon: LucideIcon;
   accentColor: string;
   label: string;
 }
 
-export const NODE_CONFIG: Record<string, NodeCategoryConfig> = {
+/**
+ * One entry per node category. `satisfies Record<NodeType, …>` binds this to
+ * the generated category union, so a category added server-side fails the
+ * build here until it gets an icon, accent and label.
+ */
+const CATEGORY_CONFIG = {
   source: {
     Icon: Database,
     accentColor: "oklch(0.7 0.12 250)",
@@ -57,16 +64,55 @@ export const NODE_CONFIG: Record<string, NodeCategoryConfig> = {
     accentColor: "oklch(0.7 0.14 155)",
     label: "Destination",
   },
-};
+} satisfies Record<NodeType, NodeCategoryConfig>;
 
-/** Extract category name from a dotted node type like "filter.by_metric" → "filter". */
+/** Category configs, indexable by any string (unknown categories yield undefined). */
+export const NODE_CONFIG: Record<string, NodeCategoryConfig> = CATEGORY_CONFIG;
+
+/**
+ * Extract the category name from a dotted node type ("filter.by_metric" →
+ * "filter"). Fallback for call sites with no loaded schema; prefer
+ * `NodeSchemas.getCategory` where the API data is available.
+ */
 export function getNodeCategoryName(nodeType: string): string {
   return nodeType.split(".")[0];
 }
 
+/** Which connection handles a node exposes on the editor canvas. */
+export interface NodeHandles {
+  input: boolean;
+  output: boolean;
+}
+
+/**
+ * Handle visibility from the node type alone, for the window before the API
+ * schemas load: a source takes no input, a destination produces no output,
+ * everything else has both.
+ */
+export function fallbackNodeHandles(nodeType: string): NodeHandles {
+  const category = getNodeCategoryName(nodeType);
+  return { input: category !== "source", output: category !== "destination" };
+}
+
+/** Category config for a dotted node type, or null when the category is unknown. */
+export function findNodeCategory(nodeType: string): NodeCategoryConfig | null {
+  return NODE_CONFIG[getNodeCategoryName(nodeType)] ?? null;
+}
+
 /** Get category config for a dotted node type like "filter.by_metric". */
 export function getNodeCategory(nodeType: string): NodeCategoryConfig {
-  return NODE_CONFIG[getNodeCategoryName(nodeType)] ?? NODE_CONFIG.source;
+  return findNodeCategory(nodeType) ?? NODE_CONFIG.source;
+}
+
+/**
+ * Category config for a node, preferring the category the API declares over
+ * the dotted node type. Pass `null` when no schema is loaded for the type.
+ */
+export function resolveNodeCategory(
+  declared: NodeType | null,
+  nodeType: string,
+): NodeCategoryConfig {
+  return (declared && NODE_CONFIG[declared]) ?? getNodeCategory(nodeType);
 }
 
 /** Color function for React Flow MiniMap nodes — maps category accent to a muted fill. */

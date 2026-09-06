@@ -121,4 +121,9 @@ def get_connector_config() -> ConnectorConfig:
         "capabilities": frozenset(),
         "status_fn": get_tidal_status,
         "build_auth_url": build_auth_url,
+        # Mappings store the numeric Tidal track id (conversions.py).
+        "track_url": lambda track_id: f"https://tidal.com/browse/track/{track_id}",
+        "playlist_url": lambda playlist_id: (
+            f"https://tidal.com/browse/playlist/{playlist_id}"
+        ),
     }

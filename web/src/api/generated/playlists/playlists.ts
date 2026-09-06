@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
 import {
   useMutation,
@@ -1331,6 +1331,8 @@ export const getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteUrl =
 
 /**
  * Unlink a playlist from an external service.
+ *
+ * 404 if the link does not belong to ``playlist_id``.
  * @summary Delete Playlist Link
  */
 export const deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete = async (playlistId: string,
@@ -1423,6 +1425,8 @@ export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchUrl = 
 
 /**
  * Update a playlist link's sync direction.
+ *
+ * 404 if the link does not belong to ``playlist_id``.
  * @summary Update Playlist Link
  */
 export const updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch = async (playlistId: string,
@@ -1524,6 +1528,8 @@ export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPrevie
 
 /**
  * Preview what a sync would change without executing it.
+ *
+ * 404 if the link does not belong to ``playlist_id``.
  * @summary Preview Playlist Sync
  */
 export const previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet = async (playlistId: string,
@@ -1665,6 +1671,7 @@ export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostUrl =
  * ``confirm_token`` is missing or stale returns HTTP 409 (CONFIRMATION_REQUIRED)
  * *synchronously* — before any background work — with a fresh token + the
  * removal counts, so the client can show the confirm dialog and retry.
+ * 404 if the link does not belong to ``playlist_id``.
  * @summary Sync Playlist Link
  */
 export const syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost = async (playlistId: string,

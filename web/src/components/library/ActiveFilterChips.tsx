@@ -1,5 +1,10 @@
 import { DismissibleChip } from "#/components/shared/DismissibleChip";
 import { TagChip } from "#/components/shared/TagChip";
+import type {
+  LibraryFilters,
+  SetLibraryFilter,
+} from "#/hooks/useLibraryFilters";
+import { getConnectorLabel } from "#/lib/connector-brand";
 import { recencyLabel } from "#/lib/play-filters";
 import { cn } from "#/lib/utils";
 
@@ -11,27 +16,8 @@ const PREFERENCE_LABELS: Record<string, string> = {
 };
 
 interface ActiveFilterChipsProps {
-  search: string | null;
-  liked: string | null;
-  connector: string | null;
-  preference: string | null;
-  tags: string[];
-  minPlays: string | null;
-  neverPlayed: boolean;
-  playedWithin: string | null;
-  notPlayedWithin: string | null;
-  onClearFilter: (
-    key:
-      | "q"
-      | "liked"
-      | "connector"
-      | "preference"
-      | "min_plays"
-      | "never_played"
-      | "played_within"
-      | "not_played_within",
-  ) => void;
-  onRemoveTag: (tag: string) => void;
+  filters: LibraryFilters;
+  setFilter: SetLibraryFilter;
   onClearAll: () => void;
   className?: string;
 }
@@ -44,110 +30,105 @@ interface ActiveFilterChipsProps {
  * collapses naturally rather than showing an empty bar.
  */
 export function ActiveFilterChips({
-  search,
-  liked,
-  connector,
-  preference,
-  tags,
-  minPlays,
-  neverPlayed,
-  playedWithin,
-  notPlayedWithin,
-  onClearFilter,
-  onRemoveTag,
+  filters,
+  setFilter,
   onClearAll,
   className,
 }: ActiveFilterChipsProps) {
   const chips: React.ReactNode[] = [];
 
-  if (search) {
+  if (filters.search) {
     chips.push(
       <DismissibleChip
         key="search"
-        label={`Search: "${search}"`}
-        onRemove={() => onClearFilter("q")}
+        label={`Search: "${filters.search}"`}
+        onRemove={() => setFilter("search", null)}
       />,
     );
   }
 
-  if (preference) {
-    const label = PREFERENCE_LABELS[preference] ?? preference;
+  if (filters.preference) {
+    const label = PREFERENCE_LABELS[filters.preference] ?? filters.preference;
     chips.push(
       <DismissibleChip
         key="preference"
         label={`Preference: ${label}`}
-        onRemove={() => onClearFilter("preference")}
+        onRemove={() => setFilter("preference", null)}
       />,
     );
   }
 
-  if (liked === "true" || liked === "false") {
+  if (filters.liked) {
     chips.push(
       <DismissibleChip
         key="liked"
-        label={liked === "true" ? "Liked" : "Not liked"}
-        onRemove={() => onClearFilter("liked")}
+        label={filters.liked === "true" ? "Liked" : "Not liked"}
+        onRemove={() => setFilter("liked", null)}
       />,
     );
   }
 
-  if (connector) {
-    const label = connector.charAt(0).toUpperCase() + connector.slice(1);
+  if (filters.connector) {
     chips.push(
       <DismissibleChip
         key="connector"
-        label={`Source: ${label}`}
-        onRemove={() => onClearFilter("connector")}
+        label={`Source: ${getConnectorLabel(filters.connector)}`}
+        onRemove={() => setFilter("connector", null)}
       />,
     );
   }
 
-  if (neverPlayed) {
+  if (filters.neverPlayed) {
     chips.push(
       <DismissibleChip
         key="never-played"
         label="Never played"
-        onRemove={() => onClearFilter("never_played")}
+        onRemove={() => setFilter("neverPlayed", null)}
       />,
     );
   }
 
-  if (minPlays) {
+  if (filters.minPlays !== null) {
     chips.push(
       <DismissibleChip
         key="min-plays"
-        label={`${minPlays}+ plays`}
-        onRemove={() => onClearFilter("min_plays")}
+        label={`${filters.minPlays}+ plays`}
+        onRemove={() => setFilter("minPlays", null)}
       />,
     );
   }
 
-  if (playedWithin) {
+  if (filters.playedWithin !== null) {
     chips.push(
       <DismissibleChip
         key="played-within"
-        label={recencyLabel(playedWithin, false)}
-        onRemove={() => onClearFilter("played_within")}
+        label={recencyLabel(String(filters.playedWithin), false)}
+        onRemove={() => setFilter("playedWithin", null)}
       />,
     );
   }
 
-  if (notPlayedWithin) {
+  if (filters.notPlayedWithin !== null) {
     chips.push(
       <DismissibleChip
         key="not-played-within"
-        label={recencyLabel(notPlayedWithin, true)}
-        onRemove={() => onClearFilter("not_played_within")}
+        label={recencyLabel(String(filters.notPlayedWithin), true)}
+        onRemove={() => setFilter("notPlayedWithin", null)}
       />,
     );
   }
 
-  for (const tag of tags) {
+  for (const tag of filters.tags) {
     chips.push(
       <TagChip
         key={`tag-${tag}`}
         tag={tag}
-        onRemove={() => onRemoveTag(tag)}
+        onRemove={() =>
+          setFilter(
+            "tags",
+            filters.tags.filter((t) => t !== tag),
+          )
+        }
       />,
     );
   }

@@ -7,12 +7,17 @@ so the confirm round-trip is reachable at request time, and a confirmation for a
 out-of-date plan is rejected rather than silently applied.
 """
 
+from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock, patch
 from uuid import uuid7
 
 import pytest
 
-from src.application.use_cases.preview_playlist_sync import PreviewPlaylistSyncResult
+from src.application.use_cases.preview_playlist_sync import (
+    PreviewPlaylistSyncCommand,
+    PreviewPlaylistSyncResult,
+    PreviewPlaylistSyncUseCase,
+)
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.exceptions import ConfirmationRequiredError
 from src.interface.api.services.playlist_sync import _ensure_sync_confirmed
@@ -44,7 +49,7 @@ class TestEnsureSyncConfirmed:
     async def test_destructive_without_token_raises_with_fresh_token(self) -> None:
         with patch(_EXEC, new=AsyncMock(return_value=_preview(flagged=True))):
             with pytest.raises(ConfirmationRequiredError) as exc_info:
-                await _ensure_sync_confirmed(uuid7(), None, "u", None)
+                await _ensure_sync_confirmed(uuid7(), None, "u", None, None)
 
         err = exc_info.value
         assert err.removals == 40
@@ -56,15 +61,37 @@ class TestEnsureSyncConfirmed:
     async def test_destructive_with_stale_token_raises(self) -> None:
         with patch(_EXEC, new=AsyncMock(return_value=_preview(flagged=True))):
             with pytest.raises(ConfirmationRequiredError):
-                await _ensure_sync_confirmed(uuid7(), None, "u", "stale-token")
+                await _ensure_sync_confirmed(uuid7(), None, "u", "stale-token", None)
 
     async def test_destructive_with_matching_token_proceeds(self) -> None:
         with patch(_EXEC, new=AsyncMock(return_value=_preview(flagged=True))):
             # Matching token == the user confirmed THIS plan — must not raise.
             assert (
-                await _ensure_sync_confirmed(uuid7(), None, "u", _FRESH_TOKEN) is None
+                await _ensure_sync_confirmed(uuid7(), None, "u", _FRESH_TOKEN, None)
+                is None
             )
 
     async def test_non_destructive_does_not_raise(self) -> None:
         with patch(_EXEC, new=AsyncMock(return_value=_preview(flagged=False))):
-            assert await _ensure_sync_confirmed(uuid7(), None, "u", None) is None
+            assert await _ensure_sync_confirmed(uuid7(), None, "u", None, None) is None
+
+    async def test_playlist_scope_reaches_the_preview_command(self) -> None:
+        """The nested route's playlist_id scopes the pre-flight preview too."""
+        captured: list[PreviewPlaylistSyncCommand] = []
+
+        async def _run(
+            factory: Callable[[object], Awaitable[object]], **_kwargs: object
+        ) -> PreviewPlaylistSyncResult:
+            with patch.object(
+                PreviewPlaylistSyncUseCase,
+                "execute",
+                AsyncMock(side_effect=lambda cmd, _uow: captured.append(cmd)),
+            ):
+                await factory(object())
+            return _preview(flagged=False)
+
+        playlist_id = uuid7()
+        with patch(_EXEC, new=AsyncMock(side_effect=_run)):
+            await _ensure_sync_confirmed(uuid7(), None, "u", None, playlist_id)
+
+        assert [cmd.playlist_id for cmd in captured] == [playlist_id]

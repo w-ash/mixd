@@ -205,6 +205,31 @@ describe("ConnectorPlaylistPickerDialog", () => {
     ]);
   });
 
+  it("keeps rows picked under an earlier search", async () => {
+    mockList([CHILL, WORKOUT, LATE_NIGHT]);
+    const { onConfirm } = setup();
+
+    await screen.findByText("Chill Vibes");
+    await userEvent.click(screen.getByText("Chill Vibes"));
+
+    // Narrow to a row the first pick does not match, then pick there too.
+    const input = screen.getByLabelText("Search Spotify playlists");
+    await userEvent.type(input, "night");
+    await waitFor(() =>
+      expect(screen.queryByText("Chill Vibes")).not.toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByText("Late Night"));
+
+    // The header speaks for the visible row; the footer for the whole pick.
+    expect(screen.getByText(/1 of 1 selected/)).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Import 2 playlists/ }),
+    );
+
+    const emitted = onConfirm.mock.calls[0][0] as { id: string }[];
+    expect(emitted.map((p) => p.id).sort()).toEqual(["sp1", "sp3"]);
+  });
+
   it("disables the Import button when nothing is selected", async () => {
     mockList([CHILL]);
     setup();

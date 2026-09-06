@@ -2,6 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Copy, HelpCircle, Pencil, Play } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+
+import { ApiError } from "#/api/client";
 import {
   useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost,
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
@@ -12,6 +14,7 @@ import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { DetailHeaderSkeleton } from "#/components/shared/skeletons";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
@@ -42,7 +45,7 @@ export function WorkflowDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, isError } =
+  const { data, isLoading, isError, error } =
     useGetWorkflowApiV1WorkflowsWorkflowIdGet(workflowId, {
       query: { staleTime: STALE.SLOW },
     });
@@ -112,11 +115,18 @@ export function WorkflowDetail() {
   if (isLoading) return <DetailSkeleton />;
 
   if (isError) {
+    const is404 = error instanceof ApiError && error.status === 404;
+    if (!is404)
+      return (
+        <QueryErrorState error={error} heading="Failed to load workflow" />
+      );
+
     return (
       <EmptyState
         icon={<HelpCircle className="size-10" />}
         heading="Workflow not found"
         description="This workflow doesn't exist or has been deleted."
+        role="alert"
       />
     );
   }

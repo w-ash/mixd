@@ -1,5 +1,7 @@
 import { HelpCircle, Music } from "lucide-react";
+import { useMemo } from "react";
 import { useParams } from "react-router";
+import { ApiError } from "#/api/client";
 import {
   useGetPlaylistApiV1PlaylistsPlaylistIdGet,
   useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet,
@@ -15,11 +17,11 @@ import { RepairUnresolvedBar } from "#/components/playlist/RepairUnresolvedBar";
 import { BackLink } from "#/components/shared/BackLink";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import {
   DetailHeaderSkeleton,
   ListRowsSkeleton,
 } from "#/components/shared/skeletons";
-import { Skeleton } from "#/components/ui/skeleton";
 import {
   decodeHtmlEntities,
   formatDate,
@@ -27,14 +29,20 @@ import {
 } from "#/lib/format";
 import { pluralize } from "#/lib/pluralize";
 
+/** Column widths of the track table, reused by both skeletons. */
+const TRACK_ROW_BARS = [
+  "h-5 w-8",
+  "h-5 w-56",
+  "h-5 w-36",
+  "h-5 w-40",
+  "h-5 w-12",
+];
+
 function DetailSkeleton() {
   return (
     <div className="space-y-6">
       <DetailHeaderSkeleton />
-      <ListRowsSkeleton
-        rows={8}
-        bars={["h-5 w-8", "h-5 w-56", "h-5 w-36", "h-5 w-40", "h-5 w-12"]}
-      />
+      <ListRowsSkeleton rows={8} bars={TRACK_ROW_BARS} />
     </div>
   );
 }
@@ -49,6 +57,7 @@ export function PlaylistDetail() {
     data: playlistData,
     isLoading: playlistLoading,
     isError: playlistError,
+    error: playlistErrorValue,
   } = useGetPlaylistApiV1PlaylistsPlaylistIdGet(playlistId, {
     query: { staleTime: STALE.MEDIUM },
   });
@@ -62,32 +71,50 @@ export function PlaylistDetail() {
       },
     );
 
+  const entries = useMemo(
+    () => (tracksData?.status === 200 ? tracksData.data.data : []),
+    [tracksData],
+  );
+
+  // One pass for both derived values: the repair-bar count, and the track ids
+  // already in the playlist that drive the "Added" badge in the Add-Tracks
+  // modal (re-adding is still allowed; duplicates are intentional).
+  const { unresolvedCount, existingTrackIds } = useMemo(() => {
+    const ids = new Set<string>();
+    let unresolved = 0;
+    for (const entry of entries) {
+      if (entry.is_resolved === false) unresolved += 1;
+      if (typeof entry.track.id === "string") ids.add(entry.track.id);
+    }
+    return { unresolvedCount: unresolved, existingTrackIds: ids };
+  }, [entries]);
+
   if (playlistLoading) return <DetailSkeleton />;
 
   if (playlistError) {
+    const is404 =
+      playlistErrorValue instanceof ApiError &&
+      playlistErrorValue.status === 404;
+    if (!is404) {
+      return (
+        <QueryErrorState
+          error={playlistErrorValue}
+          heading="Failed to load playlist"
+        />
+      );
+    }
     return (
       <EmptyState
         icon={<HelpCircle className="size-10" />}
         heading="Playlist not found"
         description="This playlist doesn't exist or has been deleted."
+        role="alert"
       />
     );
   }
 
   const playlist = playlistData?.status === 200 ? playlistData.data : undefined;
   if (!playlist) return null;
-
-  const tracksResponse =
-    tracksData?.status === 200 ? tracksData.data : undefined;
-  const entries = tracksResponse?.data ?? [];
-  const unresolvedCount = entries.filter((e) => e.is_resolved === false).length;
-  // Track ids already in the playlist — drives the "Added" badge in the
-  // Add-Tracks modal (re-adding is still allowed; duplicates are intentional).
-  const existingTrackIds = new Set(
-    entries
-      .map((e) => e.track.id)
-      .filter((id): id is string => typeof id === "string"),
-  );
 
   return (
     <div>
@@ -155,20 +182,7 @@ export function PlaylistDetail() {
       {/* Unresolved tracks — first-class, with bulk repair */}
       <RepairUnresolvedBar playlistId={playlistId} count={unresolvedCount} />
 
-      {tracksLoading && (
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-            <div key={i} className="flex items-center gap-4">
-              <Skeleton className="h-5 w-8" />
-              <Skeleton className="h-5 w-56" />
-              <Skeleton className="h-5 w-36" />
-              <Skeleton className="h-5 w-40" />
-              <Skeleton className="h-5 w-12" />
-            </div>
-          ))}
-        </div>
-      )}
+      {tracksLoading && <ListRowsSkeleton rows={5} bars={TRACK_ROW_BARS} />}
 
       {!tracksLoading && entries.length === 0 && (
         <EmptyState

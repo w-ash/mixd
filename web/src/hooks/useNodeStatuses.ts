@@ -10,28 +10,30 @@
 
 import { useCallback, useState } from "react";
 
-import type { NodeStatus } from "#/lib/sse-types";
+import type { NodeStatus, NodeStatusSource } from "#/lib/sse-types";
 
 export interface UseNodeStatusesReturn {
   nodeStatuses: Map<string, NodeStatus>;
-  handleNodeStatusEvent: (data: unknown) => void;
+  handleNodeStatusEvent: (source: NodeStatusSource) => void;
   /** Merge a batch of snake_case events in one Map allocation. */
-  mergeNodeStatusEvents: (events: readonly unknown[]) => void;
+  mergeNodeStatusEvents: (sources: readonly NodeStatusSource[]) => void;
   resetNodeStatuses: () => void;
 }
 
-function toNodeStatus(data: unknown): NodeStatus {
-  const d = data as Record<string, unknown>;
+function toNodeStatus(source: NodeStatusSource): NodeStatus {
   return {
-    nodeId: d.node_id as string,
-    nodeType: (d.node_type as string) ?? "",
-    status: d.status as NodeStatus["status"],
-    executionOrder: (d.execution_order as number) ?? 0,
-    totalNodes: (d.total_nodes as number) ?? 0,
-    durationMs: d.duration_ms as number | undefined,
-    inputTrackCount: d.input_track_count as number | undefined,
-    outputTrackCount: d.output_track_count as number | undefined,
-    errorMessage: d.error_message as string | undefined,
+    nodeId: source.node_id,
+    nodeType: source.node_type,
+    // The wire vocabulary is the full RunStatus; the canvas styles the four
+    // states a node reports. `cancelled`/`crashed` reach here only from a
+    // snapshot of a run stopped mid-node, and render unstyled.
+    status: source.status as NodeStatus["status"],
+    executionOrder: source.execution_order,
+    totalNodes: source.total_nodes,
+    durationMs: source.duration_ms ?? undefined,
+    inputTrackCount: source.input_track_count ?? undefined,
+    outputTrackCount: source.output_track_count ?? undefined,
+    errorMessage: source.error_message ?? undefined,
   };
 }
 
@@ -40,8 +42,8 @@ export function useNodeStatuses(): UseNodeStatusesReturn {
     new Map(),
   );
 
-  const handleNodeStatusEvent = useCallback((data: unknown) => {
-    const incoming = toNodeStatus(data);
+  const handleNodeStatusEvent = useCallback((source: NodeStatusSource) => {
+    const incoming = toNodeStatus(source);
     setNodeStatuses((prev) => {
       const next = new Map(prev);
       next.set(incoming.nodeId, incoming);
@@ -49,17 +51,20 @@ export function useNodeStatuses(): UseNodeStatusesReturn {
     });
   }, []);
 
-  const mergeNodeStatusEvents = useCallback((events: readonly unknown[]) => {
-    if (events.length === 0) return;
-    setNodeStatuses((prev) => {
-      const next = new Map(prev);
-      for (const event of events) {
-        const incoming = toNodeStatus(event);
-        next.set(incoming.nodeId, incoming);
-      }
-      return next;
-    });
-  }, []);
+  const mergeNodeStatusEvents = useCallback(
+    (sources: readonly NodeStatusSource[]) => {
+      if (sources.length === 0) return;
+      setNodeStatuses((prev) => {
+        const next = new Map(prev);
+        for (const source of sources) {
+          const incoming = toNodeStatus(source);
+          next.set(incoming.nodeId, incoming);
+        }
+        return next;
+      });
+    },
+    [],
+  );
 
   const resetNodeStatuses = useCallback(() => {
     setNodeStatuses((prev) => (prev.size === 0 ? prev : new Map()));

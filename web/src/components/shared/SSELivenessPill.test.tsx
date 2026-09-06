@@ -85,6 +85,22 @@ describe("SSELivenessPill", () => {
     expect(banner).toHaveAttribute("aria-live", "polite");
   });
 
+  it("schedules no clock in a state that renders nothing", () => {
+    // `useNow(0)` is the hook's opt-out: a component with nothing to show must
+    // not re-render once a second for the life of the run.
+    setLiveness({ kind: "idle" }, null);
+    setNow(1000);
+    render(<SSELivenessPill />);
+    expect(useNow).toHaveBeenCalledWith(0);
+  });
+
+  it("ticks once a second while a timestamp is on screen", () => {
+    setLiveness({ kind: "streaming", lastEventAt: 1000 }, 1000);
+    setNow(12_000);
+    render(<SSELivenessPill />);
+    expect(useNow).toHaveBeenCalledWith(1000);
+  });
+
   it("renders nothing during open-no-events (run accepted, waiting for first event)", () => {
     setLiveness({ kind: "open-no-events", openedAt: 1000 }, null);
     setNow(15_000);

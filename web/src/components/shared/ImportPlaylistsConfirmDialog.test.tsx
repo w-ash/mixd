@@ -31,8 +31,6 @@ vi.mock("#/hooks/useOperationProgress", async () => {
       isActive:
         mockProgress?.status === "running" ||
         mockProgress?.status === "pending",
-      isConnected: operationId !== null,
-      error: null,
     }),
   };
 });

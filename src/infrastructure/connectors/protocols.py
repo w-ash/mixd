@@ -21,7 +21,10 @@ from src.domain.repositories.play import (
     PlayImporterProtocol,
     PlayResolverProtocol,
 )
-from src.infrastructure.connectors._shared.token_storage import TokenStorage
+from src.infrastructure.connectors._shared.token_storage import (
+    StoredToken,
+    TokenStorage,
+)
 
 if TYPE_CHECKING:
     # fastapi (~160ms import) is used only in annotations here; the guard
@@ -45,6 +48,12 @@ type CrossDiscoveryFactory = Callable[[], CrossDiscoveryProvider]
 
 # Connector-side cleanup run after a user disconnects; receives the user id.
 type DisconnectHook = Callable[[str], Awaitable[None]]
+
+# Canonical public web page for one of the connector's entities, built from the
+# identifier mixd stores for it. Returns None when that particular id does not
+# address a page; a connector whose ids never do (Last.fm's ``artist::title``
+# composites, Apple's storefront-scoped catalog ids) declares no hook at all.
+type ExternalUrlFn = Callable[[str], str | None]
 
 
 @define(frozen=True, slots=True)
@@ -85,6 +94,13 @@ class ConnectorConfig(TypedDict):
     poll policy itself is application-owned (``play_poll_policy``), so the
     interface keys its enable/teardown calls off this flag — configs cannot
     reference application code.
+
+    ``track_url`` and ``playlist_url`` turn a stored identifier into the
+    connector's own web page for that track or playlist, so every surface that
+    offers an "open on <service>" link reads one declaration instead of a
+    switch of its own. ``validate_token`` is the live validator for a BYO credential: it
+    proves the secret before it is stored, and declaring it is what makes a
+    ``token`` connector reachable from ``PUT /connectors/{service}/token``.
     """
 
     factory: Callable[[], object]
@@ -104,3 +120,6 @@ class ConnectorConfig(TypedDict):
     cross_discovery_factory: NotRequired[CrossDiscoveryFactory]
     on_disconnect: NotRequired[DisconnectHook]
     supports_play_polling: NotRequired[bool]
+    track_url: NotRequired[ExternalUrlFn]
+    playlist_url: NotRequired[ExternalUrlFn]
+    validate_token: NotRequired[Callable[[str], Awaitable[StoredToken]]]

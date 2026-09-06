@@ -1,7 +1,6 @@
 import { ChevronDown, X } from "lucide-react";
 import type { ConnectorMetadataSchema } from "#/api/generated/model/connectorMetadataSchema";
 import type { TrackFacetsSchema } from "#/api/generated/model/trackFacetsSchema";
-import type { PreferenceState } from "#/components/shared/PreferenceToggle";
 import { PreferenceToggle } from "#/components/shared/PreferenceToggle";
 import { TagFilter } from "#/components/shared/TagFilter";
 import { Button } from "#/components/ui/button";
@@ -15,7 +14,11 @@ import {
 } from "#/components/ui/select";
 import { Sheet } from "#/components/ui/sheet";
 import { useIsMobile } from "#/hooks/useIsMobile";
-import type { TagMatchMode } from "#/lib/filters-to-workflow";
+import type {
+  LibraryFilters,
+  SetLibraryFilter,
+  SetLibraryFilters,
+} from "#/hooks/useLibraryFilters";
 import {
   findRecencyPreset,
   PLAY_COUNT_PRESETS,
@@ -32,35 +35,15 @@ interface LibraryFilterPanelProps {
    * either way and ignores this callback.
    */
   onClose?: () => void;
-  // Current filter values
-  preference: PreferenceState | null;
-  liked: "true" | "false" | null;
-  connector: string | null;
-  tags: string[];
-  tagMode: TagMatchMode;
-  minPlays: number | null;
-  neverPlayed: boolean;
-  playedWithin: number | null;
-  notPlayedWithin: number | null;
-  // Connector options for the Source select
+  filters: LibraryFilters;
+  setFilter: SetLibraryFilter;
+  /** Play-count and recency each write two params, so they go in one call. */
+  setFilters: SetLibraryFilters;
+  /** Connector options for the Source select. */
   connectors: ConnectorMetadataSchema[];
   /** Optional per-facet counts (from `GET /tracks?include_facets=true`).
    * When present, each filter option renders its count inline. */
   facets?: TrackFacetsSchema | null;
-  // Change handlers
-  onPreferenceChange: (value: PreferenceState | null) => void;
-  onLikedChange: (value: "true" | "false" | null) => void;
-  onConnectorChange: (value: string | null) => void;
-  onTagsChange: (tags: string[]) => void;
-  onTagModeChange: (mode: TagMatchMode) => void;
-  onPlayCountChange: (value: {
-    minPlays: number | null;
-    neverPlayed: boolean;
-  }) => void;
-  onRecencyChange: (value: {
-    playedWithin: number | null;
-    notPlayedWithin: number | null;
-  }) => void;
 }
 
 /**
@@ -74,35 +57,23 @@ interface LibraryFilterPanelProps {
  * - **Mobile** (< 1024px) — a bottom-anchored `<Sheet>` opened by the same
  *   `expanded` prop. Dismissed via `onClose` (backdrop / ESC / close button).
  *
- * All state is URL-driven: props flow in from `useSearchParams()` in the
- * parent, change handlers write back to searchParams. This component owns
- * no state of its own.
+ * All state is URL-driven: `filters` comes from `useLibraryFilters()` in the
+ * parent and the setters write straight back to the search params. This
+ * component owns no state of its own.
  */
 export function LibraryFilterPanel({
   expanded,
   onClose,
-  preference,
-  liked,
-  connector,
-  tags,
-  tagMode,
-  minPlays,
-  neverPlayed,
-  playedWithin,
-  notPlayedWithin,
+  filters,
+  setFilter,
+  setFilters,
   connectors,
   facets,
-  onPreferenceChange,
-  onLikedChange,
-  onConnectorChange,
-  onTagsChange,
-  onTagModeChange,
-  onPlayCountChange,
-  onRecencyChange,
 }: LibraryFilterPanelProps) {
   const isMobile = useIsMobile();
 
-  const playCountValue = neverPlayed
+  const { minPlays, playedWithin, notPlayedWithin } = filters;
+  const playCountValue = filters.neverPlayed
     ? "never"
     : minPlays === null
       ? "any"
@@ -122,8 +93,8 @@ export function LibraryFilterPanel({
       <FilterSection label="Preference">
         <div className="flex flex-col gap-1.5">
           <PreferenceToggle
-            value={preference}
-            onChange={onPreferenceChange}
+            value={filters.preference}
+            onChange={(value) => setFilter("preference", value)}
             size="default"
           />
           {facets && (
@@ -146,10 +117,10 @@ export function LibraryFilterPanel({
 
       <FilterSection label="Tags">
         <TagFilter
-          tags={tags}
-          mode={tagMode}
-          onTagsChange={onTagsChange}
-          onModeChange={onTagModeChange}
+          tags={filters.tags}
+          mode={filters.tagMode}
+          onTagsChange={(tags) => setFilter("tags", tags)}
+          onModeChange={(mode) => setFilter("tagMode", mode)}
         />
       </FilterSection>
 
@@ -159,16 +130,11 @@ export function LibraryFilterPanel({
             value={playCountValue}
             onValueChange={(value) => {
               if (value === "custom") return;
-              if (value === "any") {
-                onPlayCountChange({ minPlays: null, neverPlayed: false });
-              } else if (value === "never") {
-                onPlayCountChange({ minPlays: null, neverPlayed: true });
-              } else {
-                onPlayCountChange({
-                  minPlays: Number(value),
-                  neverPlayed: false,
-                });
-              }
+              setFilters({
+                minPlays:
+                  value === "any" || value === "never" ? null : Number(value),
+                neverPlayed: value === "never",
+              });
             }}
           >
             <SelectTrigger aria-label="Filter by play count" className="w-40">
@@ -203,7 +169,7 @@ export function LibraryFilterPanel({
               value={minPlays ?? ""}
               onChange={(e) => {
                 const raw = e.target.value;
-                onPlayCountChange({
+                setFilters({
                   minPlays: raw === "" ? null : Math.max(1, Number(raw)),
                   neverPlayed: false,
                 });
@@ -216,7 +182,7 @@ export function LibraryFilterPanel({
             value={recencyValue}
             onValueChange={(value) => {
               const preset = RECENCY_PRESETS.find((p) => p.value === value);
-              onRecencyChange({
+              setFilters({
                 playedWithin: preset?.playedWithin ?? null,
                 notPlayedWithin: preset?.notPlayedWithin ?? null,
               });
@@ -240,9 +206,10 @@ export function LibraryFilterPanel({
       <FilterSection label="Source">
         <div className="flex flex-wrap items-center gap-3">
           <Select
-            value={liked ?? "all"}
+            value={filters.liked ?? "all"}
             onValueChange={(value) =>
-              onLikedChange(
+              setFilter(
+                "liked",
                 value === "all" ? null : (value as "true" | "false"),
               )
             }
@@ -262,9 +229,9 @@ export function LibraryFilterPanel({
           </Select>
 
           <Select
-            value={connector ?? "all"}
+            value={filters.connector ?? "all"}
             onValueChange={(value) =>
-              onConnectorChange(value === "all" ? null : value)
+              setFilter("connector", value === "all" ? null : value)
             }
           >
             <SelectTrigger aria-label="Filter by connector" className="w-40">
@@ -274,7 +241,7 @@ export function LibraryFilterPanel({
               <SelectItem value="all">All connectors</SelectItem>
               {connectors.map((c) => (
                 <SelectItem key={c.name} value={c.name}>
-                  {c.name.charAt(0).toUpperCase() + c.name.slice(1)}
+                  {c.display_name}
                   {count("connector", c.name)}
                 </SelectItem>
               ))}
@@ -334,30 +301,6 @@ export function LibraryFilterPanel({
       </div>
     </div>
   );
-}
-
-/**
- * Count how many filter facets are active — drives the badge number on the
- * toolbar's "Filters" toggle. Counts tags as one facet regardless of size
- * so the number reflects "how many filter groups" not "how many values."
- */
-export function countActiveFilters({
-  preference,
-  liked,
-  connector,
-  tags,
-}: {
-  preference: string | null;
-  liked: string | null;
-  connector: string | null;
-  tags: string[];
-}): number {
-  let count = 0;
-  if (preference) count += 1;
-  if (liked === "true" || liked === "false") count += 1;
-  if (connector) count += 1;
-  if (tags.length > 0) count += 1;
-  return count;
 }
 
 interface FilterSectionProps {

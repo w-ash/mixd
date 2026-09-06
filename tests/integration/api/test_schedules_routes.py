@@ -6,10 +6,15 @@ list, and the status-code contract (201 vs 200 on PUT, 404 on absent/cross-targe
 400 on a bad sync target, 422 on an inconsistent cadence payload).
 """
 
+from collections.abc import Callable, Collection, Mapping
+
 import httpx2
 import pytest
 
 from src.application.use_cases._shared.sync_targets import SYNC_TARGETS
+from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
+from src.infrastructure.connectors._shared.token_storage import StoredToken
+from src.interface.api import deps as deps_module
 from tests.fixtures.factories import nonexistent_id
 from tests.integration.api.conftest import create_workflow as _create_workflow
 
@@ -136,6 +141,36 @@ class TestListSchedules:
         assert labels["sync"] == "Last.fm plays"
 
 
+class _StubTokenStorage:
+    """Token storage that serves a fixed per-service map and nothing else."""
+
+    def __init__(self, tokens: dict[str, StoredToken]) -> None:
+        self._tokens = tokens
+
+    async def load_token(self, service: str, _user_id: str) -> StoredToken | None:
+        return self._tokens.get(service)
+
+    async def load_tokens(
+        self, services: Collection[str], _user_id: str
+    ) -> Mapping[str, StoredToken | None]:
+        return {s: self._tokens.get(s) for s in services}
+
+
+type _StubTokens = Callable[[dict[str, StoredToken]], None]
+
+
+@pytest.fixture
+def stub_tokens(monkeypatch: pytest.MonkeyPatch) -> _StubTokens:
+    """Pin which connectors this user has connected, without touching storage."""
+
+    def _apply(tokens: dict[str, StoredToken]) -> None:
+        monkeypatch.setattr(
+            deps_module, "get_token_storage", lambda: _StubTokenStorage(tokens)
+        )
+
+    return _apply
+
+
 class TestSyncTargetsList:
     """``GET /sync/targets`` is server truth for the Sync page's cards.
 
@@ -174,3 +209,76 @@ class TestSyncTargetsList:
         assert {r["id"] for r in rows if r["self_managed"]} == {
             target for target, spec in SYNC_TARGETS.items() if not spec.user_schedulable
         }
+
+    async def test_service_names_the_connector_registry_key(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # Not the target id's prefix: apple:plays runs on the "apple_music"
+        # connector, so a frontend splitting the id would prompt the wrong card.
+        rows = (await client.get("/api/v1/sync/targets")).json()["data"]
+
+        assert {r["id"]: r["service"] for r in rows} == {
+            target: spec.service for target, spec in SYNC_TARGETS.items()
+        }
+
+    async def test_connected_and_scoped_targets_are_available(
+        self, client: httpx2.AsyncClient, stub_tokens: _StubTokens
+    ) -> None:
+        stub_tokens({
+            "lastfm": StoredToken(session_key="sk"),
+            "apple_music": StoredToken(access_token="mut"),
+            "spotify": StoredToken(access_token="at", scope=RECENTLY_PLAYED_SCOPE),
+        })
+
+        rows = (await client.get("/api/v1/sync/targets")).json()["data"]
+
+        assert all(r["available"] for r in rows)
+        assert {r["blocked_reason"] for r in rows} == {None}
+
+    async def test_target_without_a_token_reports_not_connected(
+        self, client: httpx2.AsyncClient, stub_tokens: _StubTokens
+    ) -> None:
+        stub_tokens({"lastfm": StoredToken(session_key="sk")})
+
+        rows = (await client.get("/api/v1/sync/targets")).json()["data"]
+        by_id = {r["id"]: r for r in rows}
+
+        assert by_id["lastfm:plays"]["available"] is True
+        assert by_id["apple:plays"] == {
+            **by_id["apple:plays"],
+            "available": False,
+            "blocked_reason": "CONNECTOR_NOT_CONNECTED",
+        }
+        assert by_id["spotify:likes"]["blocked_reason"] == "CONNECTOR_NOT_CONNECTED"
+
+    async def test_spotify_grant_without_the_play_scope_blocks_only_plays(
+        self, client: httpx2.AsyncClient, stub_tokens: _StubTokens
+    ) -> None:
+        # A grant minted before v0.10.1 still serves likes, so the two spotify
+        # targets must disagree — exactly as their trigger routes do.
+        stub_tokens({
+            "spotify": StoredToken(access_token="at", scope="user-library-read")
+        })
+
+        rows = (await client.get("/api/v1/sync/targets")).json()["data"]
+        by_id = {r["id"]: r for r in rows}
+
+        assert by_id["spotify:likes"]["available"] is True
+        assert by_id["spotify:plays"]["available"] is False
+        assert by_id["spotify:plays"]["blocked_reason"] == "CONNECTOR_SCOPE_MISSING"
+
+    async def test_availability_matches_the_trigger_route_409(
+        self, client: httpx2.AsyncClient, stub_tokens: _StubTokens
+    ) -> None:
+        # The point of the flag: the list and the 409 read one predicate, so a
+        # card the web enables can never be refused by its own trigger.
+        stub_tokens({
+            "spotify": StoredToken(access_token="at", scope="user-library-read")
+        })
+
+        rows = (await client.get("/api/v1/sync/targets")).json()["data"]
+        blocked = {r["id"]: r["blocked_reason"] for r in rows}
+
+        refused = await client.post("/api/v1/imports/spotify/recent", json={})
+        assert refused.status_code == 409
+        assert refused.json()["error"]["code"] == blocked["spotify:plays"]

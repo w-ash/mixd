@@ -19,6 +19,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 import pytest
+import structlog.testing
 
 from src.config.constants import SSEConstants
 from src.domain.entities.operations import OperationResult
@@ -323,6 +324,120 @@ class TestRunSseOperationTerminalEvent:
             own = [e for e in _drain(child_queue) if e.get("event") == "complete"]
             assert "plays" in own[0]["data"]["touched"]
             assert "import-queue" in own[0]["data"]["touched"]
+        finally:
+            await registry.unregister(child_id)
+            await registry.unregister(parent_id)
+
+
+def _forbidden_key_error() -> Exception:
+    """The real error a terminal payload with an undeclared field raises."""
+    try:
+        _ = sse_operations.build_terminal_event(
+            "evt_final", "complete", "op-1", "completed", not_a_field=1
+        )
+    except Exception as exc:
+        return exc
+    raise AssertionError("build_terminal_event accepted an undeclared field")
+
+
+def _raise_on_second_arg[**P, R](
+    fn: Callable[P, R], *, blocked: object, error: Exception
+) -> Callable[P, R]:
+    """Wrap ``fn`` so a call whose second positional argument is ``blocked`` raises.
+
+    A typed pass-through of ``fn``'s own signature — ``P``/``R`` are bound to the
+    wrapped callable at the call site, so replaying the call needs no suppression
+    the way an untyped ``*args: object`` forward would.
+    """
+
+    def _wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        if len(args) > 1 and args[1] == blocked:
+            raise error
+        return fn(*args, **kwargs)
+
+    return _wrapper
+
+
+class TestTerminalEventPushIsBestEffort:
+    """The terminal push runs from the ``finally`` that still owes the operation
+    its coordinator completion, its concurrency slot and its ``on_terminal``
+    callback — the import queue's sequencer waits on that last one. A rejected
+    payload must therefore be logged, never raised."""
+
+    async def test_rejected_payload_does_not_break_completion(self, captured_finalize):
+        registry = get_operation_registry()
+        op_id = _op_id()
+        queue = await registry.register(op_id)
+        seen = _TerminalRecorder()
+        try:
+
+            async def coro() -> OperationResult:
+                return OperationResult(operation_name="Import")
+
+            with (
+                patch.object(
+                    sse_operations,
+                    "build_terminal_event",
+                    side_effect=_forbidden_key_error(),
+                ),
+                structlog.testing.capture_logs() as logs,
+            ):
+                await _run_op(
+                    op_id, coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
+                )
+
+            assert _drain(queue) == []
+            assert seen.statuses == ["complete"]
+            assert op_id not in sse_operations._active_operations
+            assert any(
+                entry["log_level"] == "error"
+                and entry["event"] == "Failed to push terminal SSE event"
+                for entry in logs
+            )
+        finally:
+            await registry.unregister(op_id)
+
+    async def test_ancestor_fan_out_failure_is_contained_per_stream(
+        self, captured_finalize
+    ):
+        # The child's own frame already landed; the ancestor copy must not undo
+        # it or stop the teardown behind it.
+        registry = get_operation_registry()
+        parent_id, child_id = _op_id(), _op_id()
+        parent_queue = await registry.register(parent_id)
+        child_queue = await registry.register(child_id)
+        await registry.record_parent(child_id, parent_id)
+        seen = _TerminalRecorder()
+        fail_on_the_sub_frame = _raise_on_second_arg(
+            sse_operations.build_terminal_event,
+            blocked="sub_operation_completed",
+            error=_forbidden_key_error(),
+        )
+
+        try:
+
+            async def coro() -> OperationResult:
+                return OperationResult(operation_name="Import")
+
+            with (
+                patch.object(
+                    sse_operations,
+                    "build_terminal_event",
+                    side_effect=fail_on_the_sub_frame,
+                ),
+                structlog.testing.capture_logs() as logs,
+            ):
+                await _run_op(
+                    child_id, coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
+                )
+
+            assert [e["event"] for e in _drain(child_queue)] == ["complete"]
+            assert _drain(parent_queue) == []
+            assert seen.statuses == ["complete"]
+            assert any(
+                entry["event"] == "Failed to push terminal SSE event to ancestor stream"
+                for entry in logs
+            )
         finally:
             await registry.unregister(child_id)
             await registry.unregister(parent_id)

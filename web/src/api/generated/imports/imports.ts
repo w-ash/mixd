@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
 import {
   useMutation,
@@ -32,6 +32,7 @@ import type {
   ImportAppleRecentRequest,
   ImportLastfmHistoryRequest,
   ImportQueueResponse,
+  ImportQueueSchema,
   ImportSpotifyLikesRequest,
   ImportSpotifyRecentRequest,
   OperationStartedResponse
@@ -181,8 +182,9 @@ export const getImportSpotifyRecentApiV1ImportsSpotifyRecentPostUrl = () => {
  * Poll Spotify's recently-played API for new plays.
  *
  * Scope-gated rather than merely connection-gated: a grant minted before
- * v0.10.1 still works for likes and playlists, so the generic connected check
- * would let it through and fail later inside the operation.
+ * v0.10.1 still works for likes and playlists, so a bare connected check would
+ * let it through and fail later inside the operation. The scope demand is the
+ * sync target's own, not a second copy stated here.
  * @summary Import Spotify Recent
  */
 export const importSpotifyRecentApiV1ImportsSpotifyRecentPost = async (importSpotifyRecentRequest: ImportSpotifyRecentRequest, options?: Parameters<typeof customFetch>[1]): Promise<importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse> => {
@@ -275,9 +277,8 @@ export const getImportAppleRecentApiV1ImportsAppleRecentPostUrl = () => {
  * Poll Apple Music's recently-played API for new plays.
  *
  * Connection-gated rather than scope-gated: Apple's browser-bridge MUTs
- * carry no OAuth scopes, so token presence is the whole precondition — the
- * status probe is storage-only, exactly what `require_connector_connected`
- * checks.
+ * carry no OAuth scopes, so token presence is the whole precondition — which
+ * is what the target's empty ``required_scopes`` says.
  * @summary Import Apple Recent
  */
 export const importAppleRecentApiV1ImportsAppleRecentPost = async (importAppleRecentRequest: ImportAppleRecentRequest, options?: Parameters<typeof customFetch>[1]): Promise<importAppleRecentApiV1ImportsAppleRecentPostResponse> => {
@@ -520,7 +521,7 @@ export const useExportLastfmLikesApiV1ImportsLastfmLikesPost = <TError = HTTPVal
       return useMutation(useExportLastfmLikesApiV1ImportsLastfmLikesPostMutationOptions(options), queryClient);
     }
     export type importSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponse200 = {
-  data: ImportQueueResponse
+  data: ImportQueueSchema
   status: 200
 }
 
@@ -636,6 +637,9 @@ export const getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetUrl = ()
 
 /**
  * The user's current import queue, so a reloaded tab re-attaches to it.
+ *
+ * Always 200: "no import is running" is an answer, and the client renders it
+ * as the idle state rather than as a failed request.
  * @summary Get Spotify History Queue
  */
 export const getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponse> => {
@@ -728,7 +732,7 @@ export function useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet<TDat
 
 
 export type cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponse200 = {
-  data: ImportQueueResponse
+  data: ImportQueueSchema
   status: 200
 }
 

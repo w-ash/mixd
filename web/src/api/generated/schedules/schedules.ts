@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
 import {
   useMutation,
@@ -77,12 +77,13 @@ export const getListSyncTargetsApiV1SyncTargetsGetUrl = () => {
 }
 
 /**
- * The sync targets this server can dispatch, with their display labels.
+ * The sync targets this server can dispatch, and whether this user can run them.
  *
- * Server truth for the Sync page's scheduler cards: the list, the labels, and
- * which cadences a user may edit. The set is identical for every user — the
- * auth dependency is router consistency, not scoping. No use case, because
- * reading a module-level mapping is not data access.
+ * Server truth for the Sync page's scheduler cards: the list, the labels, which
+ * cadences a user may edit, and — from the same predicate the trigger routes
+ * 409 on — whether the target's connector is connected and sufficiently scoped.
+ * The readiness half is per user; the dispatch table is not. No use case: the
+ * credential probe is the OAuth carve-out the dependency already owns.
  * @summary List Sync Targets
  */
 export const listSyncTargetsApiV1SyncTargetsGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<listSyncTargetsApiV1SyncTargetsGetResponse> => {

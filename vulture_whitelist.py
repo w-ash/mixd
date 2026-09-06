@@ -216,3 +216,8 @@ play_resolver_factory  # ConnectorConfig key — read by string in play_import_r
 supports_play_polling  # ConnectorConfig key — read by string in routes/connectors.py
 redirect_resolved_ids  # SpotifyInwardResolver property — test-asserted seam
 fallback_resolved_ids  # SpotifyInwardResolver property — test-asserted seam
+track_url  # ConnectorConfig TypedDict — read by key in _shared/external_urls
+playlist_url  # ConnectorConfig TypedDict — read by key in _shared/external_urls
+validate_token  # ConnectorConfig TypedDict — read by key in routes/connectors
+external_url  # Pydantic ConnectorMappingSchema field — the web's "open on <service>" link
+accepted_at  # Pydantic field on SseRunAcceptedEvent — SSE wire field, never read in Python

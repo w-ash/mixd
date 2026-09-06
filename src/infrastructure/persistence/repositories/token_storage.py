@@ -9,7 +9,7 @@ Each operation wraps its session in ``user_context(user_id)`` so the RLS
 ``after_begin`` event handler sets ``SET LOCAL app.user_id`` as defense-in-depth.
 """
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime
 from typing import cast
 
@@ -18,7 +18,10 @@ from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.infrastructure.connectors._shared.token_storage import StoredToken
+from src.infrastructure.connectors._shared.token_storage import (
+    OAUTH2_CREDENTIAL_KIND,
+    StoredToken,
+)
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.database.db_models import DBOAuthToken
 from src.infrastructure.persistence.database.user_context import user_context
@@ -74,6 +77,30 @@ class DatabaseTokenStorage:
             async with get_session() as session:
                 return await self.load_with_session(session, service, user_id)
 
+    async def load_tokens(
+        self, services: Collection[str], user_id: str
+    ) -> Mapping[str, StoredToken | None]:
+        """Load one user's tokens for ``services`` in a single query.
+
+        Same ``user_context`` + ``user_id`` predicate as ``load_token``, so RLS
+        and the explicit scoping match row for row. Every requested service is
+        present in the result; one with no stored row maps to ``None``.
+        """
+        tokens: dict[str, StoredToken | None] = dict.fromkeys(services)
+        if not tokens:
+            return tokens
+        with user_context(user_id):
+            async with get_session() as session:
+                result = await session.execute(
+                    select(DBOAuthToken).where(
+                        DBOAuthToken.user_id == user_id,
+                        DBOAuthToken.service.in_(list(tokens)),
+                    )
+                )
+                for row in result.scalars():
+                    tokens[row.service] = _row_to_stored_token(row)
+        return tokens
+
     async def load_with_session(
         self, session: AsyncSession, service: str, user_id: str
     ) -> StoredToken | None:
@@ -120,7 +147,7 @@ class DatabaseTokenStorage:
         values = {
             "service": service,
             "user_id": user_id,
-            "token_type": token_data.get("token_type", "oauth2"),
+            "token_type": token_data.get("token_type", OAUTH2_CREDENTIAL_KIND),
             "access_token": encrypt_field(token_data.get("access_token")),
             "refresh_token": encrypt_field(token_data.get("refresh_token")),
             "session_key": encrypt_field(token_data.get("session_key")),

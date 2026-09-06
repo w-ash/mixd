@@ -6,6 +6,22 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.7] — 2026-09-06
+
+**The Sync page refuses a run the server would refuse and tells you why, a playlist import keeps every pick you made under an earlier search, and the app's progress and chat streams are typed end to end.** This is the web half of the quality-sweep series (v0.11.4 cache, v0.11.5 connectors, v0.11.6 application layer): a four-angle review of the whole frontend, with the API contract extended wherever the browser had been guessing.
+
+- **Contract over guesswork.** `/sync/targets` is per user and carries `service`, `available`, and `blocked_reason`, computed by the same predicate the import routes 409 on; track mappings carry `external_url` from a registry hook (Spotify, MusicBrainz, Tidal); the Spotify history queue GET returns `{queue: … | null}` instead of a 404; `PUT /connectors/{service}/token` replaces the Discogs-only route; node types expose `input_type`/`output_type`; playlist-link routes 404 when the link belongs to another playlist.
+- **Typed SSE.** Operation and workflow events are Pydantic models built at the emitters and exported into `openapi.json`; the frontend reducers dropped 73 hand-written casts for a discriminated union, and chat streams through the shared transport with no handshake deadline. Terminal frames go through one best-effort push so a payload rejection can never strand an operation's cleanup.
+- **Declarative connectors.** The connector card picks its connect flow by `auth_method` through per-kind components; the token dialog is connector-generic; the Sync page gates on the target list plus the live connector probe, so a revoked token disables Import with the fix named.
+- **One implementation each.** New `useSelectionSet`, `useRunCompletedToast`, `useContainerQuery`, `useLibraryFilters`, `useImportOperation`, `useTokenConnect`, `BulkSelectionBar`, and `lib/operation-types.ts`; `ResponsiveTable` measures its container and mounts one layout instead of both; the playlist picker is row components (675 → 376 lines); five Sync import cards share a hook; Library filter props go 18 → 7; four effect-synced states are derived values; the filter panel auto-opens when filters become active and only the user closes it.
+- **Less wasted work.** Memoised node-status maps, play-feed derivations and playlist scans; recovering cards share one operation-runs poll via `select`; one node-schema lookup per canvas; the MusicKit config fetch and script load run concurrently; `useIsMobile` is a `useSyncExternalStore`; `useNow` pauses in hidden tabs.
+- **Helpers used where they were bypassed.** `TableCard`, `QueryErrorState` (a 500 no longer reads as "not found"), brand labels, skeletons, `pluralize`, `formatCount`, `formatDateTime`, shared rate/ETA formatters, the run-status table, and one `connectErrorMessage`.
+- **Zero inline suppressions.** Every `noqa`/`ruff:ignore` in `src/` resolved at the source (loopback default bind, seedable shuffle, named credential kinds, abstract reuse hook); the ratchet baseline is 0. The Vitest harness stubs `ResizeObserver` and `DOMMatrixReadOnly`; the pytest harness restores structlog per test so log capture is order-independent.
+
+Removed wire surface: `PUT /connectors/discogs/token`. Visual drift accepted on the Tags table, node-type badges, import-queue icons, and single-branch tables; regenerate the Linux Playwright baselines per `web/e2e/README.md`.
+
+→ [details](docs/backlog/v0.11.x.md#v0117-interface-layer-quality-sweep)
+
 ## [0.11.6.1] — 2026-09-05
 
 **Every workflow node's settings are declared once, and the editor, the assistant, the validator, and the run all read the same declaration.** Play-history metrics and the period window are editable in the editor instead of only in hand-written JSON, combiners read their inputs from the graph rather than a duplicate list in config, deleting an input no longer leaves a hidden setting that blocks save, and a sort direction saved by an older editor shows the way it actually runs.

@@ -17,7 +17,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useQueryClient } from "@tanstack/react-query";
 import { GripVertical, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router";
 import type { PlaylistEntrySchema } from "#/api/generated/model";
 import {
@@ -25,6 +25,7 @@ import {
   useRemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete,
   useReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch,
 } from "#/api/generated/playlists/playlists";
+import { BulkSelectionBar } from "#/components/shared/BulkSelectionBar";
 import { UnresolvedTag } from "#/components/shared/UnresolvedTag";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
@@ -37,6 +38,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { useIsMobile } from "#/hooks/useIsMobile";
+import { useSelectionSet } from "#/hooks/useSelectionSet";
 import { formatArtists, formatDate, formatDuration } from "#/lib/format";
 import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
@@ -66,20 +68,20 @@ function withEntries(old: unknown, next: PlaylistEntrySchema[]): unknown {
 }
 
 interface RowControls {
-  index: number;
+  entry: PlaylistEntrySchema;
   selected: boolean;
   onToggleSelect: (id: string) => void;
   onRemove: (id: string) => void;
 }
 
 /** A draggable, selectable table row (desktop). */
-function SortableTrackRow({
+const SortableTrackRow = memo(function SortableTrackRow({
   entry,
   index,
   selected,
   onToggleSelect,
   onRemove,
-}: { entry: PlaylistEntrySchema } & RowControls) {
+}: RowControls & { index: number }) {
   const {
     attributes,
     listeners,
@@ -155,15 +157,15 @@ function SortableTrackRow({
       </TableCell>
     </TableRow>
   );
-}
+});
 
 /** A draggable, selectable card (mobile). */
-function SortableTrackCard({
+const SortableTrackCard = memo(function SortableTrackCard({
   entry,
   selected,
   onToggleSelect,
   onRemove,
-}: { entry: PlaylistEntrySchema } & RowControls) {
+}: RowControls) {
   const {
     attributes,
     listeners,
@@ -233,7 +235,7 @@ function SortableTrackCard({
       </button>
     </div>
   );
-}
+});
 
 /**
  * The editable track list: drag-and-drop / keyboard reorder, single + batch
@@ -253,7 +255,8 @@ export function PlaylistTrackEditor({
 }) {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const ids = useMemo(() => entries.map((e) => e.id), [entries]);
+  const selection = useSelectionSet(ids);
 
   const tracksKey =
     getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey(playlistId);
@@ -347,9 +350,10 @@ export function PlaylistTrackEditor({
     flushPendingRemoval();
     const previous = queryClient.getQueryData(tracksKey);
     const snapshot = readEntries(previous) ?? entries;
-    const remaining = snapshot.filter((e) => !entryIds.includes(e.id));
+    const removed = new Set(entryIds);
+    const remaining = snapshot.filter((e) => !removed.has(e.id));
     queryClient.setQueryData(tracksKey, (old) => withEntries(old, remaining));
-    setSelected(new Set());
+    selection.clear();
     pendingRef.current = { entryIds, snapshot };
     // Commit when the snackbar's countdown elapses. Driving the commit off the
     // toast lifecycle (not a parallel setTimeout) keeps the "Undo" affordance and
@@ -404,38 +408,14 @@ export function PlaylistTrackEditor({
     [],
   );
 
-  // Keep the selection in sync with the live entry set. A background refetch can
-  // drop or swap entries; a stale id would inflate "N selected", falsely satisfy
-  // "select all" (size match ≠ same ids), and — worst — ride along in the
-  // all-or-nothing batch DELETE, where one unknown id 404s the entire removal.
-  useEffect(() => {
-    setSelected((prev) => {
-      if (prev.size === 0) return prev;
-      const live = new Set(entries.map((e) => e.id));
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (live.has(id)) next.add(id);
-        else changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [entries]);
-
-  function toggleSelect(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  const allSelected = entries.length > 0 && selected.size === entries.length;
-  const someSelected = selected.size > 0 && !allSelected;
-  function toggleSelectAll() {
-    setSelected(allSelected ? new Set() : new Set(entries.map((e) => e.id)));
-  }
+  // Stable row callbacks: the rows are memoized, so a new function identity per
+  // render would defeat that. `removeEntries` closes over the current cache and
+  // entries, hence the ref rather than a dependency list.
+  const removeRef = useRef(removeEntries);
+  removeRef.current = removeEntries;
+  const handleRemove = useCallback((id: string) => {
+    removeRef.current([id]);
+  }, []);
 
   function titleOf(id: string | number): string {
     return entries.find((e) => e.id === String(id))?.track.title ?? "track";
@@ -470,14 +450,6 @@ export function PlaylistTrackEditor({
       `Reorder cancelled. ${titleOf(active.id)} returned to its position.`,
   };
 
-  const ids = entries.map((e) => e.id);
-  const rowControls = (entry: PlaylistEntrySchema, index: number) => ({
-    index,
-    selected: selected.has(entry.id),
-    onToggleSelect: toggleSelect,
-    onRemove: (id: string) => removeEntries([id]),
-  });
-
   return (
     <DndContext
       sensors={sensors}
@@ -485,41 +457,26 @@ export function PlaylistTrackEditor({
       onDragEnd={handleDragEnd}
       accessibility={{ announcements }}
     >
-      {selected.size > 0 && (
-        <section
-          aria-label="Bulk selection"
-          className="mb-3 flex items-center gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+      <BulkSelectionBar count={selection.size} onClear={selection.clear}>
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => removeEntries(Array.from(selection.selected))}
         >
-          <span className="font-display text-text">
-            {selected.size} selected
-          </span>
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => removeEntries(Array.from(selected))}
-          >
-            Remove selected
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setSelected(new Set())}
-            aria-label="Clear selection"
-          >
-            <X className="mr-1 size-3.5" />
-            Clear
-          </Button>
-        </section>
-      )}
+          Remove selected
+        </Button>
+      </BulkSelectionBar>
 
       {isMobile ? (
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-2">
-            {entries.map((entry, index) => (
+            {entries.map((entry) => (
               <SortableTrackCard
                 key={entry.id}
                 entry={entry}
-                {...rowControls(entry, index)}
+                selected={selection.isSelected(entry.id)}
+                onToggleSelect={selection.toggle}
+                onRemove={handleRemove}
               />
             ))}
           </div>
@@ -530,10 +487,8 @@ export function PlaylistTrackEditor({
             <TableRow>
               <TableHead className="w-20">
                 <Checkbox
-                  checked={
-                    allSelected ? true : someSelected ? "indeterminate" : false
-                  }
-                  onCheckedChange={toggleSelectAll}
+                  checked={selection.headerChecked}
+                  onCheckedChange={selection.toggleAll}
                   aria-label="Select all tracks"
                 />
               </TableHead>
@@ -552,7 +507,10 @@ export function PlaylistTrackEditor({
                 <SortableTrackRow
                   key={entry.id}
                   entry={entry}
-                  {...rowControls(entry, index)}
+                  index={index}
+                  selected={selection.isSelected(entry.id)}
+                  onToggleSelect={selection.toggle}
+                  onRemove={handleRemove}
                 />
               ))}
             </TableBody>

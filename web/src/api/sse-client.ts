@@ -2,8 +2,9 @@
  * SSE transport adapter using eventsource-parser + native fetch().
  *
  * Separated from the React hook so tests can mock this module without
- * fighting jsdom's incomplete Web Streams API. Also gives us full control
- * over headers (needed for auth in v1.0) and abort signals.
+ * fighting jsdom's incomplete Web Streams API. fetch() (rather than
+ * EventSource) is what gives us headers, abort signals and POST bodies —
+ * the chat stream is POST, the operations stream is GET.
  */
 
 import { EventSourceParserStream } from "eventsource-parser/stream";
@@ -23,8 +24,35 @@ export interface ConnectToSSEOptions {
    * the server filters on it (`routes/operations.py`). Omit on a first connect.
    */
   lastEventId?: string | null;
-  /** Budget for the initial HTTP handshake only, not the stream. */
+  /**
+   * Budget for the initial HTTP handshake only, not the stream. `0` removes the
+   * budget, for a handshake whose duration is genuinely unbounded.
+   */
   connectionTimeoutMs?: number;
+  /** Handshake method. Defaults to GET. */
+  method?: string;
+  /** Request body for a POST-bodied stream. Declare its type in `headers`. */
+  body?: BodyInit;
+  /** Extra request headers, merged over Accept + Authorization. */
+  headers?: Record<string, string>;
+}
+
+/**
+ * Handshake rejected with a non-2xx status.
+ *
+ * Carries the unread `Response` so a caller that speaks a JSON error envelope
+ * can read the body before it reports the failure.
+ */
+export class SSEHttpError extends Error {
+  readonly status: number;
+  readonly response: Response;
+
+  constructor(response: Response) {
+    super(`SSE connection failed: ${response.status}`);
+    this.name = "SSEHttpError";
+    this.status = response.status;
+    this.response = response;
+  }
 }
 
 /**
@@ -41,7 +69,12 @@ export async function connectToSSE(
   signal: AbortSignal,
   options: ConnectToSSEOptions = {},
 ): Promise<AsyncIterable<SSEEvent>> {
-  const { lastEventId, connectionTimeoutMs = CONNECTION_TIMEOUT_MS } = options;
+  const {
+    lastEventId,
+    connectionTimeoutMs = CONNECTION_TIMEOUT_MS,
+    method = "GET",
+    body,
+  } = options;
   const headers: Record<string, string> = { Accept: "text/event-stream" };
 
   const token = await getAuthToken();
@@ -51,6 +84,7 @@ export async function connectToSSE(
   if (lastEventId) {
     headers["Last-Event-ID"] = lastEventId;
   }
+  Object.assign(headers, options.headers);
 
   // Timeout covers only the initial HTTP connection, not the stream.
   // Uses a custom Error (not DOMException) so the hook surfaces it
@@ -58,24 +92,37 @@ export async function connectToSSE(
   // Both caller abort and timeout route through a single controller
   // to avoid AbortSignal.any cross-realm issues in test environments.
   const fetchCtrl = new AbortController();
-  const timeoutId = setTimeout(
-    () => fetchCtrl.abort(new Error("SSE connection timed out")),
-    connectionTimeoutMs,
-  );
+  // A zero budget means no timer at all. A handshake that does committed work
+  // before its first byte — the chat POST confirms tools and refreshes
+  // playlists — has no honest upper bound, and aborting it would report a
+  // network failure for work the server already carried out.
+  const timeoutId =
+    connectionTimeoutMs > 0
+      ? setTimeout(
+          () => fetchCtrl.abort(new Error("SSE connection timed out")),
+          connectionTimeoutMs,
+        )
+      : undefined;
   const forwardAbort = () => fetchCtrl.abort(signal.reason);
   signal.addEventListener("abort", forwardAbort, { once: true });
 
   let response: Response;
   try {
-    response = await fetch(url, { signal: fetchCtrl.signal, headers });
+    response = await fetch(url, {
+      method,
+      body,
+      signal: fetchCtrl.signal,
+      headers,
+    });
   } finally {
     clearTimeout(timeoutId);
     signal.removeEventListener("abort", forwardAbort);
   }
 
   if (!response.ok) {
-    throw new Error(`SSE connection failed: ${response.status}`);
+    throw new SSEHttpError(response);
   }
+
   if (!response.body) {
     throw new Error("SSE response has no body");
   }

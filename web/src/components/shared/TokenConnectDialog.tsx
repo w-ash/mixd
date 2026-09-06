@@ -1,7 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import { useState } from "react";
 
-import { ApiError } from "#/api/client";
 import { Button } from "#/components/ui/button";
 import {
   DialogDescription,
@@ -11,37 +10,62 @@ import {
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
-import { useDiscogsToken } from "#/hooks/useDiscogsToken";
+import { useTokenConnect } from "#/hooks/useTokenConnect";
+import { type TokenConnectStep, tokenConnectCopyFor } from "#/lib/connectors";
+import { connectErrorMessage } from "#/lib/toasts";
 
-const DEVELOPERS_URL = "https://www.discogs.com/settings/developers";
-
-function connectErrorMessage(error: unknown): string | null {
-  if (error instanceof ApiError) return error.message;
-  if (error) return "Something went wrong. Please try again.";
-  return null;
+/** One instruction line, assembled from the markup-free copy table. */
+function Step({ step }: { step: TokenConnectStep }) {
+  return (
+    <li>
+      {step.text}
+      {step.emphasis && <strong>{step.emphasis}</strong>}
+      {step.link && (
+        <a
+          href={step.link.url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-primary hover:underline"
+        >
+          {step.link.label} <ExternalLink className="size-3" />
+        </a>
+      )}
+      {step.tail}
+    </li>
+  );
 }
 
-interface DiscogsTokenDialogProps {
+interface TokenConnectDialogProps {
+  /** Connector registry key — the `{service}` path segment of the PUT. */
+  service: string;
+  /** Connector display name, used for every piece of generic copy. */
+  displayName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 /**
- * The token-connect form for Discogs (`auth_method: "token"`, v0.11.1).
+ * The connect form for any `auth_method: "token"` connector.
  *
  * Opened from the connector card's Connect button in place of the OAuth
- * redirect — Discogs uses a BYO personal access token (never expires,
- * validated live, stored encrypted, never echoed back). The steps below
- * deliberately steer past the OAuth application fields on the Discogs
- * developer page, which are not what we need.
+ * redirect: these connectors take a BYO personal access token, validated
+ * live, stored encrypted, never echoed back. Title and copy come from
+ * `display_name`; the provider-specific "where to get a token" steps come
+ * from the table in `lib/connectors.ts`, so a second token connector is a
+ * table entry rather than a branch here.
  */
-export function DiscogsTokenDialog({
+export function TokenConnectDialog({
+  service,
+  displayName,
   open,
   onOpenChange,
-}: DiscogsTokenDialogProps) {
-  const { connect, isConnecting, connectError, resetConnect } =
-    useDiscogsToken();
+}: TokenConnectDialogProps) {
+  const { connect, isConnecting, connectError, resetConnect } = useTokenConnect(
+    service,
+    displayName,
+  );
   const [token, setToken] = useState("");
+  const copy = tokenConnectCopyFor(service);
   const message = connectErrorMessage(connectError);
 
   function handleOpenChange(next: boolean) {
@@ -69,42 +93,30 @@ export function DiscogsTokenDialog({
   return (
     <ResponsiveDialog open={open} onOpenChange={handleOpenChange}>
       <DialogHeader>
-        <DialogTitle>Connect Discogs</DialogTitle>
+        <DialogTitle>Connect {displayName}</DialogTitle>
         <DialogDescription>
-          Discogs connects with a personal access token — your collection stays
-          readable even while Mixd has no Discogs app of its own.
+          {copy?.rationale ??
+            `${displayName} connects with a personal access token you generate yourself.`}
         </DialogDescription>
       </DialogHeader>
 
       <form onSubmit={onConnect} className="mt-4 space-y-4">
-        <ol className="list-decimal space-y-1.5 pl-5 text-sm text-text-muted">
-          <li>
-            On discogs.com, open{" "}
-            <a
-              href={DEVELOPERS_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-primary hover:underline"
-            >
-              Settings → Developers <ExternalLink className="size-3" />
-            </a>
-            .
-          </li>
-          <li>
-            In the <strong>Personal access token</strong> section (ignore the
-            OAuth application fields), choose Generate new token.
-          </li>
-          <li>Paste the token below.</li>
-        </ol>
+        {copy && (
+          <ol className="list-decimal space-y-1.5 pl-5 text-sm text-text-muted">
+            {copy.steps.map((step) => (
+              <Step key={step.text} step={step} />
+            ))}
+          </ol>
+        )}
 
         <div className="space-y-2">
           <Input
             type="password"
             autoComplete="off"
-            placeholder="Your Discogs token"
+            placeholder={`Your ${displayName} token`}
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            aria-label="Discogs personal access token"
+            aria-label={`${displayName} personal access token`}
             aria-invalid={message ? true : undefined}
           />
           {message && (

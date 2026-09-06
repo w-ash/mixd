@@ -4,7 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
-import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+} from "#/test/test-utils";
 
 import { Library } from "./Library";
 
@@ -373,5 +378,168 @@ describe("Library", () => {
       expect(last.searchParams.get("min_plays")).toBeNull();
       expect(last.searchParams.get("never_played")).toBeNull();
     });
+  });
+});
+
+describe("Library — selection", () => {
+  it("select-all raises the bulk bar, and Clear drops it", async () => {
+    overrideTracks(makeTracks(3));
+    const user = userEvent.setup();
+    renderWithProviders(<Library />);
+
+    await screen.findAllByText("Track 1");
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select all rows on this page" }),
+    );
+
+    expect(await screen.findByText("3 selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.queryByText("3 selected")).not.toBeInTheDocument();
+  });
+
+  it("clears the selection when a filter is written", async () => {
+    // Acting on rows the user can no longer see would be a silent bulk edit.
+    overrideTracks(makeTracks(3));
+    const user = userEvent.setup();
+    renderWithProviders(<Library />);
+
+    await screen.findAllByText("Track 1");
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select all rows on this page" }),
+    );
+    await screen.findByText("3 selected");
+
+    await user.type(screen.getByLabelText("Search tracks"), "bo");
+
+    await waitFor(() =>
+      expect(screen.queryByText("3 selected")).not.toBeInTheDocument(),
+    );
+  });
+});
+
+describe("Library — filter panel disclosure", () => {
+  it("starts open when the URL already carries a filter", async () => {
+    overrideTracks(makeTracks(1));
+    renderWithProviders(<Library />, {
+      routerProps: { initialEntries: ["/library?preference=star"] },
+    });
+
+    await waitFor(() =>
+      expect(document.querySelector("#library-filter-panel")).toHaveAttribute(
+        "data-state",
+        "open",
+      ),
+    );
+  });
+
+  it("starts closed with no filters and follows the toggle", async () => {
+    overrideTracks(makeTracks(1));
+    const user = userEvent.setup();
+    renderWithProviders(<Library />);
+
+    const panel = document.querySelector("#library-filter-panel");
+    expect(panel).toHaveAttribute("data-state", "closed");
+
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    expect(panel).toHaveAttribute("data-state", "open");
+  });
+
+  it("re-opens when a filter becomes active after a collapse", async () => {
+    // A filter added while the panel is down would otherwise land out of sight.
+    overrideTracks(makeTracks(1));
+    const user = userEvent.setup();
+    renderWithProviders(<Library />, {
+      routerProps: { initialEntries: ["/library?preference=star"] },
+    });
+
+    const panel = document.querySelector("#library-filter-panel");
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "open"));
+
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    expect(panel).toHaveAttribute("data-state", "closed");
+
+    // The panel stays mounted while collapsed, so a second filter can still be
+    // written to the URL from it.
+    fireEvent.change(screen.getByLabelText("Minimum play count"), {
+      target: { value: "5" },
+    });
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "open"));
+  });
+
+  it("stays open when the last filter is cleared from inside it", async () => {
+    // Collapsing under the pointer as the count hits zero steals the control the
+    // user is still working.
+    overrideTracks(makeTracks(1));
+    renderWithProviders(<Library />, {
+      routerProps: { initialEntries: ["/library?min_plays=10"] },
+    });
+
+    const panel = document.querySelector("#library-filter-panel");
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "open"));
+
+    fireEvent.change(await screen.findByLabelText("Minimum play count"), {
+      target: { value: "" },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Minimum play count")).toHaveValue(null),
+    );
+    expect(panel).toHaveAttribute("data-state", "open");
+  });
+
+  it("keeps a collapse through a URL write that adds no filter", async () => {
+    // Search and sort write the URL too; neither is a filter becoming active,
+    // so neither may re-open a panel the user put away.
+    overrideTracks(makeTracks(1));
+    const user = userEvent.setup();
+    renderWithProviders(<Library />, {
+      routerProps: { initialEntries: ["/library?preference=star"] },
+    });
+
+    const panel = document.querySelector("#library-filter-panel");
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "open"));
+
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    expect(panel).toHaveAttribute("data-state", "closed");
+
+    await user.type(screen.getByLabelText("Search tracks"), "bo");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Search tracks")).toHaveValue("bo"),
+    );
+    expect(panel).toHaveAttribute("data-state", "closed");
+  });
+
+  it("never auto-closes a panel the user opened", async () => {
+    overrideTracks(makeTracks(1));
+    const user = userEvent.setup();
+    renderWithProviders(<Library />);
+
+    const panel = document.querySelector("#library-filter-panel");
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    expect(panel).toHaveAttribute("data-state", "open");
+
+    await user.type(screen.getByLabelText("Search tracks"), "bo");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Search tracks")).toHaveValue("bo"),
+    );
+    expect(panel).toHaveAttribute("data-state", "open");
+  });
+});
+
+describe("Library — Save as Workflow dialog", () => {
+  it("starts from an empty form each time it opens", async () => {
+    overrideTracks(makeTracks(1));
+    const user = userEvent.setup();
+    renderWithProviders(<Library />, {
+      routerProps: { initialEntries: ["/library?preference=star"] },
+    });
+
+    const open = screen.getByRole("button", { name: /Save as Workflow/ });
+    await user.click(open);
+    await user.type(await screen.findByLabelText("Name"), "Draft");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(open);
+    expect(await screen.findByLabelText("Name")).toHaveValue("");
   });
 });

@@ -4,21 +4,22 @@ Provides dependency functions for extracting user identity and other
 request-scoped context from the ASGI scope.
 """
 
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from typing import Literal, cast
 
 from fastapi import Depends, Request
 
 from src.application.chat.protocols import LLMClientProtocol
+from src.application.use_cases._shared.sync_targets import SYNC_TARGETS, SyncTarget
 from src.config.constants import BusinessLimits
 from src.domain.exceptions import (
     ChatUnavailableError,
     ConnectorNotConnectedError,
     ConnectorScopeMissingError,
 )
-from src.domain.services.oauth_grant import missing_from_grant
 from src.infrastructure.connectors._shared.token_storage import get_token_storage
 from src.interface.api.auth_gate import JWTClaims
+from src.interface.api.connector_access import ConnectorAccess, token_access
 
 
 def get_current_user_id(request: Request) -> str:
@@ -41,48 +42,60 @@ def get_current_user_id(request: Request) -> str:
     return BusinessLimits.DEFAULT_USER_ID
 
 
-def require_connector_connected(service: str) -> Callable[..., Awaitable[None]]:
-    """Build a pre-flight dependency that 409s when ``service`` has no stored token.
+async def check_connector_access(
+    service: str, user_id: str, required_scopes: Collection[str] = ()
+) -> ConnectorAccess:
+    """Load ``service``'s stored token for ``user_id`` and judge it."""
+    token = await get_token_storage().load_token(service, user_id)
+    return token_access(token, required_scopes)
 
-    Gates the import/sync routes so a token-less user gets an immediate, actionable
-    ``CONNECTOR_NOT_CONNECTED`` instead of a background operation that starts and
-    then fails. A token-presence check only — refresh/validity is the connector
-    routes' job. Mirrors the connectors route's direct use of ``get_token_storage``
-    (the v0.6.5 OAuth-sharing architecture).
+
+def _raise_if_blocked(service: str, access: ConnectorAccess) -> None:
+    """Turn a blocked verdict into the 409 the frontend's connect prompt reads."""
+    if access.blocked_reason == "CONNECTOR_NOT_CONNECTED":
+        raise ConnectorNotConnectedError(service)
+    if access.blocked_reason == "CONNECTOR_SCOPE_MISSING":
+        raise ConnectorScopeMissingError(service, access.missing_scopes)
+
+
+def require_sync_target_access(target_id: SyncTarget) -> Callable[..., Awaitable[None]]:
+    """Build a pre-flight dependency that 409s unless ``target_id`` can run.
+
+    Its connector and scope demands come from ``SYNC_TARGETS[target_id]``, the
+    same spec ``sync_target_access`` judges the list endpoint's availability
+    flag from, so a target can never advertise itself as runnable and then be
+    refused at its own trigger route. A token-less (or under-scoped) user gets
+    an immediate, actionable error instead of a background operation that starts
+    and then fails inside the importer.
     """
+    spec = SYNC_TARGETS[target_id]
 
     async def _dep(user_id: str = Depends(get_current_user_id)) -> None:
-        if await get_token_storage().load_token(service, user_id) is None:
-            raise ConnectorNotConnectedError(service)
+        access = await check_connector_access(
+            spec.service, user_id, spec.required_scopes
+        )
+        _raise_if_blocked(spec.service, access)
 
     return _dep
 
 
-def require_connector_scopes(
-    service: str, scopes: Collection[str]
-) -> Callable[..., Awaitable[None]]:
-    """Build a pre-flight dependency that also 409s on a scope gap.
+async def sync_target_access(
+    user_id: str = Depends(get_current_user_id),
+) -> Mapping[str, ConnectorAccess]:
+    """Verdict per sync target for this user, in one token read.
 
-    Extends :func:`require_connector_connected` for routes whose whole point is
-    a surface an older grant never covered — a v0.10.1 recently-played poll on a
-    token minted before that scope existed. Without this the request would pass
-    the connected check (``scope_missing`` deliberately keeps ``connected=True``,
-    since likes and playlists still work), open a background operation, and only
-    then fail inside the importer.
-
-    Kept a sibling rather than a parameter on ``require_connector_connected`` so
-    that function's "token-presence only" contract stays intact for the routes
-    that want exactly that.
+    Two targets can share a connector with different scope demands, so every
+    service the registry names is read in one query and the pure predicate is
+    applied per target. One batched read, not one per connector: this runs on
+    every Sync page load, and a session per service would size the pool by the
+    connector count.
     """
-
-    async def _dep(user_id: str = Depends(get_current_user_id)) -> None:
-        token = await get_token_storage().load_token(service, user_id)
-        if token is None:
-            raise ConnectorNotConnectedError(service)
-        if missing := missing_from_grant(token.get("scope"), scopes):
-            raise ConnectorScopeMissingError(service, missing)
-
-    return _dep
+    services = sorted({spec.service for spec in SYNC_TARGETS.values()})
+    tokens = await get_token_storage().load_tokens(services, user_id)
+    return {
+        target: token_access(tokens.get(spec.service), spec.required_scopes)
+        for target, spec in SYNC_TARGETS.items()
+    }
 
 
 async def trigger_play_refresh(user_id: str = Depends(get_current_user_id)) -> None:

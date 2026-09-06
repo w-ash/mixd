@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { formatProgressLabel } from "./eta";
+import { formatEta, formatProgressLabel, formatRate } from "./eta";
 
 describe("formatProgressLabel", () => {
   it("falls back to indeterminate copy when total is null", () => {
@@ -86,5 +86,29 @@ describe("formatProgressLabel", () => {
       etaSeconds: 18,
     });
     expect(result.label).toContain("4.2/sec");
+  });
+});
+
+describe("formatRate", () => {
+  it("formats slow rates per minute", () => {
+    expect(formatRate(0.5)).toBe("30.0/min");
+  });
+
+  it("keeps one decimal below 10/sec and none above", () => {
+    expect(formatRate(2.5)).toBe("2.5/sec");
+    expect(formatRate(13.4)).toBe("13/sec");
+  });
+});
+
+describe("formatEta", () => {
+  it("rounds seconds up and splits minutes", () => {
+    expect(formatEta(4.2)).toBe("5s");
+    expect(formatEta(125)).toBe("2m 5s");
+    expect(formatEta(120)).toBe("2m");
+  });
+
+  it("rounds before splitting, so no part overflows", () => {
+    expect(formatEta(119.5)).toBe("2m");
+    expect(formatEta(59.6)).toBe("1m");
   });
 });

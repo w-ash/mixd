@@ -287,6 +287,21 @@ class TestListNodeTypes:
         assert "category" in node
         assert "description" in node
 
+    async def test_exposes_node_io_types(self, client: httpx2.AsyncClient) -> None:
+        """The editor draws handles off these, so a source must declare no input."""
+        response = await client.get("/api/v1/workflows/nodes")
+
+        by_type = {n["type"]: n for n in response.json()}
+        source = by_type["source.playlist"]
+        assert source["category"] == "source"
+        assert source["input_type"] is None
+        assert source["output_type"] == "tracklist"
+
+        destination = by_type["destination.create_playlist"]
+        assert destination["category"] == "destination"
+        assert destination["input_type"] == "tracklist"
+        assert destination["output_type"] == "playlist_id"
+
     async def test_returns_config_fields(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/v1/workflows/nodes")
 

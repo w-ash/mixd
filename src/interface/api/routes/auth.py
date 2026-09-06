@@ -24,6 +24,7 @@ from sqlalchemy import delete
 from src.application.services.play_poll_policy import sync_play_polling_after_auth
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.token_storage import (
+    SESSION_CREDENTIAL_KIND,
     StoredToken,
     get_token_storage,
 )
@@ -336,7 +337,7 @@ async def _complete_lastfm_auth(token: str, user_id: str) -> RedirectResponse:
         user_id,
         StoredToken(
             session_key=session_key,
-            token_type="session",  # ruff:ignore[hardcoded-password-func-arg] — metadata label, not a secret
+            token_type=SESSION_CREDENTIAL_KIND,
             account_name=username,
         ),
     )

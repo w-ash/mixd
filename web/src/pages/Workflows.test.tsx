@@ -426,10 +426,8 @@ describe("Workflows", () => {
 
       renderWithProviders(<Workflows />);
 
-      // ResponsiveTable keeps both the card and table slots mounted, so each
-      // workflow contributes two DOM rows — hence 2, not 1, per workflow.
       await waitFor(() => {
-        expect(screen.getAllByTitle("Workflow is running")).toHaveLength(2);
+        expect(screen.getAllByTitle("Workflow is running")).toHaveLength(1);
       });
 
       // Flow B shows Running rather than its stale "Completed" last_run...
@@ -438,7 +436,7 @@ describe("Workflows", () => {
       // ...and Flow A stays runnable, because the active-run guard is
       // per-workflow, not per-user.
       const runnable = screen.getAllByTitle("Run workflow");
-      expect(runnable).toHaveLength(2);
+      expect(runnable).toHaveLength(1);
       for (const button of runnable) expect(button).toBeEnabled();
     });
   });

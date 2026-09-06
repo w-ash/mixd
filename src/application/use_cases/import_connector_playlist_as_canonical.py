@@ -47,6 +47,7 @@ from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
 )
 from src.config import get_logger
+from src.config.constants import SubOperationOutcome
 from src.domain.entities import ConnectorPlaylist
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
@@ -721,7 +722,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         sub_op_id: str | None,
         cid: str,
         name: str,
-        outcome: str,
+        outcome: SubOperationOutcome,
         message: str,
         phase: str,
         final_status: OperationStatus,
@@ -820,7 +821,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         connector: str,
         cid: str,
         name: str,
-        outcome: str,
+        outcome: SubOperationOutcome,
         message: str,
         tick_message: str,
         progress_broker: ProgressBroker | None,

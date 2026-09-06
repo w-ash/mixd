@@ -22,7 +22,11 @@ from src.application.use_cases.sync_playlist_link import (
     to_operation_result,
 )
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
-from src.domain.exceptions import ConfirmationRequiredError, ConnectorSyncError
+from src.domain.exceptions import (
+    ConfirmationRequiredError,
+    ConnectorSyncError,
+    NotFoundError,
+)
 from tests.fixtures import make_mock_uow
 
 _RESOLVER = "src.application.use_cases._shared.playlist_resolver.require_playlist_link"
@@ -116,6 +120,23 @@ class TestStatusLifecycle:
         # Restored to the prior status, never marked ERROR for a confirmation.
         assert SyncStatus.SYNCED in statuses
         assert SyncStatus.ERROR not in statuses
+
+    async def test_link_under_another_playlist_raises(self):
+        """A nested route naming playlist A cannot sync playlist B's link."""
+        link = _link()
+        uow = make_mock_uow()
+        link_repo = uow.get_playlist_link_repository()
+        link_repo.get_link = AsyncMock(return_value=link)
+
+        with pytest.raises(NotFoundError, match="not found"):
+            await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(
+                    user_id="u", link_id=link.id, playlist_id=uuid7()
+                ),
+                uow,
+            )
+
+        link_repo.update_sync_status.assert_not_called()
 
 
 class TestToOperationResult:

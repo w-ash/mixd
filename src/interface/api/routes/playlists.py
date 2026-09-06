@@ -359,14 +359,20 @@ async def create_playlist_link(
 
 @router.delete("/{playlist_id}/links/{link_id}", status_code=204)
 async def delete_playlist_link(
-    playlist_id: UUID,  # ruff:ignore[unused-function-argument]
+    playlist_id: UUID,
     link_id: UUID,
     user_id: str = Depends(get_current_user_id),
 ) -> Response:
-    """Unlink a playlist from an external service."""
+    """Unlink a playlist from an external service.
+
+    404 if the link does not belong to ``playlist_id``.
+    """
     await execute_use_case(
         lambda uow: DeletePlaylistLinkUseCase().execute(
-            DeletePlaylistLinkCommand(user_id=user_id, link_id=link_id), uow
+            DeletePlaylistLinkCommand(
+                user_id=user_id, link_id=link_id, playlist_id=playlist_id
+            ),
+            uow,
         ),
         user_id=user_id,
     )
@@ -375,16 +381,20 @@ async def delete_playlist_link(
 
 @router.patch("/{playlist_id}/links/{link_id}")
 async def update_playlist_link(
-    playlist_id: UUID,  # ruff:ignore[unused-function-argument]
+    playlist_id: UUID,
     link_id: UUID,
     body: UpdateLinkRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> PlaylistLinkSchema:
-    """Update a playlist link's sync direction."""
+    """Update a playlist link's sync direction.
+
+    404 if the link does not belong to ``playlist_id``.
+    """
     command = UpdatePlaylistLinkCommand(
         user_id=user_id,
         link_id=link_id,
         sync_direction=SyncDirection(body.sync_direction),
+        playlist_id=playlist_id,
     )
     result = await execute_use_case(
         lambda uow: UpdatePlaylistLinkUseCase().execute(command, uow),
@@ -395,17 +405,21 @@ async def update_playlist_link(
 
 @router.get("/{playlist_id}/links/{link_id}/sync/preview")
 async def preview_playlist_sync(
-    playlist_id: UUID,  # ruff:ignore[unused-function-argument]
+    playlist_id: UUID,
     link_id: UUID,
     direction_override: str | None = Query(default=None),
     user_id: str = Depends(get_current_user_id),
 ) -> SyncPreviewResponse:
-    """Preview what a sync would change without executing it."""
+    """Preview what a sync would change without executing it.
+
+    404 if the link does not belong to ``playlist_id``.
+    """
     override = SyncDirection(direction_override) if direction_override else None
     command = PreviewPlaylistSyncCommand(
         user_id=user_id,
         link_id=link_id,
         direction_override=override,
+        playlist_id=playlist_id,
     )
     result = await execute_use_case(
         lambda uow: PreviewPlaylistSyncUseCase().execute(command, uow),
@@ -431,7 +445,7 @@ async def preview_playlist_sync(
 
 @router.post("/{playlist_id}/links/{link_id}/sync", status_code=202)
 async def sync_playlist_link(
-    playlist_id: UUID,  # ruff:ignore[unused-function-argument]
+    playlist_id: UUID,
     link_id: UUID,
     body: SyncLinkRequest | None = None,
     user_id: str = Depends(get_current_user_id),
@@ -443,9 +457,11 @@ async def sync_playlist_link(
     ``confirm_token`` is missing or stale returns HTTP 409 (CONFIRMATION_REQUIRED)
     *synchronously* — before any background work — with a fresh token + the
     removal counts, so the client can show the confirm dialog and retry.
+    404 if the link does not belong to ``playlist_id``.
     """
     return await launch_playlist_link_sync(
         link_id=link_id,
+        playlist_id=playlist_id,
         user_id=user_id,
         direction_override=body.direction_override if body else None,
         confirm_token=body.confirm_token if body else None,

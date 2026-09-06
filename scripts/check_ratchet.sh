@@ -63,8 +63,19 @@ cd "$(dirname "$0")/.."
 # OAS document/resource shapes and three older attrs/vocabulary parks), and added
 # 2: `resolved_track` and `self_managed`. Net 114 → 104, and the bound is real
 # again. Shrink it, don't raise it, when a name earns a callsite.
-BASE_WHITELIST=112
-BASE_NOQA=13
+# 112 → 115 at v0.11.7: the connector registry's declarative hooks (track_url,
+# playlist_url, validate_token — ConnectorConfig TypedDict keys read by string in
+# _shared/external_urls and routes/connectors, which vulture cannot follow), plus two
+# wire-only fields whose readers live in web/src (external_url on the mapping schema,
+# accepted_at on the run_accepted SSE frame) — the size_bytes/settled_at precedent.
+BASE_WHITELIST=115
+# 13 → 0, 2026-09-05: every inline suppression in src/ resolved at the source — the
+# nested playlist-link routes now scope their commands by playlist_id, the reuse
+# metadata hook is abstract, `mixd-api` binds loopback by default, the weighted
+# shuffle draws from a `random.Random` instance, and the session token label is a
+# named constant. httpx2's async event hook keeps a per-file `unused-async` entry
+# in pyproject.toml, beside the identical musicbrainz/status.py precedent.
+BASE_NOQA=0
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18
 

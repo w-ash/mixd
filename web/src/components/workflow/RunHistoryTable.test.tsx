@@ -35,6 +35,25 @@ describe("RunHistoryTable", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows the output track count in the table", () => {
+    renderWithProviders(
+      <RunHistoryTable runs={[makeRun()]} workflowId="wf-1" />,
+    );
+
+    expect(screen.getByRole("cell", { name: "20" })).toBeInTheDocument();
+  });
+
+  it("renders an em dash when the run has no track count", () => {
+    renderWithProviders(
+      <RunHistoryTable
+        runs={[makeRun({ output_track_count: null })]}
+        workflowId="wf-1"
+      />,
+    );
+
+    expect(screen.getByRole("cell", { name: "—" })).toBeInTheDocument();
+  });
+
   it("links to the run by its UUID (stable address), not its number", () => {
     renderWithProviders(
       <RunHistoryTable runs={[makeRun()]} workflowId="wf-1" />,

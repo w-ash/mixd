@@ -8,18 +8,18 @@ operation_id so the client can subscribe to progress via SSE.
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from src.config import get_logger
-from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
 from src.interface.api.deps import (
     get_current_user_id,
-    require_connector_connected,
-    require_connector_scopes,
+    require_sync_target_access,
 )
 from src.interface.api.schemas.imports import (
     CheckpointStatusSchema,
     ExportLastfmLikesRequest,
     ImportAppleRecentRequest,
     ImportLastfmHistoryRequest,
+    ImportQueueEntrySchema,
     ImportQueueResponse,
+    ImportQueueSchema,
     ImportSpotifyLikesRequest,
     ImportSpotifyRecentRequest,
     OperationStartedResponse,
@@ -47,7 +47,7 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 async def import_lastfm_history(
     body: ImportLastfmHistoryRequest,
     user_id: str = Depends(get_current_user_id),
-    _connected: None = Depends(require_connector_connected("lastfm")),
+    _connected: None = Depends(require_sync_target_access("lastfm:plays")),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm listening history import."""
 
@@ -75,15 +75,14 @@ async def import_lastfm_history(
 async def import_spotify_recent(
     body: ImportSpotifyRecentRequest,
     user_id: str = Depends(get_current_user_id),
-    _scoped: None = Depends(
-        require_connector_scopes("spotify", {RECENTLY_PLAYED_SCOPE})
-    ),
+    _scoped: None = Depends(require_sync_target_access("spotify:plays")),
 ) -> OperationStartedResponse:
     """Poll Spotify's recently-played API for new plays.
 
     Scope-gated rather than merely connection-gated: a grant minted before
-    v0.10.1 still works for likes and playlists, so the generic connected check
-    would let it through and fail later inside the operation.
+    v0.10.1 still works for likes and playlists, so a bare connected check would
+    let it through and fail later inside the operation. The scope demand is the
+    sync target's own, not a second copy stated here.
     """
 
     async def _import(emitter: OperationBoundEmitter) -> object:
@@ -109,14 +108,13 @@ async def import_spotify_recent(
 async def import_apple_recent(
     body: ImportAppleRecentRequest,
     user_id: str = Depends(get_current_user_id),
-    _connected: None = Depends(require_connector_connected("apple_music")),
+    _connected: None = Depends(require_sync_target_access("apple:plays")),
 ) -> OperationStartedResponse:
     """Poll Apple Music's recently-played API for new plays.
 
     Connection-gated rather than scope-gated: Apple's browser-bridge MUTs
-    carry no OAuth scopes, so token presence is the whole precondition — the
-    status probe is storage-only, exactly what `require_connector_connected`
-    checks.
+    carry no OAuth scopes, so token presence is the whole precondition — which
+    is what the target's empty ``required_scopes`` says.
     """
 
     async def _import(emitter: OperationBoundEmitter) -> object:
@@ -141,7 +139,7 @@ async def import_apple_recent(
 async def import_spotify_likes(
     body: ImportSpotifyLikesRequest,
     user_id: str = Depends(get_current_user_id),
-    _connected: None = Depends(require_connector_connected("spotify")),
+    _connected: None = Depends(require_sync_target_access("spotify:likes")),
 ) -> OperationStartedResponse:
     """Trigger a Spotify liked tracks import."""
 
@@ -168,7 +166,7 @@ async def import_spotify_likes(
 async def export_lastfm_likes(
     body: ExportLastfmLikesRequest,
     user_id: str = Depends(get_current_user_id),
-    _connected: None = Depends(require_connector_connected("lastfm")),
+    _connected: None = Depends(require_sync_target_access("lastfm:likes")),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm likes export (love tracks on Last.fm)."""
 
@@ -190,44 +188,55 @@ async def export_lastfm_likes(
     )
 
 
-def _queue_response(queue: ImportQueue) -> ImportQueueResponse:
-    return ImportQueueResponse.model_validate(queue, from_attributes=True)
+def _queue_schema(queue: ImportQueue) -> ImportQueueSchema:
+    """Wire form of a queue that exists."""
+    return ImportQueueSchema(
+        queue_id=queue.queue_id,
+        operation_id=queue.operation_id,
+        started_at=queue.started_at,
+        entries=[
+            ImportQueueEntrySchema.model_validate(e, from_attributes=True)
+            for e in queue.entries
+        ],
+    )
 
 
 @router.post("/spotify/history")
 async def import_spotify_history(
     files: list[UploadFile],
     user_id: str = Depends(get_current_user_id),
-) -> ImportQueueResponse:
+) -> ImportQueueSchema:
     """Queue Spotify GDPR export JSON files for one sequential, unattended import.
 
     A single file is the degenerate one-entry queue. Guards, capped streaming,
     and queue start all live in ``receive_export_upload`` (409/422/413).
     """
     queue = await receive_export_upload(user_id, files)
-    return _queue_response(queue)
+    return _queue_schema(queue)
 
 
 @router.get("/spotify/history/queue")
 async def get_spotify_history_queue(
     user_id: str = Depends(get_current_user_id),
 ) -> ImportQueueResponse:
-    """The user's current import queue, so a reloaded tab re-attaches to it."""
+    """The user's current import queue, so a reloaded tab re-attaches to it.
+
+    Always 200: "no import is running" is an answer, and the client renders it
+    as the idle state rather than as a failed request.
+    """
     queue = get_queue(user_id)
-    if queue is None:
-        raise HTTPException(status_code=404, detail="No import queue")
-    return _queue_response(queue)
+    return ImportQueueResponse(queue=_queue_schema(queue) if queue else None)
 
 
 @router.delete("/spotify/history/queue")
 async def cancel_spotify_history_queue(
     user_id: str = Depends(get_current_user_id),
-) -> ImportQueueResponse:
+) -> ImportQueueSchema:
     """Cancel the queue's not-yet-started entries; the running one finishes."""
     queue = cancel_pending(user_id)
     if queue is None:
         raise HTTPException(status_code=404, detail="No import queue")
-    return _queue_response(queue)
+    return _queue_schema(queue)
 
 
 # ---------------------------------------------------------------------------

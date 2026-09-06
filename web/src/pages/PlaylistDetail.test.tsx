@@ -478,3 +478,38 @@ describe("PlaylistDetail — browse-to-link", () => {
     });
   });
 });
+
+describe("PlaylistDetail — load failures", () => {
+  it("reports a server failure as an error, not a missing playlist", async () => {
+    server.use(
+      http.get("*/api/v1/playlists/:playlistId", () =>
+        HttpResponse.json(
+          { error: { code: "INTERNAL_ERROR", message: "Server error" } },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderPlaylistDetail();
+
+    expect(
+      await screen.findByText("Failed to load playlist"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Playlist not found")).not.toBeInTheDocument();
+  });
+
+  it("keeps the not-found copy for a 404", async () => {
+    server.use(
+      http.get("*/api/v1/playlists/:playlistId", () =>
+        HttpResponse.json(
+          { error: { code: "NOT_FOUND", message: "No such playlist" } },
+          { status: 404 },
+        ),
+      ),
+    );
+
+    renderPlaylistDetail();
+
+    expect(await screen.findByText("Playlist not found")).toBeInTheDocument();
+  });
+});

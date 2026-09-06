@@ -21,16 +21,21 @@ import {
   BaseWorkflowNode,
   type WorkflowNodeData,
 } from "#/components/workflow/BaseWorkflowNode";
+import { useKeyboardShortcut } from "#/hooks/useKeyboardShortcut";
 import type { NodeStatus } from "#/lib/sse-types";
-import { miniMapNodeColor, NODE_CONFIG } from "#/lib/workflow-config";
+import {
+  miniMapNodeColor,
+  NODE_CONFIG,
+  type NodeCategoryConfig,
+} from "#/lib/workflow-config";
+import type { DiffStatus } from "#/lib/workflow-diff";
 import {
   createInitialNodes,
   layoutWorkflow,
   type NodeDimension,
 } from "#/lib/workflow-layout";
 
-function createNodeComponent(category: string) {
-  const config = NODE_CONFIG[category] ?? NODE_CONFIG.source;
+function createNodeComponent(config: NodeCategoryConfig) {
   return ({ data }: { data: WorkflowNodeData }) => (
     <BaseWorkflowNode
       data={data}
@@ -42,7 +47,10 @@ function createNodeComponent(category: string) {
 }
 
 const nodeTypes: NodeTypes = Object.fromEntries(
-  Object.keys(NODE_CONFIG).map((k) => [k, createNodeComponent(k)]),
+  Object.entries(NODE_CONFIG).map(([category, config]) => [
+    category,
+    createNodeComponent(config),
+  ]),
 );
 
 const edgeTypes: EdgeTypes = { smart: SmartBezierEdge };
@@ -50,8 +58,6 @@ const edgeTypes: EdgeTypes = { smart: SmartBezierEdge };
 type LayoutPhase = "measuring" | "layouting" | "done";
 
 const MEASUREMENT_TIMEOUT_MS = 2000;
-
-import type { DiffStatus } from "#/lib/workflow-diff";
 
 interface WorkflowGraphProps {
   tasks: WorkflowTaskDefSchemaInput[];
@@ -88,14 +94,7 @@ function WorkflowGraphInner({
   // Fullscreen toggle
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
-    if (!expanded) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setExpanded(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [expanded]);
+  useKeyboardShortcut(["Escape"], () => setExpanded(false), expanded);
 
   const toggleExpanded = useCallback(() => {
     setExpanded((v) => !v);

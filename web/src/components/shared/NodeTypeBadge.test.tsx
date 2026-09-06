@@ -1,41 +1,40 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { NODE_CONFIG } from "#/lib/workflow-config";
 import { NodeTypeBadge } from "./NodeTypeBadge";
 
 describe("NodeTypeBadge", () => {
-  it("extracts and displays the category from node type", () => {
+  it("shows the shared category label for a dotted node type", () => {
     render(<NodeTypeBadge nodeType="source.liked_tracks" />);
-    expect(screen.getByText("source")).toBeInTheDocument();
+    expect(screen.getByText("Source")).toBeInTheDocument();
   });
 
-  it("renders known categories with specific styles", () => {
+  it("tints the badge with the category accent color", () => {
     const { container } = render(
       <NodeTypeBadge nodeType="filter.play_count" />,
     );
     const badge = container.querySelector("span");
-    expect(badge).toHaveTextContent("filter");
-    // Filter category has oklch(0.35_0.08_55) background
-    expect(badge?.className).toContain("bg-[oklch(0.35_0.08_55)]");
+    expect(badge).toHaveTextContent("Filter");
+    expect(badge).toHaveStyle({ color: NODE_CONFIG.filter.accentColor });
   });
 
-  it("uses fallback style for unknown categories", () => {
+  it("falls back to muted styling and the raw prefix for unknown categories", () => {
     const { container } = render(<NodeTypeBadge nodeType="unknown.thing" />);
     const badge = container.querySelector("span");
     expect(badge).toHaveTextContent("unknown");
     expect(badge?.className).toContain("bg-surface-elevated");
   });
 
-  it("handles node type without dots", () => {
-    render(<NodeTypeBadge nodeType="source" />);
-    expect(screen.getByText("source")).toBeInTheDocument();
+  it("handles a node type without dots", () => {
+    render(<NodeTypeBadge nodeType="destination" />);
+    expect(screen.getByText("Destination")).toBeInTheDocument();
   });
 
   it("applies additional className", () => {
     const { container } = render(
       <NodeTypeBadge nodeType="enricher.metadata" className="ml-2" />,
     );
-    const badge = container.querySelector("span");
-    expect(badge?.className).toContain("ml-2");
+    expect(container.querySelector("span")?.className).toContain("ml-2");
   });
 });

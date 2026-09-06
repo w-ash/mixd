@@ -30,14 +30,15 @@ from src.application.use_cases.workflow_runs import (
 from src.config import get_logger
 from src.config.constants import WorkflowConstants, truncate_error_message
 from src.domain.entities.workflow import WorkflowDef
+from src.interface.api.schemas.sse_events import SseRunAcceptedEvent, sse_frame
 from src.interface.api.schemas.workflows import WorkflowRunStartedResponse
 from src.interface.api.services.background import (
     finalize_sse_operation,
     launch_background,
 )
 from src.interface.api.services.sse_operations import (
-    build_terminal_event,
     prepare_sse_operation,
+    push_terminal_best_effort,
     release_operation_slot,
 )
 
@@ -88,17 +89,19 @@ async def launch_workflow_run(
     # if the first node takes seconds to produce output the SSE consumer sees
     # activity within ~50 ms of the POST. evt_accept is a string id so it bypasses
     # the numeric Last-Event-ID resume regex (one-shot signaling event).
-    await sse_queue.put({
-        "id": WorkflowConstants.SSE_EVENT_ID_RUN_ACCEPTED,
-        "event": WorkflowConstants.SSE_EVENT_RUN_ACCEPTED,
-        "data": {
-            "operation_id": operation_id,
-            "run_id": str(run_id),
-            "workflow_id": str(workflow.definition.id),
-            "task_count": len(workflow.definition.tasks),
-            "accepted_at": datetime.now(UTC).isoformat(),
-        },
-    })
+    await sse_queue.put(
+        sse_frame(
+            WorkflowConstants.SSE_EVENT_ID_RUN_ACCEPTED,
+            WorkflowConstants.SSE_EVENT_RUN_ACCEPTED,
+            SseRunAcceptedEvent(
+                operation_id=operation_id,
+                run_id=run_id,
+                workflow_id=workflow.definition.id,
+                task_count=len(workflow.definition.tasks),
+                accepted_at=datetime.now(UTC),
+            ),
+        )
+    )
 
     # 4. Launch background execution
     launch_background(
@@ -132,32 +135,32 @@ async def _run_workflow_and_push_terminal(
 
     # Push terminal SSE event based on use case result
     if run_result.status == WorkflowConstants.RUN_STATUS_COMPLETED:
-        await sse_queue.put(
-            build_terminal_event(
-                "evt_final",
-                WorkflowConstants.SSE_EVENT_COMPLETE,
-                operation_id,
-                WorkflowConstants.RUN_STATUS_COMPLETED,
-                run_id=run_id,
-                operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
-                output_track_count=run_result.output_track_count,
-                duration_ms=run_result.duration_ms,
-            )
+        await push_terminal_best_effort(
+            sse_queue,
+            "evt_final",
+            WorkflowConstants.SSE_EVENT_COMPLETE,
+            operation_id,
+            WorkflowConstants.RUN_STATUS_COMPLETED,
+            log_context={"run_id": str(run_id)},
+            run_id=run_id,
+            operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
+            output_track_count=run_result.output_track_count,
+            duration_ms=run_result.duration_ms,
         )
     else:
-        await sse_queue.put(
-            build_terminal_event(
-                "evt_error",
-                WorkflowConstants.SSE_EVENT_ERROR,
-                operation_id,
-                run_result.status,
-                run_id=run_id,
-                operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
-                error_message=truncate_error_message(
-                    run_result.error_message or "Unknown error",
-                    WorkflowConstants.SSE_ERROR_MAX_LENGTH,
-                ),
-            )
+        await push_terminal_best_effort(
+            sse_queue,
+            "evt_error",
+            WorkflowConstants.SSE_EVENT_ERROR,
+            operation_id,
+            run_result.status,
+            log_context={"run_id": str(run_id)},
+            run_id=run_id,
+            operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
+            error_message=truncate_error_message(
+                run_result.error_message or "Unknown error",
+                WorkflowConstants.SSE_ERROR_MAX_LENGTH,
+            ),
         )
 
 
@@ -193,18 +196,19 @@ async def execute_workflow_background(
             )
     except CancelledError as exc:
         cancellation = exc
-        # Best-effort push of error SSE event on cancellation
-        with contextlib.suppress(CancelledError, Exception):
-            await sse_queue.put(
-                build_terminal_event(
-                    "evt_error",
-                    WorkflowConstants.SSE_EVENT_ERROR,
-                    operation_id,
-                    WorkflowConstants.RUN_STATUS_CRASHED,
-                    run_id=run_id,
-                    operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
-                    error_message=WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE,
-                )
+        # The push runs while this task is dying: a re-delivered cancellation is
+        # suppressed here and re-raised below, once the teardown is durable.
+        with contextlib.suppress(CancelledError):
+            await push_terminal_best_effort(
+                sse_queue,
+                "evt_error",
+                WorkflowConstants.SSE_EVENT_ERROR,
+                operation_id,
+                WorkflowConstants.RUN_STATUS_CRASHED,
+                log_context={"run_id": str(run_id)},
+                run_id=run_id,
+                operation_type=_OPERATION_TYPE_WORKFLOW_RUN,
+                error_message=WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE,
             )
 
     finally:
@@ -241,27 +245,26 @@ async def execute_preview_background(
             workflow_def, sse_queue=sse_queue, user_id=user_id
         )
 
-        await sse_queue.put(
-            build_terminal_event(
-                "evt_final",
-                WorkflowConstants.SSE_EVENT_PREVIEW_COMPLETE,
-                operation_id,
-                WorkflowConstants.RUN_STATUS_COMPLETED,
-                operation_type=_OPERATION_TYPE_WORKFLOW_PREVIEW,
-                output_tracks=preview_result.output_tracks,
-                total_track_count=preview_result.total_track_count,
-                metric_columns=preview_result.metric_columns,
-                node_summaries=[
-                    {
-                        "node_id": s.node_id,
-                        "node_type": s.node_type,
-                        "track_count": s.track_count,
-                        "sample_titles": s.sample_titles,
-                    }
-                    for s in preview_result.node_summaries
-                ],
-                duration_ms=preview_result.duration_ms,
-            )
+        await push_terminal_best_effort(
+            sse_queue,
+            "evt_final",
+            WorkflowConstants.SSE_EVENT_PREVIEW_COMPLETE,
+            operation_id,
+            WorkflowConstants.RUN_STATUS_COMPLETED,
+            operation_type=_OPERATION_TYPE_WORKFLOW_PREVIEW,
+            output_tracks=preview_result.output_tracks,
+            total_track_count=preview_result.total_track_count,
+            metric_columns=preview_result.metric_columns,
+            node_summaries=[
+                {
+                    "node_id": s.node_id,
+                    "node_type": s.node_type,
+                    "track_count": s.track_count,
+                    "sample_titles": s.sample_titles,
+                }
+                for s in preview_result.node_summaries
+            ],
+            duration_ms=preview_result.duration_ms,
         )
 
     except (CancelledError, Exception) as exc:
@@ -274,18 +277,17 @@ async def execute_preview_background(
                 str(exc), WorkflowConstants.SSE_ERROR_MAX_LENGTH
             )
         )
-        with contextlib.suppress(CancelledError, Exception):
-            await sse_queue.put(
-                build_terminal_event(
-                    "evt_error",
-                    WorkflowConstants.SSE_EVENT_ERROR,
-                    operation_id,
-                    WorkflowConstants.RUN_STATUS_FAILED,
-                    # A preview that failed part-way may already have committed
-                    # source rows — skipping destinations is all dry_run skips.
-                    operation_type=_OPERATION_TYPE_WORKFLOW_PREVIEW,
-                    error_message=error_msg,
-                )
+        with contextlib.suppress(CancelledError):
+            await push_terminal_best_effort(
+                sse_queue,
+                "evt_error",
+                WorkflowConstants.SSE_EVENT_ERROR,
+                operation_id,
+                WorkflowConstants.RUN_STATUS_FAILED,
+                # A preview that failed part-way may already have committed
+                # source rows — skipping destinations is all dry_run skips.
+                operation_type=_OPERATION_TYPE_WORKFLOW_PREVIEW,
+                error_message=error_msg,
             )
 
     finally:

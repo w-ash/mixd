@@ -24,6 +24,14 @@ const HIDE_BELOW_MS = 10_000;
 const AMBER_THRESHOLD_MS = 30_000;
 const RED_THRESHOLD_MS = 60_000;
 
+/** Connection states that render nothing, whatever the clock says. */
+const SILENT_KINDS: ReadonlySet<string> = new Set([
+  "idle",
+  "connecting",
+  "open-no-events",
+  "closed-done",
+]);
+
 type Tier = "neutral" | "amber" | "red";
 
 const TIER_STYLES: Record<Tier, { pill: string; dot: string }> = {
@@ -47,10 +55,20 @@ interface SSELivenessPillProps {
 
 export function SSELivenessPill({ className }: SSELivenessPillProps) {
   const { sseState, lastEventAt } = useSSELivenessContext();
-  const now = useNow(1000);
+  // The timestamp this component counts from, or null when it renders nothing.
+  // Deciding first means the silent states schedule no interval at all.
+  const anchor =
+    sseState.kind === "stalled"
+      ? sseState.lastEventAt
+      : SILENT_KINDS.has(sseState.kind)
+        ? null
+        : lastEventAt;
+  const now = useNow(anchor === null ? 0 : 1000);
+
+  if (anchor === null) return null;
+  const elapsed = now - anchor;
 
   if (sseState.kind === "stalled") {
-    const elapsed = now - sseState.lastEventAt;
     return (
       <div
         role="alert"
@@ -65,17 +83,6 @@ export function SSELivenessPill({ className }: SSELivenessPillProps) {
     );
   }
 
-  if (lastEventAt === null) return null;
-  if (
-    sseState.kind === "idle" ||
-    sseState.kind === "connecting" ||
-    sseState.kind === "open-no-events" ||
-    sseState.kind === "closed-done"
-  ) {
-    return null;
-  }
-
-  const elapsed = now - lastEventAt;
   if (elapsed < HIDE_BELOW_MS) return null;
 
   const tier = tierFor(elapsed);

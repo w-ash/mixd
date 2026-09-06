@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
 import {
   useMutation,
@@ -177,48 +177,49 @@ export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<ty
 
 
 
-export type putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponse204 = {
+export type putConnectorTokenApiV1ConnectorsServiceTokenPutResponse204 = {
   data: void
   status: 204
 }
 
-export type putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponse422 = {
+export type putConnectorTokenApiV1ConnectorsServiceTokenPutResponse422 = {
   data: HTTPValidationError
   status: 422
 }
 
-export type putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponseSuccess = (putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponse204) & {
+export type putConnectorTokenApiV1ConnectorsServiceTokenPutResponseSuccess = (putConnectorTokenApiV1ConnectorsServiceTokenPutResponse204) & {
   headers: Headers;
 };
-export type putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponseError = (putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponse422) & {
+export type putConnectorTokenApiV1ConnectorsServiceTokenPutResponseError = (putConnectorTokenApiV1ConnectorsServiceTokenPutResponse422) & {
   headers: Headers;
 };
 
-export type putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponse = (putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponseSuccess | putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponseError)
+export type putConnectorTokenApiV1ConnectorsServiceTokenPutResponse = (putConnectorTokenApiV1ConnectorsServiceTokenPutResponseSuccess | putConnectorTokenApiV1ConnectorsServiceTokenPutResponseError)
 
-export const getPutDiscogsTokenApiV1ConnectorsDiscogsTokenPutUrl = () => {
-
-
+export const getPutConnectorTokenApiV1ConnectorsServiceTokenPutUrl = (service: string,) => {
 
 
-  return `/api/v1/connectors/discogs/token`
+
+
+  return `/api/v1/connectors/${service}/token`
 }
 
 /**
- * Validate and store the user's Discogs personal access token.
+ * Validate and store a user's BYO personal access token for a connector.
  *
  * The v0.6.5 credential carve-out shape (like the assistant BYO-key): the
- * token is validated live via the shared ``discogs/token_service`` — which
- * also caches the collection count for the status probe — then stored
- * encrypted. Write-only: never returned by any endpoint. An invalid token
- * raises ``DiscogsInvalidTokenError``, which the middleware maps to a 400
- * ``DISCOGS_INVALID_TOKEN`` envelope (the shape the token form reads);
- * disconnect is the generic ``DELETE /connectors/discogs/token``.
- * @summary Put Discogs Token
+ * token is proved live by the connector's own ``validate_token`` hook — which
+ * also caches whatever its status probe renders — then stored encrypted.
+ * Write-only: never returned by any endpoint. A rejected token raises the
+ * connector's own invalid-token error, which the middleware maps to a 400
+ * envelope (the shape the token form reads); disconnect is the generic
+ * ``DELETE /connectors/{service}/token``.
+ * @summary Put Connector Token
  */
-export const putDiscogsTokenApiV1ConnectorsDiscogsTokenPut = async (connectorTokenRequest: ConnectorTokenRequest, options?: Parameters<typeof customFetch>[1]): Promise<putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponse> => {
+export const putConnectorTokenApiV1ConnectorsServiceTokenPut = async (service: string,
+    connectorTokenRequest: ConnectorTokenRequest, options?: Parameters<typeof customFetch>[1]): Promise<putConnectorTokenApiV1ConnectorsServiceTokenPutResponse> => {
 
-  return customFetch<putDiscogsTokenApiV1ConnectorsDiscogsTokenPutResponse>(getPutDiscogsTokenApiV1ConnectorsDiscogsTokenPutUrl(),
+  return customFetch<putConnectorTokenApiV1ConnectorsServiceTokenPutResponse>(getPutConnectorTokenApiV1ConnectorsServiceTokenPutUrl(service),
   {
     ...options,
     method: 'PUT',
@@ -231,11 +232,11 @@ export const putDiscogsTokenApiV1ConnectorsDiscogsTokenPut = async (connectorTok
 
 
 
-export const usePutDiscogsTokenApiV1ConnectorsDiscogsTokenPutMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putDiscogsTokenApiV1ConnectorsDiscogsTokenPut>>, TError,{data: ConnectorTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof putDiscogsTokenApiV1ConnectorsDiscogsTokenPut>>, TError,{data: ConnectorTokenRequest}, TContext> => {
+export const usePutConnectorTokenApiV1ConnectorsServiceTokenPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,{service: string;data: ConnectorTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,{service: string;data: ConnectorTokenRequest}, TContext> => {
 
-const mutationKey = ['putDiscogsTokenApiV1ConnectorsDiscogsTokenPut'];
+const mutationKey = ['putConnectorTokenApiV1ConnectorsServiceTokenPut'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -245,35 +246,35 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putDiscogsTokenApiV1ConnectorsDiscogsTokenPut>>, {data: ConnectorTokenRequest}> = (props) => {
-          const {data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, {service: string;data: ConnectorTokenRequest}> = (props) => {
+          const {service,data} = props ?? {};
 
-          return  putDiscogsTokenApiV1ConnectorsDiscogsTokenPut(data,requestOptions)
+          return  putConnectorTokenApiV1ConnectorsServiceTokenPut(service,data,requestOptions)
         }
 
 
 
-        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/connectors/discogs/token` });
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/connectors/{service}/token` });
 
 
   return  customOptions}
 
-    export type PutDiscogsTokenApiV1ConnectorsDiscogsTokenPutMutationResult = NonNullable<Awaited<ReturnType<typeof putDiscogsTokenApiV1ConnectorsDiscogsTokenPut>>>
-    export type PutDiscogsTokenApiV1ConnectorsDiscogsTokenPutMutationBody = ConnectorTokenRequest
-    export type PutDiscogsTokenApiV1ConnectorsDiscogsTokenPutMutationError = HTTPValidationError
+    export type PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationResult = NonNullable<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>>
+    export type PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationBody = ConnectorTokenRequest
+    export type PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationError = HTTPValidationError
 
     /**
- * @summary Put Discogs Token
+ * @summary Put Connector Token
  */
-export const usePutDiscogsTokenApiV1ConnectorsDiscogsTokenPut = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putDiscogsTokenApiV1ConnectorsDiscogsTokenPut>>, TError,{data: ConnectorTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const usePutConnectorTokenApiV1ConnectorsServiceTokenPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,{service: string;data: ConnectorTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof putDiscogsTokenApiV1ConnectorsDiscogsTokenPut>>,
+        Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>,
         TError,
-        {data: ConnectorTokenRequest},
+        {service: string;data: ConnectorTokenRequest},
         TContext
       > => {
-      return useMutation(usePutDiscogsTokenApiV1ConnectorsDiscogsTokenPutMutationOptions(options), queryClient);
+      return useMutation(usePutConnectorTokenApiV1ConnectorsServiceTokenPutMutationOptions(options), queryClient);
     }
     export type deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse204 = {
   data: void

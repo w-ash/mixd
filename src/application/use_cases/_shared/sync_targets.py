@@ -30,6 +30,7 @@ from src.application.use_cases.sync_likes import (
     run_loves_export,
 )
 from src.domain.entities.operations import OperationResult
+from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
 from src.domain.services.play_poll_decision import PollTrigger
 
 # Re-exported from domain rather than redeclared: the value crosses this seam
@@ -91,6 +92,14 @@ class SyncTargetSpec:
     # Names the same work a user-launched import does, so a scheduled run and a
     # hand-triggered one resolve to one entry in every operation-type-keyed table.
     operation_type: str
+    # Connector-registry key the target's credential lives under — ``apple_music``,
+    # not the ``apple`` half of the target id, because the data plane and the
+    # registry name that connector differently. Together with ``required_scopes``
+    # this states the target's preconditions once: the trigger route's 409 gate
+    # and the list endpoint's availability flag both read them, so a target can
+    # never advertise itself as runnable and then be refused.
+    service: str
+    required_scopes: frozenset[str] = frozenset()
     # False for targets whose cadence is managed for the user (see module docs).
     user_schedulable: bool = True
     # Supplied as a pair, or not at all. A target with no hooks always runs.
@@ -141,11 +150,15 @@ SYNC_TARGETS: Final[Mapping[str, SyncTargetSpec]] = {
         label="Last.fm plays",
         run=lambda user_id: run_import(user_id, "lastfm", "incremental"),
         operation_type="import_lastfm_history",
+        service="lastfm",
     ),
     "apple:plays": SyncTargetSpec(
         label="Apple Music plays",
         run=lambda user_id: run_import(user_id, "apple", "incremental"),
         operation_type="import_apple_recent",
+        # Registry key, not the target id's "apple": Apple's play rows key on
+        # "apple" while its credential and config live under "apple_music".
+        service="apple_music",
         # Plain schedulable, deliberately unlike spotify:plays: the adaptive
         # poll policy hardcodes spotify/lastfm, so this target has no poll
         # hooks and an ordinary user-managed cadence. Revisit when the policy
@@ -155,16 +168,22 @@ SYNC_TARGETS: Final[Mapping[str, SyncTargetSpec]] = {
         label="Spotify likes",
         run=partial(run_likes_import, connector="spotify"),
         operation_type="import_spotify_likes",
+        service="spotify",
     ),
     "lastfm:likes": SyncTargetSpec(
         label="Last.fm loves",
         run=partial(run_loves_export, connector="lastfm"),
         operation_type="export_lastfm_likes",
+        service="lastfm",
     ),
     "spotify:plays": SyncTargetSpec(
         label="Spotify recent plays",
         run=lambda user_id: run_import(user_id, "spotify", "incremental"),
         operation_type="import_spotify_recent",
+        service="spotify",
+        # A grant minted before v0.10.1 still serves likes and playlists, so
+        # token presence alone would let it through and fail inside the poll.
+        required_scopes=frozenset({RECENTLY_PLAYED_SCOPE}),
         # Cadence is adaptive and self-managed — see the module docstring.
         user_schedulable=False,
         try_begin_poll=_begin_play_poll,

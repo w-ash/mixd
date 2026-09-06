@@ -18,6 +18,7 @@ import { ImportPlaylistsConfirmDialog } from "#/components/shared/ImportPlaylist
 import { QueryStates } from "#/components/shared/QueryStates";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { ListRowsSkeleton } from "#/components/shared/skeletons";
+import { TableCard } from "#/components/shared/TableCard";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { TitleLink } from "#/components/shared/TitleLink";
 import { Button } from "#/components/ui/button";
@@ -40,41 +41,39 @@ import { getSyncStatusConfig } from "#/lib/sync-status";
  */
 function PlaylistCard({ playlist }: { playlist: PlaylistSummarySchema }) {
   return (
-    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
-      <div className="min-w-0 flex-1">
-        <TitleLink to={`/playlists/${playlist.id}`} viewTransition>
-          {playlist.name}
-        </TitleLink>
-        {playlist.description && (
-          <p className="mt-0.5 line-clamp-1 text-xs text-text-muted">
-            {decodeHtmlEntities(playlist.description)}
-          </p>
-        )}
-        <div className="mt-1.5 flex items-center gap-3 text-xs text-text-muted">
-          <span className="tabular-nums">
-            {playlist.track_count} track{pluralSuffix(playlist.track_count)}
-          </span>
-          <span aria-hidden="true">·</span>
-          <span>Updated {formatDate(playlist.updated_at)}</span>
-        </div>
-        {playlist.connector_links.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {playlist.connector_links.map((link) => (
-              <span
-                key={link.connector_name}
-                className="inline-flex items-center gap-1.5"
-              >
-                <ConnectorIcon name={link.connector_name} labelHidden />
-                <span
-                  className={`size-1.5 rounded-full ${getSyncStatusConfig(link.sync_status).dotClass}`}
-                  title={`${link.sync_direction} · ${link.sync_status}`}
-                />
-              </span>
-            ))}
-          </div>
-        )}
+    <TableCard>
+      <TitleLink to={`/playlists/${playlist.id}`} viewTransition>
+        {playlist.name}
+      </TitleLink>
+      {playlist.description && (
+        <p className="mt-0.5 line-clamp-1 text-xs text-text-muted">
+          {decodeHtmlEntities(playlist.description)}
+        </p>
+      )}
+      <div className="mt-1.5 flex items-center gap-3 text-xs text-text-muted">
+        <span className="tabular-nums">
+          {playlist.track_count} track{pluralSuffix(playlist.track_count)}
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>Updated {formatDate(playlist.updated_at)}</span>
       </div>
-    </article>
+      {playlist.connector_links.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {playlist.connector_links.map((link) => (
+            <span
+              key={link.connector_name}
+              className="inline-flex items-center gap-1.5"
+            >
+              <ConnectorIcon name={link.connector_name} labelHidden />
+              <span
+                className={`size-1.5 rounded-full ${getSyncStatusConfig(link.sync_status).dotClass}`}
+                title={`${link.sync_direction} · ${link.sync_status}`}
+              />
+            </span>
+          ))}
+        </div>
+      )}
+    </TableCard>
   );
 }
 

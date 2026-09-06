@@ -91,6 +91,9 @@ class DiscogsConnector:
 def get_connector_config() -> ConnectorConfig:
     """Discogs connector configuration."""
     from src.infrastructure.connectors.discogs.status import get_discogs_status
+    from src.infrastructure.connectors.discogs.token_service import (
+        validate_and_build_token,
+    )
 
     return {
         "factory": DiscogsConnector,
@@ -102,4 +105,7 @@ def get_connector_config() -> ConnectorConfig:
         "capabilities": frozenset(),
         "status_fn": get_discogs_status,
         "build_auth_url": None,
+        # BYO personal access token: proved live against the identity endpoint
+        # before it is stored, which is what opens the generic token route.
+        "validate_token": validate_and_build_token,
     }

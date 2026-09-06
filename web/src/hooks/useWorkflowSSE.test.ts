@@ -22,7 +22,7 @@ vi.mock("#/api/client", () => ({
 
 import { customFetch } from "#/api/client";
 import { connectToSSE } from "#/api/sse-client";
-import { mockSSEWithEvents } from "#/test/sse-test-utils";
+import { mockSSEWithEvents, sseFrame } from "#/test/sse-test-utils";
 
 // ─── Test wrapper ───────────────────────────────────────────────
 
@@ -54,16 +54,13 @@ describe("useWorkflowSSE", () => {
 
   it("flips runAccepted when run_accepted event arrives", async () => {
     mockSSEWithEvents([
-      {
-        event: "run_accepted",
-        data: JSON.stringify({
-          operation_id: "op-rxa",
-          run_id: "run-rxa",
-          workflow_id: "wf-rxa",
-          task_count: 3,
-          accepted_at: "2026-05-09T00:00:00Z",
-        }),
-      },
+      sseFrame("run_accepted", {
+        operation_id: "op-rxa",
+        run_id: "run-rxa",
+        workflow_id: "wf-rxa",
+        task_count: 3,
+        accepted_at: "2026-05-09T00:00:00Z",
+      }),
     ]);
 
     const { result } = renderHook(() => useWorkflowSSE(), {
@@ -82,9 +79,7 @@ describe("useWorkflowSSE", () => {
   });
 
   it("start() resets runAccepted to false for the next run", async () => {
-    mockSSEWithEvents([
-      { event: "run_accepted", data: JSON.stringify({ operation_id: "a" }) },
-    ]);
+    mockSSEWithEvents([sseFrame("run_accepted", { operation_id: "a" })]);
 
     const { result } = renderHook(() => useWorkflowSSE(), {
       wrapper: createWrapper(),
@@ -129,28 +124,22 @@ describe("useWorkflowSSE", () => {
 
   it("forwards node_status events to nodeStatuses map", async () => {
     mockSSEWithEvents([
-      {
-        event: "node_status",
-        data: JSON.stringify({
-          node_id: "source_1",
-          node_type: "source.liked_tracks",
-          status: "running",
-          execution_order: 1,
-          total_nodes: 2,
-        }),
-      },
-      {
-        event: "node_status",
-        data: JSON.stringify({
-          node_id: "source_1",
-          node_type: "source.liked_tracks",
-          status: "completed",
-          execution_order: 1,
-          total_nodes: 2,
-          duration_ms: 300,
-          output_track_count: 42,
-        }),
-      },
+      sseFrame("node_status", {
+        node_id: "source_1",
+        node_type: "source.liked_tracks",
+        status: "running",
+        execution_order: 1,
+        total_nodes: 2,
+      }),
+      sseFrame("node_status", {
+        node_id: "source_1",
+        node_type: "source.liked_tracks",
+        status: "completed",
+        execution_order: 1,
+        total_nodes: 2,
+        duration_ms: 300,
+        output_track_count: 42,
+      }),
     ]);
 
     const { result } = renderHook(() => useWorkflowSSE(), {
@@ -174,10 +163,7 @@ describe("useWorkflowSSE", () => {
     const onError = vi.fn();
 
     mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({ error_message: "Node failed: timeout" }),
-      },
+      sseFrame("error", { error_message: "Node failed: timeout" }),
     ]);
 
     const { result } = renderHook(() => useWorkflowSSE({ onError }), {
@@ -199,13 +185,10 @@ describe("useWorkflowSSE", () => {
     const onError = vi.fn();
 
     mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({
-          final_status: "crashed",
-          error_message: "worker died",
-        }),
-      },
+      sseFrame("error", {
+        final_status: "crashed",
+        error_message: "worker died",
+      }),
     ]);
 
     const { result } = renderHook(() => useWorkflowSSE({ onError }), {
@@ -228,13 +211,10 @@ describe("useWorkflowSSE", () => {
     const onError = vi.fn();
 
     mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({
-          final_status: "cancelled",
-          error_message: "Cancelled by server",
-        }),
-      },
+      sseFrame("error", {
+        final_status: "cancelled",
+        error_message: "Cancelled by server",
+      }),
     ]);
 
     const { result } = renderHook(
@@ -256,12 +236,7 @@ describe("useWorkflowSSE", () => {
   });
 
   it("uses custom errorFallbackMessage when error_message missing", async () => {
-    mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({}),
-      },
-    ]);
+    mockSSEWithEvents([sseFrame("error", {})]);
 
     const { result } = renderHook(
       () => useWorkflowSSE({ errorFallbackMessage: "Preview failed" }),
@@ -280,12 +255,7 @@ describe("useWorkflowSSE", () => {
   it("calls onComplete for completion events and sets isRunning=false", async () => {
     const onComplete = vi.fn();
 
-    mockSSEWithEvents([
-      {
-        event: "complete",
-        data: JSON.stringify({ result: "done" }),
-      },
-    ]);
+    mockSSEWithEvents([sseFrame("complete", { final_status: "completed" })]);
 
     const { result } = renderHook(() => useWorkflowSSE({ onComplete }), {
       wrapper: createWrapper(),
@@ -297,19 +267,16 @@ describe("useWorkflowSSE", () => {
 
     await waitFor(() => {
       expect(result.current.isRunning).toBe(false);
-      expect(onComplete).toHaveBeenCalledWith("complete", { result: "done" });
+      expect(onComplete).toHaveBeenCalledWith("complete", {
+        final_status: "completed",
+      });
     });
   });
 
   it("recognizes custom completion events", async () => {
     const onComplete = vi.fn();
 
-    mockSSEWithEvents([
-      {
-        event: "preview_complete",
-        data: JSON.stringify({ output_tracks: [] }),
-      },
-    ]);
+    mockSSEWithEvents([sseFrame("preview_complete", { output_tracks: [] })]);
 
     const { result } = renderHook(
       () =>
@@ -332,18 +299,13 @@ describe("useWorkflowSSE", () => {
     });
   });
 
-  it("ignores events not in completionEvents set", async () => {
+  it("ignores events outside completionEvents and outside the vocabulary", async () => {
     const onComplete = vi.fn();
 
     mockSSEWithEvents([
-      {
-        event: "some_unknown_event",
-        data: JSON.stringify({ info: "extra" }),
-      },
-      {
-        event: "complete",
-        data: JSON.stringify({}),
-      },
+      { event: "some_unknown_event", data: JSON.stringify({ info: "extra" }) },
+      sseFrame("started", { description: "Running" }),
+      sseFrame("complete", {}),
     ]);
 
     const { result } = renderHook(() => useWorkflowSSE({ onComplete }), {
@@ -355,7 +317,8 @@ describe("useWorkflowSSE", () => {
     });
 
     await waitFor(() => {
-      // onComplete only called once — for "complete", not "some_unknown_event"
+      // Only "complete" is a completion event; the unknown name never even
+      // reaches the reducer.
       expect(onComplete).toHaveBeenCalledOnce();
       expect(onComplete).toHaveBeenCalledWith("complete", {});
     });
@@ -363,12 +326,7 @@ describe("useWorkflowSSE", () => {
 
   it("start() resets previous error and nodeStatuses", async () => {
     // First: trigger an error
-    mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({ error_message: "first error" }),
-      },
-    ]);
+    mockSSEWithEvents([sseFrame("error", { error_message: "first error" })]);
 
     const { result } = renderHook(() => useWorkflowSSE(), {
       wrapper: createWrapper(),
@@ -396,16 +354,13 @@ describe("useWorkflowSSE", () => {
 
   it("reset() clears all state and disconnects", async () => {
     mockSSEWithEvents([
-      {
-        event: "node_status",
-        data: JSON.stringify({
-          node_id: "n1",
-          node_type: "filter",
-          status: "running",
-          execution_order: 1,
-          total_nodes: 1,
-        }),
-      },
+      sseFrame("node_status", {
+        node_id: "n1",
+        node_type: "filter",
+        status: "running",
+        execution_order: 1,
+        total_nodes: 1,
+      }),
     ]);
 
     const { result } = renderHook(() => useWorkflowSSE(), {

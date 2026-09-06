@@ -1,8 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, HelpCircle, Play } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router";
 
+import { ApiError } from "#/api/client";
 import {
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
   useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet,
@@ -11,6 +12,7 @@ import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { getStatusConfig } from "#/components/shared/RunStatusBadge";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { DetailHeaderSkeleton } from "#/components/shared/skeletons";
@@ -48,7 +50,7 @@ export function WorkflowRunDetail() {
   const workflowId = id ?? "";
   const runIdStr = runId ?? "";
 
-  const { data, isLoading, isError } =
+  const { data, isLoading, isError, error } =
     useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet(
       workflowId,
       runIdStr,
@@ -113,19 +115,61 @@ export function WorkflowRunDetail() {
     adoptRun,
   ]);
 
+  const run = data?.status === 200 ? data.data : undefined;
+  const nodes = useMemo(() => run?.nodes ?? [], [run]);
+
+  // Persisted node records are the base; live SSE events overlay them so the
+  // graph advances as the run executes instead of showing the snapshot this
+  // page happened to load with. Memoized so WorkflowGraph's `displayNodes`
+  // memo survives unrelated re-renders.
+  const nodeStatuses = useMemo(() => {
+    const statuses = new Map<string, NodeStatus>();
+    for (const node of nodes) {
+      statuses.set(node.node_id, {
+        nodeId: node.node_id,
+        nodeType: node.node_type,
+        status: node.status as NodeStatus["status"],
+        executionOrder: node.execution_order ?? 0,
+        totalNodes: nodes.length,
+        durationMs: node.duration_ms,
+        inputTrackCount: node.input_track_count ?? undefined,
+        outputTrackCount: node.output_track_count ?? undefined,
+        errorMessage: node.error_message ?? undefined,
+      });
+    }
+    if (contextDrivesThisRun) {
+      for (const [nodeId, status] of liveNodeStatuses) {
+        statuses.set(nodeId, status);
+      }
+    }
+    return statuses;
+  }, [nodes, contextDrivesThisRun, liveNodeStatuses]);
+
+  const sortedNodes = useMemo(
+    () =>
+      [...nodes].sort(
+        (a, b) => (a.execution_order ?? 0) - (b.execution_order ?? 0),
+      ),
+    [nodes],
+  );
+
   if (isLoading) return <RunDetailSkeleton />;
 
   if (isError) {
+    const is404 = error instanceof ApiError && error.status === 404;
+    if (!is404)
+      return <QueryErrorState error={error} heading="Failed to load run" />;
+
     return (
       <EmptyState
         icon={<HelpCircle className="size-10" />}
         heading="Run not found"
         description="This run doesn't exist or has been deleted."
+        role="alert"
       />
     );
   }
 
-  const run = data?.status === 200 ? data.data : undefined;
   if (!run) return null;
 
   const workflow = workflowData?.status === 200 ? workflowData.data : undefined;
@@ -133,7 +177,6 @@ export function WorkflowRunDetail() {
   const currentDefVersion = workflow?.definition_version ?? 1;
 
   const tasks = run.definition_snapshot.tasks ?? [];
-  const nodes = run.nodes ?? [];
   const outputTracks = (run.output_tracks ?? []) as Record<string, unknown>[];
   // While this run streams, the persisted row still says "running" (or worse,
   // "pending") until it finishes — the live status is the honest one.
@@ -142,33 +185,6 @@ export function WorkflowRunDetail() {
   const versionMismatch =
     run.definition_version != null &&
     run.definition_version < currentDefVersion;
-
-  // Persisted node records are the base; live SSE events overlay them so the
-  // graph advances as the run executes instead of showing the snapshot this
-  // page happened to load with.
-  const nodeStatuses = new Map<string, NodeStatus>();
-  for (const node of nodes) {
-    nodeStatuses.set(node.node_id, {
-      nodeId: node.node_id,
-      nodeType: node.node_type,
-      status: node.status as NodeStatus["status"],
-      executionOrder: node.execution_order ?? 0,
-      totalNodes: nodes.length,
-      durationMs: node.duration_ms,
-      inputTrackCount: node.input_track_count ?? undefined,
-      outputTrackCount: node.output_track_count ?? undefined,
-      errorMessage: node.error_message ?? undefined,
-    });
-  }
-  if (contextDrivesThisRun) {
-    for (const [nodeId, status] of liveNodeStatuses) {
-      nodeStatuses.set(nodeId, status);
-    }
-  }
-
-  const sortedNodes = [...nodes].sort(
-    (a, b) => (a.execution_order ?? 0) - (b.execution_order ?? 0),
-  );
 
   return (
     <div>

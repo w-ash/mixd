@@ -4,7 +4,11 @@ import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowExecutionProvider } from "#/contexts/WorkflowExecutionContext";
 import { seedQuery, wasInvalidated } from "#/test/query-utils";
-import { mockSSEOpenStream, mockSSEWithEvents } from "#/test/sse-test-utils";
+import {
+  mockSSEOpenStream,
+  mockSSEWithEvents,
+  sseFrame,
+} from "#/test/sse-test-utils";
 import { createTestQueryClient } from "#/test/test-utils";
 import { useWorkflowExecution } from "./useWorkflowExecution";
 
@@ -75,33 +79,24 @@ describe("useWorkflowExecution", () => {
 
   it("processes node_status SSE events into nodeStatuses map", async () => {
     mockSSEWithEvents([
-      {
-        event: "node_status",
-        data: JSON.stringify({
-          node_id: "source_1",
-          node_type: "source.liked_tracks",
-          status: "running",
-          execution_order: 1,
-          total_nodes: 2,
-        }),
-      },
-      {
-        event: "node_status",
-        data: JSON.stringify({
-          node_id: "source_1",
-          node_type: "source.liked_tracks",
-          status: "completed",
-          execution_order: 1,
-          total_nodes: 2,
-          duration_ms: 450,
-          input_track_count: 0,
-          output_track_count: 50,
-        }),
-      },
-      {
-        event: "complete",
-        data: JSON.stringify({}),
-      },
+      sseFrame("node_status", {
+        node_id: "source_1",
+        node_type: "source.liked_tracks",
+        status: "running",
+        execution_order: 1,
+        total_nodes: 2,
+      }),
+      sseFrame("node_status", {
+        node_id: "source_1",
+        node_type: "source.liked_tracks",
+        status: "completed",
+        execution_order: 1,
+        total_nodes: 2,
+        duration_ms: 450,
+        input_track_count: 0,
+        output_track_count: 50,
+      }),
+      sseFrame("complete", {}),
     ]);
 
     const { result } = renderHook(
@@ -127,10 +122,7 @@ describe("useWorkflowExecution", () => {
   it("resets state on new execution", async () => {
     // First execution sets error
     mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({ error_message: "Something broke" }),
-      },
+      sseFrame("error", { error_message: "Something broke" }),
     ]);
 
     const { result } = renderHook(
@@ -201,7 +193,7 @@ describe("useWorkflowExecution", () => {
     it("invalidates the run detail query on terminal", async () => {
       // The run-detail page was previously never reconciled, so an open run
       // page stayed on its "running" snapshot forever.
-      mockSSEWithEvents([{ event: "complete", data: JSON.stringify({}) }]);
+      mockSSEWithEvents([sseFrame("complete", {})]);
 
       const queryClient = createTestQueryClient();
       const urls = [
@@ -233,10 +225,7 @@ describe("useWorkflowExecution", () => {
 
   it("sets error on SSE error event", async () => {
     mockSSEWithEvents([
-      {
-        event: "error",
-        data: JSON.stringify({ error_message: "Node failed: API timeout" }),
-      },
+      sseFrame("error", { error_message: "Node failed: API timeout" }),
     ]);
 
     const { result } = renderHook(

@@ -167,7 +167,7 @@ describe("NodeConfigPanel", () => {
 
     // Should show the close button and node category badge
     expect(screen.getByLabelText("Close panel")).toBeInTheDocument();
-    expect(screen.getByText("source")).toBeInTheDocument();
+    expect(screen.getByText("Source")).toBeInTheDocument();
     // Task ID field
     expect(screen.getByLabelText("Task ID")).toBeInTheDocument();
   });

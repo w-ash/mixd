@@ -83,3 +83,22 @@ class TestUpdatePlaylistLinkErrors:
                 ),
                 uow,
             )
+
+    @pytest.mark.asyncio
+    async def test_link_under_another_playlist_raises(self):
+        """A nested route naming playlist A cannot update playlist B's link."""
+        uow = make_mock_uow()
+        uow.get_playlist_link_repository().get_link.return_value = _make_link()
+
+        with pytest.raises(NotFoundError, match="not found"):
+            await UpdatePlaylistLinkUseCase().execute(
+                UpdatePlaylistLinkCommand(
+                    user_id="test-user",
+                    link_id=_LINK_ID,
+                    sync_direction=SyncDirection.PULL,
+                    playlist_id=uuid7(),
+                ),
+                uow,
+            )
+
+        uow.get_playlist_link_repository().update_link_direction.assert_not_called()

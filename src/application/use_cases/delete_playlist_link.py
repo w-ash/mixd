@@ -17,10 +17,17 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class DeletePlaylistLinkCommand:
-    """Input for deleting a playlist link."""
+    """Input for deleting a playlist link.
+
+    ``playlist_id`` is the parent playlist the caller addressed the link under
+    (set by the nested API route). When set, a link belonging to a different
+    playlist is reported as missing. Callers that address a link by ID alone
+    leave it ``None``.
+    """
 
     user_id: str
     link_id: UUID
+    playlist_id: UUID | None = None
 
 
 @define(frozen=True, slots=True)
@@ -41,6 +48,7 @@ class DeletePlaylistLinkUseCase:
             command.link_id,
             uow,
             user_id=command.user_id,
+            playlist_id=command.playlist_id,
             mutate=lambda repo: repo.delete_link(command.link_id),
         )
         logger.info("Playlist link deleted", link_id=command.link_id)

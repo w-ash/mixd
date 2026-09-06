@@ -12,6 +12,18 @@ import { vi } from "vitest";
 
 import type { SSEEvent } from "#/api/sse-client";
 import { connectToSSE } from "#/api/sse-client";
+import type { SSEEventPayloads } from "#/lib/sse-types";
+
+/** Build the raw frame the transport delivers from a typed payload.
+ *  The payload is `Partial` because the emitters serialize with
+ *  `exclude_unset` — a real frame carries only the keys its producer set. */
+export function sseFrame<K extends keyof SSEEventPayloads>(
+  event: K,
+  data: Partial<SSEEventPayloads[K]>,
+  id?: string,
+): SSEEvent {
+  return { event, data: JSON.stringify(data), id };
+}
 
 /** Mock connectToSSE to resolve with a finite sequence of events. */
 export function mockSSEWithEvents(events: SSEEvent[]) {

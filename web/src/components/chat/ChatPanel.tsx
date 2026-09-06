@@ -11,6 +11,7 @@ import { AlertBanner } from "#/components/shared/AlertBanner";
 import { Button } from "#/components/ui/button";
 import { useKeyboardShortcut } from "#/hooks/useKeyboardShortcut";
 import { EFFORT_API_VALUES, EFFORT_OPTIONS } from "#/lib/effort";
+import { pluralize } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 import {
   MESSAGE_CAP,
@@ -258,9 +259,7 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
           {limitError && <AlertBanner title={limitError} />}
           {nearLimit && (
             <AlertBanner
-              title={`This conversation is getting long — ${remaining} message${
-                remaining === 1 ? "" : "s"
-              } left before you'll need a new one.`}
+              title={`This conversation is getting long — ${pluralize(remaining, "message")} left before you'll need a new one.`}
             />
           )}
           {(showNewConversation || canRegenerate) && (

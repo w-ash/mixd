@@ -314,16 +314,19 @@ class InwardTrackResolver[THint = object](ABC):
         """
         ...
 
-    def _extract_reuse_metadata(
-        self,
-        identifier: str,  # ruff:ignore[unused-method-argument]
-    ) -> ReuseMetadata | None:
+    @abstractmethod
+    def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
         """Extract metadata for canonical reuse matching.
 
-        Subclasses override to enable canonical reuse. Return None to skip
-        this identifier (base default: skip all → no reuse).
+        Args:
+            identifier: One normalized connector ID with no existing mapping.
+
+        Returns:
+            Artist/title metadata to match against existing canonicals, or
+            ``None`` to skip this identifier. A resolver with no reuse
+            strategy returns ``None`` for every identifier.
         """
-        return None
+        ...
 
     async def _reuse_existing_canonical_tracks(
         self,

@@ -7,7 +7,7 @@ the single home for those byte-identical pieces; per-connector conftests
 keep only what genuinely differs (payload builders + client wiring).
 """
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping
 
 import httpx2
 
@@ -33,6 +33,11 @@ class FakeTokenStorage:
     async def load_token(self, service: str, user_id: str) -> StoredToken | None:
         self.loads.append((service, user_id))
         return self.token
+
+    async def load_tokens(
+        self, services: Collection[str], user_id: str
+    ) -> Mapping[str, StoredToken | None]:
+        return {s: await self.load_token(s, user_id) for s in services}
 
     async def save_token(
         self, service: str, user_id: str, token_data: StoredToken

@@ -14,7 +14,10 @@ vi.mock("#/components/shared/WorkflowGraph", () => ({
 
 // The operation-progress card opens an SSE stream on mount — stub the hook so
 // the dispatch test stays a pure render check.
-vi.mock("#/hooks/useOperationProgress", () => ({
+vi.mock("#/hooks/useOperationProgress", async () => ({
+  ...(await vi.importActual<typeof import("#/hooks/useOperationProgress")>(
+    "#/hooks/useOperationProgress",
+  )),
   useOperationProgress: () => ({
     progress: {
       status: "running",
@@ -30,8 +33,6 @@ vi.mock("#/hooks/useOperationProgress", () => ({
       subOperationHistory: {},
     },
     isActive: true,
-    isConnected: true,
-    error: null,
   }),
 }));
 

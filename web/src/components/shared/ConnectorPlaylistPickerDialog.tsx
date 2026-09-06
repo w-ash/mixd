@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Loader2, MoreHorizontal, RefreshCw, Search } from "lucide-react";
+import { Loader2, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -7,15 +7,9 @@ import {
   useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet,
 } from "#/api/generated/connectors/connectors";
 import type {
-  ActiveAssignmentSchema,
   ConnectorMetadataSchema,
   ConnectorPlaylistBrowseSchema,
 } from "#/api/generated/model";
-import {
-  applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost,
-  deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete,
-  useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost,
-} from "#/api/generated/playlist-assignments/playlist-assignments";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import {
@@ -23,39 +17,47 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu";
 import { Input } from "#/components/ui/input";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { Skeleton } from "#/components/ui/skeleton";
+import { useSelectionSet } from "#/hooks/useSelectionSet";
 import { useTrackSearch } from "#/hooks/useTrackSearch";
 import { pluralize } from "#/lib/pluralize";
-import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
 import { type AssignMode, AssignPlaylistDialog } from "./AssignPlaylistDialog";
+import { ConnectorPlaylistImportRow } from "./ConnectorPlaylistImportRow";
+import { ConnectorPlaylistSelectRow } from "./ConnectorPlaylistSelectRow";
 import { EmptyState } from "./EmptyState";
-import { ImportStatusPill } from "./ImportStatusPill";
-import { PreferenceBadge, type PreferenceState } from "./PreferenceToggle";
 import { QueryStates } from "./QueryStates";
-import { TagChip } from "./TagChip";
 
 /**
  * On-demand picker: opened contextually from action buttons (Playlists
  * page today, tag-mapping flows in v0.7.4). Not a persistent route.
  *
  * Cache-first list + client-side filter (Spotify has no name search on
- * /me/playlists). "Refresh" forces a fetch + cache upsert. Selection is
- * scoped to the dialog — resets on close — and emits via onConfirm.
+ * /me/playlists). "Refresh" forces a fetch + cache upsert. Selection spans
+ * the whole list, so rows picked under one search survive the next; the
+ * header checkbox still speaks only for the rows on screen. It resets on
+ * close and emits via onConfirm.
  */
 
 type StatusFilter = "all" | "not_imported" | "imported";
 type AttributeFilter = "all" | "collaborative" | "public";
+
+const STATUS_FILTERS: ReadonlyArray<readonly [StatusFilter, string]> = [
+  ["all", "All"],
+  ["not_imported", "Not imported"],
+  ["imported", "Imported"],
+];
+
+const ATTRIBUTE_FILTERS: ReadonlyArray<readonly [AttributeFilter, string]> = [
+  ["all", "Any kind"],
+  ["collaborative", "Collaborative"],
+  ["public", "Public"],
+];
+
+const NO_PLAYLISTS: ConnectorPlaylistBrowseSchema[] = [];
 
 export interface PickedPlaylist {
   id: string;
@@ -130,7 +132,6 @@ export function ConnectorPlaylistPickerDialog({
 }: ConnectorPlaylistPickerDialogProps) {
   const isSelect = mode === "select";
   const { search, setSearch, deferredSearch, isSearching } = useTrackSearch();
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [attributeFilter, setAttributeFilter] =
     useState<AttributeFilter>("all");
@@ -162,91 +163,9 @@ export function ConnectorPlaylistPickerDialog({
     },
   });
 
-  const reApply = useMutation({
-    mutationFn: async (playlist: ConnectorPlaylistBrowseSchema) => {
-      const results = await Promise.all(
-        playlist.current_assignments.map((a) =>
-          applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost(
-            a.assignment_id,
-          ),
-        ),
-      );
-      return { playlist, results };
-    },
-    onSuccess: ({ playlist, results }) => {
-      const tags = results.reduce(
-        (sum, r) => sum + (r.status === 200 ? r.data.tags_applied : 0),
-        0,
-      );
-      const prefs = results.reduce(
-        (sum, r) => sum + (r.status === 200 ? r.data.preferences_applied : 0),
-        0,
-      );
-      toasts.success(`Re-applied '${playlist.name}'`, {
-        description:
-          tags + prefs === 0
-            ? "Nothing changed — playlist is in sync."
-            : `${tags} tags · ${prefs} ratings refreshed.`,
-      });
-    },
-    // The toast reports what changed, so the list must be current first.
-    meta: {
-      errorLabel: "Re-apply failed",
-      invalidates: ["connector-playlists"],
-      awaitInvalidation: true,
-    },
-  });
-
-  const undoRemove = useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost({
-    mutation: {
-      meta: { errorLabel: "Undo failed" },
-    },
-  });
-
-  const remove = useMutation({
-    mutationFn: async ({
-      playlist,
-      assignment,
-    }: {
-      playlist: ConnectorPlaylistBrowseSchema;
-      assignment: ActiveAssignmentSchema;
-    }) => {
-      await deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete(
-        assignment.assignment_id,
-      );
-      return { playlist, assignment };
-    },
-    onSuccess: ({ playlist, assignment }) => {
-      const isTag = assignment.action_type === "add_tag";
-      const label = isTag
-        ? `${assignment.action_value} removed from '${playlist.name}'`
-        : `Rating removed from '${playlist.name}'`;
-      toasts.success(label, {
-        description: "Tags you've added directly in Mixd are untouched.",
-        action: {
-          label: "Undo",
-          onClick: () => {
-            undoRemove.mutate({
-              data: {
-                connector_playlist_id: playlist.connector_playlist_db_id,
-                action_type: assignment.action_type,
-                action_value: assignment.action_value,
-              },
-            });
-          },
-        },
-      });
-    },
-    // The undo toast names the assignment, so the list must be current first.
-    meta: {
-      errorLabel: "Failed to remove assignment",
-      invalidates: ["connector-playlists"],
-      awaitInvalidation: true,
-    },
-  });
-
   const response = data?.status === 200 ? data.data : undefined;
-  const playlists: ConnectorPlaylistBrowseSchema[] = response?.data ?? [];
+  const playlists: ConnectorPlaylistBrowseSchema[] =
+    response?.data ?? NO_PLAYLISTS;
 
   const filtered = useMemo(() => {
     const needle = deferredSearch.trim().toLowerCase();
@@ -260,52 +179,22 @@ export function ConnectorPlaylistPickerDialog({
     });
   }, [playlists, deferredSearch, statusFilter, attributeFilter]);
 
-  const { visibleIds, visibleSelectedCount } = useMemo(() => {
-    const ids = filtered.map((p) => p.connector_playlist_identifier);
-    let count = 0;
-    for (const id of ids) if (selectedIds.has(id)) count++;
-    return { visibleIds: ids, visibleSelectedCount: count };
-  }, [filtered, selectedIds]);
-
-  const headerChecked: boolean | "indeterminate" =
-    filtered.length === 0
-      ? false
-      : visibleSelectedCount === filtered.length
-        ? true
-        : visibleSelectedCount > 0
-          ? "indeterminate"
-          : false;
-
-  const toggleHeader = (checked: boolean | "indeterminate") => {
-    const turnOn = checked === true;
-    setSelectedIds((prev) => {
-      // Skip allocating a new Set when the toggle is a no-op — Radix
-      // re-fires onCheckedChange even when state hasn't drifted.
-      if (turnOn && visibleIds.every((id) => prev.has(id))) return prev;
-      if (!turnOn && visibleIds.every((id) => !prev.has(id))) return prev;
-      const next = new Set(prev);
-      for (const id of visibleIds) {
-        if (turnOn) next.add(id);
-        else next.delete(id);
-      }
-      return next;
-    });
-  };
-
-  const toggleRow = (id: string, checked: boolean) => {
-    setSelectedIds((prev) => {
-      if (checked && prev.has(id)) return prev;
-      if (!checked && !prev.has(id)) return prev;
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  };
+  // Selection is keyed on every known playlist and only scoped to the visible
+  // rows for the header checkbox, so narrowing the search cannot silently drop
+  // what the user already picked.
+  const allIds = useMemo(
+    () => playlists.map((p) => p.connector_playlist_identifier),
+    [playlists],
+  );
+  const filteredIds = useMemo(
+    () => filtered.map((p) => p.connector_playlist_identifier),
+    [filtered],
+  );
+  const selection = useSelectionSet(allIds, { visibleIds: filteredIds });
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
-      if (selectedIds.size > 0) setSelectedIds(new Set());
+      selection.clear();
       if (search) setSearch("");
       if (statusFilter !== "all") setStatusFilter("all");
       if (attributeFilter !== "all") setAttributeFilter("all");
@@ -313,7 +202,21 @@ export function ConnectorPlaylistPickerDialog({
     onOpenChange(next);
   };
 
-  const selectedCount = selectedIds.size;
+  const confirmSelection = () => {
+    if (selection.size === 0) return;
+    onConfirm?.(
+      playlists
+        .filter((p) => selection.isSelected(p.connector_playlist_identifier))
+        .map((p) => ({ id: p.connector_playlist_identifier, name: p.name })),
+    );
+  };
+
+  const confirmOne = (p: ConnectorPlaylistBrowseSchema) => {
+    onConfirm?.([{ id: p.connector_playlist_identifier, name: p.name }]);
+    // The parent closes us via the controlled prop, bypassing
+    // handleOpenChange's reset — run it here so a reopen starts clean.
+    handleOpenChange(false);
+  };
 
   return (
     <>
@@ -366,37 +269,23 @@ export function ConnectorPlaylistPickerDialog({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <FilterChip
-              label="All"
-              selected={statusFilter === "all"}
-              onClick={() => setStatusFilter("all")}
-            />
-            <FilterChip
-              label="Not imported"
-              selected={statusFilter === "not_imported"}
-              onClick={() => setStatusFilter("not_imported")}
-            />
-            <FilterChip
-              label="Imported"
-              selected={statusFilter === "imported"}
-              onClick={() => setStatusFilter("imported")}
-            />
+            {STATUS_FILTERS.map(([value, label]) => (
+              <FilterChip
+                key={value}
+                label={label}
+                selected={statusFilter === value}
+                onClick={() => setStatusFilter(value)}
+              />
+            ))}
             <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-            <FilterChip
-              label="Any kind"
-              selected={attributeFilter === "all"}
-              onClick={() => setAttributeFilter("all")}
-            />
-            <FilterChip
-              label="Collaborative"
-              selected={attributeFilter === "collaborative"}
-              onClick={() => setAttributeFilter("collaborative")}
-            />
-            <FilterChip
-              label="Public"
-              selected={attributeFilter === "public"}
-              onClick={() => setAttributeFilter("public")}
-            />
+            {ATTRIBUTE_FILTERS.map(([value, label]) => (
+              <FilterChip
+                key={value}
+                label={label}
+                selected={attributeFilter === value}
+                onClick={() => setAttributeFilter(value)}
+              />
+            ))}
           </div>
         </div>
 
@@ -434,201 +323,39 @@ export function ConnectorPlaylistPickerDialog({
               {!isSelect && (
                 <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background px-3 py-2 text-xs text-text-muted">
                   <Checkbox
-                    checked={headerChecked}
-                    onCheckedChange={toggleHeader}
+                    checked={selection.headerChecked}
+                    onCheckedChange={() => selection.toggleAll()}
                     aria-label="Select all visible playlists"
                   />
                   <span>
-                    {visibleSelectedCount} of {filtered.length} selected
+                    {selection.visibleSize} of {filtered.length} selected
+                    {selection.size > selection.visibleSize &&
+                      ` · ${selection.size} in total`}
                     {isSearching && " · filtering…"}
                   </span>
                 </div>
               )}
-              {isSelect &&
-                filtered.map((p) => {
-                  const id = p.connector_playlist_identifier;
-                  // Single-select: the whole row is the affordance — click to
-                  // confirm exactly one playlist. No checkbox / assignment menu;
-                  // those are import-only chrome.
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => {
-                        onConfirm?.([{ id, name: p.name }]);
-                        // Parent closes us via the controlled prop, bypassing
-                        // handleOpenChange's reset — run it here so a reopen
-                        // starts on a clean filter state.
-                        handleOpenChange(false);
-                      }}
-                      className="flex w-full items-center gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-accent/30"
-                    >
-                      {p.image_url ? (
-                        <img
-                          src={p.image_url}
-                          alt=""
-                          className="size-10 rounded-sm object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div
-                          className="size-10 shrink-0 rounded-sm bg-surface-muted"
-                          aria-hidden="true"
-                        />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-text">
-                          {p.name}
-                        </span>
-                        <span className="block truncate text-xs text-text-muted">
-                          {p.owner ?? "Unknown"} ·{" "}
-                          <span className="tabular-nums">
-                            {p.track_count.toLocaleString()}
-                          </span>{" "}
-                          tracks
-                        </span>
-                      </span>
-                      <ImportStatusPill status={p.import_status} />
-                    </button>
-                  );
-                })}
-              {!isSelect &&
-                filtered.map((p) => {
-                  const id = p.connector_playlist_identifier;
-                  const checked = selectedIds.has(id);
-                  const rowId = `${connectorName}-pick-${id}`;
-                  const tagAssignments = p.current_assignments.filter(
-                    (a) => a.action_type === "add_tag",
-                  );
-                  const ratingAssignment = p.current_assignments.find(
-                    (a) => a.action_type === "set_preference",
-                  );
-                  const hasAssignments = p.current_assignments.length > 0;
-                  return (
-                    <div
-                      key={id}
-                      className="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-accent/30"
-                    >
-                      <Checkbox
-                        id={rowId}
-                        checked={checked}
-                        onCheckedChange={(next) => toggleRow(id, next === true)}
-                      />
-                      {p.image_url ? (
-                        <img
-                          src={p.image_url}
-                          alt=""
-                          className="size-10 rounded-sm object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div
-                          className="size-10 shrink-0 rounded-sm bg-surface-muted"
-                          aria-hidden="true"
-                        />
-                      )}
-                      <label
-                        htmlFor={rowId}
-                        className="min-w-0 flex-1 cursor-pointer"
-                      >
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <p className="truncate font-medium text-text">
-                            {p.name}
-                          </p>
-                          {ratingAssignment && (
-                            <PreferenceBadge
-                              state={
-                                ratingAssignment.action_value as PreferenceState
-                              }
-                            />
-                          )}
-                          {tagAssignments.map((a) => (
-                            <TagChip
-                              key={a.assignment_id}
-                              tag={a.action_value}
-                              className="text-xs"
-                            />
-                          ))}
-                        </div>
-                        <p className="truncate text-xs text-text-muted">
-                          {p.owner ?? "Unknown"} ·{" "}
-                          <span className="tabular-nums">
-                            {p.track_count.toLocaleString()}
-                          </span>{" "}
-                          tracks
-                        </p>
-                      </label>
-                      <ImportStatusPill status={p.import_status} />
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`More actions for ${p.name}`}
-                          >
-                            <MoreHorizontal />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              setAssignDialog({ mode: "tag", playlist: p })
-                            }
-                          >
-                            Tag tracks…
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              setAssignDialog({ mode: "rate", playlist: p })
-                            }
-                          >
-                            {ratingAssignment
-                              ? "Update rating…"
-                              : "Rate tracks…"}
-                          </DropdownMenuItem>
-                          {hasAssignments && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onSelect={() => reApply.mutate(p)}
-                                disabled={reApply.isPending}
-                              >
-                                Re-apply
-                              </DropdownMenuItem>
-                              {tagAssignments.map((a) => (
-                                <DropdownMenuItem
-                                  key={`remove-${a.assignment_id}`}
-                                  variant="destructive"
-                                  onSelect={() =>
-                                    remove.mutate({
-                                      playlist: p,
-                                      assignment: a,
-                                    })
-                                  }
-                                >
-                                  Remove tag: {a.action_value}
-                                </DropdownMenuItem>
-                              ))}
-                              {ratingAssignment && (
-                                <DropdownMenuItem
-                                  variant="destructive"
-                                  onSelect={() =>
-                                    remove.mutate({
-                                      playlist: p,
-                                      assignment: ratingAssignment,
-                                    })
-                                  }
-                                >
-                                  Remove rating
-                                </DropdownMenuItem>
-                              )}
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  );
-                })}
+              {filtered.map((p) => {
+                const id = p.connector_playlist_identifier;
+                return isSelect ? (
+                  <ConnectorPlaylistSelectRow
+                    key={id}
+                    playlist={p}
+                    onSelect={confirmOne}
+                  />
+                ) : (
+                  <ConnectorPlaylistImportRow
+                    key={id}
+                    playlist={p}
+                    connectorName={connectorName}
+                    selected={selection.isSelected(id)}
+                    onSelectedChange={(next) => selection.toggle(id, next)}
+                    onAssign={(assignMode, playlist) =>
+                      setAssignDialog({ mode: assignMode, playlist })
+                    }
+                  />
+                );
+              })}
             </div>
           </QueryStates>
         </div>
@@ -638,23 +365,8 @@ export function ConnectorPlaylistPickerDialog({
             Cancel
           </Button>
           {!isSelect && (
-            <Button
-              disabled={selectedCount === 0}
-              onClick={() => {
-                if (selectedCount === 0) return;
-                const picked: PickedPlaylist[] = [];
-                for (const p of playlists) {
-                  if (selectedIds.has(p.connector_playlist_identifier)) {
-                    picked.push({
-                      id: p.connector_playlist_identifier,
-                      name: p.name,
-                    });
-                  }
-                }
-                onConfirm?.(picked);
-              }}
-            >
-              Import {pluralize(selectedCount, "playlist")}
+            <Button disabled={selection.size === 0} onClick={confirmSelection}>
+              Import {pluralize(selection.size, "playlist")}
             </Button>
           )}
         </DialogFooter>

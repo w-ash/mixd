@@ -30,6 +30,8 @@ const TEST_NODE_TYPES: NodeTypeInfoSchema[] = [
     type: "filter.play_count",
     category: "filter",
     description: "Filter tracks by play count",
+    input_type: "tracklist",
+    output_type: "tracklist",
     config_fields: [
       {
         key: "min_plays",
@@ -57,12 +59,23 @@ const TEST_NODE_TYPES: NodeTypeInfoSchema[] = [
     type: "source.liked_tracks",
     category: "source",
     description: "Fetch liked tracks from a connector",
+    output_type: "tracklist",
+    config_fields: [],
+  },
+  {
+    type: "destination.playlist",
+    category: "destination",
+    description: "Write the tracklist to a playlist",
+    input_type: "tracklist",
+    output_type: "playlist_id",
     config_fields: [],
   },
   {
     type: "enricher.play_history",
     category: "enricher",
     description: "Attach play-history metrics",
+    input_type: "tracklist",
+    output_type: "tracklist",
     config_fields: [
       {
         key: "metrics",
@@ -266,6 +279,102 @@ describe("useNodeSchemas", () => {
     });
 
     expect(result.current.getNodeDescription("nonexistent.type")).toBe("");
+  });
+
+  it("returns the declared category, null for unknown types", async () => {
+    const { result } = renderHook(() => useNodeSchemas(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.getCategory("filter.play_count")).toBe("filter");
+    expect(result.current.getCategory("nonexistent.type")).toBeNull();
+  });
+
+  it("derives handle visibility from the node IO contract", async () => {
+    const { result } = renderHook(() => useNodeSchemas(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    // A source declares no input; nothing consumes a destination's output.
+    expect(result.current.getHandles("source.liked_tracks")).toEqual({
+      input: false,
+      output: true,
+    });
+    expect(result.current.getHandles("destination.playlist")).toEqual({
+      input: true,
+      output: false,
+    });
+    expect(result.current.getHandles("filter.play_count")).toEqual({
+      input: true,
+      output: true,
+    });
+    // No schema for the type: the dotted prefix is the only rule left.
+    expect(result.current.getHandles("nonexistent.type")).toEqual({
+      input: true,
+      output: true,
+    });
+  });
+
+  it("falls back to the node-type prefix before the schemas load", () => {
+    const { result } = renderHook(() => useNodeSchemas(), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.getHandles("source.liked_tracks")).toEqual({
+      input: false,
+      output: true,
+    });
+    expect(result.current.getHandles("destination.playlist")).toEqual({
+      input: true,
+      output: false,
+    });
+    expect(result.current.getHandles("filter.play_count")).toEqual({
+      input: true,
+      output: true,
+    });
+  });
+
+  it("maps config keys to labels, undefined for unknown types", async () => {
+    const { result } = renderHook(() => useNodeSchemas(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.getConfigLabels("filter.play_count")).toEqual({
+      min_plays: "Minimum Plays",
+      period: "Time Period",
+    });
+    expect(result.current.getConfigLabels("nonexistent.type")).toBeUndefined();
+  });
+
+  it("shares one lookup across hook instances on the same payload", async () => {
+    const wrapper = createWrapper();
+    const first = renderHook(() => useNodeSchemas(), { wrapper });
+    const second = renderHook(() => useNodeSchemas(), { wrapper });
+
+    await waitFor(() => {
+      expect(first.result.current.isLoading).toBe(false);
+      expect(second.result.current.isLoading).toBe(false);
+    });
+
+    expect(first.result.current.getSchema).toBe(
+      second.result.current.getSchema,
+    );
+    expect(first.result.current.getSchema("filter.play_count")).toBe(
+      second.result.current.getSchema("filter.play_count"),
+    );
   });
 
   it("exposes multi_select and task_ref fields with their defaults", async () => {

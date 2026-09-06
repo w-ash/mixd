@@ -25,6 +25,7 @@ import { Badge } from "#/components/ui/badge";
 import {
   decodeHtmlEntities,
   formatArtists,
+  formatCount,
   formatDate,
   formatDateTime,
   formatDuration,
@@ -256,7 +257,7 @@ export function TrackDetail() {
               <dl className="space-y-2">
                 <Field label="Total Plays">
                   <span className="tabular-nums">
-                    {track.play_summary.total_plays.toLocaleString()}
+                    {formatCount(track.play_summary.total_plays)}
                   </span>
                 </Field>
                 <Field label="First Played">

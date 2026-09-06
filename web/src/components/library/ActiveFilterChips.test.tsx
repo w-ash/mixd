@@ -2,40 +2,51 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { LibraryFilters } from "#/hooks/useLibraryFilters";
+
 import { ActiveFilterChips } from "./ActiveFilterChips";
 
-function baseProps() {
+function makeFilters(overrides: Partial<LibraryFilters> = {}): LibraryFilters {
   return {
-    search: null as string | null,
-    liked: null as string | null,
-    connector: null as string | null,
-    preference: null as string | null,
-    tags: [] as string[],
-    minPlays: null as string | null,
+    search: null,
+    preference: null,
+    liked: null,
+    connector: null,
+    tags: [],
+    tagMode: "and",
+    minPlays: null,
     neverPlayed: false,
-    playedWithin: null as string | null,
-    notPlayedWithin: null as string | null,
-    onClearFilter: vi.fn(),
-    onRemoveTag: vi.fn(),
-    onClearAll: vi.fn(),
+    playedWithin: null,
+    notPlayedWithin: null,
+    sort: { field: "last_played", dir: "desc" },
+    ...overrides,
   };
 }
 
 describe("ActiveFilterChips", () => {
   it("renders nothing when no filters are active", () => {
-    const { container } = render(<ActiveFilterChips {...baseProps()} />);
+    const { container } = render(
+      <ActiveFilterChips
+        filters={makeFilters()}
+        setFilter={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    );
     expect(container.firstChild).toBeNull();
   });
 
   it("renders one chip per active filter + a Clear all link", () => {
     render(
       <ActiveFilterChips
-        {...baseProps()}
-        search="radiohead"
-        preference="star"
-        liked="true"
-        connector="spotify"
-        tags={["mood:chill"]}
+        filters={makeFilters({
+          search: "radiohead",
+          preference: "star",
+          liked: "true",
+          connector: "spotify",
+          tags: ["mood:chill"],
+        })}
+        setFilter={vi.fn()}
+        onClearAll={vi.fn()}
       />,
     );
 
@@ -49,45 +60,56 @@ describe("ActiveFilterChips", () => {
     ).toBeInTheDocument();
   });
 
-  it("dismissing a non-tag chip calls onClearFilter with the right key", async () => {
-    const onClearFilter = vi.fn();
+  it("labels a connector chip from the brand table, not a capitalized name", () => {
     render(
       <ActiveFilterChips
-        {...baseProps()}
-        preference="star"
-        onClearFilter={onClearFilter}
+        filters={makeFilters({ connector: "lastfm" })}
+        setFilter={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Source: Last.fm")).toBeInTheDocument();
+  });
+
+  it("dismissing a non-tag chip clears that filter", async () => {
+    const setFilter = vi.fn();
+    render(
+      <ActiveFilterChips
+        filters={makeFilters({ preference: "star" })}
+        setFilter={setFilter}
+        onClearAll={vi.fn()}
       />,
     );
 
     await userEvent.click(
       screen.getByRole("button", { name: /Remove Preference:/ }),
     );
-    expect(onClearFilter).toHaveBeenCalledWith("preference");
+    expect(setFilter).toHaveBeenCalledWith("preference", null);
   });
 
-  it("dismissing a tag chip calls onRemoveTag with the tag", async () => {
-    const onRemoveTag = vi.fn();
+  it("dismissing a tag chip writes back the remaining tags", async () => {
+    const setFilter = vi.fn();
     render(
       <ActiveFilterChips
-        {...baseProps()}
-        tags={["mood:chill", "energy:low"]}
-        onRemoveTag={onRemoveTag}
+        filters={makeFilters({ tags: ["mood:chill", "energy:low"] })}
+        setFilter={setFilter}
+        onClearAll={vi.fn()}
       />,
     );
 
     await userEvent.click(
       screen.getByRole("button", { name: "Remove mood:chill" }),
     );
-    expect(onRemoveTag).toHaveBeenCalledWith("mood:chill");
-    expect(onRemoveTag).toHaveBeenCalledTimes(1);
+    expect(setFilter).toHaveBeenCalledWith("tags", ["energy:low"]);
+    expect(setFilter).toHaveBeenCalledTimes(1);
   });
 
   it("clicking Clear all fires onClearAll", async () => {
     const onClearAll = vi.fn();
     render(
       <ActiveFilterChips
-        {...baseProps()}
-        preference="yah"
+        filters={makeFilters({ preference: "yah" })}
+        setFilter={vi.fn()}
         onClearAll={onClearAll}
       />,
     );
@@ -97,7 +119,25 @@ describe("ActiveFilterChips", () => {
   });
 
   it("treats liked='false' as an active filter labeled 'Not liked'", () => {
-    render(<ActiveFilterChips {...baseProps()} liked="false" />);
+    render(
+      <ActiveFilterChips
+        filters={makeFilters({ liked: "false" })}
+        setFilter={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    );
     expect(screen.getByText("Not liked")).toBeInTheDocument();
+  });
+
+  it("keeps a zero minimum-play filter visible", () => {
+    // `0` is falsy but a real filter — the chip must not vanish for it.
+    render(
+      <ActiveFilterChips
+        filters={makeFilters({ minPlays: 0 })}
+        setFilter={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("0+ plays")).toBeInTheDocument();
   });
 });

@@ -338,6 +338,24 @@ describe("WorkflowRunDetail", () => {
     });
   });
 
+  it("shows a load failure, not a not-found, for a non-404 error", async () => {
+    server.use(
+      http.get("*/api/v1/workflows/:id/runs/:runId", () =>
+        HttpResponse.json(
+          { error: { code: "INTERNAL", message: "Boom" } },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<WorkflowRunDetail />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load run")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Run not found")).not.toBeInTheDocument();
+  });
+
   it("shows error message for failed runs", async () => {
     setupHandlers({
       status: "failed",

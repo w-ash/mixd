@@ -3,14 +3,17 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.6.1
+ * OpenAPI spec version: 0.11.7
  */
 import type { ConfigFieldSchema } from './configFieldSchema.ts';
+import type { NodeType } from './nodeType.ts';
 
 export interface NodeTypeInfoSchema {
   type: string;
-  category: string;
+  category: NodeType;
   description: string;
+  input_type?: string | null;
+  output_type?: string | null;
   config_fields?: ConfigFieldSchema[];
   required_config?: string[];
   optional_config?: string[];

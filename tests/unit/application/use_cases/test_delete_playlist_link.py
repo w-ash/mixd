@@ -59,3 +59,19 @@ class TestDeletePlaylistLinkErrors:
             await DeletePlaylistLinkUseCase().execute(
                 DeletePlaylistLinkCommand(user_id="test-user", link_id=uuid7()), uow
             )
+
+    @pytest.mark.asyncio
+    async def test_link_under_another_playlist_raises(self):
+        """A nested route naming playlist A cannot delete playlist B's link."""
+        uow = make_mock_uow()
+        uow.get_playlist_link_repository().get_link.return_value = _make_link()
+
+        with pytest.raises(NotFoundError, match="not found"):
+            await DeletePlaylistLinkUseCase().execute(
+                DeletePlaylistLinkCommand(
+                    user_id="test-user", link_id=_LINK_ID, playlist_id=uuid7()
+                ),
+                uow,
+            )
+
+        uow.get_playlist_link_repository().delete_link.assert_not_called()

@@ -25,11 +25,18 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class PreviewPlaylistSyncCommand:
-    """Input: which link to preview sync for, with optional direction override."""
+    """Input: which link to preview sync for, with optional direction override.
+
+    ``playlist_id`` is the parent playlist the caller addressed the link under
+    (set by the nested API route). When set, a link belonging to a different
+    playlist is reported as missing. Callers that address a link by ID alone
+    leave it ``None``.
+    """
 
     user_id: str
     link_id: UUID
     direction_override: SyncDirection | None = None
+    playlist_id: UUID | None = None
 
 
 @define(frozen=True, slots=True)
@@ -69,7 +76,10 @@ class PreviewPlaylistSyncUseCase:
 
         async with uow:
             link = await require_playlist_link(
-                command.link_id, uow, user_id=command.user_id
+                command.link_id,
+                uow,
+                user_id=command.user_id,
+                playlist_id=command.playlist_id,
             )
             direction = command.direction_override or link.sync_direction
             canonical = await uow.get_playlist_repository().get_playlist_by_id(

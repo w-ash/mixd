@@ -117,6 +117,31 @@ describe("useNodeStatuses", () => {
     expect(result.current.nodeStatuses.size).toBe(0);
   });
 
+  it("passes a snapshot's wider run status through and nulls become undefined", () => {
+    // Snapshot rows speak the full RunStatus vocabulary; a node stopped
+    // mid-run arrives as `cancelled` and renders unstyled rather than failed.
+    const { result } = renderHook(() => useNodeStatuses());
+
+    act(() => {
+      result.current.mergeNodeStatusEvents([
+        {
+          node_id: "src_1",
+          node_type: "source.liked_tracks",
+          status: "cancelled",
+          execution_order: 1,
+          total_nodes: 1,
+          duration_ms: null,
+          error_message: null,
+        },
+      ]);
+    });
+
+    const status = result.current.nodeStatuses.get("src_1");
+    expect(status?.status).toBe("cancelled");
+    expect(status?.durationMs).toBeUndefined();
+    expect(status?.errorMessage).toBeUndefined();
+  });
+
   it("maps optional fields correctly", () => {
     const { result } = renderHook(() => useNodeStatuses());
 

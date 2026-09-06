@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { issueCountFromCounts, toasts } from "./toasts";
+import { ApiError } from "#/api/client";
+import { connectErrorMessage, issueCountFromCounts, toasts } from "./toasts";
 
 // Mock sonner so we can assert the rendered title (which encodes primaryCount).
 vi.mock("sonner", () => ({
@@ -141,6 +142,27 @@ describe("toasts.runCompleted — primaryCount key reconciliation", () => {
         action: expect.objectContaining({ label: "Retry failed only" }),
       }),
     );
+  });
+});
+
+describe("connectErrorMessage", () => {
+  it("uses the ApiError message", () => {
+    const err = new ApiError(400, "DISCOGS_INVALID_TOKEN", "Bad token");
+    expect(connectErrorMessage(err)).toBe("Bad token");
+  });
+
+  it("falls back to a generic message for any other truthy error", () => {
+    expect(connectErrorMessage(new Error("boom"))).toBe(
+      "Something went wrong. Please try again.",
+    );
+    expect(connectErrorMessage("plain string")).toBe(
+      "Something went wrong. Please try again.",
+    );
+  });
+
+  it("returns null when there is no error", () => {
+    expect(connectErrorMessage(null)).toBeNull();
+    expect(connectErrorMessage(undefined)).toBeNull();
   });
 });
 

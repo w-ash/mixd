@@ -59,9 +59,12 @@ describe("useOperationSSE", () => {
     });
   });
 
-  it("delivers each parsed event to onDomainEvent with a reportTerminal fn", async () => {
+  it("delivers each decoded event to onDomainEvent with a reportTerminal fn", async () => {
     mockSSEWithEvents([
-      { event: "custom", data: JSON.stringify({ value: 42 }) },
+      {
+        event: "progress",
+        data: JSON.stringify({ operation_id: "op-evt", current: 42 }),
+      },
     ]);
     const onDomainEvent = vi.fn();
 
@@ -73,21 +76,42 @@ describe("useOperationSSE", () => {
 
     await waitFor(() => {
       expect(onDomainEvent).toHaveBeenCalledWith(
-        "custom",
-        { value: 42 },
+        { event: "progress", data: { operation_id: "op-evt", current: 42 } },
         expect.any(Function),
       );
     });
   });
 
+  it("drops a frame whose event name is outside the SSE vocabulary", async () => {
+    mockSSEWithEvents([
+      { event: "custom", data: JSON.stringify({ value: 42 }) },
+      { event: "complete", data: "{}" },
+    ]);
+    const onDomainEvent = vi.fn();
+
+    const { result } = renderHook(() => useOperationSSE({ onDomainEvent }));
+
+    act(() => {
+      result.current.start("op-unknown");
+    });
+
+    await waitFor(() => {
+      expect(onDomainEvent).toHaveBeenCalledOnce();
+    });
+    expect(onDomainEvent.mock.calls[0][0]).toEqual({
+      event: "complete",
+      data: {},
+    });
+  });
+
   it("reportTerminal() is idempotent — true once, then false — and stops the run", async () => {
     const results: boolean[] = [];
-    mockSSEWithEvents([{ event: "go", data: "{}" }]);
+    mockSSEWithEvents([{ event: "complete", data: "{}" }]);
 
     const { result } = renderHook(() =>
       useOperationSSE({
-        onDomainEvent: (eventType, _d, reportTerminal) => {
-          if (eventType === "go") {
+        onDomainEvent: (event, reportTerminal) => {
+          if (event.event === "complete") {
             // Two arbitration attempts in one frame: first wins, rest no-op.
             results.push(reportTerminal(), reportTerminal());
           }
@@ -109,12 +133,12 @@ describe("useOperationSSE", () => {
     // First the SSE channel fires terminal, then the same hook reports again
     // (simulating a racing recovery seed) — the second must be a no-op.
     const calls: boolean[] = [];
-    const { close } = mockSSEOpenStream([{ event: "done", data: "{}" }]);
+    const { close } = mockSSEOpenStream([{ event: "complete", data: "{}" }]);
 
     const { result } = renderHook(() =>
       useOperationSSE({
-        onDomainEvent: (eventType, _d, reportTerminal) => {
-          if (eventType === "done") calls.push(reportTerminal());
+        onDomainEvent: (event, reportTerminal) => {
+          if (event.event === "complete") calls.push(reportTerminal());
         },
       }),
     );
@@ -244,12 +268,12 @@ describe("useOperationSSE", () => {
   });
 
   it("leaves the recovery gate shut when a terminal frame closed the stream", async () => {
-    mockSSEWithEvents([{ event: "done", data: "{}" }]);
+    mockSSEWithEvents([{ event: "complete", data: "{}" }]);
 
     const { result } = renderHook(() =>
       useOperationSSE({
-        onDomainEvent: (eventType, _d, reportTerminal) => {
-          if (eventType === "done") reportTerminal();
+        onDomainEvent: (event, reportTerminal) => {
+          if (event.event === "complete") reportTerminal();
         },
       }),
     );
@@ -267,7 +291,7 @@ describe("useOperationSSE", () => {
 
   it("calls onStreamEnd when the stream ends normally", async () => {
     const onStreamEnd = vi.fn();
-    mockSSEWithEvents([{ event: "ping", data: "{}" }]);
+    mockSSEWithEvents([{ event: "progress", data: "{}" }]);
 
     const { result } = renderHook(() =>
       useOperationSSE({ onDomainEvent: noopDomainEvent, onStreamEnd }),
