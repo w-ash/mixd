@@ -154,8 +154,6 @@ Deferred from v0.7.6 to keep that sub-version focused on single-playlist prefere
 
 ## Tenancy hardening
 
-- **Remove `Track.user_id`/`TrackLike.user_id` silent `'default'`** (M, added 2026-08-08) — The user wants canonicals to always land under the tenant that created them: the v0.10.2.9 incident traced mistenanted Spotify-import canonicals (and their one-shot repair script, `cleanup_mistenanted_spotify_tracks.py`) to `Track.user_id`'s silent `"default"` — `create_track_from_spotify_data` never set it, and nothing failed loudly. Make `user_id` a required field on both entities (no default; `DEFAULT_USER_ID` stays a local-dev convenience at the interface edge, never an entity fallback), and consider an optional repository-level write-path backstop that rejects a persist whose entity tenant disagrees with the ambient `user_context`. Deferred from the v0.10.2.9 review (F8): an entity-signature change touching every construction site deserves its own pass, not a hotfix rider.
-
 - **Make RLS actually enforce, or stop claiming it does** (L, added 2026-08-10) — The user is promised
   multi-tenant isolation, and today it rests entirely on application-level `user_id` predicates: every
   tenant table has RLS *enabled and forced*, and production connects as `neondb_owner` with
