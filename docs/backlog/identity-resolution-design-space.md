@@ -336,3 +336,19 @@ Two plain instants, not periods: `recorded_at` (DB `now()`, monotone, never app-
 2. **Metadata drift never supersedes** (ROR: name changes update the record; only identity changes create succession) — re-verified-unchanged touches freshness only, else every enrichment refresh grows the chain.
 3. **Genesis backfill: none (decided 2026-07-27).** Pre-v0.10.2 mappings carry no events — an explicit accepted state ("no event recorded"). Rationale: 91% of existing confidences are constants (Q13) worth nothing to calibration, and **prod restarts from a fresh database at (or before) v1.0.0** (policy, recorded in [v1.0.x.md](v1.0.x.md#v100-maturity-gate)) — 0.x backward compatibility is best-effort only.
 4. **FM4d folded into v0.10.2** (user-confirmed): the write seam fixes the denorm-sync ordering and repairs the 366 prod rows.
+
+## 11. Addendum (2026-09-14) — v0.12.0 entity representation census
+
+**Method**: 51 artists and 33 albums from the prod library looked up in Spotify, Last.fm, Discogs, MusicBrainz and the iTunes catalog (Apple Music API and Tidal not live-verified); full tables in [entity-representation-findings.md](entity-representation-findings.md). This section records what the census confirms or contradicts in §1 and §7.
+
+| Claim | Status 2026-09-14 | Evidence |
+|---|---|---|
+| FM3c rename fragmentation is structural for Last.fm | **Confirmed, and wider** | TEED page (70k listeners) and JAŸ-Z page (1.2M) carry no mbid; `autocorrect=1` swaps STRFKR for Starfucker with a *different* mbid (`0a19e3e4` vs `e10e9128`) — findings §1, §2 |
+| FM7c Last.fm MBIDs unreliable in kind | **Confirmed at artist level** | "Various Artists" mbid `4e46dd54…` ≠ MusicBrainz SPA `89ad4ac3…`; 3/51 artists mbid-less; 10/41 albums mbid-less (edition pages) — §4, §5 |
+| FM7d MusicBrainz merges/renames | **Verified as a search hazard** | `artist:"Kanye West"` ranks a tribute band at 100 and omits the renamed primary "Ye"; only `alias:"Kanye West"` finds it — §1 |
+| §7 "MusicBrainz is the only service with real artist identity machinery" | **Contradicted in part — Discogs has it too** | `namevariations` on 41/50 artists (284), linked `aliases` entities on 28/50 (Caribou ↔ Daphni ↔ Manitoba), `realname` on 27/50, `members` on 25/50; direction differs from MB (Discogs keeps "Kanye West" primary, MB has "Ye") — §2 |
+| §7 "Spotify: no alias surface; renames in place" | **Confirmed with a twist** | `5K4W6r…` is still "Kanye West" while a separate "Ye" artist (`3NlsBP…`) exists; Four Tet, KH and ⣎⡇ꉺლ… are three unlinked ids — §1, §2 |
+| §7 "`artist.getCorrection` is the normalization primitive" | **Contradicted as a bridge** | fired on 1/51 artists (STRFKR); useless for TEED, JAŸ-Z, Kanye West — §1 |
+| §7 option A (MB-alias table keyed by MBID) | **Confirmed as the only abbreviation bridge** | lookups must query the `alias:` field, not `artist:`; primary/alias direction inverted on 3/51 — §9.1 |
+| §7 option B (canonical artist + per-connector mappings) | **Confirmed, seeded for free** | MusicBrainz artist url-rels cover Spotify 51/51, Discogs 51/51, Apple 50/51, Tidal 50/51 — mapping rows can be derived before any name matching runs — §8 |
+| §6 capability matrix, "Various Artists" | **New row needed** | six unrelated sentinels; Discogs' (artist 194) is not fetchable; DJ mixes are credited to the DJ on four services — §4 |

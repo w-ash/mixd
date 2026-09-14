@@ -6,6 +6,11 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] — 2026-09-14
+
+**Before artists and albums get their own tables, the six services were measured on how they actually represent them** (docs-only, no deploy artifact): 51 artists and 33 albums from the library — Radiohead, Tame Impala, Four Tet and Caribou among them — looked up in Spotify, Last.fm, Discogs, MusicBrainz and the Apple catalog, with every response cached and the tables generated from the cache. What the census settled: an artist anchors on its MusicBrainz id but must be found through the alias index (MusicBrainz now calls Kanye West "Ye" and a fielded search returns a tribute band instead); Discogs is a second real alias source that disagrees with MusicBrainz on which name is primary; Spotify's credits cannot tell a featured artist from a remixer; the library's album titles are Spotify edition strings that Discogs and MusicBrainz never use as the work's name, so the canonical album is the release group with the edition on the mapping; "Various Artists" is six unrelated sentinels and belongs on the album as a flag; and MusicBrainz url-rels already link 51/51 sampled artists to Spotify and Discogs, seeding the cross-service mapping before any name matching runs. Apple was measured through the iTunes catalog API and Tidal from its spec; both carry re-verify markers.
+→ [findings](docs/backlog/entity-representation-findings.md) · [details](docs/backlog/v0.12.x.md#v0120-entity-representation-spike)
+
 ## [0.11.7] — 2026-09-06
 
 **The Sync page refuses a run the server would refuse and tells you why, a playlist import keeps every pick you made under an earlier search, and the app's progress and chat streams are typed end to end.** This is the web half of the quality-sweep series (v0.11.4 cache, v0.11.5 connectors, v0.11.6 application layer): a four-angle review of the whole frontend, with the API contract extended wherever the browser had been guessing.

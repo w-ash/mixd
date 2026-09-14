@@ -28,6 +28,7 @@
 | 2026-08-20 | [S] | developer.spotify.com changelog, 2026-07-23 | 25 Client IDs per account restored, with one API quota pooled across all of a developer account's apps — a second Client ID adds no capacity, so per-tenant app registration is not a quota mitigation | Official; `re-verify` |
 | 2026-08-20 | [S] | developer.spotify.com blog 2026-06-18 (refresh-token expiration); enforced for existing apps 2026-07-20 | Refresh tokens expire 6 months after the original authorization; refreshing does not extend the window; expiry surfaces as 400 `invalid_grant` | Official; `re-verify` |
 | 2026-08-20 | [S] | developer.spotify.com blog 2025-04-15 (extended-access criteria) | Extended quota is granted only to organizations with ≥250k MAU — the "apply for extended quota" option in this PDR is closed for mixd | Official; criteria could change — `re-verify` |
+| 2026-09-14 | [D] | v0.12.0 census probe ([entity-representation findings §1](../backlog/entity-representation-findings.md)) | `GET /v1/artists?ids=` with 50 ids returns 200 and 50/50 populated objects for this app; `/search?type=artist&limit=10` and `/artists/{id}/albums?limit=50` served the full 50 | Direct measurement; today's truth only |
 
 All Spotify program-terms rows are perishable — `re-verify` on read.
 
