@@ -51,7 +51,10 @@ All eight stories from the identity/governance research passes are now **schedul
     `connector_tracks.isrc` carry identity alone.
 
     **Natural home**: v0.12.x, which revisits entity identity for artists and albums and will face the
-    same reference-vs-key question one level up.
+    same reference-vs-key question one level up. **Principle adopted 2026-09-15** in the v0.12.1
+    [Artist Database Schema](v0.12.x.md#v0121-first-class-artists) decisions: external identifiers are
+    references, never keys — `artists.mbid`, `albums.release_group_mbid` and `connector_albums.barcode`
+    ship indexed and non-unique. `uq_tracks_user_isrc` itself drops under the v1.0.0 P7 clean-break.
 
 ## Data Ownership
 
