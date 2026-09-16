@@ -71,6 +71,9 @@ The larger question — what "ownership of listening data" means architecturally
 ## Artists & Albums Follow-Ups (deferred from v0.10.x planning, 2026-07-16)
 
 - **Artist Favorites Service Sync** (S) — Mirror Spotify followed artists into `artist_favorites` as *evidence*, never overwrite — favorites are Mixd-owned curation per the v0.12.1 decision. Deferred from v0.12.1 to keep favorites Mixd-only first.
+- **`artist_relations` table** (XS, deferred 2026-09-15) — Caribou ↔ Daphni and member-of links as rows. v0.12.1 reads them from `connector_artists.raw_metadata` on the detail page; promote to a table only when a query (not a page) needs them.
+- **Discogs as a second alias source** (S, deferred 2026-09-15) — `namevariations` on 41/50 census artists and linked `aliases` entities ([findings §2](entity-representation-findings.md)); the v0.12.1 alias cache keys on `connector_artists` so this is rows, not schema. Held back because Discogs reads need the user's own token.
+- **Artist mapping supersession** (S, held 2026-09-15) — artist and album mappings ship as live rows; switch supersession on (columns + index, the generic mapping repository already handles it) only when `last_seen_at` evidence shows artist ids dying or relinking.
 - **Discogs Write-Back** (M) — Push manual ownership edits (adds, removals, notes) to the user's Discogs collection. v0.13.1 is deliberately read-only — the user manages their collection on Discogs; revisit if manual-entry usage shows users treating mixd as the primary collection editor. Requires OAuth 1.0a (write scope) — the auth-strategy seam in the v0.11.1 client is the entry point.
 
 ## DJ & Purchase Links
