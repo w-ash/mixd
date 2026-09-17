@@ -39,7 +39,6 @@ from structlog.stdlib import BoundLogger
 
 from src.config import get_logger
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
-from src.domain.entities.match_review import MatchReview
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.track_mapping import (
     STALE_ID_FOR,
@@ -50,11 +49,9 @@ from src.domain.entities.track_mapping import (
     is_match_method,
 )
 from src.domain.exceptions import NotFoundError
-from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.connector import (
     ConnectorMappingSpec,
     FullMappingInfo,
-    IsrcCollisionSpec,
     MatchMethodStatRow,
     PrimaryMappingDetail,
     PrimaryVacancyRepair,
@@ -66,7 +63,6 @@ from src.domain.repositories.resolution import (
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
-    DBMatchReview,
     DBResolutionNegative,
     DBTrack,
     DBTrackMapping,
@@ -1680,188 +1676,6 @@ class TrackConnectorRepository:
             )
             for track_id, conn_id, confidence, match_method in result.tuples()
         }
-
-    @db_operation("queue_isrc_collision_review")
-    async def queue_isrc_collision_review(
-        self,
-        existing_track: Track,
-        connector: str,
-        connector_id: str,
-        service_data: Mapping[str, JsonValue],
-        *,
-        user_id: str,
-    ) -> bool:
-        """Queue a review for a suspect ISRC collision instead of merging.
-
-        The incoming track is evaluated against the ISRC owner with the
-        engine's own scoring (``match_method="isrc"`` makes the duration-based
-        suspect check run with real durations); routing to review is
-        unconditional — a high score must not silently merge what the suspect
-        check flagged (v0.8.18 FM2a/FM2c).
-        """
-        from src.infrastructure.persistence.repositories.match_review import (
-            MatchReviewRepository,
-        )
-
-        # Ensure the connector_tracks row exists so the review can reference it.
-        ct_ids = await self.ensure_connector_tracks(
-            connector,
-            [
-                {
-                    "connector_id": connector_id,
-                    "title": service_data.get("title", ""),
-                    "artists": service_data.get("artists", []),
-                    "duration_ms": service_data.get("duration_ms"),
-                    "isrc": service_data.get("isrc"),
-                }
-            ],
-        )
-        connector_track_uuid = ct_ids[connector, connector_id]
-
-        # Any-status dedupe: re-imports must not resurrect rejected reviews.
-        existing_review = await self.session.execute(
-            select(DBMatchReview.id).where(
-                DBMatchReview.user_id == user_id,
-                DBMatchReview.track_id == existing_track.id,
-                DBMatchReview.connector_name == connector,
-                DBMatchReview.connector_track_id == connector_track_uuid,
-            )
-        )
-        if existing_review.first() is not None:
-            return False
-
-        from src.config import create_evaluation_service
-
-        raw_match = RawProviderMatch(
-            connector_id=connector_id,
-            match_method="isrc",
-            service_data=service_data,
-        )
-        match = create_evaluation_service().evaluate_single_match(
-            existing_track, raw_match, connector
-        )
-
-        review = MatchReview(
-            user_id=user_id,
-            track_id=existing_track.id,
-            connector_name=connector,
-            connector_track_id=connector_track_uuid,
-            match_method="isrc_suspect",
-            confidence=match.confidence,
-            match_weight=match.evidence.match_weight if match.evidence else 0.0,
-            confidence_evidence=match.evidence_dict,
-        )
-        _ = await MatchReviewRepository(self.session).create_review(review)
-        logger.warning(
-            "isrc_collision_deferred",
-            track_id=existing_track.id,
-            connector=connector,
-            connector_id=connector_id,
-            isrc=service_data.get("isrc"),
-            confidence=match.confidence,
-        )
-        return True
-
-    @db_operation("queue_isrc_collision_reviews")
-    async def queue_isrc_collision_reviews(
-        self,
-        collisions: Sequence[IsrcCollisionSpec],
-        connector: str,
-        *,
-        user_id: str,
-    ) -> int:
-        """``queue_isrc_collision_review`` for a whole batch, in four statements.
-
-        The per-item version costs ~7 round trips each; an import chunk can
-        carry several. Same semantics, including the any-status dedupe that
-        keeps a re-import from resurrecting a rejected review.
-
-        Returns:
-            Number of reviews queued (already-reviewed collisions excluded).
-        """
-        from src.config import create_evaluation_service
-        from src.infrastructure.persistence.repositories.match_review import (
-            MatchReviewRepository,
-        )
-
-        if not collisions:
-            return 0
-
-        ct_ids = await self.ensure_connector_tracks(
-            connector,
-            [
-                {
-                    "connector_id": collision.connector_id,
-                    "title": collision.service_data.get("title", ""),
-                    "artists": collision.service_data.get("artists", []),
-                    "duration_ms": collision.service_data.get("duration_ms"),
-                    "isrc": collision.service_data.get("isrc"),
-                }
-                for collision in collisions
-            ],
-        )
-
-        candidates = [
-            (collision, ct_uuid)
-            for collision in collisions
-            if (ct_uuid := ct_ids.get((connector, collision.connector_id))) is not None
-        ]
-        if not candidates:
-            return 0
-
-        # Any-status dedupe: re-imports must not resurrect rejected reviews.
-        reviewed = await self.session.execute(
-            select(DBMatchReview.track_id, DBMatchReview.connector_track_id).where(
-                DBMatchReview.user_id == user_id,
-                DBMatchReview.connector_name == connector,
-                DBMatchReview.connector_track_id.in_([
-                    ct_uuid for _, ct_uuid in candidates
-                ]),
-            )
-        )
-        already_reviewed = set(reviewed.tuples().all())
-
-        evaluator = create_evaluation_service()
-        reviews: list[MatchReview] = []
-        for collision, ct_uuid in candidates:
-            if (collision.owner.id, ct_uuid) in already_reviewed:
-                continue
-            match = evaluator.evaluate_single_match(
-                collision.owner,
-                RawProviderMatch(
-                    connector_id=collision.connector_id,
-                    match_method="isrc",
-                    service_data=collision.service_data,
-                ),
-                connector,
-            )
-            reviews.append(
-                MatchReview(
-                    user_id=user_id,
-                    track_id=collision.owner.id,
-                    connector_name=connector,
-                    connector_track_id=ct_uuid,
-                    match_method="isrc_suspect",
-                    confidence=match.confidence,
-                    match_weight=(
-                        match.evidence.match_weight if match.evidence else 0.0
-                    ),
-                    confidence_evidence=match.evidence_dict,
-                )
-            )
-            logger.warning(
-                "isrc_collision_deferred",
-                track_id=collision.owner.id,
-                connector=connector,
-                connector_id=collision.connector_id,
-                isrc=collision.service_data.get("isrc"),
-                confidence=match.confidence,
-            )
-
-        if not reviews:
-            return 0
-        _ = await MatchReviewRepository(self.session).create_reviews_batch(reviews)
-        return len(reviews)
 
     @overload
     async def get_connector_metadata(

@@ -23,12 +23,6 @@ type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 # identity; see docs/backlog/identity-resolution-design-space.md FM1d).
 ISRC_GRADE_METHODS: Final[tuple[MatchMethod, ...]] = ("isrc", "mbid")
 
-# Confidence a resolver asserts for the two id-grade decisions it makes without
-# scoring. ISRC: the code matched across services. Direct import: the provider
-# answered for the id it was asked about — its own assertion, at face value.
-ISRC_MATCH_CONFIDENCE: Final = 95
-DIRECT_IMPORT_CONFIDENCE: Final = 100
-
 type MatchZone = Literal[
     "accept",
     "review",

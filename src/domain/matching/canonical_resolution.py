@@ -63,11 +63,18 @@ class ResolutionEvidence:
 
 @define(frozen=True, slots=True)
 class Described[TKey, TDesc]:
-    """One incoming item: its batch key, its description and its strong id."""
+    """One incoming item: its batch key, its description and its strong id.
+
+    ``names_decide`` is False when names may not settle this item — a
+    relink the provider itself asserted, or a connector whose contract is
+    strong-id-or-nothing. The strong id still decides it, and it neither
+    folds onto a name leader nor leads a name bucket.
+    """
 
     key: TKey
     description: TDesc
     strong_id: str | None = None
+    names_decide: bool = True
 
 
 @define(frozen=True, slots=True)
@@ -163,7 +170,11 @@ class ResolutionRules[TDesc, TEntity](Protocol):
         ...
 
     def same(self, description: TDesc, candidate: TDesc) -> ResolutionEvidence | None:
-        """Price a name-bucket candidate, or None when the gate refuses it."""
+        """Price a name-bucket candidate, or None when it cannot be compared.
+
+        A priced candidate whose zone is not ``accept`` is a refusal the
+        planner records on the creation; ``None`` leaves no record.
+        """
         ...
 
     def creation(self, description: TDesc) -> ResolutionEvidence:
@@ -173,10 +184,15 @@ class ResolutionRules[TDesc, TEntity](Protocol):
 
 @define(slots=True)
 class _Leaders[TKey, TDesc]:
-    """The creations earlier in the batch that later items may fold onto."""
+    """The creations earlier in the batch that later items may fold onto.
+
+    A name bucket holds one leader per *recording*: a creation the gate
+    refused against every earlier leader in its bucket (a longer master of
+    the same name) leads for its own later twins.
+    """
 
     by_strong_id: dict[str, tuple[TKey, TDesc]] = field(factory=dict)
-    by_name: dict[Hashable, tuple[TKey, TDesc]] = field(factory=dict)
+    by_name: dict[Hashable, list[tuple[TKey, TDesc]]] = field(factory=dict)
 
 
 def plan_resolution[TKey, TDesc, TEntity](
@@ -194,14 +210,17 @@ def plan_resolution[TKey, TDesc, TEntity](
     which case it is created without the id, naming the leader as
     ``contested_leader`` so the caller can queue the review once the leader
     is persisted. Only then do names count: the bucket's persisted owners
-    and its leader are priced in that order, and the first accepted one is
-    reused. Anything else is a creation, which registers as the bucket
-    leader for the rest of the batch.
+    and its leaders are priced in that order, and the first accepted one is
+    reused. Anything else is a creation, which joins the bucket's leaders
+    for the rest of the batch.
 
-    ``name_owners`` is keyed by what each *owner* normalizes to — the probe
-    that proposed it may have answered on a looser form, and a candidate
-    reached that way keys differently from the description, which is
-    exactly the pairing the same-entity gate refuses.
+    ``name_owners`` is keyed by whatever ``rules.name_key`` answers for the
+    descriptions: under a recording gate, by what each *owner* normalizes
+    to — a candidate the probe reached on a looser form then keys
+    differently from the description, which is exactly the pairing that
+    gate refuses; under a names-alone gate, by the description that
+    proposed it, so every proposed candidate is priced and a refusal is
+    recorded.
     """
     outcomes: dict[TKey, Outcome[TKey, TEntity]] = {}
     leaders = _Leaders[TKey, TDesc]()
@@ -220,9 +239,9 @@ def plan_resolution[TKey, TDesc, TEntity](
             continue
         if outcome.strong_id is not None:
             leaders.by_strong_id[outcome.strong_id] = (item.key, item.description)
-        key = rules.name_key(item.description)
+        key = rules.name_key(item.description) if item.names_decide else None
         if key is not None:
-            _ = leaders.by_name.setdefault(key, (item.key, item.description))
+            leaders.by_name.setdefault(key, []).append((item.key, item.description))
     return outcomes
 
 
@@ -259,7 +278,7 @@ def _plan_one[TKey, TDesc, TEntity](
                 contest=evidence,
             )
 
-    key = rules.name_key(description)
+    key = rules.name_key(description) if item.names_decide else None
     if key is None:
         return Create(strong_id=item.strong_id, evidence=rules.creation(description))
 
@@ -273,9 +292,7 @@ def _plan_one[TKey, TDesc, TEntity](
             return Reuse(evidence=evidence, canonical=candidate)
         if refusal is None:
             refused, refusal = candidate, evidence
-    leader = leaders.by_name.get(key)
-    if leader is not None:
-        leader_key, leader_description = leader
+    for leader_key, leader_description in leaders.by_name.get(key, ()):
         evidence = rules.same(description, leader_description)
         if evidence is not None and evidence.zone == "accept":
             return Reuse(evidence=evidence, leader=leader_key)
@@ -320,7 +337,10 @@ class TrackResolutionRules:
     ``names_alone`` swaps the name gate for the inward resolvers' identifier
     probe — the evaluator's accept plus a title-similarity floor — because
     a Last.fm identifier carries no duration for the recording gate to rule
-    on. The strong-id and creation pricing are the same either way.
+    on. A candidate under the floor is priced and refused, not dropped: the
+    model can score it 100 on the artist alone, and the refusal is the
+    record that explains why that score did not reuse. The strong-id and
+    creation pricing are the same either way.
     """
 
     config: MatchingConfig
@@ -362,14 +382,13 @@ class TrackResolutionRules:
         confidence, evidence = calculate_confidence(
             _internal(candidate), _service(description), "canonical_reuse", self.config
         )
+        zone = self._zone(confidence)
         if self.names_alone:
             if evidence.title_similarity < self.config.high_similarity_threshold:
-                return None
+                zone = "reject"
         elif not describes_same_recording(candidate, description):
             return None
-        return self._priced(
-            "canonical_reuse", confidence, self._zone(confidence), evidence
-        )
+        return self._priced("canonical_reuse", confidence, zone, evidence)
 
     def creation(self, description: RecordingDescription) -> ResolutionEvidence:
         confidence, evidence = calculate_confidence(

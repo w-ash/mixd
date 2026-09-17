@@ -13,7 +13,6 @@ from attrs import evolve
 
 from src.config import settings
 from src.config.constants import SpotifyConstants
-from src.domain.matching.types import ISRC_MATCH_CONFIDENCE
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.connectors.spotify.client import (
     SpotifyTracksFetch,
@@ -32,6 +31,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyTrack,
 )
 from tests.fixtures import (
+    attach_match_review_repo,
     attach_resolution_recorder,
     make_spotify_track,
     make_track,
@@ -42,9 +42,12 @@ def _make_uow_with_repos():
     """Create a UoW mock with track and connector repos wired."""
     uow = MagicMock()
     attach_resolution_recorder(uow)
+    _ = attach_match_review_repo(uow)
     track_repo = AsyncMock()
     track_repo.save_track.return_value = make_track(1)
     track_repo.find_tracks_by_title_artist.return_value = {}
+    track_repo.find_tracks_by_spotify_ids.return_value = {}
+    track_repo.find_tracks_by_isrcs.return_value = {}
 
     # The chunk-bulk persist saves a whole chunk of canonicals in one call.
     # Route it through whatever ``save_track`` is configured with, so a test
@@ -906,19 +909,17 @@ class TestISRCSuspectGuard:
         assert result[spotify_id] == saved_track
 
         # Review queued against the ISRC owner — not a silent merge
-        connector_repo.queue_isrc_collision_reviews.assert_called_once()
-        review_call = connector_repo.queue_isrc_collision_reviews.call_args
-        (collision,) = review_call.args[0]
-        assert collision.owner == existing_track
-        assert review_call.args[1] == "spotify"
-        assert collision.connector_id == spotify_id
-        service_data = collision.service_data
-        assert service_data["title"] == "Same Song"
-        assert service_data["artist"] == "Same Artist"
-        assert service_data["artists"] == ["Same Artist"]
-        assert service_data["duration_ms"] == 260_000
-        assert service_data["isrc"] == "USRC17000001"
-        assert review_call.kwargs["user_id"] == "test-user"
+        review_repo = uow.get_match_review_repository()
+        review_repo.create_reviews_batch.assert_called_once()
+        (review,) = review_repo.create_reviews_batch.call_args.args[0]
+        assert review.track_id == existing_track.id
+        assert review.connector_name == "spotify"
+        assert review.match_method == "isrc_suspect"
+        assert review.user_id == "test-user"
+        # The suspect check fired on the real durations.
+        assert review.confidence_evidence is not None
+        assert review.confidence_evidence["isrc_suspect"] is True
+        assert review.confidence_evidence["duration_diff_ms"] == 60_000
 
         # A distinct canonical is saved WITHOUT the contested ISRC
         track_repo.save_track.assert_called_once()
@@ -966,7 +967,7 @@ class TestISRCSuspectGuard:
         assert spotify_id in result
         assert result[spotify_id].id == 42
 
-        connector_repo.queue_isrc_collision_reviews.assert_not_called()
+        uow.get_match_review_repository().create_reviews_batch.assert_not_called()
         specs = _mapping_specs(connector_repo)
         assert any(spec.match_method == "isrc_match" for spec in specs)
         track_repo.save_track.assert_not_called()
@@ -1262,7 +1263,7 @@ class TestIdentityReuseBeforeCreation:
             [suspect_id], uow, user_id="test-user"
         )
 
-        connector_repo.queue_isrc_collision_reviews.assert_called_once()
+        uow.get_match_review_repository().create_reviews_batch.assert_called_once()
         track_repo.save_track.assert_called_once()
         assert result[suspect_id].id not in {42, 43}
 
@@ -2324,12 +2325,9 @@ class TestBulkAndPerItemPathsAgree:
             (self.PLAIN_ID, "direct_import", 100, True),
             (self.NEW_ID, "direct_import", 100, True),
             (self.OLD_ID, "direct_import_stale_id", 100, False),
-            (
-                self.ISRC_ID,
-                "isrc_match",
-                ISRC_MATCH_CONFIDENCE,
-                True,
-            ),
+            # The planner's price of the ISRC match, not a constant: an
+            # exact title and artist with no length to disagree scores full.
+            (self.ISRC_ID, "isrc_match", 100, True),
         }
 
     async def test_the_two_paths_report_the_same_metrics_and_provenance(self):
@@ -2576,3 +2574,91 @@ class TestProvenanceDrivesMetricsAndMethods:
             == "spotify_connector_play_resolver"
         )
         connector.search_track.assert_not_called()
+
+
+class TestIdentityKeysDecidedBeforeSaving:
+    """Every identity key ``save_tracks`` would refuse is decided upstream.
+
+    The repository raises on a claimed or in-batch-duplicate ISRC or
+    ``spotify_id``; the planner's strong-id arms and the held-id probe are
+    what keep a chunk from ever handing it such a row.
+    """
+
+    def _fetch(self, tracks):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(tracks=tracks)
+        return connector
+
+    async def test_two_ids_sharing_one_isrc_mint_one_canonical_and_two_mappings(
+        self,
+    ):
+        """Titles differ, the ISRC does not: the second folds onto the first."""
+        first, second = "isrc_twin_id_000000001", "isrc_twin_id_000000002"
+        connector = self._fetch({
+            first: make_spotify_track(
+                first,
+                "Teardrop",
+                "Massive Attack",
+                duration_ms=331_000,
+                external_ids=SpotifyExternalIds(isrc="GBAAA9800123"),
+            ),
+            second: make_spotify_track(
+                second,
+                "Teardrop - Remastered",
+                "Massive Attack",
+                duration_ms=331_400,
+                external_ids=SpotifyExternalIds(isrc="GBAAA9800123"),
+            ),
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        saved = make_track(7, title="Teardrop", artist="Massive Attack")
+        track_repo.save_track.return_value = saved
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [first, second], uow, user_id="test-user"
+        )
+
+        assert result[first].id == result[second].id == saved.id
+        assert metrics.created == 2
+        assert metrics.failed == 0
+        track_repo.save_track.assert_called_once()
+        methods = {
+            spec.connector_id: spec.match_method
+            for spec in _mapping_specs(connector_repo)
+        }
+        assert sorted(methods) == sorted([first, second])
+        assert sorted(methods.values()) == ["direct_import", "isrc_match"]
+
+    async def test_a_canonical_holding_the_id_in_its_column_is_reused(self):
+        """``tracks.spotify_id`` set with no live mapping: the column owner
+        is the canonical, and the missing primary mapping is written on it
+        rather than a creation the repository would refuse."""
+        spotify_id = "column_held_id_0000001"
+        connector = self._fetch({
+            spotify_id: make_spotify_track(
+                spotify_id, "Angel", "Massive Attack", duration_ms=379_000
+            )
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        holder = make_track(42, title="Angel", artist="Massive Attack")
+        track_repo.find_tracks_by_spotify_ids.return_value = {spotify_id: holder}
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow, user_id="test-user"
+        )
+
+        assert result[spotify_id].id == holder.id
+        assert metrics.redirects == 0
+        track_repo.save_track.assert_not_called()
+        (spec,) = _mapping_specs(connector_repo)
+        assert spec.track.id == holder.id
+        assert spec.connector_id == spotify_id
+        assert spec.match_method == "direct_import"
+        assert spec.primary is True
+        track_repo.find_tracks_by_spotify_ids.assert_awaited_once_with(
+            [spotify_id], user_id="test-user"
+        )

@@ -21,13 +21,16 @@ B. **Batched cross-discovery** — one ``CrossDiscoveryProvider.discover_batch``
    failed discovery degrades to ``Nothing()`` and the identifier proceeds
    to creation.
 C. **Pure plan + chunk persist** — every identifier's writes are decided into
-   a frozen ``_LastfmResolvedWrite`` (mappings evaluated, enrichment folded),
+   a frozen ``_LastfmResolvedWrite`` (mappings priced, enrichment folded),
    then the whole chunk persists through one ``save_tracks`` and one
    ``map_tracks_to_connectors``, savepoint-bulk with per-item fallback.
 
 Reuse-before-create still holds: when discovery resolves to an existing
 canonical, the plan maps the Last.fm identifier(s) onto it and no skeletal
-canonical is ever created.
+canonical is ever created. The reuse-or-create decision is never made here:
+the shared reuse step (the domain planner under names-alone rules) and
+cross-discovery (the planner's strong-id arm) decide, and phase C translates
+their outcomes into writes and prices each mapping with the same rules.
 
 Identifier invariant: every Last.fm connector_track_identifier is
 ``make_lastfm_identifier(artist, title)``, minted PRIMARILY from the
@@ -56,7 +59,10 @@ from src.domain.matching.protocols import (
     Nothing,
     ReuseExisting,
 )
-from src.domain.matching.types import RawProviderMatch
+from src.domain.matching.recording_identity import (
+    RecordingDescription,
+    describe_track,
+)
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
@@ -95,11 +101,11 @@ class _EnrichedProbe:
 
 @define(frozen=True, slots=True)
 class _PlannedLastfmMapping:
-    """One Last.fm connector mapping, evaluated before anything is written.
+    """One Last.fm connector mapping, priced before anything is written.
 
-    Confidence and evidence come from ``evaluate_single_match`` over the probe
-    (or the reused canonical) at plan time — pure, so the persist step builds
-    no payload of its own.
+    Confidence and evidence are the names-alone rules' price of the names
+    against the probe (or the reused canonical) at plan time — pure, so the
+    persist step builds no payload of its own.
     """
 
     connector_id: str
@@ -357,8 +363,8 @@ class LastfmInwardResolver(InwardTrackResolver):
         """Phase C's decide step: everything this identifier persists. Pure.
 
         Folds ``NewMapping`` enrichment into the probe BEFORE the single save
-        so the enriched row is inserted whole, and evaluates every Last.fm
-        mapping's confidence here so the persist step only writes.
+        so the enriched row is inserted whole, and prices every Last.fm
+        mapping here so the persist step only writes.
         """
         probe = enriched.probe
         reuse_track: Track | None = None
@@ -393,7 +399,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                 confidence_evidence=outcome.confidence_evidence,
             )
 
-        # Evaluate against what the mappings will actually attach to: the
+        # Price against what the mappings will actually attach to: the
         # reused canonical when there is one, the (enriched) probe otherwise.
         evaluation_target = reuse_track if reuse_track is not None else probe
 
@@ -437,26 +443,22 @@ class LastfmInwardResolver(InwardTrackResolver):
         *,
         primary: bool,
     ) -> _PlannedLastfmMapping:
-        """Evaluate one Last.fm mapping's confidence. Pure — no I/O."""
-        connector_id = make_lastfm_identifier(artist_name, track_name)
-        raw_match = RawProviderMatch(
-            connector_id=connector_id,
-            match_method="artist_title",
-            service_data={
-                "title": track_name,
-                "artist": artist_name,
-                "duration_ms": None,
-            },
-        )
-        match_result = self._match_evaluation_service.evaluate_single_match(
-            track, raw_match, self.connector_name
+        """Price one Last.fm mapping: the names against the track. Pure.
+
+        The same names-alone rules the reuse step decides with, so the
+        number on a mapping row is the model's — a raw alias whose spelling
+        differs from the corrected names prices lower than the primary.
+        """
+        priced = self._reuse_rules.same(
+            RecordingDescription(title=track_name, artist=artist_name),
+            describe_track(track),
         )
         return _PlannedLastfmMapping(
-            connector_id=connector_id,
+            connector_id=make_lastfm_identifier(artist_name, track_name),
             match_method=match_method,
             primary=primary,
-            confidence=match_result.confidence,
-            confidence_evidence=match_result.evidence_dict,
+            confidence=priced.confidence if priced is not None else 0,
+            confidence_evidence=priced.evidence if priced is not None else None,
             artist_name=artist_name,
             track_name=track_name,
         )

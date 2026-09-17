@@ -13,12 +13,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.domain.exceptions import TidalAuthRequiredError
-from src.domain.matching.types import ISRC_MATCH_CONFIDENCE
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.connectors._shared.successor_resolution import SuccessorHook
 from src.infrastructure.connectors.tidal.client import TIDAL_COUNTRY_CODE
 from src.infrastructure.connectors.tidal.inward_resolver import TidalInwardResolver
 from tests.fixtures import (
+    attach_match_review_repo,
     attach_resolution_recorder,
     make_tidal_track_document,
     make_track,
@@ -29,6 +29,7 @@ def _make_uow():
     """UoW mock with track/connector repos and a permissive recorder wired."""
     uow = MagicMock()
     recorder = attach_resolution_recorder(uow)
+    _ = attach_match_review_repo(uow)
 
     track_repo = AsyncMock()
     track_repo.find_tracks_by_isrcs.return_value = {}
@@ -112,7 +113,10 @@ class TestIsrcReuse:
         assert spec.connector == "tidal"
         assert spec.connector_id == "101"
         assert spec.match_method == "isrc_match"
-        assert spec.confidence == ISRC_MATCH_CONFIDENCE
+        # The planner's price, not a constant: the mapping's confidence is
+        # the model's own score and carries its evidence.
+        assert spec.confidence_evidence is not None
+        assert spec.confidence == spec.confidence_evidence["final_score"]
         assert spec.primary is True
 
     async def test_suspect_duration_queues_review_and_withholds_isrc(self):
@@ -135,13 +139,13 @@ class TestIsrcReuse:
         track_repo.save_track.assert_awaited_once()
         saved = track_repo.save_track.await_args.args[0]
         assert saved.isrc is None
-        connector_repo.queue_isrc_collision_reviews.assert_awaited_once()
-        collisions, service = (
-            connector_repo.queue_isrc_collision_reviews.await_args.args[:2]
-        )
-        assert service == "tidal"
-        assert collisions[0].owner.id == owner.id
-        assert collisions[0].connector_id == "101"
+        review_repo = uow.get_match_review_repository()
+        review_repo.create_reviews_batch.assert_awaited_once()
+        (review,) = review_repo.create_reviews_batch.await_args.args[0]
+        assert review.connector_name == "tidal"
+        assert review.track_id == owner.id
+        assert review.match_method == "isrc_suspect"
+        assert review.user_id == "test-user"
         specs = _mapping_specs(connector_repo)
         assert specs[0].match_method == "direct_import"
 

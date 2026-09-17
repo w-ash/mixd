@@ -32,32 +32,33 @@ Unlike Spotify there is no artist/title search fallback of any kind: an id
 Tidal cannot account for stays unresolved until a later import or the
 re-resolution drain retries it.
 
-Persistence runs through the shared planned-write pipeline
-(``WritePlanningResolver``); this module owns payload extraction, the
-``replacement_pointer`` detection label, and the two Tidal-specific mapping
-policies (the primary mapping always names the current id, and a reuse can
-substitute).
+Planning and persistence run through the shared planned-write pipeline
+(``WritePlanningResolver``): the domain planner decides each answered id
+under its ISRC-only contract (names never decide), and this module owns
+payload extraction, the ``replacement_pointer`` detection label, and the two
+Tidal-specific mapping policies (the primary mapping always names the
+current id, and a reuse can substitute).
 """
 
 from collections.abc import Mapping, Sequence
 from typing import override
 
-from attrs import define, evolve
+from attrs import define
 
 from src.config import get_logger, settings
 from src.config.telemetry import phase
 from src.domain.entities import Track
-from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import TidalAuthRequiredError
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.recording_identity import RecordingDescription
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     PlannedWrite,
+    ProviderAnswer,
     ReuseMetadata,
     WritePlanningResolver,
-    plan_isrc_write,
 )
 from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
@@ -253,19 +254,11 @@ class TidalInwardResolver(WritePlanningResolver[TidalTrackDetail]):
                     )
                 )
 
-        minted = [
-            (target, target.isrc) for target in targets if target.isrc is not None
-        ]
+        minted = [target for target in targets if target.isrc is not None]
 
-        existing_by_isrc: dict[str, Track] = {}
-        if minted:
-            existing_by_isrc = await uow.get_track_repository().find_tracks_by_isrcs(
-                list(dict.fromkeys(isrc for _, isrc in minted)), user_id=user_id
-            )
-
-        writes = [
-            self._plan_write(target, isrc, existing_by_isrc) for target, isrc in minted
-        ]
+        writes = await self._plan_writes(
+            [self._answer(target) for target in minted], uow, user_id=user_id
+        )
         result, failed_ids = await self._persist_planned_writes(
             writes, uow, user_id=user_id
         )
@@ -280,7 +273,7 @@ class TidalInwardResolver(WritePlanningResolver[TidalTrackDetail]):
         # module docstring), dead without a successor, and dead whose
         # successor could not be minted. Persist failures stay off the clock
         # — those ids were answered and are retried next import.
-        planned = {target.requested_id for target, _ in minted}
+        planned = {target.requested_id for target in minted}
         unresolvable = [tid for tid in missing_ids if tid not in planned]
         if unresolvable:
             _ = await uow.get_resolution_recorder().remember_no_match(
@@ -309,46 +302,36 @@ class TidalInwardResolver(WritePlanningResolver[TidalTrackDetail]):
             duration_ms=tidal_duration_ms(detail.track),
         )
 
-    def _plan_write(
-        self,
-        target: _Target,
-        isrc: str,
-        existing_by_isrc: Mapping[str, Track],
-    ) -> PlannedWrite[TidalTrackDetail]:
-        """One answered, ISRC-carrying id's persist — the shared ISRC arms."""
+    @staticmethod
+    def _answer(target: _Target) -> ProviderAnswer[TidalTrackDetail]:
+        """One answered, ISRC-carrying id as the planner sees it.
+
+        ISRC-or-nothing: names never decide a Tidal id, so the planner's
+        arms are the strong id's — reuse the owner, defer a suspect
+        collision, or create.
+        """
         detail = target.detail
-        service_data: dict[str, JsonValue] = {
-            "title": detail.track.title,
-            "artists": list(detail.artist_names),
-            "duration_ms": tidal_duration_ms(detail.track),
-            "isrc": isrc,
-        }
-        return plan_isrc_write(
-            connector=self.connector_name,
+        return ProviderAnswer(
             requested_id=target.requested_id,
             current_id=target.current_id,
             payload=detail,
-            duration_ms=tidal_duration_ms(detail.track),
-            isrc=isrc,
-            existing_by_isrc=existing_by_isrc,
-            service_data=service_data,
+            description=RecordingDescription(
+                title=detail.track.title,
+                artist=detail.artist_names[0] if detail.artist_names else "",
+                duration_ms=tidal_duration_ms(detail.track),
+            ),
+            isrc=target.isrc,
+            names_decide=False,
         )
 
     @override
     def _canonical_payload(
         self, write: PlannedWrite[TidalTrackDetail], *, user_id: str
     ) -> Track:
-        """The canonical this write creates, keyed on the *current* id.
-
-        A suspect ISRC is stripped — the owner keeps it, and the queued
-        review decides later whether the two are one recording.
-        """
-        track = create_track_from_tidal_detail(
+        """The canonical this write creates, keyed on the *current* id."""
+        return create_track_from_tidal_detail(
             write.current_id, write.payload, user_id=user_id
         )
-        if write.review is not None and track.isrc:
-            track = evolve(track, isrc=None)
-        return track
 
     @override
     def _mapping_metadata(

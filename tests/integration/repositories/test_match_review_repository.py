@@ -21,6 +21,12 @@ from src.infrastructure.persistence.repositories.match_review import (
 from tests.fixtures import TEST_USER_ID
 
 
+async def _create(repo: MatchReviewRepository, review: MatchReview) -> MatchReview:
+    """Seed one review through the batch write, the only write there is."""
+    (created,) = await repo.create_reviews_batch([review])
+    return created
+
+
 async def _seed_track_and_connector_track(
     session: AsyncSession,
 ) -> tuple[int, int]:
@@ -69,7 +75,7 @@ class TestCreateReview:
             match_weight=4.5,
             user_id=TEST_USER_ID,
         )
-        result = await repo.create_review(review)
+        result = await _create(repo, review)
 
         assert result.id is not None
         assert result.track_id == track_id
@@ -89,8 +95,8 @@ class TestCreateReview:
             match_weight=4.5,
             user_id=TEST_USER_ID,
         )
-        first = await repo.create_review(review)
-        second = await repo.create_review(review)
+        first = await _create(repo, review)
+        second = await _create(repo, review)
 
         # Same review should be updated, not duplicated
         assert first.id == second.id
@@ -136,7 +142,8 @@ class TestListPendingReviews:
         track_id2, ct_id2 = await _seed_track_and_connector_track(db_session)
         repo = MatchReviewRepository(db_session)
 
-        await repo.create_review(
+        await _create(
+            repo,
             MatchReview(
                 track_id=track_id,
                 connector_name="spotify",
@@ -145,9 +152,10 @@ class TestListPendingReviews:
                 confidence=72,
                 match_weight=4.5,
                 user_id=TEST_USER_ID,
-            )
+            ),
         )
-        accepted = await repo.create_review(
+        accepted = await _create(
+            repo,
             MatchReview(
                 track_id=track_id2,
                 connector_name="spotify",
@@ -156,7 +164,7 @@ class TestListPendingReviews:
                 confidence=85,
                 match_weight=6.0,
                 user_id=TEST_USER_ID,
-            )
+            ),
         )
         await repo.update_review_status(accepted.id, ReviewStatus.ACCEPTED)
 
@@ -170,7 +178,8 @@ class TestListPendingReviews:
 
         for _ in range(3):
             track_id, ct_id = await _seed_track_and_connector_track(db_session)
-            await repo.create_review(
+            await _create(
+                repo,
                 MatchReview(
                     track_id=track_id,
                     connector_name="spotify",
@@ -179,7 +188,7 @@ class TestListPendingReviews:
                     confidence=72,
                     match_weight=4.5,
                     user_id=TEST_USER_ID,
-                )
+                ),
             )
 
         reviews, total = await repo.list_pending_reviews(
@@ -200,7 +209,8 @@ class TestListPendingReviews:
         track_id, ct_id = await _seed_track_and_connector_track(db_session)
         repo = MatchReviewRepository(db_session)
 
-        await repo.create_review(
+        await _create(
+            repo,
             MatchReview(
                 track_id=track_id,
                 connector_name="spotify",
@@ -209,7 +219,7 @@ class TestListPendingReviews:
                 confidence=72,
                 match_weight=4.5,
                 user_id=TEST_USER_ID,
-            )
+            ),
         )
 
         reviews, _ = await repo.list_pending_reviews(user_id="default")
@@ -225,7 +235,8 @@ class TestUpdateReviewStatus:
         track_id, ct_id = await _seed_track_and_connector_track(db_session)
         repo = MatchReviewRepository(db_session)
 
-        created = await repo.create_review(
+        created = await _create(
+            repo,
             MatchReview(
                 track_id=track_id,
                 connector_name="spotify",
@@ -234,7 +245,7 @@ class TestUpdateReviewStatus:
                 confidence=72,
                 match_weight=4.5,
                 user_id=TEST_USER_ID,
-            )
+            ),
         )
 
         updated = await repo.update_review_status(created.id, ReviewStatus.ACCEPTED)
@@ -249,7 +260,8 @@ class TestCountPending:
         track_id, ct_id = await _seed_track_and_connector_track(db_session)
         repo = MatchReviewRepository(db_session)
 
-        await repo.create_review(
+        await _create(
+            repo,
             MatchReview(
                 track_id=track_id,
                 connector_name="spotify",
@@ -258,7 +270,7 @@ class TestCountPending:
                 confidence=72,
                 match_weight=4.5,
                 user_id=TEST_USER_ID,
-            )
+            ),
         )
 
         count = await repo.count_pending(user_id="default")
@@ -385,7 +397,8 @@ class TestExistingReviewKeys:
     ):
         track_id, ct_id = await _seed_track_and_connector_track(db_session)
         repo = MatchReviewRepository(db_session)
-        await repo.create_review(
+        await _create(
+            repo,
             MatchReview(
                 track_id=track_id,
                 connector_name="spotify",
@@ -394,7 +407,7 @@ class TestExistingReviewKeys:
                 confidence=64,
                 match_weight=3.0,
                 user_id=TEST_USER_ID,
-            )
+            ),
         )
 
         present = await repo.existing_review_keys([

@@ -30,10 +30,6 @@ class MatchReviewRepositoryProtocol(Protocol):
         """Get a single review by ID, verifying ownership."""
         ...
 
-    def create_review(self, review: MatchReview) -> Awaitable[MatchReview]:
-        """Create a new match review entry."""
-        ...
-
     def create_reviews_batch(
         self, reviews: list[MatchReview]
     ) -> Awaitable[list[MatchReview]]:
