@@ -145,7 +145,6 @@ class GetLikedTracksUseCase:
             # Get likes for specific connector service
             track_likes = await like_repo.get_all_liked_tracks(
                 service=command.connector_filter,
-                is_liked=True,
                 sort_by=command.sort_by,
                 user_id=command.user_id,
             )
@@ -153,7 +152,6 @@ class GetLikedTracksUseCase:
             # Query canonical "mixd" service — the source of truth for all likes
             track_likes = await like_repo.get_all_liked_tracks(
                 service="mixd",
-                is_liked=True,
                 sort_by=command.sort_by,
                 user_id=command.user_id,
             )

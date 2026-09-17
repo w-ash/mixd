@@ -285,8 +285,8 @@ class ImportLikesUseCase:
                     existing_ids, [service, "mixd"], user_id=command.user_id
                 )
                 for track_id in existing_ids:
-                    statuses = like_status.get(track_id, {})
-                    if all(statuses.get(s, False) for s in (service, "mixd")):
+                    liked_on = like_status.get(track_id, set())
+                    if all(s in liked_on for s in (service, "mixd")):
                         already_synced += 1
                         batch_already_synced += 1
                     else:
@@ -329,13 +329,11 @@ class ImportLikesUseCase:
             # 6. Bulk-save likes for all tracks that need them
             if needs_likes:
                 like_repo = uow.get_like_repository()
-                like_entries: list[
-                    tuple[UUID, str, bool, datetime | None, datetime | None]
-                ] = []
+                like_entries: list[tuple[UUID, str, datetime | None]] = []
                 for track_id in needs_likes:
                     track_liked_at = liked_at_map.get(track_id)
                     like_entries.extend(
-                        (track_id, like_service, True, batch_time, track_liked_at)
+                        (track_id, like_service, track_liked_at)
                         for like_service in (service, "mixd")
                     )
                 try:
@@ -514,12 +512,11 @@ class ExportLovesUseCase:
             source_service="mixd",
             target_service=service,
             user_id=command.user_id,
-            is_liked=True,
             since_timestamp=filter_time,
         )
 
         total_mixd = await like_repo.count_liked_tracks(
-            service="mixd", user_id=command.user_id, is_liked=True
+            service="mixd", user_id=command.user_id
         )
         already_loved = total_mixd - len(unsynced)
         total_to_export = len(unsynced)
@@ -717,8 +714,7 @@ class ExportLovesUseCase:
             )
             return results
 
-        now = datetime.now(UTC)
-        exported: list[tuple[UUID, str, bool, datetime | None, datetime | None]] = []
+        exported: list[tuple[UUID, str, datetime | None]] = []
         for track, loved in paired:
             if not loved:
                 results.append(
@@ -730,7 +726,7 @@ class ExportLovesUseCase:
                 )
                 continue
             if track.id:
-                exported.append((track.id, service, True, now, None))
+                exported.append((track.id, service, None))
             results.append(
                 BatchItemResult(status=BatchItemStatus.EXPORTED, track_id=track.id)
             )

@@ -177,7 +177,12 @@ class ConnectorMappingSchema(BaseModel):
 
 
 class LikeStatusSchema(BaseModel):
-    """Per-service like status."""
+    """Per-service like status.
+
+    ``is_liked`` is derived from presence: a service appears in the map only
+    when the track is liked on it, so the field is always ``True``. It stays
+    for the web client, which reads it.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -299,7 +304,7 @@ def _to_connector_mapping_schema(info: ConnectorMappingInfo) -> ConnectorMapping
 
 
 def _to_like_status_schema(info: LikeInfo) -> LikeStatusSchema:
-    return LikeStatusSchema(is_liked=info.is_liked, liked_at=info.liked_at)
+    return LikeStatusSchema(is_liked=True, liked_at=info.liked_at)
 
 
 def _to_play_summary_schema(summary: PlaySummary) -> PlaySummarySchema:

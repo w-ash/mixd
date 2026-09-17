@@ -25,7 +25,6 @@ def _like(track_id=None, service="spotify", liked_at=None) -> TrackLike:
         track_id=track_id or uuid7(),
         service=service,
         user_id="default",
-        is_liked=True,
         liked_at=liked_at or datetime(2024, 6, 15, tzinfo=UTC),
     )
 

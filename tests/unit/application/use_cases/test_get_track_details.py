@@ -61,14 +61,12 @@ def _make_likes() -> list[TrackLike]:
         TrackLike(
             track_id=_TRACK_UUID,
             service="spotify",
-            is_liked=True,
             liked_at=datetime(2024, 6, 15, tzinfo=UTC),
             user_id=TEST_USER_ID,
         ),
         TrackLike(
             track_id=_TRACK_UUID,
             service="lastfm",
-            is_liked=True,
             liked_at=datetime(2024, 7, 1, tzinfo=UTC),
             user_id=TEST_USER_ID,
         ),
@@ -153,8 +151,9 @@ class TestGetTrackDetailsHappyPath:
             GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
-        assert "spotify" in result.like_status
-        assert result.like_status["spotify"].is_liked is True
+        assert result.like_status["spotify"].liked_at == datetime(
+            2024, 6, 15, tzinfo=UTC
+        )
         assert "lastfm" in result.like_status
 
     async def test_play_summary_populated(self, mock_uow) -> None:

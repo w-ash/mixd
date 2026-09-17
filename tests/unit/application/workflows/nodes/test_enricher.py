@@ -1,7 +1,8 @@
 """Tests for enricher workflow nodes.
 
 Validates enrich_spotify_liked_status: in-memory metadata update,
-DB persistence via save_track_likes_batch, and edge cases (no Spotify IDs,
+DB persistence (saved tracks upserted via save_track_likes_batch, unsaved
+tracks removed via delete_track_likes_batch), and edge cases (no Spotify IDs,
 empty tracklist, all liked, API failure).
 
 Also covers enricher.preferences and enricher.tags registration + config
@@ -86,7 +87,7 @@ class TestEnrichSpotifyLikedStatusHappyPath:
         assert tl.tracks[1].is_liked_on("spotify") is False
 
     async def test_persists_liked_status_to_database(self):
-        """execute_service is called with a function that writes to like_repo."""
+        """Saved tracks are upserted as like rows; unsaved tracks lose theirs."""
         t1 = make_track(connector_track_identifiers={"spotify": "aaa"})
         t2 = make_track(connector_track_identifiers={"spotify": "bbb"})
         tracks = [t1, t2]
@@ -114,15 +115,14 @@ class TestEnrichSpotifyLikedStatusHappyPath:
         mock_uow.get_like_repository = MagicMock(return_value=mock_like_repo)
         await captured_fn(mock_uow)
 
-        # Verify save_track_likes_batch called with correct tuples
+        # Saved track → upsert (track_id, service, liked_at); unsaved → delete
         mock_like_repo.save_track_likes_batch.assert_awaited_once()
-        likes_arg = mock_like_repo.save_track_likes_batch.call_args[0][0]
-        assert len(likes_arg) == 2
+        saved_arg = mock_like_repo.save_track_likes_batch.call_args[0][0]
+        assert [(t[0], t[1]) for t in saved_arg] == [(t1.id, "spotify")]
 
-        # Check (track_id, service, is_liked, ...) structure
-        ids_and_status = {(t[0], t[2]) for t in likes_arg}
-        assert (t1.id, True) in ids_and_status
-        assert (t2.id, False) in ids_and_status
+        mock_like_repo.delete_track_likes_batch.assert_awaited_once()
+        deleted_arg = mock_like_repo.delete_track_likes_batch.call_args[0][0]
+        assert deleted_arg == [(t2.id, "spotify")]
 
     async def test_preserves_tracklist_metadata(self):
         """Original tracklist metadata is preserved in the output."""
@@ -208,15 +208,15 @@ class TestEnrichSpotifyLikedStatusEdgeCases:
         assert result["tracklist"].tracks[0].is_liked_on("spotify") is True
         assert result["tracklist"].tracks[1].is_liked_on("spotify") is False
 
-        # Both tracks should be in the persisted batch
+        # One track is saved, the other is removed
         assert captured_fn is not None
         mock_uow = AsyncMock()
         mock_like_repo = AsyncMock()
         mock_uow.get_like_repository = MagicMock(return_value=mock_like_repo)
         await captured_fn(mock_uow)
 
-        likes_arg = mock_like_repo.save_track_likes_batch.call_args[0][0]
-        assert len(likes_arg) == 2
+        assert len(mock_like_repo.save_track_likes_batch.call_args[0][0]) == 1
+        assert len(mock_like_repo.delete_track_likes_batch.call_args[0][0]) == 1
 
     async def test_mixed_tracks_some_with_spotify_ids(self):
         """Only tracks with Spotify IDs are checked; others pass through unchanged."""

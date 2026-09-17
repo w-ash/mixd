@@ -189,16 +189,13 @@ class TestTrackLikeEntity:
         like = TrackLike(
             track_id=track_uuid,
             service="spotify",
-            is_liked=True,
             liked_at=timestamp,
             user_id=TEST_USER_ID,
         )
 
         assert like.track_id == track_uuid
         assert like.service == "spotify"
-        assert like.is_liked is True
         assert like.liked_at == timestamp
-        assert like.last_synced is None
         assert isinstance(like.id, UUID)
 
     def test_track_like_defaults(self):
@@ -206,9 +203,7 @@ class TestTrackLikeEntity:
         track_uuid = uuid7()
         like = TrackLike(track_id=track_uuid, service="spotify", user_id=TEST_USER_ID)
 
-        assert like.is_liked is True  # Default to liked
         assert like.liked_at is None
-        assert like.last_synced is None
 
 
 class TestSyncCheckpoint:

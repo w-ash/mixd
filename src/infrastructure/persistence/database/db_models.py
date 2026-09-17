@@ -757,9 +757,10 @@ class DBTrackMetric(BaseEntity):
 
 
 class DBTrackLike(BaseEntity):
-    """Track preference state across music services.
+    """A track liked on one service.
 
-    Represents user preferences for tracks across different services.
+    Presence row: it exists while the track is liked on the service and is
+    deleted when it is not. There is no status flag or tombstone.
     """
 
     __tablename__: str = "track_likes"
@@ -767,7 +768,6 @@ class DBTrackLike(BaseEntity):
         UniqueConstraint(
             "user_id", "track_id", "service", name="uq_track_likes_user_track_service"
         ),
-        Index(None, "service", "is_liked"),
     )
 
     user_id: Mapped[str] = mapped_column(String(), nullable=False)
@@ -775,9 +775,7 @@ class DBTrackLike(BaseEntity):
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
     service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'mixd'
-    is_liked: Mapped[bool] = mapped_column(Boolean, default=True)
     liked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_synced: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
     track: Mapped[DBTrack] = relationship(

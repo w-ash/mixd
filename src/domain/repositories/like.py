@@ -1,6 +1,8 @@
 """Track-like repository protocol.
 
-Split from the former monolithic ``interfaces.py``.
+A like is a presence row: a ``(user_id, track_id, service)`` row exists
+while the track is liked on that service and is deleted when it is not.
+Every query here reads presence; none filters on a status flag.
 """
 
 from collections.abc import Awaitable, Sequence
@@ -24,18 +26,37 @@ class LikeRepositoryProtocol(Protocol):
 
     def save_track_likes_batch(
         self,
-        likes: list[tuple[UUID, str, bool, datetime | None, datetime | None]],
+        likes: list[tuple[UUID, str, datetime | None]],
         *,
         user_id: str,
     ) -> Awaitable[list[TrackLike]]:
-        """Save multiple track likes in bulk.
+        """Insert or refresh like rows in bulk.
 
         Args:
-            likes: List of (track_id, service, is_liked, last_synced, liked_at) tuples.
+            likes: List of (track_id, service, liked_at) tuples. A ``None``
+                ``liked_at`` is stamped with the current time.
             user_id: Owner's user ID.
 
         Returns:
             List of saved TrackLike domain objects.
+        """
+        ...
+
+    def delete_track_likes_batch(
+        self,
+        likes: list[tuple[UUID, str]],
+        *,
+        user_id: str,
+    ) -> Awaitable[int]:
+        """Delete like rows in bulk.
+
+        Args:
+            likes: List of (track_id, service) pairs. Pairs with no row are
+                ignored.
+            user_id: Owner's user ID.
+
+        Returns:
+            Number of rows deleted.
         """
         ...
 
@@ -44,7 +65,6 @@ class LikeRepositoryProtocol(Protocol):
         service: str,
         *,
         user_id: str,
-        is_liked: bool = True,
         sort_by: str | None = None,
     ) -> Awaitable[list[TrackLike]]:
         """Get all liked tracks for a service.
@@ -52,7 +72,6 @@ class LikeRepositoryProtocol(Protocol):
         Args:
             service: Service to get likes from
             user_id: Owner's user ID.
-            is_liked: Filter by like status
             sort_by: Optional sorting method (liked_at_desc, liked_at_asc, title_asc, random)
         """
         ...
@@ -63,19 +82,17 @@ class LikeRepositoryProtocol(Protocol):
         services: list[str],
         *,
         user_id: str,
-    ) -> Awaitable[dict[UUID, dict[str, bool]]]:
-        """Check like status for multiple tracks across services.
+    ) -> Awaitable[dict[UUID, set[str]]]:
+        """Find which of the given services each track is liked on.
 
         Returns:
-            Mapping of track_id → {service: is_liked}.
-            Missing entries mean no like record exists (treat as False).
+            Mapping of track_id → set of services with a like row. A track
+            with no like on any requested service is absent.
         """
         ...
 
-    def count_liked_tracks(
-        self, service: str, *, user_id: str, is_liked: bool = True
-    ) -> Awaitable[int]:
-        """Count tracks with the given like status for a service.
+    def count_liked_tracks(self, service: str, *, user_id: str) -> Awaitable[int]:
+        """Count liked tracks for a service.
 
         More efficient than get_all_liked_tracks when only the count is needed,
         as it avoids hydrating domain objects.
@@ -83,7 +100,6 @@ class LikeRepositoryProtocol(Protocol):
         Args:
             service: Service to count likes for
             user_id: Owner's user ID.
-            is_liked: Filter by like status
         """
         ...
 
@@ -92,7 +108,6 @@ class LikeRepositoryProtocol(Protocol):
         services: Sequence[str],
         *,
         user_id: str,
-        is_liked: bool = True,
     ) -> Awaitable[dict[str, int]]:
         """Count likes per service in one grouped query.
 
@@ -102,7 +117,6 @@ class LikeRepositoryProtocol(Protocol):
         Args:
             services: Services to count likes for.
             user_id: Owner's user ID.
-            is_liked: Filter by like status.
         """
         ...
 
@@ -112,7 +126,6 @@ class LikeRepositoryProtocol(Protocol):
         target_service: str,
         *,
         user_id: str,
-        is_liked: bool = True,
         since_timestamp: datetime | None = None,
     ) -> Awaitable[list[TrackLike]]:
         """Get tracks liked in source_service but not in target_service."""

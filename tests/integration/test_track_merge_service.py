@@ -80,7 +80,6 @@ class TestTrackMergeServiceIntegration:
         like = DBTrackLike(
             track_id=loser_track_db.id,
             service="spotify",
-            is_liked=True,
             user_id=TEST_USER_ID,
         )
 
@@ -110,6 +109,69 @@ class TestTrackMergeServiceIntegration:
         )
         deleted_track = result.scalar_one_or_none()
         assert deleted_track is None, "Loser track should be hard-deleted"
+
+    async def test_merge_keeps_winner_like_when_both_liked_on_service(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """Likes are presence rows: a conflict keeps the winner's row as-is."""
+        winner_track_db = DBTrack(
+            title="Both Liked", artists={"names": ["A"]}, user_id=TEST_USER_ID
+        )
+        loser_track_db = DBTrack(
+            title="Both Liked (Dup)", artists={"names": ["A"]}, user_id=TEST_USER_ID
+        )
+        db_session.add_all([winner_track_db, loser_track_db])
+        await db_session.flush()
+        test_data_tracker.add_track(winner_track_db.id)
+        test_data_tracker.add_track(loser_track_db.id)
+
+        winner_liked_at = datetime(2024, 1, 1, tzinfo=UTC)
+        winner_like = DBTrackLike(
+            track_id=winner_track_db.id,
+            service="spotify",
+            liked_at=winner_liked_at,
+            user_id=TEST_USER_ID,
+        )
+        loser_like = DBTrackLike(
+            track_id=loser_track_db.id,
+            service="spotify",
+            liked_at=datetime(2025, 6, 1, tzinfo=UTC),
+            user_id=TEST_USER_ID,
+        )
+        loser_only_like = DBTrackLike(
+            track_id=loser_track_db.id, service="lastfm", user_id=TEST_USER_ID
+        )
+        db_session.add_all([winner_like, loser_like, loser_only_like])
+        await db_session.flush()
+        loser_like_id = loser_like.id
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(
+                winner_track_db.id, loser_track_db.id, uow
+            )
+
+        rows = (
+            (
+                await db_session.execute(
+                    select(DBTrackLike).where(
+                        DBTrackLike.track_id == winner_track_db.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_service = {row.service: row for row in rows}
+        assert set(by_service) == {"spotify", "lastfm"}
+        assert by_service["spotify"].id == winner_like.id
+        assert by_service["spotify"].liked_at == winner_liked_at
+        assert by_service["lastfm"].id == loser_only_like.id
+        assert (
+            await db_session.execute(
+                select(DBTrackLike).where(DBTrackLike.id == loser_like_id)
+            )
+        ).scalar_one_or_none() is None
 
     async def test_merge_tracks_validates_input(self, db_session: AsyncSession):
         """Test that merge_tracks validates track IDs."""

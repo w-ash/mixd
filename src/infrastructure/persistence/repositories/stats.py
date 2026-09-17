@@ -12,7 +12,7 @@ Not parallelizable — AsyncSession supports one query at a time.
 
 from typing import cast
 
-from sqlalchemy import distinct, func, select, true
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.preference import PreferenceState
@@ -62,7 +62,7 @@ class StatsRepository:
             .scalar_subquery()
             .label("total_playlists"),
             select(func.count(distinct(DBTrackLike.track_id)))
-            .where(DBTrackLike.is_liked == true(), DBTrackLike.user_id == user_id)
+            .where(DBTrackLike.user_id == user_id)
             .scalar_subquery()
             .label("total_liked"),
         )
@@ -92,7 +92,7 @@ class StatsRepository:
                 DBTrackLike.service,
                 func.count(distinct(DBTrackLike.track_id)),
             )
-            .where(DBTrackLike.is_liked == true(), DBTrackLike.user_id == user_id)
+            .where(DBTrackLike.user_id == user_id)
             .group_by(DBTrackLike.service)
         )
         liked_rows = cast(

@@ -214,36 +214,15 @@ moved_connector_plays AS (
     WHERE resolved_track_id = :from_id
     RETURNING id
 ),
--- Find likes where both tracks have the same service
+-- Likes are presence rows, so a conflict is simply both tracks liked on the
+-- same service by the same user: the winner keeps its row (and its earlier
+-- liked_at), the loser's row goes.
 like_conflicts AS (
-    SELECT
-        loser.id AS loser_id,
-        winner.id AS winner_id,
-        loser.is_liked AS loser_is_liked,
-        loser.liked_at AS loser_liked_at,
-        loser.last_synced AS loser_last_synced,
-        winner.last_synced AS winner_last_synced
+    SELECT loser.id AS loser_id
     FROM track_likes loser
-    JOIN track_likes winner ON loser.service = winner.service
+    JOIN track_likes winner
+      ON loser.service = winner.service AND loser.user_id = winner.user_id
     WHERE loser.track_id = :from_id AND winner.track_id = :to_id
-),
--- Update winner with loser's data when loser was synced more recently
-updated_winner_likes AS (
-    UPDATE track_likes tl
-    SET
-        is_liked = lc.loser_is_liked,
-        liked_at = lc.loser_liked_at,
-        last_synced = lc.loser_last_synced,
-        updated_at = :now
-    FROM like_conflicts lc
-    WHERE tl.id = lc.winner_id
-      AND (
-          (lc.loser_last_synced IS NOT NULL AND lc.winner_last_synced IS NOT NULL
-           AND lc.loser_last_synced > lc.winner_last_synced)
-          OR
-          (lc.loser_last_synced IS NOT NULL AND lc.winner_last_synced IS NULL)
-      )
-    RETURNING tl.id
 ),
 -- Delete all conflicting loser likes
 deleted_conflict_likes AS (
@@ -885,7 +864,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 select(DBTrackLike.track_id)
                 .where(
                     DBTrackLike.track_id.in_(track_ids),
-                    DBTrackLike.is_liked.is_(True),
                     DBTrackLike.user_id == user_id,
                 )
                 .distinct()
@@ -943,7 +921,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if liked is not None:
             liked_subq = (
                 select(DBTrackLike.track_id)
-                .where(DBTrackLike.is_liked.is_(True), DBTrackLike.user_id == user_id)
+                .where(DBTrackLike.user_id == user_id)
                 .distinct()
             )
             if liked:
@@ -1041,7 +1019,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         Algolia-style peel-away-self shape because it maps to a single
         GROUP BY per dimension — no per-facet query rewrite. Cheap at mixd
         scale thanks to existing indexes on track_preferences(user_id, state),
-        track_likes(user_id, is_liked), and track_mappings(user_id, connector_name).
+        track_likes(user_id, track_id, service), and track_mappings(user_id, connector_name).
         """
         # Preference facet — LEFT JOIN so unrated tracks count under "unrated".
         pref_stmt = (
@@ -1065,15 +1043,14 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         for state, count in pref_rows:
             preference[state if state is not None else "unrated"] = count
 
-        # Liked facet — count distinct track_ids with a True like-row on
-        # the canonical 'mixd' service. Everything else counts as "false".
+        # Liked facet — count distinct track_ids with a like row on any
+        # service. Everything else counts as "false".
         liked_true_stmt = (
             select(func.count(func.distinct(DBTrack.id)))
             .select_from(DBTrack)
             .join(DBTrackLike, DBTrackLike.track_id == DBTrack.id)
             .where(
                 *conditions,
-                DBTrackLike.is_liked.is_(True),
                 DBTrackLike.user_id == user_id,
             )
         )

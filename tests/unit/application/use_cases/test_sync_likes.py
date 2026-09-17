@@ -204,9 +204,7 @@ class TestImportLikesForceMode:
         # Like repo: all existing tracks are fully synced (spotify + mixd)
         like_repo = uow.get_like_repository()
         like_repo.get_liked_status_batch = AsyncMock(
-            side_effect=lambda ids, services, **kw: {
-                tid: dict.fromkeys(services, True) for tid in ids
-            }
+            side_effect=lambda ids, services, **kw: {tid: set(services) for tid in ids}
         )
         like_repo.save_track_likes_batch = AsyncMock(return_value=[])
         return uow
@@ -418,7 +416,7 @@ class TestExportLovesIncrementalCommit:
         from src.domain.entities import TrackLike
 
         unsynced = [
-            TrackLike(track_id=i, service="spotify", user_id="test-user", is_liked=True)
+            TrackLike(track_id=i, service="spotify", user_id="test-user")
             for i in range(1, 16)
         ]
         like_repo.get_unsynced_likes = AsyncMock(return_value=unsynced)
@@ -475,7 +473,7 @@ class TestExportLovesPartialFailure:
         like_repo = mock_uow.get_like_repository()
         track_repo = mock_uow.get_track_repository()
         unsynced = [
-            TrackLike(track_id=i, service="spotify", user_id="test-user", is_liked=True)
+            TrackLike(track_id=i, service="spotify", user_id="test-user")
             for i in range(1, 3)
         ]
         like_repo.get_unsynced_likes = AsyncMock(return_value=unsynced)
@@ -607,8 +605,7 @@ class TestExportBatching:
         like_repo = uow.get_like_repository()
         like_repo.get_unsynced_likes = AsyncMock(
             return_value=[
-                TrackLike(track_id=i, service="mixd", user_id="u", is_liked=True)
-                for i in range(1, 4)
+                TrackLike(track_id=i, service="mixd", user_id="u") for i in range(1, 4)
             ]
         )
         like_repo.count_liked_tracks = AsyncMock(return_value=3)
@@ -732,7 +729,6 @@ class TestExportCheckpointWatermark:
                     track_id=i,
                     service="mixd",
                     user_id="u",
-                    is_liked=True,
                     updated_at=ts,
                 )
                 for i, ts in [(1, t1), (2, t2), (3, t3)]
@@ -763,7 +759,6 @@ class TestExportCheckpointWatermark:
                     track_id=1,
                     service="mixd",
                     user_id="u",
-                    is_liked=True,
                     updated_at=datetime(2026, 8, 10, tzinfo=UTC),
                 )
             ]

@@ -40,9 +40,8 @@ class ConnectorMappingInfo:
 
 @define(frozen=True, slots=True)
 class LikeInfo:
-    """Like status for a single service."""
+    """A like on a single service; present only for services the track is liked on."""
 
-    is_liked: bool
     liked_at: datetime | None
 
 
@@ -99,10 +98,7 @@ def _build_connector_mappings(
 
 def _build_like_status(likes: list[TrackLike]) -> dict[str, LikeInfo]:
     """Build per-service like status from like records."""
-    return {
-        like.service: LikeInfo(is_liked=like.is_liked, liked_at=like.liked_at)
-        for like in likes
-    }
+    return {like.service: LikeInfo(liked_at=like.liked_at) for like in likes}
 
 
 def _build_play_summary(play_agg: PlayAggregationResult, track_id: UUID) -> PlaySummary:
