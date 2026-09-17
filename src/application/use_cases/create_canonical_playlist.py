@@ -224,7 +224,9 @@ class CreateCanonicalPlaylistUseCase:
         saved_playlist = await playlist_repo.save_playlist(playlist)
 
         # Step 4: Extract metrics from connector metadata (extract tracks from playlist)
-        await self.metrics_service.extract_track_metrics(playlist.tracks, uow)
+        await self.metrics_service.extract_track_metrics(
+            playlist.tracks, uow, user_id=command.user_id
+        )
 
         # Step 5: Commit transaction (caller owns the boundary when commit=False)
         if commit:

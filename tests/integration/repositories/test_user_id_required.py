@@ -1,6 +1,6 @@
 """An INSERT that omits ``user_id`` fails instead of minting a phantom tenant.
 
-Migration 055 dropped ``DEFAULT 'default'`` from every tenanted ``user_id``
+Migration ``056_drop_user_id_defaults`` dropped ``DEFAULT 'default'`` from every tenanted ``user_id``
 column and the ORM lost ``server_default`` in the same change. The schema here
 comes from ``metadata.create_all``, so this proves the ORM declaration — the
 migration itself is checked by the manual round-trip in the release gate.

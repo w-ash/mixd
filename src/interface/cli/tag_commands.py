@@ -97,7 +97,9 @@ def list_tags(
         str | None,
         typer.Option("--query", "-q", help="Substring filter (trigram-indexed)"),
     ] = None,
-    limit: Annotated[int, typer.Option("--limit", "-l", help="Max results")] = 100,
+    limit: Annotated[
+        int, typer.Option("--limit", "-l", min=1, help="Max results")
+    ] = 100,
 ) -> None:
     """List tags with usage counts, sorted by count desc."""
     from src.application.use_cases.list_tags import run_list_tags
@@ -131,7 +133,9 @@ def tracks_for_tag(
         str,
         typer.Argument(help="Tag to filter on (e.g. 'mood:chill')", metavar="TAG"),
     ],
-    limit: Annotated[int, typer.Option("--limit", "-l", help="Max results")] = 50,
+    limit: Annotated[
+        int, typer.Option("--limit", "-l", min=1, help="Max results")
+    ] = 50,
 ) -> None:
     """List tracks carrying a given tag."""
     from src.application.runner import execute_use_case

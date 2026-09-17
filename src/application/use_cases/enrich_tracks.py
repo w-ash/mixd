@@ -306,6 +306,7 @@ class EnrichTracksUseCase:
             connector=connector,
             metric_names=metric_names,
             uow=uow,
+            user_id=user_id,
             connector_instance=connector_instance,
             progress_broker=progress_broker,
             parent_operation_id=parent_operation_id,

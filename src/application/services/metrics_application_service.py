@@ -45,12 +45,15 @@ class MetricsApplicationService:
         metric_names: list[str],
         field_map: dict[str, str],
         connector: str,
+        *,
+        user_id: str,
     ) -> list[TrackMetric]:
         """Extract ``TrackMetric`` entities from raw connector metadata.
 
-        The DB column for metric value is ``float``. Bools coerce to 1.0/0.0
-        explicitly — ``bool`` is guarded BEFORE ``int`` because
-        ``isinstance(True, int)`` is ``True``.
+        Every entity is minted under ``user_id`` — the tenant the row is
+        written for. The DB column for metric value is ``float``. Bools
+        coerce to 1.0/0.0 explicitly — ``bool`` is guarded BEFORE ``int``
+        because ``isinstance(True, int)`` is ``True``.
         """
         now = datetime.now(UTC)
         results: list[TrackMetric] = []
@@ -81,6 +84,7 @@ class MetricsApplicationService:
                         connector_name=connector,
                         metric_type=metric_name,
                         value=coerced,
+                        user_id=user_id,
                         collected_at=now,
                     )
                 )
@@ -92,6 +96,8 @@ class MetricsApplicationService:
         connector: str,
         metric_names: list[str],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
         connector_instance: TrackMetadataConnector | None = None,
         progress_broker: ProgressBroker | None = None,
         parent_operation_id: str | None = None,
@@ -108,6 +114,7 @@ class MetricsApplicationService:
             connector: External connector name ('spotify', 'lastfm', etc.).
             metric_names: List of metric names to retrieve (e.g., ['lastfm_global_playcount', 'lastfm_user_playcount']).
             uow: Unit of work for database transaction management.
+            user_id: Tenant that freshly fetched metrics are persisted under.
             connector_instance: Optional connector instance for fresh metadata fetching.
             progress_broker: Optional progress manager for sub-operation tracking.
             parent_operation_id: Parent operation ID for sub-operation nesting.
@@ -137,6 +144,7 @@ class MetricsApplicationService:
             all_metrics_to_save = await self._fetch_and_extract_fresh(
                 connector=connector,
                 connector_instance=connector_instance,
+                user_id=user_id,
                 field_map=field_map,
                 missing_tracks_per_metric=missing_tracks_per_metric,
                 tracks_for_api=tracks_for_api,
@@ -277,6 +285,7 @@ class MetricsApplicationService:
         *,
         connector: str,
         connector_instance: TrackMetadataConnector,
+        user_id: str,
         field_map: dict[str, str],
         missing_tracks_per_metric: dict[str, list[UUID]],
         tracks_for_api: list[Track],
@@ -302,7 +311,7 @@ class MetricsApplicationService:
         # Extract metrics from fresh metadata (only for missing track/metric pairs)
         missing_metric_names = [m for m in field_map if m in missing_tracks_per_metric]
         all_extracted = self._extract_metrics_from_metadata(
-            fresh_metadata, missing_metric_names, field_map, connector
+            fresh_metadata, missing_metric_names, field_map, connector, user_id=user_id
         )
 
         # Filter to only track/metric pairs that were actually missing
@@ -398,7 +407,7 @@ class MetricsApplicationService:
             logger.info(f"Bulk saved {saved_count} new metrics")
 
     async def extract_track_metrics(
-        self, tracks: list[Track], uow: UnitOfWorkProtocol
+        self, tracks: list[Track], uow: UnitOfWorkProtocol, *, user_id: str
     ) -> None:
         """Extract and save metrics from track connector metadata.
 
@@ -408,6 +417,7 @@ class MetricsApplicationService:
         Args:
             tracks: Tracks with potential connector metadata
             uow: Transaction manager for database operations
+            user_id: Tenant the extracted metrics are persisted under
         """
         if not tracks:
             return
@@ -442,6 +452,7 @@ class MetricsApplicationService:
                     available_metrics=available_metrics,
                     field_map=self.metric_config.get_all_field_mappings(),
                     uow=uow,
+                    user_id=user_id,
                 )
 
     async def _save_extracted_metrics(
@@ -451,6 +462,8 @@ class MetricsApplicationService:
         available_metrics: list[str],
         field_map: dict[str, str],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> int:
         """Extract metrics from connector metadata and persist them.
 
@@ -463,6 +476,7 @@ class MetricsApplicationService:
             available_metrics: List of metric names this connector supports.
             field_map: Maps metric names to connector field names.
             uow: Unit of work for database transaction management.
+            user_id: Tenant the metrics are persisted under.
 
         Returns:
             Number of individual metrics successfully saved.
@@ -471,7 +485,7 @@ class MetricsApplicationService:
             return 0
 
         all_metrics = self._extract_metrics_from_metadata(
-            fresh_metadata, available_metrics, field_map, connector
+            fresh_metadata, available_metrics, field_map, connector, user_id=user_id
         )
 
         if not all_metrics:

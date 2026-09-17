@@ -160,6 +160,8 @@ class TrackMetric:
     connector_name: str
     metric_type: str
     value: float
+    # Tenant is always explicit: no default at any layer (v0.12.0.2).
+    user_id: str = field(kw_only=True)
     collected_at: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)
 

@@ -13,8 +13,11 @@ from src.application.pagination import (
     encode_cursor,
 )
 from src.application.use_cases._shared.command_validators import as_utc
+from src.config import get_logger
 from src.domain.repositories.play import PLAY_EVENT_SORT
 from src.domain.repositories.uow import UnitOfWorkProtocol
+
+logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
@@ -58,10 +61,18 @@ class ListPlaysUseCase:
         before: tuple[datetime, UUID] | None = None
         if command.encoded_cursor is not None:
             decoded = decode_cursor(command.encoded_cursor)
-            # Cursor stores played_at as ISO string; the shared converter
-            # parses it here so the repo never sees the wire format.
-            played_at = cursor_datetime_bound(PLAY_EVENT_SORT, decoded.sort_value)
-            before = (played_at, decoded.last_id)
+            # A cursor minted under another sort key cannot bound this page;
+            # treat it as no cursor (first page) rather than seek from the
+            # wrong end. Cursor stores played_at as ISO string; the shared
+            # converter parses it here so the repo never sees the wire format.
+            if decoded.sort_key == PLAY_EVENT_SORT.key:
+                played_at = cursor_datetime_bound(PLAY_EVENT_SORT, decoded.sort_value)
+                before = (played_at, decoded.last_id)
+            else:
+                logger.debug(
+                    "Cursor sort key mismatch: "
+                    f"cursor={decoded.sort_key}, current={PLAY_EVENT_SORT.key}"
+                )
 
         async with uow:
             plays_repo = uow.get_plays_repository()

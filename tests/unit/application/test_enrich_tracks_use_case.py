@@ -138,6 +138,7 @@ class TestEnrichTracksUseCase:
             connector="spotify",
             metric_names=["explicit_flag"],  # From track_metric_names
             uow=mock_uow,
+            user_id="test-user",
             connector_instance=external_metadata_config.connector_instance,
             progress_broker=None,
             parent_operation_id=None,

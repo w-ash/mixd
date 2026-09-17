@@ -299,6 +299,18 @@ class TestListForUser:
         assert len(rows) == 2
         assert next_key is None
 
+    async def test_zero_limit_is_an_empty_page_without_key(
+        self, db_session: AsyncSession
+    ) -> None:
+        """``limit=0`` fetches only the probe row: no rows, no next key."""
+        repo = OperationRunRepository(db_session)
+        await repo.create(make_operation_run(user_id="alice"))
+
+        rows, next_key = await repo.list_for_user(user_id="alice", limit=0)
+
+        assert rows == []
+        assert next_key is None
+
     async def test_pagination_continues_with_keyset(
         self, db_session: AsyncSession
     ) -> None:
