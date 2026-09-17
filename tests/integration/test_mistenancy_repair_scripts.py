@@ -434,6 +434,7 @@ class TestCleanupPhaseThreeUnderRestrict:
         event = DBResolutionEvent(
             user_id=_OWNER,
             event_type="track_resolved",
+            entity_kind="track",
             matcher_version="test",
             track_id=track.id,
             resulting_mapping_id=mapping.id,

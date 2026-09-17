@@ -34,7 +34,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from src.config import get_logger
-from src.domain.entities.resolution_event import ResolutionEvent, ResolutionEventType
+from src.domain.entities.resolution_event import (
+    EntityKind,
+    ResolutionEvent,
+    ResolutionEventType,
+)
 from src.domain.entities.resolution_negative import (
     NegativeKind,
     ResolutionNegative,
@@ -195,6 +199,7 @@ class ResolutionEventMapper(BaseModelMapper[DBResolutionEvent, ResolutionEvent])
             id=db_model.id,
             user_id=db_model.user_id,
             event_type=cast("ResolutionEventType", db_model.event_type),
+            entity_kind=cast("EntityKind", db_model.entity_kind),
             matcher_version=db_model.matcher_version,
             recorded_at=db_model.recorded_at,
             decided_at=db_model.decided_at,
@@ -258,6 +263,7 @@ class ResolutionEventRepository(BaseRepository[DBResolutionEvent, ResolutionEven
             "id": event.id,
             "user_id": event.user_id,
             "event_type": event.event_type,
+            "entity_kind": event.entity_kind,
             "matcher_version": event.matcher_version,
             "decided_at": event.decided_at,
             "evidence_as_of": event.evidence_as_of,

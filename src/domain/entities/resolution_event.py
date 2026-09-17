@@ -19,10 +19,21 @@ past decision reproducible from its recorded inputs rather than merely dated.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Final, Literal, cast, get_args
 from uuid import UUID, uuid7
 
 from attrs import define, field
+
+# Which typed mapping table a decision is about (migration 058). The log has
+# no foreign keys by design, so ``track_id`` / ``connector_track_id`` are
+# references by value and this column says which table they point into:
+# ``artist_mappings`` for an artist decision, ``album_mappings`` for an album.
+type EntityKind = Literal["track", "artist", "album"]
+
+ENTITY_KINDS: Final[frozenset[EntityKind]] = frozenset(
+    get_args(cast("object", EntityKind.__value__))
+)
+"""Runtime membership test for :data:`EntityKind`, derived from the alias."""
 
 # Starting vocabulary (v0.10.2 spec). `substituted` is the contextual-swap
 # shape (Spotify relinking, Apple equivalents, Tidal/Deezer alternatives) —
@@ -75,6 +86,7 @@ class ResolutionEvent:
     id: UUID = field(factory=uuid7)
     user_id: str = field(kw_only=True)
     event_type: ResolutionEventType = "accepted"
+    entity_kind: EntityKind = "track"
     # Content hash of the full matcher config (src.domain.matching.version) —
     # a provenance/validity key, never an auto-re-resolution trigger.
     matcher_version: str = ""

@@ -102,7 +102,7 @@ def repair_primaries(
     table.add_column("Connector")
     table.add_column("Confidence", justify="right")
     for row in result.repaired:
-        table.add_row(str(row.track_id), row.connector_name, str(row.confidence))
+        table.add_row(str(row.owner_id), row.connector_name, str(row.confidence))
     console.print(table)
 
     verb = "would be repaired" if result.dry_run else "repaired"

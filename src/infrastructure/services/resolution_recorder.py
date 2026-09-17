@@ -133,6 +133,7 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
             ResolutionEvent(
                 user_id=user_id,
                 event_type=decision.event_type,
+                entity_kind=decision.entity_kind,
                 matcher_version=self.matcher_version,
                 decided_at=decided_at,
                 evidence_as_of=decision.evidence_as_of,

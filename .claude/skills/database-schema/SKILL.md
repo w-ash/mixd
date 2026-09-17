@@ -7,7 +7,7 @@ user-invocable: false
 # Mixd Database Schema Reference
 
 > **Table/column truth is the code**: `src/infrastructure/persistence/database/models/`, one module per aggregate (`base.py` holds `DatabaseModel`/`BaseEntity`; the package `__init__` is the only import path). Verify counts with `grep -c "^class DB" src/infrastructure/persistence/database/models/*.py` before citing them. This skill carries the *semantics* the code can't show at a glance — RLS, cascades, migration-only DDL, session mechanics.
-> Verified 2026-09-17 · migration head `057` · 38 model classes. (If the counts don't match reality, re-verify everything else here too.) Cross-module relationships are deferred annotations (PEP 649) resolved by class name through the shared registry; `tests/integration/test_schema_gates.py` (`slow`) fails the build if a module drops out of the registry or the ORM drifts from the migrations.
+> Verified 2026-09-17 · migration head `058` · 38 model classes. (If the counts don't match reality, re-verify everything else here too.) Cross-module relationships are deferred annotations (PEP 649) resolved by class name through the shared registry; `tests/integration/test_schema_gates.py` (`slow`) fails the build if a module drops out of the registry or the ORM drifts from the migrations.
 
 PostgreSQL 17 via psycopg3 — Neon serverless in prod, testcontainers `postgres:17-alpine` in tests. Tables inherit `BaseEntity` → `id` (UUID PK), `created_at`, `updated_at`; exceptions: `workflow_run_nodes` (id only), `oauth_states` (id + created_at only).
 
@@ -38,6 +38,7 @@ PostgreSQL 17 via psycopg3 — Neon serverless in prod, testcontainers `postgres
 - **playlist_sync_bases** — per-link reconciliation base (connector snapshot at last sync) for divergence detection (v0.8.7 engine); **unique `link_id`** FK→playlist_mappings CASCADE; RLS via migration 030.
 - **playlist_assignments** — bound to a **connector_playlist**, not the canonical playlist; members are snapshot rows (DELETE+INSERT per apply) with `user_id` denormalized for RLS.
 - **`*_events` tables** (preference/tag) — append-only logs, never updated or deleted.
+- **resolution_events** — FK-free by design (references by value). `entity_kind` (058, `track`/`artist`/`album`, NOT NULL, no default, CHECK) says which typed mapping table `track_id`/`connector_track_id` point into; the generic `MappingRepository` (`repositories/_shared/mapping.py`) stamps it from its `MappingShape`.
 - **workflows** — `user_id` nullable: NULL = shared with all users (migration 013; the RLS policy allows it).
 - **workflow_runs** — **partial unique `(workflow_id) WHERE status IN ('pending','running')`** is the DB-level concurrency guard, surfaced as 409; `operation_id` unique = SSE registry key; `triggered_by_schedule_id` is `ON DELETE SET NULL` (also on operation_runs).
 - **schedules** — workflow XOR sync target enforced by a CHECK that lives **in migration 025, not `__table_args__`** (house convention: CHECKs go in migrations); `next_run_at` is the precomputed UTC poll column; **no RLS** (cross-tenant scheduler poll + repository `WHERE user_id`).
