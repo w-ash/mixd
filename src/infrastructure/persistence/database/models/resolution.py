@@ -13,6 +13,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.schema import SchemaItem
 
+from src.domain.entities.resolution_event import ENTITY_KINDS
 from src.domain.entities.shared import JsonDict
 from src.infrastructure.persistence.database.models.base import (
     BaseEntity,
@@ -39,14 +40,22 @@ class DBResolutionEvent(DatabaseModel):
     a table free of RI is the one that can be partitioned later without
     dropping constraints first (memo §10.7).
 
-    MUST mirror migrations 045 + 046 exactly — integration tests build the
-    schema with ``metadata.create_all``, so divergence means every integration
-    test runs against a schema production never has.
+    MUST mirror migrations 045 + 046 + 058 exactly — integration tests build
+    the schema with ``metadata.create_all``, so divergence means every
+    integration test runs against a schema production never has.
     """
 
     __tablename__: str = "resolution_events"
 
     user_id: Mapped[str] = mapped_column(String(), nullable=False)
+    # Which typed mapping table ``track_id`` / ``connector_track_id`` point
+    # into (migration 058). The ids are references by value, so the column
+    # names stay as they are and this one says what they name: an artist
+    # decision records its artist and connector-artist ids in the same two
+    # columns. NOT NULL with no default — 058 backfilled the stock as
+    # ``track`` and dropped the default in the same file, so every new row
+    # has to say.
+    entity_kind: Mapped[str] = mapped_column(String(16), nullable=False)
     # DB-assigned and never set from Python — the writer's clock is not a
     # trustworthy ordering key across processes. ``clock_timestamp()`` rather
     # than ``now()``: the latter is the transaction's start instant, so every
@@ -80,6 +89,15 @@ class DBResolutionEvent(DatabaseModel):
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
+        # Storage-boundary enforcement of the domain vocabulary (migration
+        # 058). Growing it means a new migration that recreates the
+        # constraint — the Literal alone does not migrate the database.
+        CheckConstraint(
+            "entity_kind IN ({})".format(
+                ", ".join(f"'{kind}'" for kind in sorted(ENTITY_KINDS))
+            ),
+            name="entity_kind_vocabulary",
+        ),
         # Btree, not BRIN: tenant-scoped small-result queries, and uuid7
         # arrival interleaves tenants so BRIN's clustering premise never holds.
         Index("ix_resolution_events_user_time", "user_id", text("recorded_at DESC")),

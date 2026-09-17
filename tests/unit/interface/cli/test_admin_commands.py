@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 from src.application.use_cases.repair_missing_primaries import (
     RepairMissingPrimariesResult,
 )
-from src.domain.repositories.connector import PrimaryVacancyRepair
+from src.domain.repositories.mapping import PrimaryVacancyRepair
 from src.interface.cli.app import app
 
 runner = CliRunner()
@@ -18,9 +18,9 @@ def _result(*, dry_run: bool = False, pairs: int = 1) -> RepairMissingPrimariesR
     return RepairMissingPrimariesResult(
         repaired=tuple(
             PrimaryVacancyRepair(
-                track_id=uuid7(),
+                owner_id=uuid7(),
                 connector_name="spotify",
-                connector_track_id=uuid7(),
+                connector_id=uuid7(),
                 mapping_id=uuid7(),
                 confidence=90,
             )

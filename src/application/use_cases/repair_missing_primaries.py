@@ -9,7 +9,7 @@ This is the bulk remediation that check points at.
 from attrs import define
 
 from src.config import get_logger
-from src.domain.repositories.connector import PrimaryVacancyRepair
+from src.domain.repositories.mapping import PrimaryVacancyRepair
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)

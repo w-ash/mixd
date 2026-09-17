@@ -19,6 +19,11 @@ from src.domain.entities.connector import ConnectorDescriptor
 from src.domain.entities.playlist import ConnectorPlaylistSummary
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.track_mapping import MappingOrigin, MatchMethod
+from src.domain.repositories.mapping import (
+    ElectionMode,
+    PrimaryCandidate,
+    PrimaryVacancyRepair,
+)
 
 
 @define(frozen=True, slots=True)
@@ -51,21 +56,6 @@ class ConnectorMappingSpec:
     # every mapping wants it — a relinked Spotify track's stale-id mapping is
     # written precisely so it will *not* hold primacy — hence the default.
     primary: bool = False
-
-
-@define(frozen=True, slots=True)
-class PrimaryVacancyRepair:
-    """One (track, connector) pair whose vacant primary slot was filled.
-
-    Returned by the bulk repair so the caller can report what moved — and, in
-    dry-run, what would move — without a second query.
-    """
-
-    track_id: UUID
-    connector_name: str
-    connector_track_id: UUID
-    mapping_id: UUID
-    confidence: int
 
 
 @define(frozen=True, slots=True)
@@ -291,40 +281,28 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def ensure_primary_mapping(
-        self, track_id: UUID, connector: str, connector_id: str
-    ) -> Awaitable[bool]:
-        """Ensure a mapping exists and is set as primary for the given track-connector pair.
+    def ensure_primaries(
+        self, candidates: Sequence[PrimaryCandidate], *, mode: ElectionMode
+    ) -> Awaitable[int]:
+        """Elect the named mapping primary for each (track, connector) pair.
 
-        This method is used when we know a specific external ID should be the primary
-        mapping (e.g., when Spotify returns a track ID in an API response).
-
-        Args:
-            track_id: Internal canonical track ID
-            connector: Service name (e.g., "spotify")
-            connector_id: External track ID that should be primary
-
-        Returns:
-            True if primary mapping was successfully set
-        """
-        ...
-
-    def set_primary_mapping(
-        self, track_id: UUID, connector_name: str, connector_track_id: UUID
-    ) -> Awaitable[bool]:
-        """Set the primary mapping for a track-connector pair.
-
-        This method handles Spotify track relinking and other scenarios where
-        multiple connector tracks map to the same canonical track. It ensures
-        only one mapping per (track_id, connector_name) is marked as primary.
+        The one election every writer and repair goes through. ``fill``
+        promotes only where the pair has no live primary — a user pin or an
+        automatic incumbent stays. ``reset`` deposes the pair's live primaries
+        first, then elects: "make *this* one the primary", which is what a
+        writer that has just named the identifier means. A stale-id mapping is
+        never elected in either mode. Runs under a savepoint and raises on
+        failure rather than reporting ``False``.
 
         Args:
-            track_id: Internal canonical track ID
-            connector_name: Name of the connector (e.g., "spotify")
-            connector_track_id: Database ID of the connector track (not external ID)
+            candidates: ``(track_id, connector_name, connector_track_id)``
+                triples; ``connector_track_id`` is the connector track's
+                database id, not the external identifier.
+            mode: See :data:`~src.domain.repositories.mapping.ElectionMode`.
 
         Returns:
-            True if the primary mapping was successfully updated, False otherwise
+            Number of mappings promoted. A ``fill`` over an occupied pair
+            promotes nothing and is not an error.
         """
         ...
 

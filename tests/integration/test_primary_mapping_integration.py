@@ -42,10 +42,9 @@ class TestPrimaryMappingDatabaseIntegration:
         assert len(indexes) > 0
 
     async def test_repository_method_available(self, db_session):
-        """Test that repository has set_primary_mapping method."""
+        """The one election spelling is on the repository."""
         repo = TrackConnectorRepository(db_session)
-        assert hasattr(repo, "set_primary_mapping")
-        assert callable(repo.set_primary_mapping)
+        assert callable(repo.ensure_primaries)
 
 
 class TestPrimaryMappingQueries:

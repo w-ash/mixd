@@ -13,15 +13,15 @@ from src.application.use_cases.repair_missing_primaries import (
     RepairMissingPrimariesCommand,
     RepairMissingPrimariesUseCase,
 )
-from src.domain.repositories.connector import PrimaryVacancyRepair
+from src.domain.repositories.mapping import PrimaryVacancyRepair
 from tests.fixtures import make_mock_uow
 
 
 def _repair() -> PrimaryVacancyRepair:
     return PrimaryVacancyRepair(
-        track_id=uuid7(),
+        owner_id=uuid7(),
         connector_name="spotify",
-        connector_track_id=uuid7(),
+        connector_id=uuid7(),
         mapping_id=uuid7(),
         confidence=90,
     )

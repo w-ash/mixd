@@ -16,7 +16,11 @@ from uuid import UUID
 
 from attrs import define, field
 
-from src.domain.entities.resolution_event import ResolutionEvent, ResolutionEventType
+from src.domain.entities.resolution_event import (
+    EntityKind,
+    ResolutionEvent,
+    ResolutionEventType,
+)
 from src.domain.entities.shared import JsonDict
 from src.domain.entities.track import Track
 from src.domain.entities.track_mapping import SupersessionReason
@@ -58,6 +62,10 @@ class ResolutionDecision:
 
     event_type: ResolutionEventType
     connector_name: str
+    # Which mapping table ``track_id`` / ``connector_track_id`` point into.
+    # The column names stay entity-neutral by value: an artist decision
+    # carries the artist and connector-artist ids in the same two fields.
+    entity_kind: EntityKind = "track"
     connector_track_id: UUID | None = None
     track_id: UUID | None = None
     resulting_mapping_id: UUID | None = None

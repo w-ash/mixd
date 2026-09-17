@@ -1,7 +1,8 @@
 """Use case for setting a connector mapping as primary for its connector.
 
-Promotes a specific mapping to primary status on a track, updating the
-denormalized ID column for fast lookups.
+Deposes the pair's current primary and elects the named mapping — the
+``reset`` election — which also moves the denormalized ID column the fast
+path reads.
 """
 
 from uuid import UUID
@@ -9,7 +10,7 @@ from uuid import UUID
 from attrs import define
 
 from src.application.use_cases._shared.mapping_guard import require_owned_mapping
-from src.domain.exceptions import NotFoundError
+from src.domain.repositories.mapping import PrimaryCandidate
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
@@ -32,7 +33,7 @@ class SetPrimaryMappingUseCase:
         """Execute the set-primary operation.
 
         Raises:
-            NotFoundError: If mapping or connector track doesn't exist.
+            NotFoundError: If the mapping doesn't exist.
             ValueError: If track_id mismatch (URL tamper guard).
         """
         async with uow:
@@ -45,15 +46,17 @@ class SetPrimaryMappingUseCase:
                 user_id=command.user_id,
             )
 
-            ct = await connector_repo.get_connector_track_by_id(
-                mapping.connector_track_id
-            )
-            if ct is None:
-                raise NotFoundError(
-                    f"Connector track {mapping.connector_track_id} not found"
-                )
-
-            await connector_repo.ensure_primary_mapping(
-                command.track_id, mapping.connector_name, ct.connector_track_identifier
+            # The live mapping already names its connector track's database
+            # id, which is what the election is keyed on — no round trip
+            # through the external identifier and back.
+            _ = await connector_repo.ensure_primaries(
+                [
+                    PrimaryCandidate(
+                        owner_id=command.track_id,
+                        connector_name=mapping.connector_name,
+                        connector_id=mapping.connector_track_id,
+                    )
+                ],
+                mode="reset",
             )
             await uow.commit()

@@ -225,8 +225,8 @@ def _resolution_event(conn: Conn, *, user_id: str, track_id: UUID) -> UUID:
     event_id = uuid4()
     conn.execute(
         "INSERT INTO resolution_events (id, user_id, track_id, event_type,"
-        " matcher_version, payload, recorded_at, decided_at)"
-        " VALUES (%s, %s, %s, 'matched', 'v1', %s, %s, %s)",
+        " entity_kind, matcher_version, payload, recorded_at, decided_at)"
+        " VALUES (%s, %s, %s, 'matched', 'track', 'v1', %s, %s, %s)",
         (event_id, user_id, track_id, json.dumps({}), _OLD, _OLD),
     )
     return event_id
