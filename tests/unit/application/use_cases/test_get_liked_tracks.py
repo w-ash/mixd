@@ -88,14 +88,12 @@ class TestGetLikedTracksUseCase:
             TrackLike(
                 track_id=1,
                 service="spotify",
-                is_liked=True,
                 liked_at=datetime(2024, 1, 1, tzinfo=UTC),
                 user_id=TEST_USER_ID,
             ),
             TrackLike(
                 track_id=2,
                 service="spotify",
-                is_liked=True,
                 liked_at=datetime(2024, 1, 2, tzinfo=UTC),
                 user_id=TEST_USER_ID,
             ),
@@ -146,7 +144,7 @@ class TestGetLikedTracksUseCase:
         # Verify repository was called with sort_by parameter
         like_repo = mock_uow.get_like_repository.return_value
         like_repo.get_all_liked_tracks.assert_called_once_with(
-            service="spotify", is_liked=True, sort_by="title_asc", user_id="test-user"
+            service="spotify", sort_by="title_asc", user_id="test-user"
         )
 
     async def test_execute_queries_mixd_when_no_filter(self, mock_uow):
@@ -159,7 +157,7 @@ class TestGetLikedTracksUseCase:
         # Verify repository was called once for the canonical "mixd" service
         like_repo = mock_uow.get_like_repository.return_value
         like_repo.get_all_liked_tracks.assert_called_once_with(
-            service="mixd", is_liked=True, sort_by="liked_at_desc", user_id="test-user"
+            service="mixd", sort_by="liked_at_desc", user_id="test-user"
         )
 
     async def test_execute_respects_limit(self, mock_uow, sample_likes):

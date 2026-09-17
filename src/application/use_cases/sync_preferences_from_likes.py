@@ -61,7 +61,7 @@ class SyncPreferencesFromLikesUseCase:
             desired: dict[UUID, tuple[PreferenceState, datetime]] = {}
             for service, state in SERVICE_PREFERENCE.items():
                 likes = await like_repo.get_all_liked_tracks(
-                    service, user_id=command.user_id, is_liked=True
+                    service, user_id=command.user_id
                 )
                 for like in likes:
                     liked_at = like.liked_at or datetime.now(UTC)

@@ -144,13 +144,13 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 stacklevel=2,
             )
 
-        # Process likes into connector metadata
+        # A like row is presence: its existence marks the service as liked.
         for like in active_likes:
             service = like.service
             if service not in connector_metadata:
                 connector_metadata[service] = {}
 
-            connector_metadata[service]["is_liked"] = like.is_liked
+            connector_metadata[service]["is_liked"] = True
             if like.liked_at:
                 connector_metadata[service]["liked_at"] = like.liked_at.isoformat()
 

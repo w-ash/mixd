@@ -224,14 +224,12 @@ def show_track(
 
         # Like status
         if result.like_status:
-            like_table = Table(title="Like Status")
+            like_table = Table(title="Liked On")
             like_table.add_column("Service", style="cyan")
-            like_table.add_column("Liked", style="green")
             like_table.add_column("Liked At", style="dim")
             for service, info in result.like_status.items():
                 like_table.add_row(
                     service,
-                    "Yes" if info.is_liked else "No",
                     str(info.liked_at) if info.liked_at else "—",
                 )
             console.print(like_table)

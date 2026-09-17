@@ -140,14 +140,16 @@ class Track:
 
 @define(frozen=True, slots=True)
 class TrackLike:
-    """Immutable representation of a track like/love interaction."""
+    """A track liked on one service.
+
+    A like is a presence row: it exists while the track is liked on the
+    service and is deleted when it is not. There is no tombstone state.
+    """
 
     track_id: UUID
     service: str  # 'spotify', 'lastfm', 'mixd'
     user_id: str
-    is_liked: bool = True  # Default to liked since most cases create likes
     liked_at: datetime | None = None
-    last_synced: datetime | None = None
     updated_at: datetime | None = None
     id: UUID = field(factory=uuid7)
 

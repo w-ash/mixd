@@ -508,7 +508,7 @@ class TestDisconnectPreservesSiblingData:
                 )
             )
             await uow.get_like_repository().save_track_likes_batch(
-                [(saved_track.id, "spotify", True, None, None)], user_id="default"
+                [(saved_track.id, "spotify", None)], user_id="default"
             )
             await uow.get_connector_play_repository().bulk_insert_connector_plays([
                 ConnectorTrackPlay(

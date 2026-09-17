@@ -57,7 +57,6 @@ async def _like_track(
     like = DBTrackLike(
         track_id=track_id,
         service=service,
-        is_liked=True,
         liked_at=datetime.now(UTC),
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),

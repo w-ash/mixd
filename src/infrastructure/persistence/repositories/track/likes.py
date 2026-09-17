@@ -1,16 +1,24 @@
-"""Track repository for like operations."""
+"""Track repository for like operations.
+
+A like is a presence row: ``(user_id, track_id, service)`` exists while the
+track is liked on that service. Liking is an upsert, unliking is a delete,
+and every read is a presence check.
+"""
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, exists, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities import TrackLike
 from src.infrastructure.persistence.database.db_models import DBTrackLike
-from src.infrastructure.persistence.repositories.base_repo import BaseRepository
+from src.infrastructure.persistence.repositories.base_repo import (
+    BaseRepository,
+    rows_affected,
+)
 from src.infrastructure.persistence.repositories.mappers import SimpleMapperFactory
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
@@ -60,18 +68,19 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         services: list[str],
         *,
         user_id: str,
-    ) -> dict[UUID, dict[str, bool]]:
-        """Check like status for multiple tracks across services in 1 query."""
+    ) -> dict[UUID, set[str]]:
+        """Find which of the given services each track is liked on, in 1 query."""
         if not track_ids:
             return {}
-        likes = await self.find_by([
-            self.model_class.track_id.in_(track_ids),
-            self.model_class.service.in_(services),
-            self.model_class.user_id == user_id,
-        ])
-        result: dict[UUID, dict[str, bool]] = {}
-        for like in likes:
-            result.setdefault(like.track_id, {})[like.service] = like.is_liked
+        stmt = select(DBTrackLike.track_id, DBTrackLike.service).where(
+            DBTrackLike.track_id.in_(track_ids),
+            DBTrackLike.service.in_(services),
+            DBTrackLike.user_id == user_id,
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        result: dict[UUID, set[str]] = {}
+        for track_id, service in rows:
+            result.setdefault(track_id, set()).add(service)
         return result
 
     @db_operation("count_liked_tracks")
@@ -80,12 +89,10 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         service: str,
         *,
         user_id: str,
-        is_liked: bool = True,
     ) -> int:
-        """Count tracks with the given like status for a service, scoped to user."""
+        """Count liked tracks for a service, scoped to user."""
         stmt = self.count([
             self.model_class.service == service,
-            self.model_class.is_liked == is_liked,
             self.model_class.user_id == user_id,
         ])
         result = await self.session.execute(stmt)
@@ -97,7 +104,6 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         services: Sequence[str],
         *,
         user_id: str,
-        is_liked: bool = True,
     ) -> dict[str, int]:
         """Count likes per service in one grouped query, scoped to user.
 
@@ -112,7 +118,6 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             select(DBTrackLike.service, func.count())
             .where(
                 DBTrackLike.service.in_(services),
-                DBTrackLike.is_liked == is_liked,
                 DBTrackLike.user_id == user_id,
             )
             .group_by(DBTrackLike.service)
@@ -127,13 +132,11 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         service: str,
         *,
         user_id: str,
-        is_liked: bool = True,
         sort_by: str | None = None,
     ) -> list[TrackLike]:
         """Get all tracks liked on a specific service, scoped to user."""
         conditions = [
             self.model_class.service == service,
-            self.model_class.is_liked == is_liked,
             self.model_class.user_id == user_id,
         ]
 
@@ -172,77 +175,57 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         target_service: str,
         *,
         user_id: str,
-        is_liked: bool = True,
         since_timestamp: datetime | None = None,
     ) -> list[TrackLike]:
-        """Get tracks liked in source_service but not in target_service, scoped to user."""
-        # First get all source tracks with the requested like status
-        source_conditions = [
-            self.model_class.service == source_service,
-            self.model_class.is_liked == is_liked,
-            self.model_class.user_id == user_id,
-        ]
+        """Get tracks liked in source_service with no like in target_service.
 
+        One anti-join: a source row qualifies when no row for the same user
+        and track exists on the target service.
+        """
+        target = DBTrackLike.__table__.alias("target")
+        on_target = exists().where(
+            target.c.user_id == DBTrackLike.user_id,
+            target.c.track_id == DBTrackLike.track_id,
+            target.c.service == target_service,
+        )
+        conditions = [
+            DBTrackLike.service == source_service,
+            DBTrackLike.user_id == user_id,
+            ~on_target,
+        ]
         if since_timestamp:
-            source_conditions.append(self.model_class.updated_at >= since_timestamp)
+            conditions.append(DBTrackLike.updated_at >= since_timestamp)
 
-        source_likes = await self.find_by(source_conditions)
-
-        if not source_likes:
-            return []
-
-        # Get track IDs that need syncing
-        track_ids = [like.track_id for like in source_likes]
-
-        # Find target likes for these tracks
-        target_likes = await self.find_by([
-            self.model_class.service == target_service,
-            self.model_class.track_id.in_(track_ids),
-            self.model_class.user_id == user_id,
-        ])
-
-        # Create lookup dict of target likes by track_id
-        target_likes_dict = {like.track_id: like for like in target_likes}
-
-        # Filter source likes that need syncing to target
-        return [
-            like
-            for like in source_likes
-            if like.track_id not in target_likes_dict
-            or target_likes_dict[like.track_id].is_liked != is_liked
-        ]
+        return await self.find_by(conditions)
 
     @db_operation("save_track_likes_batch")
     async def save_track_likes_batch(
         self,
-        likes: list[tuple[UUID, str, bool, datetime | None, datetime | None]],
+        likes: list[tuple[UUID, str, datetime | None]],
         *,
         user_id: str,
     ) -> list[TrackLike]:
-        """Save multiple track likes in bulk.
+        """Insert or refresh like rows in bulk.
 
         Args:
-            likes: List of (track_id, service, is_liked, last_synced, liked_at) tuples.
+            likes: List of (track_id, service, liked_at) tuples. A ``None``
+                ``liked_at`` is stamped with the current time.
             user_id: Owner's user ID.
 
         Returns:
             List of saved TrackLike domain objects.
         """
         now = datetime.now(UTC)
-        entities: list[dict[str, object]] = []
-
-        for track_id, service, is_liked, last_synced, liked_at in likes:
-            entity: dict[str, object] = {
+        entities: list[dict[str, object]] = [
+            {
                 "user_id": user_id,
                 "track_id": track_id,
                 "service": service,
-                "is_liked": is_liked,
                 "updated_at": now,
-                "liked_at": (liked_at or now) if is_liked else None,
+                "liked_at": liked_at or now,
             }
-            if last_synced:
-                entity["last_synced"] = last_synced
-            entities.append(entity)
+            for track_id, service, liked_at in likes
+        ]
 
         if not entities:
             return []
@@ -251,3 +234,19 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             entities=entities,
             lookup_keys=["user_id", "track_id", "service"],
         )
+
+    @db_operation("delete_track_likes_batch")
+    async def delete_track_likes_batch(
+        self,
+        likes: list[tuple[UUID, str]],
+        *,
+        user_id: str,
+    ) -> int:
+        """Delete like rows in bulk; pairs with no row are ignored."""
+        if not likes:
+            return 0
+        stmt = delete(DBTrackLike).where(
+            DBTrackLike.user_id == user_id,
+            tuple_(DBTrackLike.track_id, DBTrackLike.service).in_(likes),
+        )
+        return rows_affected(await self.session.execute(stmt))

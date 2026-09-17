@@ -187,6 +187,9 @@ def make_mock_like_repo(**overrides) -> AsyncMock:
     repo.save_track_likes_batch.return_value = overrides.pop(
         "save_track_likes_batch", []
     )
+    repo.delete_track_likes_batch.return_value = overrides.pop(
+        "delete_track_likes_batch", 0
+    )
     repo.get_liked_status_batch.return_value = overrides.pop(
         "get_liked_status_batch", {}
     )

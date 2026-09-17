@@ -7,7 +7,7 @@ connector access and custom persistence logic.
 """
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 from src.application.connector_protocols import LibraryContainsConnector
@@ -67,28 +67,41 @@ async def enrich_spotify_liked_status(
     # 1. Check saved status via Spotify API
     saved_status = await connector.check_library_contains(list(uri_to_idx))
 
-    # 2. Update in-memory metadata + build persistence batch in one pass
+    # 2. Update in-memory metadata + build persistence batches in one pass.
+    # Likes are presence rows: a saved track gets a row, an unsaved one loses it.
     updated_tracks = list(tracklist.tracks)
-    now = datetime.now(UTC)
-    likes_to_save: list[tuple[UUID, str, bool, datetime | None, datetime | None]] = []
+    likes_to_save: list[tuple[UUID, str, datetime | None]] = []
+    likes_to_delete: list[tuple[UUID, str]] = []
     for uri, is_saved in saved_status.items():
         idx = uri_to_idx[uri]
         updated_tracks[idx] = updated_tracks[idx].with_connector_metadata(
             "spotify", {"is_liked": is_saved}
         )
         track = updated_tracks[idx]
-        likes_to_save.append((track.id, "spotify", is_saved, now, None))
+        if is_saved:
+            likes_to_save.append((track.id, "spotify", None))
+        else:
+            likes_to_delete.append((track.id, "spotify"))
 
-    if likes_to_save:
+    if likes_to_save or likes_to_delete:
         user_id = workflow_context.user_id
 
         async def _persist_likes(uow: UnitOfWorkProtocol) -> None:
             like_repo = uow.get_like_repository()
-            await like_repo.save_track_likes_batch(likes_to_save, user_id=user_id)
+            if likes_to_save:
+                await like_repo.save_track_likes_batch(likes_to_save, user_id=user_id)
+            if likes_to_delete:
+                await like_repo.delete_track_likes_batch(
+                    likes_to_delete, user_id=user_id
+                )
             await uow.commit()
 
         await workflow_context.execute_service(_persist_likes)
-        logger.info(f"Persisted {len(likes_to_save)} track like statuses to database")
+        logger.info(
+            "Persisted track like statuses to database",
+            saved=len(likes_to_save),
+            removed=len(likes_to_delete),
+        )
 
     logger.info(
         "Liked status enrichment complete",

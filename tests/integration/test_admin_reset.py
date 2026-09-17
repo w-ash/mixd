@@ -33,9 +33,7 @@ async def test_truncate_removes_all_data_tables(db_session: AsyncSession):
     await db_session.flush()
 
     db_session.add(
-        DBTrackLike(
-            track_id=track.id, service="spotify", is_liked=True, user_id=TEST_USER_ID
-        )
+        DBTrackLike(track_id=track.id, service="spotify", user_id=TEST_USER_ID)
     )
     await db_session.flush()
 
