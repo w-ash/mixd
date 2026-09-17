@@ -97,8 +97,12 @@ class DatabaseModel(AsyncAttrs, DeclarativeBase):
 
     # SQLAlchemy stubs declare type_annotation_map as dict[Any, Any]; the runtime
     # match is by key shape (JsonDict here), the value side typing is informational.
+    # ``datetime`` maps to timestamptz so a bare ``Mapped[datetime]`` matches the
+    # migrations (which have always used ``DateTime(timezone=True)``) instead of
+    # SQLAlchemy's naive default.
     type_annotation_map: ClassVar[dict[Any, Any]] = {  # pyright: ignore[reportExplicitAny]  # SQLAlchemy stub shape
         JsonDict: PgJsonb,
+        datetime: DateTime(timezone=True),
     }
 
     id: Mapped[UuidType] = mapped_column(
@@ -358,7 +362,11 @@ class DBConnectorTrack(BaseEntity):
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
-        UniqueConstraint("connector_name", "connector_track_identifier"),
+        UniqueConstraint(
+            "connector_name",
+            "connector_track_identifier",
+            name="uq_connector_tracks_connector_name",
+        ),
         Index(None, "connector_name", "isrc"),
     )
 
@@ -729,10 +737,13 @@ class DBTrackMetric(BaseEntity):
 
     __tablename__: str = "track_metrics"
     __table_args__: tuple[SchemaItem, ...] = (
-        # Create a unique constraint - let naming convention handle the name
-        UniqueConstraint("track_id", "connector_name", "metric_type"),
-        # Keep the lookup index
-        Index(None, "track_id", "connector_name", "metric_type"),
+        # The unique index doubles as the lookup index.
+        UniqueConstraint(
+            "track_id",
+            "connector_name",
+            "metric_type",
+            name="uq_track_metrics_track_id",
+        ),
     )
 
     user_id: Mapped[str] = mapped_column(
@@ -765,7 +776,9 @@ class DBTrackLike(BaseEntity):
 
     __tablename__: str = "track_likes"
     __table_args__: tuple[SchemaItem, ...] = (
-        UniqueConstraint("user_id", "track_id", "service"),
+        UniqueConstraint(
+            "user_id", "track_id", "service", name="uq_track_likes_user_track_service"
+        ),
         Index(None, "service", "is_liked"),
     )
 
@@ -988,7 +1001,11 @@ class DBPlaylist(BaseEntity):
     __tablename__: str = "playlists"
 
     user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
+        String(),
+        nullable=False,
+        default="default",
+        server_default="default",
+        index=True,
     )
     name: Mapped[str] = mapped_column(String())
     description: Mapped[str | None] = mapped_column(String(1000))
@@ -1040,7 +1057,11 @@ class DBConnectorPlaylist(BaseEntity):
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
-        UniqueConstraint("connector_name", "connector_playlist_identifier"),
+        UniqueConstraint(
+            "connector_name",
+            "connector_playlist_identifier",
+            name="uq_connector_playlists_connector_name",
+        ),
     )
 
 
@@ -1145,7 +1166,9 @@ class DBPlaylistTrack(BaseEntity):
 
     __tablename__: str = "playlist_tracks"
     __table_args__: tuple[SchemaItem, ...] = (
-        Index(None, "playlist_id", "sort_key"),
+        # FK indexes as migration 014 created them.
+        Index("ix_playlist_tracks_playlist_id", "playlist_id"),
+        Index("ix_playlist_tracks_track_id", "track_id"),
         # Every membership row is either RESOLVED (track_id set) or UNRESOLVED
         # with a display snapshot (unresolved_metadata set). A position can never
         # be a pure hole — this is the structural guarantee that an imported
@@ -1457,8 +1480,11 @@ class DBOAuthState(DatabaseModel):
     """
 
     __tablename__: str = "oauth_states"
+    __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint("state", name="uq_oauth_states_state"),
+    )
 
-    state: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    state: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[str] = mapped_column(String(), nullable=False)
     service: Mapped[str] = mapped_column(String(32), nullable=False)
     code_verifier: Mapped[str | None] = mapped_column(String())
@@ -1500,7 +1526,9 @@ class DBSyncCheckpoint(BaseEntity):
 
     __tablename__: str = "sync_checkpoints"
     __table_args__: tuple[SchemaItem, ...] = (
-        UniqueConstraint("user_id", "service", "entity_type"),
+        UniqueConstraint(
+            "user_id", "service", "entity_type", name="uq_sync_checkpoints_user_id"
+        ),
     )
 
     user_id: Mapped[str] = mapped_column(String(), nullable=False)
@@ -1609,7 +1637,9 @@ class DBTrackTag(BaseEntity):
     # migration c602c5a08631 only — it requires the pg_trgm extension and
     # would fail with metadata.create_all() in test fixtures.
     __table_args__: tuple[SchemaItem, ...] = (
-        UniqueConstraint("user_id", "track_id", "tag"),
+        UniqueConstraint(
+            "user_id", "track_id", "tag", name="uq_track_tags_user_id_track_id_tag"
+        ),
         Index("ix_track_tags_user_id_tag", "user_id", "tag"),
         Index("ix_track_tags_user_id_namespace", "user_id", "namespace"),
         Index("ix_track_tags_user_id_tagged_at", "user_id", "tagged_at"),
@@ -1767,6 +1797,13 @@ class DBOperationRun(BaseEntity):
     __tablename__: str = "operation_runs"
     __table_args__: tuple[SchemaItem, ...] = (
         Index("ix_operation_runs_user_id_started_at", "user_id", "started_at"),
+        # Migration 048: the startup reaper and the busy probe scan running rows
+        # bounded by started_at; the partial index stays tiny as history grows.
+        Index(
+            "ix_operation_runs_running_started_at",
+            "started_at",
+            postgresql_where=text("status = 'running'"),
+        ),
     )
 
     user_id: Mapped[str] = mapped_column(
@@ -1981,8 +2018,11 @@ class DBOAuthClient(BaseEntity):
     """
 
     __tablename__: str = "oauth_clients"
+    __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint("client_id", name="uq_oauth_clients_client_id"),
+    )
 
-    client_id: Mapped[str] = mapped_column(String(), nullable=False, unique=True)
+    client_id: Mapped[str] = mapped_column(String(), nullable=False)
     kind: Mapped[str] = mapped_column(String(), nullable=False)
     client_info: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
 
@@ -2011,8 +2051,11 @@ class DBOAuthAuthorizationCode(BaseEntity):
     """
 
     __tablename__: str = "oauth_authorization_codes"
+    __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint("code_hash", name="uq_oauth_authorization_codes_code_hash"),
+    )
 
-    code_hash: Mapped[str] = mapped_column(String(), nullable=False, unique=True)
+    code_hash: Mapped[str] = mapped_column(String(), nullable=False)
     client_id: Mapped[str] = mapped_column(String(), nullable=False)
     user_id: Mapped[str] = mapped_column(String(), nullable=False)
     email: Mapped[str] = mapped_column(String(), nullable=False)
@@ -2037,10 +2080,11 @@ class DBOAuthRefreshToken(BaseEntity):
 
     __tablename__: str = "oauth_refresh_tokens"
     __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint("token_hash", name="uq_oauth_refresh_tokens_token_hash"),
         Index("ix_oauth_refresh_tokens_family_id", "family_id"),
     )
 
-    token_hash: Mapped[str] = mapped_column(String(), nullable=False, unique=True)
+    token_hash: Mapped[str] = mapped_column(String(), nullable=False)
     family_id: Mapped[UuidType] = mapped_column(PgUuidCol(as_uuid=True), nullable=False)
     client_id: Mapped[str] = mapped_column(String(), nullable=False)
     user_id: Mapped[str] = mapped_column(String(), nullable=False)

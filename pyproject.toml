@@ -12,7 +12,7 @@ requires-python = ">=3.14,<3.15"
 # and buys an honest manifest — `pyproject.toml` states what we actually run against
 # rather than the oldest version that once happened to work.
 dependencies = [
-    "sqlalchemy[asyncio]>=2.0.51",
+    "sqlalchemy[asyncio]>=2.0.51,<2.1",
     "alembic>=1.19.1",
     # Pydantic's stewarded continuation of httpx (encode/httpx has had no release
     # since 2024). Starlette's TestClient already prefers it and mcp v2 requires it,
