@@ -19,7 +19,7 @@ from src.domain.entities.playlist import ConnectorPlaylist, ConnectorPlaylistIte
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.entities.track import Artist, ConnectorTrack
 from src.domain.playlist.diff_engine import PlaylistOpsOutcome
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
     DBPlaylist,
     DBPlaylistMapping,

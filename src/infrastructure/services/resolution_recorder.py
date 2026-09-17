@@ -45,13 +45,13 @@ from src.domain.repositories.resolution import (
     ResolutionRecorderProtocol,
     SupersessionEdge,
 )
-from src.infrastructure.persistence.database.db_models import (
-    DBConnectorTrack,
-    DBTrackMapping,
-)
 from src.infrastructure.persistence.database.live_rows import (
     expire_mapping_identity,
     live_only,
+)
+from src.infrastructure.persistence.database.models import (
+    DBConnectorTrack,
+    DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     build_connector_track_row,

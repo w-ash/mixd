@@ -27,6 +27,7 @@ from sqlalchemy.pool import ConnectionPoolEntry
 
 from src.config import get_logger
 from src.config.telemetry import record_statement
+from src.infrastructure.persistence.database.models import DatabaseModel
 
 logger = get_logger(__name__)
 
@@ -274,8 +275,6 @@ async def init_db() -> None:
     Creates all tables if they don't exist.
     This is a safe operation that won't affect existing data.
     """
-    from src.infrastructure.persistence.database.db_models import DatabaseModel
-
     db_engine = get_engine()
 
     try:

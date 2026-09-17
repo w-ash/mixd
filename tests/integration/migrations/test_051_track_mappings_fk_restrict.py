@@ -1,7 +1,7 @@
 """End-to-end test for migration 051 (track_mappings FK RESTRICT).
 
 Everything 051 changes is a referential action, which ``metadata.create_all``
-would happily reproduce from ``db_models.py`` without ever proving the DDL runs
+would happily reproduce from ``database/models/mapping.py`` without ever proving the DDL runs
 — so this drives the real chain against a throwaway container instead, the same
 way 044/050 do. The behaviour under test is what the database does when a
 *delete* arrives from outside the repository layer: the v0.10.3 guard in
@@ -49,7 +49,7 @@ pytestmark = pytest.mark.slow
 @pytest.fixture
 def migration_db(monkeypatch: pytest.MonkeyPatch):
     """A throwaway Postgres whose schema is owned by Alembic, not ``create_all``."""
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.community.postgres import PostgresContainer
 
     with PostgresContainer("postgres:17-alpine") as pg:
         url = pg.get_connection_url().replace("psycopg2://", "psycopg://")

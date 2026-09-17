@@ -194,7 +194,7 @@ from src.domain.matching.recording_identity import (
 from src.domain.repositories.resolution import SupersessionEdge
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBMatchReview,
     DBResolutionNegative,
     DBTrack,

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist
 from src.domain.entities.playlist import ConnectorPlaylistSummary
-from src.infrastructure.persistence.database.db_models import DBConnectorPlaylist
+from src.infrastructure.persistence.database.models import DBConnectorPlaylist
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.playlist.mapper import (
     ConnectorPlaylistMapper,

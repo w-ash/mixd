@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 
 
 class TestUserIdHasNoDefault:

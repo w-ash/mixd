@@ -36,7 +36,7 @@ from src.domain.exceptions import (
     ScheduleAlreadyExistsError,
     ScheduleInvariantError,
 )
-from src.infrastructure.persistence.database.db_models import DBSchedule
+from src.infrastructure.persistence.database.models import DBSchedule
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
     rows_affected,

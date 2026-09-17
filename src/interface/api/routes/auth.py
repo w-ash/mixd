@@ -62,7 +62,7 @@ async def _create_state(
     which user initiated the OAuth flow. Also prunes expired rows.
     """
     from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.database.db_models import DBOAuthState
+    from src.infrastructure.persistence.database.models import DBOAuthState
     from src.infrastructure.persistence.database.user_context import user_context
 
     state = secrets.token_urlsafe(32)
@@ -105,7 +105,7 @@ async def validate_state(
     connector's flow never authenticates another's callback.
     """
     from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.database.db_models import DBOAuthState
+    from src.infrastructure.persistence.database.models import DBOAuthState
     from src.infrastructure.persistence.database.user_context import system_context
 
     if not state:

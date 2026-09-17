@@ -7,7 +7,7 @@ returns ``[]`` / ``None`` rather than emitting a lazy SELECT, which is what lets
 mappers stay pure (await-free) over eager-loaded state.
 """
 
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBPlaylist,
     DBPlaylistTrack,
     DBTrack,

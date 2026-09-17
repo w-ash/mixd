@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.constants import SSEConstants
 from src.infrastructure.persistence.database.db_connection import get_engine
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBPlaySource,
     DBTrackPlay,

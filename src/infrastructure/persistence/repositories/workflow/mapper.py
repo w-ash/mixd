@@ -6,7 +6,7 @@ import attrs
 from attrs import define
 
 from src.domain.entities.workflow import Workflow, parse_workflow_def
-from src.infrastructure.persistence.database.db_models import DBWorkflow
+from src.infrastructure.persistence.database.models import DBWorkflow
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
 

@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorMappingSpec
-from src.infrastructure.persistence.database.db_models import DBTrack, DBTrackMapping
 from src.infrastructure.persistence.database.live_rows import live_only
+from src.infrastructure.persistence.database.models import DBTrack, DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_connector_track, make_track
 

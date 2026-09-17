@@ -10,7 +10,7 @@ from sqlalchemy.dialects import postgresql
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.domain.repositories.errors import IdentityKeyClaimedError
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.core import (
     build_title_artist_probe,

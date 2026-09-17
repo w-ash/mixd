@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from src.domain.entities.playlist_assignment import (
     PlaylistAssignment,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
     DBTrack,
 )

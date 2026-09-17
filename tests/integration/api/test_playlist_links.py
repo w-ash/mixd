@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 import httpx2
 
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
     DBPlaylistMapping,
 )

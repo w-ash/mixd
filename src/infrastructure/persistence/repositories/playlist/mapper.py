@@ -22,7 +22,7 @@ from src.domain.entities import (
 )
 from src.domain.entities.playlist import ConnectorPlaylistSummary
 from src.domain.entities.shared import JsonDict
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
     DBConnectorTrack,
     DBPlaylist,

@@ -23,7 +23,7 @@ from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
 )
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import DBOAuthToken
+from src.infrastructure.persistence.database.models import DBOAuthToken
 from src.infrastructure.persistence.database.user_context import user_context
 from src.infrastructure.persistence.repositories.token_encryption import (
     SENSITIVE_FIELDS,

@@ -12,7 +12,7 @@ from src.domain.entities.playlist_assignment import (
     PlaylistAssignment,
     PlaylistAssignmentMember,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBPlaylistAssignment,
     DBPlaylistAssignmentMember,
 )

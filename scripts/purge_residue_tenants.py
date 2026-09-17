@@ -177,7 +177,7 @@ _STATEMENT_TIMEOUT: str = "300s"
 # ids the column may hold — empty means "not a row reference at all".
 #
 # ``schedules.last_run_id`` is polymorphic on purpose (see the column comment in
-# ``db_models.py``): a workflow schedule stores a ``workflow_runs.id``, a sync
+# ``database/models/``): a workflow schedule stores a ``workflow_runs.id``, a sync
 # schedule an ``operation_runs.id``, and no single FK can express that.
 _BY_VALUE_REFERENCES: Mapping[tuple[str, str], tuple[str, ...]] = {
     ("resolution_events", "track_id"): ("tracks",),

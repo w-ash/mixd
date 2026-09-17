@@ -34,7 +34,7 @@ from src.application.use_cases.import_play_history import (
 from src.domain.entities import PlayRecord
 from src.domain.entities.operations import ConnectorTrackPlay, TrackPlay
 from src.domain.repositories.play import PlayResolutionOutcome
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBTrackPlay,
 )

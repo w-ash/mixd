@@ -36,7 +36,7 @@ from src.domain.entities.progress import NullProgressEmitter
 from src.domain.repositories.play import PlayResolutionOutcome, SpotifyImportParams
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify.play_importer import SpotifyPlayImporter
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBTrackPlay,
 )

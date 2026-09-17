@@ -11,7 +11,7 @@ from src.config import get_logger
 from src.domain.entities.operation_run import OperationRun, OperationStatus
 from src.domain.entities.shared import JsonDict
 from src.domain.repositories.operation_run import OPERATION_RUN_SORT
-from src.infrastructure.persistence.database.db_models import DBOperationRun
+from src.infrastructure.persistence.database.models import DBOperationRun
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.mappers import SimpleMapperFactory
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation

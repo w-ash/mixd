@@ -21,7 +21,7 @@ from src.domain.entities.workflow import (
     WorkflowRunNode,
     WorkflowTaskDef,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBPlaylist,
     DBPlaylistTrack,
     DBTrack,

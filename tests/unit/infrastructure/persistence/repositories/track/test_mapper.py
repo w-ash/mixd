@@ -12,7 +12,7 @@ from uuid import uuid7
 
 import pytest
 
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
     DBTrackMapping,

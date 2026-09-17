@@ -32,7 +32,7 @@ from src.infrastructure.connectors.apple_music.models import (
     AppleMusicSongAttributes,
 )
 from src.infrastructure.persistence.database.db_connection import get_engine
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBTrackPlay,
     metadata,

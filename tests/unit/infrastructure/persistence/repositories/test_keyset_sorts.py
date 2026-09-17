@@ -13,7 +13,7 @@ from src.domain.repositories.keyset import KeysetSort
 from src.domain.repositories.operation_run import OPERATION_RUN_SORT
 from src.domain.repositories.play import PLAY_EVENT_SORT
 from src.domain.repositories.track import TRACK_SORTS, TrackSortBy
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DatabaseModel,
     DBOperationRun,
     DBTrack,

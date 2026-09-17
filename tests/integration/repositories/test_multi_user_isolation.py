@@ -352,7 +352,7 @@ class TestOAuthTokenIsolation:
     async def test_load_token_scoped(self, db_session):
         from sqlalchemy import select
 
-        from src.infrastructure.persistence.database.db_models import DBOAuthToken
+        from src.infrastructure.persistence.database.models import DBOAuthToken
         from src.infrastructure.persistence.repositories.token_encryption import (
             encrypt_field,
         )

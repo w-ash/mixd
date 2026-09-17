@@ -21,7 +21,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyArtist,
     SpotifyTrack,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBTrack,
     DBTrackMapping,
 )

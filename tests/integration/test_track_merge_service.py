@@ -15,7 +15,8 @@ from src.application.use_cases.rebuild_play_history import (
 from src.domain.entities import ConnectorTrackPlay
 from src.domain.entities.preference import PreferenceEvent, TrackPreference
 from src.domain.exceptions import NotFoundError
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBConnectorTrack,
     DBPlaySource,
@@ -25,7 +26,6 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
     DBTrackPlay,
 )
-from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
@@ -406,7 +406,7 @@ class TestTrackMergePreferences:
         # Query events table directly — no domain method for raw fetch
         from sqlalchemy import select
 
-        from src.infrastructure.persistence.database.db_models import (
+        from src.infrastructure.persistence.database.models import (
             DBTrackPreferenceEvent,
         )
 

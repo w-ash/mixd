@@ -17,7 +17,7 @@ from src.domain.entities.playlist import (
     Playlist,
     PlaylistEntry,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBPlaylistTrack,
 )

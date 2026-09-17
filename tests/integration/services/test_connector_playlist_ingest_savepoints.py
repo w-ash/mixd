@@ -49,7 +49,7 @@ from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack
 from src.domain.entities.track import Track
 from src.domain.repositories.errors import LOCK_NOT_AVAILABLE, postgres_sqlstate
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
 from src.infrastructure.persistence.repositories.track.ingest_lock import (

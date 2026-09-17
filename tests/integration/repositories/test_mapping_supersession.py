@@ -21,12 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.domain.repositories.connector import ConnectorMappingSpec
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
+from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
     TrackMappingRepository,

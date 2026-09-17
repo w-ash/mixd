@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
     DBPlaylist,
     DBPlaylistMapping,

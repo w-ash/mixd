@@ -61,16 +61,16 @@ from src.domain.repositories.resolution import (
     ResolutionRecorderProtocol,
     SupersessionEdge,
 )
-from src.infrastructure.persistence.database.db_models import (
-    DBConnectorTrack,
-    DBResolutionNegative,
-    DBTrack,
-    DBTrackMapping,
-)
 from src.infrastructure.persistence.database.live_rows import (
     INCLUDE_SUPERSEDED,
     expire_mapping_identity,
     live_only,
+)
+from src.infrastructure.persistence.database.models import (
+    DBConnectorTrack,
+    DBResolutionNegative,
+    DBTrack,
+    DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     DENORMALIZED_ID_COLUMNS,

@@ -6,20 +6,24 @@ user-invocable: false
 
 # Mixd Database Schema Reference
 
-> **Table/column truth is the code**: `src/infrastructure/persistence/database/db_models.py`. Verify counts with `grep -c "^class DB" db_models.py` before citing them. This skill carries the *semantics* the code can't show at a glance — RLS, cascades, migration-only DDL, session mechanics.
-> Verified 2026-07-03 · migration head `033` · 29 model classes. (The previous revision said 28 — `playlist_sync_bases` had been added without updating this file. If the counts above don't match reality, re-verify everything else here too.)
+> **Table/column truth is the code**: `src/infrastructure/persistence/database/models/`, one module per aggregate (`base.py` holds `DatabaseModel`/`BaseEntity`; the package `__init__` is the only import path). Verify counts with `grep -c "^class DB" src/infrastructure/persistence/database/models/*.py` before citing them. This skill carries the *semantics* the code can't show at a glance — RLS, cascades, migration-only DDL, session mechanics.
+> Verified 2026-09-17 · migration head `057` · 38 model classes. (If the counts don't match reality, re-verify everything else here too.) Cross-module relationships are deferred annotations (PEP 649) resolved by class name through the shared registry; `tests/integration/test_schema_gates.py` (`slow`) fails the build if a module drops out of the registry or the ORM drifts from the migrations.
 
 PostgreSQL 17 via psycopg3 — Neon serverless in prod, testcontainers `postgres:17-alpine` in tests. Tables inherit `BaseEntity` → `id` (UUID PK), `created_at`, `updated_at`; exceptions: `workflow_run_nodes` (id only), `oauth_states` (id + created_at only).
 
-## Table inventory (29, grouped)
+## Table inventory (38, by model module)
 
-| Group | Tables |
-|-------|--------|
-| Track core | tracks, connector_tracks, track_mappings, match_reviews, track_metrics, track_likes, track_plays, connector_plays |
-| Playlists | playlists, connector_playlists, playlist_mappings, playlist_tracks, playlist_sync_bases, playlist_assignments, playlist_assignment_members |
-| Preferences & tags | track_preferences, track_preference_events, track_tags, track_tag_events |
-| Workflows & ops | workflows, workflow_versions, workflow_runs, workflow_run_nodes, schedules, operation_runs |
-| Auth & state | oauth_tokens, oauth_states, user_settings, sync_checkpoints |
+| Module | Tables |
+|--------|--------|
+| `track.py` | tracks, connector_tracks, track_metrics, track_likes, track_preferences, track_preference_events, track_tags, track_tag_events |
+| `mapping.py` | track_mappings, match_reviews |
+| `resolution.py` | resolution_events, resolution_negatives |
+| `play.py` | track_plays, connector_plays, play_sources |
+| `playlist.py` | playlists, connector_playlists, playlist_mappings, playlist_tracks, playlist_sync_bases, playlist_assignments, playlist_assignment_members |
+| `workflow.py` | workflows, workflow_versions, workflow_runs, workflow_run_nodes |
+| `schedule.py` / `operation_run.py` | schedules; operation_runs |
+| `auth.py` | oauth_tokens, oauth_states, oauth_clients, oauth_authorization_requests, oauth_authorization_codes, oauth_refresh_tokens |
+| `user_settings.py` / `sync.py` / `chat.py` | user_settings; sync_checkpoints; chat_feedback, pending_actions |
 
 ## Semantic gotchas by table (constraints the code shows but you'll miss)
 

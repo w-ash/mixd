@@ -12,7 +12,7 @@ from uuid import uuid4
 import sqlalchemy as sa
 
 from src.domain.entities import ConnectorTrackPlay
-from src.infrastructure.persistence.database.db_models import DBConnectorPlay
+from src.infrastructure.persistence.database.models import DBConnectorPlay
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_track
 

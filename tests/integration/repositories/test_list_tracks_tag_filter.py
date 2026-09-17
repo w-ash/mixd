@@ -7,7 +7,7 @@ subquery returns only tracks carrying EVERY listed tag.
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
 from src.infrastructure.persistence.repositories.track.tags import TrackTagRepository
 from tests.fixtures import make_track_tag

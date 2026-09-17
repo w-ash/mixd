@@ -51,14 +51,14 @@ from src.domain.services.resolution_retry import (
     NO_MATCH_BACKOFF,
     next_no_match_check,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.live_rows import live_only
+from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBResolutionEvent,
     DBResolutionNegative,
     DBTrack,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.database.live_rows import live_only
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
     rows_affected,

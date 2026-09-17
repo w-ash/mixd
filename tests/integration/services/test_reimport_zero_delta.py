@@ -19,7 +19,7 @@ import sqlalchemy as sa
 
 from src.application.services.play_projection_service import PlayProjectionService
 from src.domain.entities import ConnectorTrackPlay
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBPlaySource,
     DBTrackPlay,

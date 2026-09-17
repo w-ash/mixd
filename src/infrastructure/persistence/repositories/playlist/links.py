@@ -16,7 +16,7 @@ from sqlalchemy.orm import joinedload
 
 from src.config import get_logger
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
     DBPlaylistMapping,
 )

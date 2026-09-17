@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 from sqlalchemy.orm.util import identity_key
 
-from src.infrastructure.persistence.database.db_models import DBTrack, DBTrackMapping
+from src.infrastructure.persistence.database.models import DBTrack, DBTrackMapping
 
 # Execution option that turns the filter off for one statement.
 INCLUDE_SUPERSEDED = "include_superseded"

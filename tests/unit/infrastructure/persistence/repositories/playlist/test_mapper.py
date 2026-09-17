@@ -10,7 +10,7 @@ items are dropped, and optional fields fall back to ``None`` / ``{}``.
 from datetime import UTC, datetime
 from uuid import uuid7
 
-from src.infrastructure.persistence.database.db_models import DBConnectorPlaylist
+from src.infrastructure.persistence.database.models import DBConnectorPlaylist
 from src.infrastructure.persistence.repositories.playlist.mapper import (
     ConnectorPlaylistMapper,
 )

@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.shared import JsonDict
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBOAuthAuthorizationCode,
     DBOAuthAuthorizationRequest,
     DBOAuthClient,

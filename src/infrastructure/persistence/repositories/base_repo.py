@@ -34,7 +34,7 @@ from src.domain.repositories.errors import (
 from src.domain.repositories.keyset import KeysetSort
 
 # Import needed for relationship chains in eager loading
-from src.infrastructure.persistence.database.db_models import DatabaseModel
+from src.infrastructure.persistence.database.models import DatabaseModel
 from src.infrastructure.persistence.repositories._shared.retry_policies import (
     concurrent_session_retry,
 )

@@ -19,7 +19,7 @@ from sqlalchemy.engine import CursorResult
 
 from src.config.logging import get_logger
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import DBOAuthState
+from src.infrastructure.persistence.database.models import DBOAuthState
 from src.infrastructure.persistence.database.user_context import system_context
 
 logger = get_logger(__name__)

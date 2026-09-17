@@ -24,7 +24,7 @@ from src.application.chat.pending_actions import (
 )
 from src.domain.exceptions import ActionExpiredError, ForbiddenError
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import DBPendingAction
+from src.infrastructure.persistence.database.models import DBPendingAction
 
 
 @pytest.fixture

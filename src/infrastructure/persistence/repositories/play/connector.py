@@ -16,7 +16,7 @@ from src.domain.entities import (
     PlayExclusionReason,
     ensure_utc,
 )
-from src.infrastructure.persistence.database.db_models import DBConnectorPlay
+from src.infrastructure.persistence.database.models import DBConnectorPlay
 from src.infrastructure.persistence.repositories._shared.copy_insert import (
     CopyRow,
     copy_insert_ignore_conflicts,

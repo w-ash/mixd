@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities import TrackLike
-from src.infrastructure.persistence.database.db_models import DBTrackLike
+from src.infrastructure.persistence.database.models import DBTrack, DBTrackLike
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
     rows_affected,
@@ -142,8 +142,6 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
 
         # Handle special sorting cases that require custom queries
         if sort_by in ["title_asc", "random"]:
-            from src.infrastructure.persistence.database.db_models import DBTrack
-
             stmt = select(self.model_class)
             for condition in conditions:
                 stmt = stmt.where(condition)

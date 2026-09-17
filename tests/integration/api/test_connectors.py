@@ -28,7 +28,7 @@ from src.infrastructure.connectors._shared.token_storage import (
 )
 from src.infrastructure.connectors.discovery import discover_connectors
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import DBConnectorPlaylist
+from src.infrastructure.persistence.database.models import DBConnectorPlaylist
 from src.infrastructure.persistence.database.user_context import user_context
 from src.interface.api.app import create_app
 from src.interface.api.deps import get_current_user_id
@@ -469,7 +469,7 @@ class TestDisconnectPreservesSiblingData:
         import sqlalchemy as sa
 
         from src.domain.entities import ConnectorTrackPlay
-        from src.infrastructure.persistence.database.db_models import (
+        from src.infrastructure.persistence.database.models import (
             DBConnectorPlay,
             DBTrackLike,
         )

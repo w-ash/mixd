@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.track import Artist, Track, TrackMetric
-from src.infrastructure.persistence.database.db_models import DBTrackMetric
+from src.infrastructure.persistence.database.models import DBTrackMetric
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID
 

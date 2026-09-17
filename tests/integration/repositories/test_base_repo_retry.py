@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.session import SessionTransactionState
 
 from src.domain.entities.track import Artist, Track
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories._shared.retry_policies import (
     CONCURRENT_SESSION_MARKER,
 )

@@ -7,7 +7,7 @@ correct grouping, counting, confidence aggregation, and recent-window filtering.
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
     DBTrackMapping,

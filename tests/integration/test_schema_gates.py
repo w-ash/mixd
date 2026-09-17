@@ -1,13 +1,14 @@
-"""Schema gates that must hold before and after the ``db_models.py`` split.
+"""Schema gates for the per-aggregate ORM model package.
 
 Two permanent CI fixtures (both ``slow``, so they run under ``-m ""``):
 
 1. **Mapper-registry completeness** — every mapped class configures and every
-   ``relationship()`` resolves to a class in the same registry. Once models are
-   spread over modules, a string target such as ``relationship("DBTrack")``
-   resolves lazily at ``configure_mappers()`` time; a module that stops being
-   imported turns into a runtime error on the first query that touches the
-   relationship. This gate fails at import time instead.
+   ``relationship()`` resolves to a class in the same registry. Models are
+   spread over ``database/models/``, so a cross-module target such as
+   ``DBTrack.mappings`` is a deferred annotation (PEP 649) that resolves lazily
+   by class name at ``configure_mappers()`` time; a module that stops being imported turns into a runtime error on the
+   first query that touches the relationship. This gate fails at import time
+   instead.
 
 2. **Empty autogenerate diff** — a fresh Postgres migrated to ``head`` compares
    equal to ``DatabaseModel.metadata``. This is what catches a model module the
@@ -37,7 +38,7 @@ from sqlalchemy.orm import Mapper, configure_mappers
 
 from alembic import command
 from src.config.settings import database_host_and_mode, get_database_url
-from src.infrastructure.persistence.database.db_models import DatabaseModel
+from src.infrastructure.persistence.database.models import DatabaseModel
 
 pytestmark = pytest.mark.slow
 

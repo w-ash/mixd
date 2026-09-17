@@ -19,7 +19,7 @@ from src.domain.entities import ConnectorTrackPlay
 from src.infrastructure.connectors.lastfm.play_resolver import (
     LastfmConnectorPlayResolver,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBPlaySource,
     DBTrack,

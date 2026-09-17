@@ -76,6 +76,6 @@ class NewServiceMatchingProvider(BaseMatchingProvider):
 
 1. Register in `src/infrastructure/connectors/discovery.py`
 2. Add capability protocols in `src/application/connector_protocols.py`
-3. Update database models if needed: `src/infrastructure/persistence/database/db_models.py`
+3. Update database models if needed: the aggregate's module under `src/infrastructure/persistence/database/models/`
 4. Generate migration: `uv run alembic revision --autogenerate -m "add new_service"`
 5. Write tests: unit tests for client/conversions/matching, integration tests for repository

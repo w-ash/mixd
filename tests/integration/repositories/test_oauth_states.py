@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy import delete, select
 
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import DBOAuthState
+from src.infrastructure.persistence.database.models import DBOAuthState
 from src.infrastructure.persistence.repositories.oauth_states import (
     prune_expired_states,
 )

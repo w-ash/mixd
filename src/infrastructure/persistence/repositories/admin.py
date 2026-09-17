@@ -10,7 +10,7 @@ from collections.abc import Collection, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.infrastructure.persistence.database.db_models import DatabaseModel
+from src.infrastructure.persistence.database.models import DatabaseModel
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 

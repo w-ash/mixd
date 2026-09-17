@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.domain.entities.track import Artist, Track
 from src.domain.repositories.errors import LOCK_NOT_AVAILABLE, postgres_sqlstate
 from src.infrastructure.persistence.database.db_connection import create_session_factory
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from tests.fixtures import TEST_USER_ID
