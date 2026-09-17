@@ -35,10 +35,7 @@ from src.infrastructure.persistence.database.db_models import DatabaseModel
 from src.infrastructure.persistence.repositories._shared.retry_policies import (
     concurrent_session_retry,
 )
-from src.infrastructure.persistence.repositories.mappers import (
-    ModelMapper,
-    has_session_support,
-)
+from src.infrastructure.persistence.repositories.mappers import ModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
@@ -73,17 +70,6 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         self.session = session
         self.model_class = model_class
         self.mapper = mapper
-
-    async def _map_to_domain(self, db_entity: TDBModel) -> TDomainModel:
-        """Dispatch to session-aware or plain mapper based on capability.
-
-        Some mappers (e.g., TrackMapper) need the session to auto-heal
-        missing relationships; most don't. ``has_session_support`` narrows
-        the mapper type so either branch is type-safe.
-        """
-        if has_session_support(self.mapper):
-            return await self.mapper.to_domain_with_session(db_entity, self.session)
-        return await self.mapper.to_domain(db_entity)
 
     # -------------------------------------------------------------------------
     # RELATIONSHIP UTILITIES
@@ -327,13 +313,12 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         db_entities = await self._execute_query(stmt)
 
-        # Use session-aware mapping for each entity (single code path)
         domain_models: list[TDomainModel] = []
         for db_entity in db_entities:
             if not db_entity:
                 continue
 
-            domain_model = await self._map_to_domain(db_entity)
+            domain_model = await self.mapper.to_domain(db_entity)
 
             if domain_model:
                 domain_models.append(domain_model)
@@ -406,7 +391,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             if not db_entity:
                 return None
 
-            return await self._map_to_domain(db_entity)
+            return await self.mapper.to_domain(db_entity)
 
         # For other conditions, use a query
         stmt = self._apply_conditions(select(self.model_class), conditions)
@@ -430,7 +415,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if not db_entity:
             return None
 
-        return await self._map_to_domain(db_entity)
+        return await self.mapper.to_domain(db_entity)
 
     @db_operation("update")
     async def update(
@@ -482,7 +467,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         # Load relationships efficiently via identity map
         await self._load_relationships_via_identity_map([updated_entity])
 
-        return await self._map_to_domain(updated_entity)
+        return await self.mapper.to_domain(updated_entity)
 
     # -------------------------------------------------------------------------
     # RELATIONSHIP LOADING OPTIMIZATION
@@ -661,7 +646,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             # Convert to domain model
             if db_entity is None:
                 _raise_update_retrieval_error()
-            return await self._map_to_domain(db_entity)
+            return await self.mapper.to_domain(db_entity)
         # Phase 2: Entity doesn't exist, create it. Deliberately not ON
         # CONFLICT: a row can claim several unique constraints at once (tracks:
         # isrc + spotify_id + mbid) while ON CONFLICT arbitrates only one, and
@@ -686,7 +671,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         # Convert to domain model
         if db_entity is None:
             _raise_create_retrieval_error()
-        return await self._map_to_domain(db_entity)
+        return await self.mapper.to_domain(db_entity)
 
     @staticmethod
     def _deduplicate_batch(

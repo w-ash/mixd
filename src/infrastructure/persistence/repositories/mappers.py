@@ -1,18 +1,17 @@
 """Model mapper machinery: DB-model <-> domain-entity conversion.
 
-Split out of ``base_repo.py`` so the mapper seam (the ``ModelMapper`` /
-``SessionAwareMapper`` protocols, the ``BaseModelMapper`` base implementation,
-and the ``SimpleMapperFactory`` for 1:1 field mappings) lives apart from the
+Split out of ``base_repo.py`` so the mapper seam (the ``ModelMapper``
+protocol, the ``BaseModelMapper`` base implementation, and the
+``SimpleMapperFactory`` for 1:1 field mappings) lives apart from the
 ``BaseRepository`` query/CRUD/upsert machinery. Every concrete mapper builds on
-these; ``BaseRepository`` imports ``ModelMapper`` and ``has_session_support``
-back from here.
+these; ``BaseRepository`` imports ``ModelMapper`` back from here. Mappers are
+pure functions of the loaded row — none takes a session or writes.
 """
 
 from collections.abc import Sequence
-from typing import Protocol, TypeIs, cast, override
+from typing import Protocol, cast, override
 
 from attrs import define
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.interfaces import ORMOption
 
 from src.infrastructure.persistence.database.db_models import DatabaseModel
@@ -48,33 +47,6 @@ class ModelMapper[TDBModel: DatabaseModel, TDomainModel](Protocol):
     ) -> list[TDomainModel]:
         """Map a collection of DB models to domain models."""
         ...
-
-
-class SessionAwareMapper[TDBModel: DatabaseModel, TDomainModel](
-    ModelMapper[TDBModel, TDomainModel], Protocol
-):
-    """Protocol for mappers that support session-aware domain conversion.
-
-    Some mappers (e.g., TrackMapper) need a session to auto-heal missing
-    relationships during mapping. This protocol enables type-safe narrowing
-    via TypeIs instead of cast(Any, ...).
-    """
-
-    @staticmethod
-    async def to_domain_with_session(
-        db_model: TDBModel, session: AsyncSession | None = None
-    ) -> TDomainModel: ...
-
-
-def has_session_support[TDBModel: DatabaseModel, TDomainModel](
-    mapper: ModelMapper[TDBModel, TDomainModel],
-) -> TypeIs[SessionAwareMapper[TDBModel, TDomainModel]]:
-    """Type guard for session-aware mappers.
-
-    Narrows mapper type so the caller can safely call to_domain_with_session()
-    without cast(Any, ...).
-    """
-    return hasattr(mapper, "to_domain_with_session")
 
 
 @define(frozen=True, slots=True)

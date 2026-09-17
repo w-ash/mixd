@@ -411,6 +411,9 @@ class TestMergePreservesMappingHistory:
     def _mapping_row(
         track_id, ct_id, *, confidence: int, connector: str = "spotify"
     ) -> dict[str, object]:
+        # Primary, as every writer leaves a pair's only live mapping: the
+        # merge reads both tracks first, and a read meeting a live mapping
+        # with no primary fails the suite (MissingPrimaryMappingWarning).
         return {
             "user_id": "default",
             "track_id": track_id,
@@ -418,6 +421,7 @@ class TestMergePreservesMappingHistory:
             "connector_name": connector,
             "match_method": "isrc",
             "confidence": confidence,
+            "is_primary": True,
         }
 
     @staticmethod
@@ -467,6 +471,7 @@ class TestMergePreservesMappingHistory:
                 connector_name="lastfm",
                 match_method="isrc",
                 confidence=95,
+                is_primary=True,
                 created_at=now,
                 updated_at=now,
             )
@@ -680,9 +685,7 @@ class TestMergeSourceIsUnambiguous:
         _ = await db_session.execute(
             text("DROP INDEX uq_track_mappings_live_connector")
         )
-        db_session.add(
-            self._raw_mapping(loser_mapping, loser.id, shared_ct.id, is_primary=False)
-        )
+        db_session.add(self._raw_mapping(loser_mapping, loser.id, shared_ct.id))
         await db_session.flush()
 
         uow = DatabaseUnitOfWork(db_session)
@@ -760,7 +763,7 @@ class TestMergeSourceIsUnambiguous:
         db_session.add_all([
             self._raw_mapping(older, winner.id, winner_ct_a.id, is_primary=False),
             self._raw_mapping(newer, winner.id, winner_ct_b.id, is_primary=True),
-            self._raw_mapping(loser_mapping, loser.id, loser_ct.id, is_primary=False),
+            self._raw_mapping(loser_mapping, loser.id, loser_ct.id),
         ])
         await db_session.flush()
 

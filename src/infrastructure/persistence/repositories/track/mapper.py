@@ -1,14 +1,11 @@
 """Track mappers for converting between domain and database models."""
 
-from collections.abc import Awaitable, Callable
 from typing import override
-from uuid import UUID
+import warnings
 
 from attrs import define
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.interfaces import ORMOption
 
-from src.config import get_logger
 from src.domain.entities import Artist, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.shared import JsonDict
@@ -24,28 +21,14 @@ from src.infrastructure.persistence.repositories._shared.connector_tracks import
 )
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
-logger = get_logger(__name__)
 
-# Callback type: ensures a primary mapping exists for a (track, connector)
-# pair. Args: (track_id, connector_name). The repository owns the selection
-# policy (highest confidence) so read-path healing and explicit repair agree.
-PromotePrimaryMappingFn = Callable[[UUID, str], Awaitable[None]]
+class MissingPrimaryMappingWarning(UserWarning):
+    """A track has live mappings for a connector but none of them is primary.
 
-
-def _get_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
-    """Get a callback that promotes a connector mapping to primary.
-
-    Delegates to ``ensure_primary_for_connector`` — the single promotion
-    policy (highest confidence), which also syncs the denormalized ID column
-    so healing repairs stale fast-path values (v0.8.18 FM4c/FM4d).
-
-    Lazy import avoids circular dependency (connector.py imports mapper.py).
+    Every mapping writer elects a primary (vacancy-fill in
+    ``map_tracks_to_connectors``), so this is a writer defect, never a state a
+    read repairs. The test suite turns it into an error (``filterwarnings``).
     """
-    from src.infrastructure.persistence.repositories.track.connector import (
-        TrackConnectorRepository,
-    )
-
-    return TrackConnectorRepository(session).ensure_primary_for_connector
 
 
 @define(frozen=True, slots=True)
@@ -56,37 +39,23 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
     @staticmethod
     async def to_domain(db_model: DBTrack) -> Track:
         """Convert database track to domain model."""
-        return await TrackMapper._to_domain_with_session(db_model)
+        return await TrackMapper._to_domain(db_model)
 
     @staticmethod
-    async def to_domain_with_session(
-        db_model: DBTrack | None, session: AsyncSession | None = None
-    ) -> Track | None:
-        """Convert database track to domain model with session for auto-healing."""
-        if not db_model:
-            return None
-        promote_primary_fn = (
-            _get_promote_primary_fn(session) if session is not None else None
-        )
-        return await TrackMapper._to_domain_with_session(
-            db_model, promote_primary_fn=promote_primary_fn
-        )
-
-    @staticmethod
-    async def _to_domain_with_session(
+    async def _to_domain(
         db_model: DBTrack,
         connector_filter: set[str] | None = None,
-        promote_primary_fn: PromotePrimaryMappingFn | None = None,
     ) -> Track:
         """Convert database track to domain model.
+
+        Pure function of the loaded row: the mapper never writes. A connector
+        with live mappings and no primary is displayed through its
+        highest-confidence mapping and reported as
+        :class:`MissingPrimaryMappingWarning`.
 
         Args:
             db_model: Database track entity to convert.
             connector_filter: Optional set of connector names to include.
-            promote_primary_fn: Optional callback to repair a missing primary
-                mapping. Signature: (track_id, connector_name). When provided
-                and a connector has no primary mapping, the mapper delegates
-                the write to the caller via this callback.
         """
         # Read only eager-loaded relationships (zero I/O) via the typed
         # loaded_list primitive — a forgotten eager-load degrades to [].
@@ -103,8 +72,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         # Process connector track mappings with primary awareness.
         # The mapping walk runs BEFORE the denormalized columns are consulted —
-        # a stale column value must not shadow a live mapping or mask the
-        # promotion pass (v0.8.18 FM4b).
+        # a stale column value must not shadow a live mapping (v0.8.18 FM4b).
         # First pass: collect all primary mappings
         for mapping in active_mappings:
             if mapping.is_primary:
@@ -124,7 +92,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         # Second pass: fill in any missing connectors with the HIGHEST-
         # confidence non-primary mapping — the same selection
         # ensure_primary_for_connector makes, so the displayed identifier and
-        # the promoted row agree (v0.8.18 FM4c: one promotion policy).
+        # the elected row agree (v0.8.18 FM4c: one election policy).
         fallback_mappings: dict[str, DBTrackMapping] = {}
 
         for mapping in active_mappings:
@@ -143,7 +111,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                     best = fallback_mappings.get(connector_name)
                     # Highest confidence, then lowest id — the SAME total order
                     # ensure_primary_for_connector's query uses (confidence desc,
-                    # id asc), so display and promotion pick the same row on ties.
+                    # id asc), so display and election pick the same row on ties.
                     if (
                         best is None
                         or mapping.confidence > best.confidence
@@ -173,16 +141,12 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         if db_model.mbid:
             _ = connector_track_identifiers.setdefault("musicbrainz", db_model.mbid)
 
-        # Promote fallback mappings to primary via caller-provided callback
-        if fallback_mappings and hasattr(db_model, "id") and promote_primary_fn:
-            await TrackMapper._promote_fallback_to_primary(
-                db_model.id, fallback_mappings, promote_primary_fn
-            )
-        elif fallback_mappings:
-            logger.warning(
-                f"Track {db_model.id} has no primary connector mapping(s): "
-                f"connectors={list(fallback_mappings)} — "
-                "pass a session to to_domain_with_session() to enable auto-promotion"
+        if fallback_mappings:
+            warnings.warn(
+                f"Track {db_model.id} has no primary connector mapping for "
+                f"{sorted(fallback_mappings)}",
+                MissingPrimaryMappingWarning,
+                stacklevel=2,
             )
 
         # Process likes into connector metadata
@@ -214,49 +178,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             connector_track_identifiers=connector_track_identifiers,
             connector_metadata=connector_metadata,
         )
-
-    @staticmethod
-    async def _promote_fallback_to_primary(
-        track_id: UUID,
-        fallback_mappings: dict[str, DBTrackMapping],
-        promote_primary_fn: PromotePrimaryMappingFn,
-    ) -> None:
-        """Promote fallback connector mappings to primary status.
-
-        For each connector that had no primary mapping, delegates the repair
-        to ``ensure_primary_for_connector`` via the caller-provided callback —
-        the repository owns the selection (highest confidence) and the
-        denormalized-column sync. This keeps the mapper read-only while
-        enabling opportunistic self-correction.
-
-        Args:
-            track_id: The track whose mappings need promotion.
-            fallback_mappings: Connector name → the highest-confidence
-                fallback mapping the walk selected (for observability).
-            promote_primary_fn: Callback that performs the repair:
-                (track_id, connector_name).
-        """
-        log = logger.bind(track_id=track_id)
-        for connector_name, mapping in fallback_mappings.items():
-            try:
-                await promote_primary_fn(track_id, connector_name)
-            except Exception:
-                log.error(
-                    f"Connector mapping promotion failed for {connector_name}",
-                    exc_info=True,
-                )
-                # Best-effort: never interrupt the read path
-                continue
-            conn_track = mapping.loaded_one(
-                DBTrackMapping.connector_track, DBConnectorTrack
-            )
-            log.info(
-                "read_path_promotion",
-                connector=connector_name,
-                external_id=conn_track.connector_track_identifier
-                if conn_track
-                else None,
-            )
 
     @override
     @staticmethod

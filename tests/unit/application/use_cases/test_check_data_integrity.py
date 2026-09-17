@@ -65,12 +65,10 @@ class TestFailStatus:
         assert multi_check.count == 1
         assert multi_check.details[0]["track_id"] == 1
 
-
-class TestWarnStatus:
-    """Non-critical anomalies trigger warn status."""
-
     @pytest.mark.asyncio
-    async def test_missing_primaries_causes_warn(self):
+    async def test_missing_primaries_causes_fail(self):
+        """No read repairs a vacancy, so a live pair without a primary is a
+        writer defect, not an anomaly to watch."""
         uow = make_mock_uow()
         connector_repo = uow.get_connector_repository()
         connector_repo.find_missing_primary_violations.return_value = [
@@ -80,7 +78,15 @@ class TestWarnStatus:
         result = await CheckDataIntegrityUseCase().execute(
             CheckDataIntegrityCommand(user_id="test-user"), uow
         )
-        assert result.overall_status == "warn"
+        missing_check = next(
+            c for c in result.checks if c.name == "missing_primary_mappings"
+        )
+        assert missing_check.status == "fail"
+        assert result.overall_status == "fail"
+
+
+class TestWarnStatus:
+    """Non-critical anomalies trigger warn status."""
 
     @pytest.mark.asyncio
     async def test_orphaned_tracks_causes_warn(self):

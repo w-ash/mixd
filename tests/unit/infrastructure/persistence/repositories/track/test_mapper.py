@@ -1,27 +1,31 @@
-"""Unit tests for the track mapper's read-path healing behavior.
+"""Unit tests for the track mapper's display walk.
 
-The v0.8.18 characterization tests for read-path healing (FM4b healing mask,
-FM4c promotion policy) — transient DB models plus a promote-callback spy, no
-database. See docs/backlog/identity-resolution-design-space.md §4 (tests 4, 9).
-
-``extract_db_artist_names`` moved to
-``repositories/_shared/connector_tracks.py``; its tests moved with it.
+The mapper is a pure function of the loaded row: it never writes. These pin
+the walk order (live mappings before the denormalized column — v0.8.18 FM4b)
+and the fallback selection (highest confidence, then lowest id — the same
+total order ``ensure_primary_for_connector`` elects by, FM4c), plus the one
+signal a read emits when it meets a pair with no primary.
 """
 
 from datetime import UTC, datetime
-from uuid import UUID, uuid7
+from uuid import uuid7
+
+import pytest
 
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
+from src.infrastructure.persistence.repositories.track.mapper import (
+    MissingPrimaryMappingWarning,
+    TrackMapper,
+)
 
 
 def _transient_track(*, spotify_id: str | None) -> DBTrack:
     """Build a transient DBTrack (no session) for mapper-level tests."""
-    return DBTrack(
+    track = DBTrack(
         id=uuid7(),
         user_id="default",
         version=1,
@@ -29,6 +33,9 @@ def _transient_track(*, spotify_id: str | None) -> DBTrack:
         artists={"names": ["Neon Priest"]},
         spotify_id=spotify_id,
     )
+    track.mappings = []
+    track.likes = []
+    return track
 
 
 def _transient_mapping(
@@ -59,105 +66,61 @@ def _transient_mapping(
     return mapping
 
 
-class _PromoteSpy:
-    """Records (track_id, connector_name) calls."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[UUID, str]] = []
-
-    async def __call__(self, track_id: UUID, connector_name: str) -> None:
-        self.calls.append((track_id, connector_name))
-
-
 class TestWalkWinsOverDenormColumn:
-    """FLIPPED characterization (FM4b, fixed by Healing correctness): the
-    original pin recorded a non-null denormalized ``spotify_id`` column
-    pre-populating the identifier map before the mapping walk, masking the
-    fallback/promotion pass. Now the walk runs first and the column is a
-    post-walk fallback only.
-    """
+    """The mapping walk runs first; the denormalized column is a post-walk
+    fallback only (FM4b)."""
 
-    async def test_live_mapping_beats_stale_column_and_heals(self):
+    async def test_primary_mapping_beats_stale_column(self):
         track = _transient_track(spotify_id="sp_dead_col")
-        mapping = _transient_mapping(
-            track, identifier="sp_live_row", confidence=95, is_primary=False
-        )
-        track.mappings = [mapping]
-        track.likes = []
-        spy = _PromoteSpy()
+        track.mappings = [
+            _transient_mapping(
+                track, identifier="sp_live_row", confidence=95, is_primary=True
+            )
+        ]
 
-        domain_track = await TrackMapper._to_domain_with_session(
-            track, promote_primary_fn=spy
-        )
+        domain_track = await TrackMapper.to_domain(track)
 
-        # The live non-primary mapping wins over the stale column...
         assert domain_track.connector_track_identifiers["spotify"] == "sp_live_row"
-        # ...and healing fires despite the non-empty column.
-        assert spy.calls == [(track.id, "spotify")]
+
+    async def test_live_secondary_beats_stale_column_and_warns(self):
+        track = _transient_track(spotify_id="sp_dead_col")
+        track.mappings = [
+            _transient_mapping(track, identifier="sp_live_row", confidence=95)
+        ]
+
+        with pytest.warns(MissingPrimaryMappingWarning, match=str(track.id)):
+            domain_track = await TrackMapper.to_domain(track)
+
+        # The live non-primary mapping still wins over the stale column; the
+        # vacancy is reported, not repaired.
+        assert domain_track.connector_track_identifiers["spotify"] == "sp_live_row"
+        assert not any(m.is_primary for m in track.mappings)
 
     async def test_column_serves_as_fallback_without_mappings(self):
         """Fast path preserved: with no mappings, the column id is returned."""
         track = _transient_track(spotify_id="sp_col_only")
-        track.mappings = []
-        track.likes = []
-        spy = _PromoteSpy()
 
-        domain_track = await TrackMapper._to_domain_with_session(
-            track, promote_primary_fn=spy
-        )
+        domain_track = await TrackMapper.to_domain(track)
 
         assert domain_track.connector_track_identifiers["spotify"] == "sp_col_only"
-        assert spy.calls == []
-
-    async def test_no_column_promotes_fallback(self):
-        """With the column empty, healing fires as before."""
-        track = _transient_track(spotify_id=None)
-        mapping = _transient_mapping(
-            track, identifier="sp_live_row", confidence=95, is_primary=False
-        )
-        track.mappings = [mapping]
-        track.likes = []
-        spy = _PromoteSpy()
-
-        domain_track = await TrackMapper._to_domain_with_session(
-            track, promote_primary_fn=spy
-        )
-
-        assert domain_track.connector_track_identifiers["spotify"] == "sp_live_row"
-        assert spy.calls == [(track.id, "spotify")]
 
 
-class TestMapperPromotesHighestConfidence:
-    """FLIPPED characterization (FM4c, fixed by Healing correctness): the
-    original pin recorded the mapper promoting the FIRST non-primary in
-    iteration order while ``ensure_primary_for_connector`` promoted highest
-    confidence — two policies for one repair. Now the mapper selects the
-    highest-confidence fallback for display and delegates the repair to the
-    repository's single policy.
-    """
+class TestFallbackSelectsHighestConfidence:
+    """Display's fallback picks the row ``ensure_primary_for_connector`` would
+    elect — (confidence desc, id asc) — so the two can never diverge (FM4c)."""
 
     async def test_highest_confidence_wins_regardless_of_order(self):
         track = _transient_track(spotify_id=None)
         low = _transient_mapping(track, identifier="sp_low", confidence=40)
         high = _transient_mapping(track, identifier="sp_high", confidence=95)
         track.mappings = [low, high]  # low first in iteration order
-        track.likes = []
-        spy = _PromoteSpy()
 
-        domain_track = await TrackMapper._to_domain_with_session(
-            track, promote_primary_fn=spy
-        )
+        with pytest.warns(MissingPrimaryMappingWarning):
+            domain_track = await TrackMapper.to_domain(track)
 
-        # Highest confidence wins — matching ensure_primary_for_connector.
         assert domain_track.connector_track_identifiers["spotify"] == "sp_high"
-        assert spy.calls == [(track.id, "spotify")]
 
     async def test_equal_confidence_breaks_tie_on_lowest_id(self):
-        """On an equal-confidence tie, display picks the lowest mapping id — the
-        SAME total order (confidence desc, id asc) ensure_primary_for_connector's
-        query uses, so the displayed id and the promoted primary can't diverge
-        (v0.8.18 review). Without the id tiebreak this was iteration-order luck.
-        """
         track = _transient_track(spotify_id=None)
         first = _transient_mapping(track, identifier="sp_first", confidence=80)
         second = _transient_mapping(track, identifier="sp_second", confidence=80)
@@ -165,12 +128,8 @@ class TestMapperPromotesHighestConfidence:
         # iteration order to prove selection is by id, not by list position.
         assert first.id < second.id
         track.mappings = [second, first]
-        track.likes = []
-        spy = _PromoteSpy()
 
-        domain_track = await TrackMapper._to_domain_with_session(
-            track, promote_primary_fn=spy
-        )
+        with pytest.warns(MissingPrimaryMappingWarning):
+            domain_track = await TrackMapper.to_domain(track)
 
         assert domain_track.connector_track_identifiers["spotify"] == "sp_first"
-        assert spy.calls == [(track.id, "spotify")]

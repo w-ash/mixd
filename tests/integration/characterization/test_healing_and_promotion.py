@@ -1,16 +1,16 @@
-"""Characterization tests for healing and denormalized-ID behavior (FM4d, FM4c).
+"""Characterization tests for primary election and denormalized-ID sync (FM4d, FM4c).
 
-Pins CURRENT behavior of the redirect denormalized-column sync (buggy) and
-the repository promotion policy (kept — the policy epic 5 standardizes on).
-Flipped by: Healing correctness (v0.8.18 epic 5) — except the
-ensure_primary_for_connector test, which never flips and becomes the
-permanent regression test for the single promotion policy.
+Pins the redirect denormalized-column sync and the repository's single
+election policy (``ensure_primary_for_connector``). Reads never elect: the
+mapper is a pure function of the row (v0.12.1 pre-flight 1), so the last
+class asserts that display and election merely *agree* on the row.
 
 See docs/backlog/identity-resolution-design-space.md §4 (tests 3, 9).
 """
 
 from unittest.mock import AsyncMock
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,9 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from src.infrastructure.persistence.repositories.track.mapper import (
+    MissingPrimaryMappingWarning,
+)
 from tests.fixtures import seed_db_connector_track, seed_db_track
 
 
@@ -187,11 +190,26 @@ class TestDisplayAndPromotionAgreeOnTie:
         uow = get_unit_of_work(db_session)
 
         # DISPLAY side: no primary exists, so the mapper's fallback pass fills
-        # the spotify identifier via its Python (confidence desc, id asc) tie-break.
-        displayed = await uow.get_track_repository().get_track_by_id(
-            track.id, user_id="default"
-        )
+        # the spotify identifier via its Python (confidence desc, id asc)
+        # tie-break — and says so, because a read never repairs the vacancy.
+        with pytest.warns(MissingPrimaryMappingWarning):
+            displayed = await uow.get_track_repository().get_track_by_id(
+                track.id, user_id="default"
+            )
         display_ident = displayed.connector_track_identifiers["spotify"]
+        primaries_after_read = (
+            (
+                await db_session.execute(
+                    select(DBTrackMapping.id).where(
+                        DBTrackMapping.track_id == track.id,
+                        DBTrackMapping.is_primary.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert primaries_after_read == [], "a read must not elect a primary"
 
         # PROMOTION side: ensure_primary_for_connector promotes remaining[0] from
         # the SQL (confidence desc, id asc) order.

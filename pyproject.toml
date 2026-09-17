@@ -355,6 +355,9 @@ addopts = "--strict-markers --tb=short -n auto -m 'not diagnostic and not slow a
 filterwarnings = [
     # Savepoint-rollback test isolation triggers this when UoW manages its own transactions
     "ignore:nested transaction already deassociated from connection:sqlalchemy.exc.SAWarning",
+    # Live mappings with no primary are a writer defect that no read repairs
+    # (v0.12.1 pre-flight 1) — the mapper's warning fails the test.
+    "error::src.infrastructure.persistence.repositories.track.mapper.MissingPrimaryMappingWarning",
 ]
 markers = [
     # Test Pyramid Layers (applied via pytestmark in conftest.py)

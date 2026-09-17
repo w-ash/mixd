@@ -861,14 +861,15 @@ class TrackConnectorRepository:
         Pipeline: build connector-track rows → bulk upsert → build mapping rows →
         drop rows that would overwrite manual overrides → assert mappings
         (append-only: a changed decision supersedes rather than overwrites) →
-        elect the primaries the specs asked for.
+        elect primaries.
 
-        Election reads ``ConnectorMappingSpec.primary`` off the specs
-        themselves, re-electing and syncing the denormalized fast-path column
-        in a fixed handful of statements for the whole batch instead of four
-        per row. It is the only primary-election path this method has: mapping
-        one track is ``map_track_to_connector``, which is a one-spec call to
-        exactly this.
+        Every asserted pair leaves with a primary. A spec with ``primary=True``
+        deposes and elects; every other spec fills a vacancy only, which is a
+        no-op where a primary already holds the slot (including a manual
+        override). Both run in a fixed handful of statements for the whole
+        batch. Reads never elect — the mapper is a pure function of the row —
+        so this is the only place a pair can gain its primary. Mapping one
+        track is ``map_track_to_connector``, a one-spec call to exactly this.
 
         Args:
             mappings: Mapping specs pairing each track with its connector, external
@@ -903,6 +904,37 @@ class TrackConnectorRepository:
             _ = await self._batch_ensure_primary_mappings_by_external_id(
                 promote_to_primary, connector_id_map=connector_id_map
             )
+
+        # A pair that also carried a ``primary=True`` spec in this batch was
+        # just elected and is skipped: a stale-id secondary written beside its
+        # live id must never reach first-wins dedup on its own. Highest
+        # confidence first, so first-wins is the same choice
+        # ``ensure_primary_for_connector`` makes.
+        elected_pairs = {
+            (track_id, connector) for track_id, connector, _ in promote_to_primary
+        }
+        vacancy_candidates = sorted(
+            (
+                spec
+                for spec in mappings
+                if spec.track.id
+                and not spec.primary
+                and (spec.track.id, spec.connector) not in elected_pairs
+                and (spec.connector, spec.connector_id) in connector_id_map
+            ),
+            key=lambda spec: -spec.confidence,
+        )
+        fill_vacancies = [
+            (
+                spec.track.id,
+                spec.connector,
+                connector_id_map[spec.connector, spec.connector_id],
+            )
+            for spec in vacancy_candidates
+            if spec.track.id
+        ]
+        if fill_vacancies:
+            _ = await self._batch_ensure_primary_mappings(fill_vacancies)
 
         # Note: metrics extraction lives in the application layer
         # (MetricsApplicationService); this repository maps track identity only.

@@ -540,12 +540,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 raise OptimisticLockError(track.id, track.version)
 
             await self._load_relationships_via_identity_map([updated])
-            domain_track = await TrackMapper.to_domain_with_session(
-                updated, self.session
-            )
-            if domain_track is None:
-                raise OptimisticLockError(track.id, track.version)
-            return domain_track
+            return await TrackMapper.to_domain(updated)
 
         # --- Insert/upsert path (version == 0, no locking needed) ---
         # Handle lookups by ISRC, MBID, or Spotify ID
@@ -833,10 +828,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         else:
             await self.session.refresh(db_track)
 
-        result = await TrackMapper.to_domain_with_session(db_track, self.session)
-        if result is None:
-            raise ValueError(f"Failed to map track from database (id={db_track.id})")
-        return result
+        return await TrackMapper.to_domain(db_track)
 
     # -------------------------------------------------------------------------
     # LIBRARY LISTING

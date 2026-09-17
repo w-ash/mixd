@@ -174,8 +174,16 @@ async def _move_a_primary_mapping_onto_the_destination(
             origin=incumbent_origin,
         )
     ])
-    if incumbent_is_primary:
-        await connector_repo.ensure_primary_for_connector(destination, "spotify")
+    if not incumbent_is_primary:
+        # Every writer elects a primary now, so a live mapping with no primary
+        # is pre-existing drift (FM4d), not something a writer can produce.
+        # Manufacture it directly to keep the restoration path under test.
+        _ = await db_session.execute(
+            update(DBTrackMapping)
+            .where(DBTrackMapping.track_id == destination)
+            .values(is_primary=False)
+            .execution_options(synchronize_session=False)
+        )
 
     source_domain = await connector_repo.track_repo.get_by_id(source)
     await connector_repo.map_tracks_to_connectors([

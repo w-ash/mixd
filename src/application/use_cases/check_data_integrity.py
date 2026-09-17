@@ -45,12 +45,13 @@ class CheckDataIntegrityUseCase:
                 )
             )
 
-            # 2. Missing primary mappings (auto-heal usually catches these — warn)
+            # 2. Missing primary mappings — every writer elects one, and no read
+            #    repairs a vacancy, so any hit is a writer defect (fail)
             missing_primaries = await connector_repo.find_missing_primary_violations()
             checks.append(
                 IntegrityCheckResult(
                     name="missing_primary_mappings",
-                    status=_status_for(len(missing_primaries), warn_threshold=1),
+                    status=_status_for(len(missing_primaries), fail_threshold=1),
                     count=len(missing_primaries),
                     details=missing_primaries,
                 )

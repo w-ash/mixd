@@ -1,10 +1,8 @@
 """Regression tests for base_repo.py core contracts.
 
 Covers the inheritance root utilities that every repository relies on:
-- ``ModelMapper`` / ``SessionAwareMapper`` protocol contract via the
-  ``has_session_support`` ``TypeIs`` guard.
-- ``BaseRepository.find_by`` with both dict and list[ColumnElement] condition
-  forms (same public API, different code paths through ``match conditions``).
+``BaseRepository.find_by`` with both dict and list[ColumnElement] condition
+forms (same public API, different code paths through ``match conditions``).
 """
 
 from uuid import uuid4
@@ -15,19 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.entities.track import Artist, Track
 from src.infrastructure.persistence.database.db_models import DBTrack
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
-from src.infrastructure.persistence.repositories.mappers import (
-    BaseModelMapper,
-    ModelMapper,
-    has_session_support,
-)
-
-# =============================================================================
-# ModelMapper / SessionAwareMapper protocol contract
-# =============================================================================
+from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
 
 class _PlainMapper(BaseModelMapper[DBTrack, Track]):
-    """Mapper without session support — should NOT pass has_session_support.
+    """Minimal mapper for contract tests.
 
     Overrides ``get_default_relationships`` to return ``[]`` so the contract
     tests don't trigger the nested-relationship loading path inherited from
@@ -50,48 +40,6 @@ class _PlainMapper(BaseModelMapper[DBTrack, Track]):
     @staticmethod
     def get_default_relationships() -> list[str]:
         return []
-
-
-class _SessionAwareMapperStub(BaseModelMapper[DBTrack, Track]):
-    """Mapper with ``to_domain_with_session`` — should pass has_session_support."""
-
-    @staticmethod
-    async def to_domain(db_model: DBTrack) -> Track:
-        return Track(
-            id=db_model.id,
-            title=db_model.title,
-            artists=[Artist(name="test")],
-        )
-
-    @staticmethod
-    def to_db(domain_model: Track) -> DBTrack:
-        return DBTrack(title=domain_model.title)
-
-    @staticmethod
-    def get_default_relationships() -> list[str]:
-        return []
-
-    @staticmethod
-    async def to_domain_with_session(
-        db_model: DBTrack, session: AsyncSession | None = None
-    ) -> Track:
-        _ = session
-        return Track(id=db_model.id, title=db_model.title)
-
-
-class TestHasSessionSupportTypeGuard:
-    """``has_session_support`` is a ``TypeIs`` that narrows ``ModelMapper`` to
-    ``SessionAwareMapper`` at the call site. Plain mappers must not pass;
-    session-aware mappers must.
-    """
-
-    def test_plain_mapper_does_not_support_session(self):
-        mapper: ModelMapper[DBTrack, Track] = _PlainMapper()
-        assert has_session_support(mapper) is False
-
-    def test_session_aware_mapper_supports_session(self):
-        mapper: ModelMapper[DBTrack, Track] = _SessionAwareMapperStub()
-        assert has_session_support(mapper) is True
 
 
 # =============================================================================

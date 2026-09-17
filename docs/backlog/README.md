@@ -177,7 +177,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.11.6** | Application-layer quality sweep — connector ports over probes, capability-gated resolvers, transforms into domain, writers serialised at the source | 🚀 Shipped | [details](v0.11.x.md#v0116-application-layer-quality-sweep) |
 | **v0.11.7** | Interface-layer quality sweep — typed SSE payloads, declarative connect flows and sync-target readiness, one-branch tables, contract fields over frontend guesses | 🚀 Shipped | [details](v0.11.x.md#v0117-interface-layer-quality-sweep) |
 | **v0.12.0** | Entity representation spike — artists/albums across six services, real data (docs-only) | 🚀 Shipped | [details](v0.12.x.md#v0120-entity-representation-spike) |
-| **v0.12.1** | First-class artists | 🔜 Not Started | [details](v0.12.x.md#v0121-first-class-artists) |
+| **v0.12.1** | First-class artists | 🔨 In Progress | [details](v0.12.x.md#v0121-first-class-artists) |
 | **v0.12.2** | First-class albums | 🔜 Not Started | [details](v0.12.x.md#v0122-first-class-albums) |
 | **v0.13.0** | Apple Music integration — library, likes sync, deferred-play re-resolution | 🔜 Not Started | [details](v0.13.x.md#v0130-apple-music-integration) |
 | **v0.13.1** | Physical media & Discogs | 🔜 Not Started | [details](v0.13.x.md#v0131-physical-media--discogs) |
