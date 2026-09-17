@@ -716,6 +716,13 @@ BLACKLISTED_USE_CASES: frozenset[str] = frozenset({
     # capability, and nothing in the parity contract is served by it.
     "GetUserSettingsUseCase",
     "PatchUserSettingsUseCase",
+    # Operator remediation for a writer defect, reached from ``mixd admin
+    # repair-primaries``. The agent can already *see* the vacancy —
+    # ``check_integrity`` reports it — and reporting it is the useful half. The
+    # repair itself rewrites which service id is authoritative for an unbounded
+    # number of tracks in one statement, with no per-track review; that is an
+    # operator's call about their own data, not a turn in a conversation.
+    "RepairMissingPrimariesUseCase",
 })
 
 # Excluded because chat has no file input/output channel, not by policy.

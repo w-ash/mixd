@@ -67,6 +67,21 @@ class ConnectorMappingSpec:
 
 
 @define(frozen=True, slots=True)
+class PrimaryVacancyRepair:
+    """One (track, connector) pair whose vacant primary slot was filled.
+
+    Returned by the bulk repair so the caller can report what moved — and, in
+    dry-run, what would move — without a second query.
+    """
+
+    track_id: UUID
+    connector_name: str
+    connector_track_id: UUID
+    mapping_id: UUID
+    confidence: int
+
+
+@define(frozen=True, slots=True)
 class PrimaryMappingDetail:
     """Provenance of a track's primary mapping for one connector.
 
@@ -516,6 +531,26 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             List of dicts with track_id, connector_name, mapping_count.
+        """
+        ...
+
+    def repair_missing_primaries(
+        self, *, user_id: str, dry_run: bool = False
+    ) -> Awaitable[list[PrimaryVacancyRepair]]:
+        """Elect a primary for every vacant (track, connector) pair of one user.
+
+        The bulk sibling of ``ensure_primary_for_connector``, with the same
+        selection policy (highest confidence, lowest id) and the same
+        vacancy-fill guarantee: a pair that already holds a live primary is
+        never touched.
+
+        Args:
+            user_id: Owner whose vacancies are repaired. Other tenants are
+                untouched.
+            dry_run: Select the winners and report them without writing.
+
+        Returns:
+            One entry per pair whose slot was filled (or would be, in dry-run).
         """
         ...
 

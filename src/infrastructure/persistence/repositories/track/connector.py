@@ -64,6 +64,7 @@ from src.domain.repositories.connector import (
     IsrcCollisionSpec,
     MatchMethodStatRow,
     PrimaryMappingDetail,
+    PrimaryVacancyRepair,
 )
 from src.domain.repositories.resolution import (
     ResolutionDecision,
@@ -2820,6 +2821,90 @@ class TrackConnectorRepository:
             }
             for track_id, connector_name, mapping_count in result.tuples()
         ]
+
+    @db_operation("repair_missing_primaries")
+    async def repair_missing_primaries(
+        self, *, user_id: str, dry_run: bool = False
+    ) -> list[PrimaryVacancyRepair]:
+        """Fill every vacant primary slot this user's live mappings have left.
+
+        The bulk sibling of ``ensure_primary_for_connector``, for the stock a
+        past writer left behind: every writer elects now and no read repairs,
+        so a legacy vacancy is a permanent FAIL on the
+        ``missing_primary_mappings`` integrity check with nothing to clear it.
+
+        **One election policy, one promotion path.** The winner is the
+        highest-confidence, lowest-id live mapping of the pair — the same
+        ``DISTINCT ON`` ordering ``_get_remaining_mappings`` applies per pair,
+        chosen here set-based so the repair is one query rather than one per
+        vacancy. Promotion goes through ``_promote_primaries_by_uuid``, which
+        keeps the ``NOT EXISTS`` peer guard (a pair that gained a primary
+        between the two statements is left alone) and the FM4d rule (the
+        denormalized ``tracks.spotify_id``/``mbid`` moves only for pairs whose
+        promotion actually landed).
+
+        Stale-id mappings are candidates here, unlike in ``_fill_primary_vacancies``
+        where a live sibling is always arriving alongside them: a pair whose
+        only live mappings are stale-id ones would otherwise stay vacant
+        forever, and a cached dead id is what the pair has.
+        """
+        peer = aliased(DBTrackMapping)
+        vacancies = (
+            select(
+                DBTrackMapping.id,
+                DBTrackMapping.track_id,
+                DBTrackMapping.connector_name,
+                DBTrackMapping.connector_track_id,
+                DBTrackMapping.confidence,
+            )
+            .where(
+                DBTrackMapping.user_id == user_id,
+                live_only(DBTrackMapping),
+                ~select(peer.id)
+                .where(
+                    peer.user_id == DBTrackMapping.user_id,
+                    peer.track_id == DBTrackMapping.track_id,
+                    peer.connector_name == DBTrackMapping.connector_name,
+                    peer.is_primary.is_(True),
+                    live_only(peer),
+                )
+                .correlate(DBTrackMapping)
+                .exists(),
+            )
+            .distinct(DBTrackMapping.track_id, DBTrackMapping.connector_name)
+            .order_by(
+                DBTrackMapping.track_id,
+                DBTrackMapping.connector_name,
+                DBTrackMapping.confidence.desc(),
+                DBTrackMapping.id.asc(),
+            )
+        )
+        result = await self.session.execute(vacancies)
+        elected = [
+            PrimaryVacancyRepair(
+                track_id=track_id,
+                connector_name=connector_name,
+                connector_track_id=connector_track_id,
+                mapping_id=mapping_id,
+                confidence=confidence,
+            )
+            for mapping_id, track_id, connector_name, connector_track_id, confidence in result.tuples()
+        ]
+        if dry_run or not elected:
+            return elected
+
+        promoted = await self._promote_primaries_by_uuid([
+            (row.track_id, row.connector_name, row.connector_track_id)
+            for row in elected
+        ])
+        if promoted != len(elected):
+            logger.warning(
+                "Primary repair promoted fewer pairs than it elected",
+                user_id=user_id,
+                elected=len(elected),
+                promoted=promoted,
+            )
+        return elected
 
     @db_operation("count_orphaned_connector_tracks")
     async def count_orphaned_connector_tracks(self) -> int:
