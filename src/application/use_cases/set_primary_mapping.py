@@ -34,7 +34,11 @@ class SetPrimaryMappingUseCase:
 
         Raises:
             NotFoundError: If the mapping doesn't exist.
-            ValueError: If track_id mismatch (URL tamper guard).
+            ValueError: If track_id mismatch (URL tamper guard), or if the
+                mapping cannot hold primacy (a stale-id cache row, or retired
+                between the read and the election) — the repository's reset
+                election rolls back rather than leave the pair deposed, and
+                nothing is committed.
         """
         async with uow:
             connector_repo = uow.get_connector_repository()

@@ -54,6 +54,37 @@ async def _create_track_with_mapping(
     return await execute_use_case(_create)
 
 
+async def _add_stale_id_mapping(track_id: UUID, external_id: str) -> UUID:
+    """Add a stale-id cache row beside the track's live mapping; returns its id."""
+    from src.application.runner import execute_use_case
+
+    async def _add(uow):
+        async with uow:
+            track = await uow.get_track_repository().get_track_by_id(
+                track_id, user_id=TEST_USER_ID
+            )
+            connector_repo = uow.get_connector_repository()
+            await connector_repo.map_track_to_connector(
+                track,
+                "spotify",
+                external_id,
+                match_method="direct_import_stale_id",
+                confidence=100,
+                auto_set_primary=False,
+            )
+            await uow.commit()
+            mappings = await connector_repo.get_full_mappings_for_track(
+                track_id, user_id=TEST_USER_ID
+            )
+            return next(
+                m["mapping_id"]
+                for m in mappings
+                if m["connector_track_id"] == external_id
+            )
+
+    return await execute_use_case(_add)
+
+
 async def _create_bare_track(
     client: httpx2.AsyncClient, title: str, artist: str = "Artist"
 ) -> UUID:
@@ -220,6 +251,28 @@ class TestSetPrimaryMappingEndpoint:
         )
 
         assert response.status_code == 400
+
+    async def test_stale_id_mapping_returns_400_and_keeps_the_primary(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """A stale-id cache row can never be primary: the reset election rolls
+        back instead of leaving the pair deposed, and the request is refused
+        as a validation error — not 200 with a silently vacated primary, not
+        500."""
+        track_id, live_mapping_id = await _create_track_with_mapping(client)
+        stale_mapping_id = await _add_stale_id_mapping(track_id, "spotify:dead")
+
+        response = await client.patch(
+            f"/api/v1/tracks/{track_id}/mappings/{stale_mapping_id}/primary"
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+        body = (await client.get(f"/api/v1/tracks/{track_id}")).json()
+        primaries = [
+            m["mapping_id"] for m in body["connector_mappings"] if m["is_primary"]
+        ]
+        assert primaries == [str(live_mapping_id)]
 
 
 class TestMappingExternalUrl:

@@ -204,6 +204,7 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
             decisions = [
                 ResolutionDecision(
                     event_type="superseded",
+                    entity_kind=edge.entity_kind,
                     connector_name=connector_name,
                     connector_track_id=rows[edge.successor_id].connector_track_id
                     if edge.successor_id in rows

@@ -203,6 +203,60 @@ class TestMapTracksToConnectors:
         await _assert_no_vacancy(db_session, track.id, pinned_owner.id)
         assert len(await _live_primary_ct_ids(db_session, track.id)) == 1
 
+    async def test_a_primary_spec_dropped_by_a_manual_override_deposes_nothing(
+        self, db_session: AsyncSession
+    ):
+        """A ``primary=True`` spec whose row the override filter dropped has
+        nothing to elect: it must not reach the reset election (which now
+        raises when it cannot promote what it deposed), and the track's
+        existing primary stays exactly where it was."""
+        connector_repo = get_unit_of_work(db_session).get_connector_repository()
+        pinned_owner = await _save_track(db_session, f"Pinned {uuid4().hex[:8]}")
+        track = await _save_track(db_session, f"Gold Rush {uuid4().hex[:8]}")
+        pinned_id = f"sp_pinned_{uuid4().hex[:8]}"
+        await connector_repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=pinned_owner,
+                connector="spotify",
+                connector_id=pinned_id,
+                match_method="direct_import",
+                confidence=100,
+                origin="manual_override",
+                primary=True,
+            ),
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id=f"sp_own_{uuid4().hex[:8]}",
+                match_method="direct_import",
+                confidence=100,
+                primary=True,
+            ),
+        ])
+        before = await _live_primary_ct_ids(db_session, track.id)
+
+        await connector_repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id=pinned_id,
+                match_method="isrc",
+                confidence=90,
+                primary=True,
+            ),
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id=f"sp_dead_{uuid4().hex[:8]}",
+                match_method="direct_import_stale_id",
+                confidence=100,
+                primary=True,
+            ),
+        ])
+
+        assert await _live_primary_ct_ids(db_session, track.id) == before
+        await _assert_no_vacancy(db_session, track.id, pinned_owner.id)
+
     async def test_a_lone_stale_id_secondary_never_takes_a_vacant_slot(
         self, db_session: AsyncSession
     ):
