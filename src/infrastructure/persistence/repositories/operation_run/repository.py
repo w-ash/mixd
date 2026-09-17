@@ -167,10 +167,9 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
         stmt = self._apply_sort_and_page(
             stmt,
             sort=OPERATION_RUN_SORT,
-            columns={"started_at": self.model_class.started_at},
             limit=limit + 1,
             after_value=after_started_at,
-            after_id=after_id if after_started_at is not None else None,
+            after_id=after_id,
         )
 
         result = await self.session.execute(stmt)

@@ -429,10 +429,6 @@ class MatchAndIdentifyTracksUseCase:
                 )
                 continue
 
-            if match.match_method is None:
-                # A review candidate came from a provider match, so the method
-                # is always set; the guard narrows the type, not the data.
-                continue
             reviews.append(
                 MatchReview(
                     track_id=track_id,

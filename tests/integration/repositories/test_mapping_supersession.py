@@ -709,11 +709,6 @@ class TestSupersessionAndPrimacy:
         await connector_repo.map_tracks_to_connectors([
             ConnectorMappingSpec(**spec_kwargs, confidence=70)
         ])
-        # Primacy is assigned separately from the bulk map (by the inward
-        # resolvers, review-accept, or read-path healing) — grant it here so
-        # the re-score below has something to inherit.
-        await connector_repo.ensure_primary_for_connector(track_id, "spotify")
-
         await connector_repo.map_tracks_to_connectors([
             ConnectorMappingSpec(**spec_kwargs, confidence=95)
         ])

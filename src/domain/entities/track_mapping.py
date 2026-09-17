@@ -86,8 +86,8 @@ MATCH_METHODS: Final[frozenset[MatchMethod]] = frozenset({
 })
 """Runtime membership test for :data:`MatchMethod`.
 
-Kept adjacent to the type so the two are edited together — a ``Literal``'s
-members are not reachable at runtime through a supported API.
+Kept adjacent to the type so the two are edited together; the vocabulary
+test checks they agree.
 """
 
 

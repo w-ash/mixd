@@ -229,12 +229,11 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             stmt = stmt.where(condition)
         return stmt
 
-    def _apply_sort_and_page[TSort](
+    def _apply_sort_and_page(
         self,
         stmt: Select[tuple[TDBModel]],
         *,
         sort: KeysetSort,
-        columns: Mapping[str, InstrumentedAttribute[TSort]],
         limit: int,
         offset: int = 0,
         after_value: object = None,
@@ -242,14 +241,14 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     ) -> Select[tuple[TDBModel]]:
         """Apply ORDER BY, keyset/offset pagination, and LIMIT to ``stmt``.
 
-        ``columns`` is the repository's own allowlist, keyed by
-        ``KeysetSort.column`` — the declaration names the column, the
-        repository supplies the typed attribute. Keyset seeking engages
-        whenever ``after_id`` is present; a None ``after_value`` with a
-        nullable sort column means the cursor sits in the NULL tail. No cursor
-        falls back to OFFSET. The tie-breaker is always ``id``.
+        ``sort`` is a domain declaration, never a request string, so resolving
+        its column by name is safe; the unit suite checks every declared column
+        exists on its model. Keyset seeking engages whenever ``after_id`` is
+        present; a None ``after_value`` with a nullable sort column means the
+        cursor sits in the NULL tail. No cursor falls back to OFFSET. The
+        tie-breaker is always ``id``.
         """
-        col = columns[sort.column]
+        col: ColumnElement[object] = getattr(self.model_class, sort.column)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
         nullable = sort.nullable
         desc = sort.desc
         id_col = self.model_class.id

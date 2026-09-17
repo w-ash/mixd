@@ -389,8 +389,9 @@ class MappingAssertion:
     restoration above only re-promotes on the successor's track; the track the
     mapping departed keeps a stale denormalized ``spotify_id``/``mbid`` and no
     primary at all — the FM4d drift migration 044's pre-pass had to repair on
-    366 production rows. These need the read-path healer, not a re-promotion:
-    the identifier they used to point at now belongs to someone else.
+    366 production rows. These need ``ensure_primary_for_connector``, not a
+    re-promotion: the identifier they used to point at now belongs to someone
+    else.
 
     ``written`` carries the full row — id, owner, track, connector identity,
     confidence, origin, evidence — for every mapping that landed live this
@@ -886,7 +887,8 @@ class TrackConnectorRepository:
         no-op where a primary already holds the slot (including a manual
         override). Both run in a fixed handful of statements for the whole
         batch. Reads never elect — the mapper is a pure function of the row —
-        so this is the only place a pair can gain its primary. Mapping one
+        so a pair gains its primary here or in an explicit repair
+        (``ensure_primary_for_connector``), never on the way out. Mapping one
         track is ``map_track_to_connector``, a one-spec call to exactly this.
 
         Args:
@@ -931,28 +933,25 @@ class TrackConnectorRepository:
         elected_pairs = {
             (track_id, connector) for track_id, connector, _ in promote_to_primary
         }
-        vacancy_candidates = sorted(
-            (
-                spec
-                for spec in mappings
-                if spec.track.id
-                and not spec.primary
-                and (spec.track.id, spec.connector) not in elected_pairs
-                and (spec.connector, spec.connector_id) in connector_id_map
-            ),
-            key=lambda spec: -spec.confidence,
-        )
         fill_vacancies = [
             (
                 spec.track.id,
                 spec.connector,
                 connector_id_map[spec.connector, spec.connector_id],
             )
-            for spec in vacancy_candidates
+            for spec in sorted(mappings, key=lambda s: -s.confidence)
             if spec.track.id
+            and not spec.primary
+            and (spec.track.id, spec.connector) not in elected_pairs
+            and (spec.connector, spec.connector_id) in connector_id_map
         ]
         if fill_vacancies:
-            _ = await self._batch_ensure_primary_mappings(fill_vacancies)
+            _ = await self._batch_ensure_primary_mappings(
+                fill_vacancies,
+                external_by_ct_id={
+                    ct_id: external for (_, external), ct_id in connector_id_map.items()
+                },
+            )
 
         # Note: metrics extraction lives in the application layer
         # (MetricsApplicationService); this repository maps track identity only.
@@ -1033,8 +1032,8 @@ class TrackConnectorRepository:
 
         When the successor landed on a *different* track, the track it left
         needs the opposite treatment: not a re-promotion (the identifier it
-        held now belongs elsewhere) but the read-path healer, which promotes a
-        surviving sibling or clears the denormalized column.
+        held now belongs elsewhere) but ``ensure_primary_for_connector``, which
+        promotes a surviving sibling or clears the denormalized column.
 
         ``PrimacyRestoration`` already carries the connector track's internal
         UUID, so this goes straight to ``_batch_ensure_primary_mappings`` —
@@ -2611,6 +2610,8 @@ class TrackConnectorRepository:
     async def _batch_ensure_primary_mappings(
         self,
         primaries: list[tuple[UUID, str, UUID]],
+        *,
+        external_by_ct_id: Mapping[UUID, str] | None = None,
     ) -> int:
         """Fill a vacant primary slot for multiple track-connector pairs in bulk.
 
@@ -2643,7 +2644,9 @@ class TrackConnectorRepository:
         """
         if not primaries:
             return 0
-        return await self._promote_primaries_by_uuid(primaries)
+        return await self._promote_primaries_by_uuid(
+            primaries, external_by_ct_id=external_by_ct_id
+        )
 
     @db_operation("batch_ensure_primary_mappings_by_external_id")
     async def _batch_ensure_primary_mappings_by_external_id(
@@ -2918,7 +2921,7 @@ class TrackConnectorRepository:
           - the column is set but no primary spotify mapping exists at all
 
         Epic 5 fixed the write flow that caused this drift; this watches the
-        stock drain via the read-path healing in ``ensure_primary_for_connector``.
+        remaining stock, which only moves through writers or explicit repair.
         """
         primary_spotify = (DBTrackMapping.connector_name == "spotify") & (
             DBTrackMapping.is_primary.is_(True)

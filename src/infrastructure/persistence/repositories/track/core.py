@@ -43,7 +43,7 @@ from src.domain.repositories.track import (
     PlayFilters,
     TrackFacets,
     TrackListingPage,
-    is_track_sort,
+    TrackSortBy,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
@@ -420,18 +420,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         "internal": "id",
         "isrc": "isrc",
         **DENORMALIZED_ID_COLUMNS,
-    }
-
-    # The per-repository column map ``BaseRepository._apply_sort_and_page``
-    # indexes by ``KeysetSort.column``: the declaration (``TRACK_SORTS``) names
-    # the column, this supplies the typed attribute — and doubles as the
-    # allowlist, so no sort ever reaches ``getattr(DBTrack, ...)``.
-    _SORT_COLUMNS: ClassVar[dict[str, InstrumentedAttribute[Any]]] = {  # pyright: ignore[reportExplicitAny]  # InstrumentedAttribute is generic over heterogeneous column types
-        "title": DBTrack.title,
-        "created_at": DBTrack.created_at,
-        "duration_ms": DBTrack.duration_ms,
-        "play_count": DBTrack.play_count,
-        "last_played_at": DBTrack.last_played_at,
     }
 
     def __init__(self, session: AsyncSession) -> None:
@@ -826,7 +814,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         tag_mode: Literal["and", "or"] = "and",
         namespace: str | None = None,
         play_filters: PlayFilters = NO_PLAY_FILTERS,
-        sort_by: str = "last_played_desc",
+        sort_by: TrackSortBy = DEFAULT_TRACK_SORT,
         limit: int = 50,
         offset: int = 0,
         # Keyset pagination: seek after this (sort_value, id) pair.
@@ -877,12 +865,10 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         data_stmt = self.select()
         if conditions:
             data_stmt = data_stmt.where(*conditions)
-        # sort_by is validated upstream; an unknown value takes the default.
-        sort = TRACK_SORTS[sort_by if is_track_sort(sort_by) else DEFAULT_TRACK_SORT]
+        sort = TRACK_SORTS[sort_by]
         data_stmt = self._apply_sort_and_page(
             data_stmt,
             sort=sort,
-            columns=self._SORT_COLUMNS,
             limit=limit,
             offset=offset,
             after_value=after_value,

@@ -396,7 +396,7 @@ class TestMatchResult:
 
     def test_immutable(self):
         """Test that MatchResult is immutable."""
-        result = MatchResult(track="mock", success=True)
+        result = MatchResult(track="mock", success=True, match_method="isrc")
 
         with pytest.raises(AttributeError):
             result.success = False  # Should not be allowed

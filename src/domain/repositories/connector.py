@@ -545,7 +545,7 @@ class ConnectorRepositoryProtocol(Protocol):
         the column is set but no primary spotify mapping exists at all.
 
         Epic 5 fixed the write flow that caused this drift; this watches the
-        stock drain via the read-path healing in ``ensure_primary_for_connector``.
+        remaining stock, which only moves through writers or explicit repair.
         """
         ...
 

@@ -182,7 +182,6 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
                 confidence_evidence=mr.evidence_dict,
             )
             for mr in accepted
-            if mr.match_method is not None
         ]
         await self.connector_repo.map_tracks_to_connectors(mappings)
 

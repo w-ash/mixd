@@ -38,24 +38,12 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
     @override
     @staticmethod
     async def to_domain(db_model: DBTrack) -> Track:
-        """Convert database track to domain model."""
-        return await TrackMapper._to_domain(db_model)
-
-    @staticmethod
-    async def _to_domain(
-        db_model: DBTrack,
-        connector_filter: set[str] | None = None,
-    ) -> Track:
         """Convert database track to domain model.
 
         Pure function of the loaded row: the mapper never writes. A connector
         with live mappings and no primary is displayed through its
         highest-confidence mapping and reported as
         :class:`MissingPrimaryMappingWarning`.
-
-        Args:
-            db_model: Database track entity to convert.
-            connector_filter: Optional set of connector names to include.
         """
         # Read only eager-loaded relationships (zero I/O) via the typed
         # loaded_list primitive — a forgotten eager-load degrades to [].
@@ -81,9 +69,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 )
                 if conn_track:
                     connector_name = conn_track.connector_name
-                    # Skip connectors not in filter (if filter is specified)
-                    if connector_filter and connector_name not in connector_filter:
-                        continue
                     connector_track_identifiers[connector_name] = (
                         conn_track.connector_track_identifier
                     )
@@ -102,9 +87,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 )
                 if conn_track:
                     connector_name = conn_track.connector_name
-                    # Skip connectors not in filter (if filter is specified)
-                    if connector_filter and connector_name not in connector_filter:
-                        continue
                     # Only fall back where no primary exists for this connector
                     if connector_name in connector_track_identifiers:
                         continue
@@ -134,8 +116,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         # Denormalized columns are post-walk FALLBACKS only (no mapping rows
         # to contradict them — e.g. lazy-load degradation or hint columns).
-        # Applied regardless of connector_filter, preserving the pre-v0.8.18
-        # quirk that column IDs appear even when filtered out.
         if db_model.spotify_id:
             _ = connector_track_identifiers.setdefault("spotify", db_model.spotify_id)
         if db_model.mbid:
@@ -152,9 +132,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         # Process likes into connector metadata
         for like in active_likes:
             service = like.service
-            # Skip services not in filter (if filter is specified)
-            if connector_filter and service not in connector_filter:
-                continue
             if service not in connector_metadata:
                 connector_metadata[service] = {}
 

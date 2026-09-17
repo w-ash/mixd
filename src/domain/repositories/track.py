@@ -100,21 +100,21 @@ DEFAULT_TRACK_SORT: Final[TrackSortBy] = "last_played_desc"
 
 # The one sort registry: the repository orders and seeks by it, the cursor
 # codec encodes by it. Keys are typed by the alias so a typo fails the type
-# checker; the flags are checked against the ORM model in the unit suite.
+# checker; columns and flags are checked against the ORM model in the unit suite.
 TRACK_SORTS: Final[Mapping[TrackSortBy, KeysetSort]] = {
-    "title_asc": KeysetSort("title_asc", "title", "asc"),
-    "title_desc": KeysetSort("title_desc", "title", "desc"),
-    "added_desc": KeysetSort("added_desc", "created_at", "desc", is_datetime=True),
-    "added_asc": KeysetSort("added_asc", "created_at", "asc", is_datetime=True),
-    "duration_asc": KeysetSort("duration_asc", "duration_ms", "asc", nullable=True),
-    "duration_desc": KeysetSort("duration_desc", "duration_ms", "desc", nullable=True),
-    "plays_desc": KeysetSort("plays_desc", "play_count", "desc"),
-    "plays_asc": KeysetSort("plays_asc", "play_count", "asc"),
+    "title_asc": KeysetSort("title", "asc"),
+    "title_desc": KeysetSort("title", "desc"),
+    "added_desc": KeysetSort("created_at", "desc", is_datetime=True),
+    "added_asc": KeysetSort("created_at", "asc", is_datetime=True),
+    "duration_asc": KeysetSort("duration_ms", "asc", nullable=True),
+    "duration_desc": KeysetSort("duration_ms", "desc", nullable=True),
+    "plays_desc": KeysetSort("play_count", "desc"),
+    "plays_asc": KeysetSort("play_count", "asc"),
     "last_played_desc": KeysetSort(
-        "last_played_desc", "last_played_at", "desc", nullable=True, is_datetime=True
+        "last_played_at", "desc", nullable=True, is_datetime=True
     ),
     "last_played_asc": KeysetSort(
-        "last_played_asc", "last_played_at", "asc", nullable=True, is_datetime=True
+        "last_played_at", "asc", nullable=True, is_datetime=True
     ),
 }
 
@@ -261,7 +261,7 @@ class TrackRepositoryProtocol(Protocol):
         tag_mode: Literal["and", "or"] = "and",
         namespace: str | None = None,
         play_filters: PlayFilters = NO_PLAY_FILTERS,
-        sort_by: str = DEFAULT_TRACK_SORT,
+        sort_by: TrackSortBy = DEFAULT_TRACK_SORT,
         limit: int = 50,
         offset: int = 0,
         after_value: SortKey | None = None,

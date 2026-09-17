@@ -143,7 +143,7 @@ class MatchResult:
     review_required: bool = False
     connector_id: str = ""  # ID in the target system
     confidence: int = 0
-    match_method: MatchMethod | None = None  # None until a provider matched
+    match_method: MatchMethod = field(kw_only=True)
     service_data: Mapping[str, JsonValue] = field(
         factory=empty_json_map
     )  # Data from external service

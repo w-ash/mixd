@@ -32,16 +32,13 @@ class TestTrackSortRegistry:
         members = set(get_args(cast("object", TrackSortBy.__value__)))
         assert set(TRACK_SORTS) == members
 
-    def test_every_entry_is_keyed_by_its_own_name(self) -> None:
-        assert all(sort.name == key for key, sort in TRACK_SORTS.items())
-
 
 class TestDeclarationsMatchTheModels:
     def test_columns_exist_and_flags_agree(self) -> None:
         for model, sort in DECLARED:
             column = model.__table__.c[sort.column]
-            assert column.nullable == sort.nullable, (model.__name__, sort.name)
+            assert column.nullable == sort.nullable, (model.__name__, sort.column)
             assert isinstance(column.type, DateTime) == sort.is_datetime, (
                 model.__name__,
-                sort.name,
+                sort.column,
             )

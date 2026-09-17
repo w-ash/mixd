@@ -16,13 +16,12 @@ type SortDirection = Literal["asc", "desc"]
 class KeysetSort:
     """A sortable column and how a page over it is bounded.
 
-    ``name`` is the public sort key (``"title_asc"``); ``column`` is the model
-    attribute the repository orders by and the value the cursor's ``"c"`` field
-    carries. ``nullable`` columns order NULLS LAST and need the keyset's NULL
-    arms; ``is_datetime`` columns travel through the cursor as ISO strings.
+    ``column`` is the model attribute the repository orders by and the value
+    the cursor's ``"c"`` field carries. ``nullable`` columns order NULLS LAST
+    and need the keyset's NULL arms; ``is_datetime`` columns travel through the
+    cursor as ISO strings.
     """
 
-    name: str
     column: str
     direction: SortDirection
     nullable: bool = False

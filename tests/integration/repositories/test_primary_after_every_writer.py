@@ -8,28 +8,26 @@ back under the suite's ``error::MissingPrimaryMappingWarning`` filter proves
 the same thing from the display side.
 """
 
-from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.db_models import DBTrackMapping
+from src.infrastructure.persistence.database.live_rows import live_only
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import make_connector_track, make_track
 
 
 def _connector_track(identifier: str, *, title: str) -> ConnectorTrack:
-    return ConnectorTrack(
-        connector_name="spotify",
-        connector_track_identifier=identifier,
+    return make_connector_track(
+        identifier,
         title=title,
-        artists=[Artist(name="Neon Priest")],
+        artist="Neon Priest",
         album="Debut",
         duration_ms=200_000,
-        raw_metadata={},
-        last_updated=datetime.now(UTC),
     )
 
 
@@ -37,9 +35,7 @@ async def _save_track(db_session: AsyncSession, title: str) -> Track:
     return (
         await get_unit_of_work(db_session)
         .get_track_repository()
-        .save_track(
-            Track(title=title, artists=[Artist(name="Neon Priest")], user_id="default")
-        )
+        .save_track(make_track(title=title, artist="Neon Priest"))
     )
 
 
@@ -48,21 +44,22 @@ async def _live_primary_ct_ids(db_session: AsyncSession, track_id: UUID) -> set[
         select(DBTrackMapping.connector_track_id).where(
             DBTrackMapping.track_id == track_id,
             DBTrackMapping.is_primary.is_(True),
-            DBTrackMapping.superseded_at.is_(None),
+            live_only(DBTrackMapping),
         )
     )
     return set(rows.scalars().all())
 
 
-async def _assert_no_vacancy(db_session: AsyncSession, *track_ids: UUID) -> None:
+async def _assert_no_vacancy(db_session: AsyncSession, *track_ids: UUID) -> list[Track]:
+    """No pair lacks a primary — by the integrity query, and by reading each
+    track back (under ``filterwarnings = error::MissingPrimaryMappingWarning``
+    a vacancy raises)."""
     uow = get_unit_of_work(db_session)
     assert await uow.get_connector_repository().find_missing_primary_violations() == []
-    for track_id in track_ids:
-        # Under ``filterwarnings = error::MissingPrimaryMappingWarning`` a
-        # vacancy here would raise, not just warn.
-        _ = await uow.get_track_repository().get_track_by_id(
-            track_id, user_id="default"
-        )
+    return [
+        await uow.get_track_repository().get_track_by_id(track_id, user_id="default")
+        for track_id in track_ids
+    ]
 
 
 class TestMapTracksToConnectors:
@@ -160,12 +157,7 @@ class TestMapTracksToConnectors:
             ),
         ])
 
-        await _assert_no_vacancy(db_session, track.id)
-        domain = (
-            await get_unit_of_work(db_session)
-            .get_track_repository()
-            .get_track_by_id(track.id, user_id="default")
-        )
+        (domain,) = await _assert_no_vacancy(db_session, track.id)
         assert domain.connector_track_identifiers["spotify"] == live
 
 
@@ -227,7 +219,10 @@ class TestOtherWriters:
 
     async def test_retire_then_relink(self, db_session: AsyncSession):
         """Unlink (retire the primary) elects the next one; relink onto a
-        track with no primary elects there too."""
+        track with no primary elects there too. For these two writers the
+        election lives in the use case (``UnlinkConnectorTrackUseCase`` /
+        ``RelinkConnectorTrackUseCase`` call ``ensure_primary_for_connector``),
+        so the test replays that orchestration."""
         uow = get_unit_of_work(db_session)
         connector_repo = uow.get_connector_repository()
         track = await _save_track(db_session, f"Gold Rush {uuid4().hex[:8]}")
@@ -270,8 +265,7 @@ class TestOtherWriters:
         survivor_id = (
             await db_session.execute(
                 select(DBTrackMapping.id).where(
-                    DBTrackMapping.track_id == track.id,
-                    DBTrackMapping.superseded_at.is_(None),
+                    DBTrackMapping.track_id == track.id, live_only(DBTrackMapping)
                 )
             )
         ).scalar_one()

@@ -53,14 +53,11 @@ def _normalize_tags(tags: Sequence[str] | None) -> tuple[str, ...] | None:
 
 
 def _known_sort(value: str) -> TrackSortBy:
-    """Fall back to the default sort rather than raising on an unknown key.
+    """Unknown keys take the default sort so programmatic callers never 500.
 
-    The repository documents unknown sorts as falling back, but it never got
-    the chance to: ``execute`` subscripts ``TRACK_SORTS`` directly, so an
-    unrecognized value was a ``KeyError`` — a 500 — several frames earlier.
-    Normalizing here makes the documented behavior true for every caller. The
-    API's ``TrackSortBy`` Query type still rejects garbage with a 422 before it
-    reaches this point; this covers programmatic callers and stale cursors.
+    This is the one fallback: the API's ``TrackSortBy`` Query type rejects
+    garbage with a 422 before it reaches here, and the repository takes a
+    ``TrackSortBy``.
     """
     return value if is_track_sort(value) else DEFAULT_TRACK_SORT
 

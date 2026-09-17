@@ -778,7 +778,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         stmt = self._apply_sort_and_page(
             stmt,
             sort=PLAY_EVENT_SORT,
-            columns={"played_at": DBTrackPlay.played_at},
             limit=limit + 1,
             after_value=before_played_at,
             after_id=before_id,
