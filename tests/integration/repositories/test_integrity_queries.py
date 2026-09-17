@@ -63,13 +63,14 @@ async def _seed_mapping(
     ct_id: int,
     connector_name: str = "spotify",
     is_primary: bool = True,
+    match_method: str = "direct",
 ) -> int:
     """Insert a track mapping and return its ID."""
     mapping = DBTrackMapping(
         track_id=track_id,
         connector_track_id=ct_id,
         connector_name=connector_name,
-        match_method="direct",
+        match_method=match_method,
         confidence=100,
         origin="automatic",
         is_primary=is_primary,
@@ -153,6 +154,24 @@ class TestMissingPrimaryViolations:
         repo = TrackConnectorRepository(db_session)
         result = await repo.find_missing_primary_violations()
         assert result == []
+
+    async def test_a_pair_with_only_stale_id_rows_is_not_a_violation(
+        self, db_session: AsyncSession
+    ):
+        """A stale-id cache row cannot be elected, so a pair holding nothing
+        else has no live identity to be missing."""
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        await _seed_mapping(
+            db_session,
+            track_id,
+            ct_id,
+            is_primary=False,
+            match_method="direct_import_stale_id",
+        )
+
+        repo = TrackConnectorRepository(db_session)
+        assert await repo.find_missing_primary_violations() == []
 
 
 class TestOrphanedConnectorTracks:

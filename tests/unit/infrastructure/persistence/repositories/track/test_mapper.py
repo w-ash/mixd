@@ -42,7 +42,12 @@ def _transient_track(*, spotify_id: str | None) -> DBTrack:
 
 
 def _transient_mapping(
-    track: DBTrack, *, identifier: str, confidence: int, is_primary: bool = False
+    track: DBTrack,
+    *,
+    identifier: str,
+    confidence: int,
+    is_primary: bool = False,
+    match_method: str = "direct",
 ) -> DBTrackMapping:
     """Build a transient non-persisted mapping with its connector track wired."""
     connector_track = DBConnectorTrack(
@@ -60,7 +65,7 @@ def _transient_mapping(
         track_id=track.id,
         connector_track_id=connector_track.id,
         connector_name="spotify",
-        match_method="direct",
+        match_method=match_method,
         confidence=confidence,
         is_primary=is_primary,
         origin="automatic",
@@ -136,6 +141,39 @@ class TestFallbackSelectsHighestConfidence:
             domain_track = await TrackMapper.to_domain(track)
 
         assert domain_track.connector_track_identifiers["spotify"] == "sp_first"
+
+    async def test_a_stale_id_row_is_never_the_display_fallback(self):
+        """Display and election agree: no election promotes a stale-id cache
+        row, so display never shows its dead id either."""
+        track = _transient_track(spotify_id=None)
+        stale = _transient_mapping(
+            track,
+            identifier="sp_dead",
+            confidence=100,
+            match_method="direct_import_stale_id",
+        )
+        live = _transient_mapping(track, identifier="sp_live", confidence=60)
+        track.mappings = [stale, live]
+
+        with pytest.warns(MissingPrimaryMappingWarning):
+            domain_track = await TrackMapper.to_domain(track)
+
+        assert domain_track.connector_track_identifiers["spotify"] == "sp_live"
+
+    async def test_only_stale_id_rows_show_no_identifier_and_no_warning(self):
+        track = _transient_track(spotify_id=None)
+        track.mappings = [
+            _transient_mapping(
+                track,
+                identifier="sp_dead",
+                confidence=100,
+                match_method="direct_import_stale_id",
+            )
+        ]
+
+        domain_track = await TrackMapper.to_domain(track)
+
+        assert "spotify" not in domain_track.connector_track_identifiers
 
 
 class TestMappingRowsOutsideTheVocabulary:

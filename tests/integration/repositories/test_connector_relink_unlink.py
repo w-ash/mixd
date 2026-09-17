@@ -237,6 +237,68 @@ class TestEnsurePrimaryForConnector:
         assert len(primaries) == 1
         assert primaries[0].confidence == 90
 
+    async def test_only_stale_id_rows_left_clears_the_column_instead(
+        self, db_session: AsyncSession, connector_repo
+    ) -> None:
+        """When the live id is gone and only its stale-id cache row remains,
+        the pair has no identity: no promotion, and the denormalized column
+        is cleared rather than filled with the dead id."""
+        uid = str(uuid4())[:8]
+        db_track = DBTrack(
+            title=f"StaleOnly {uid}",
+            artists={"names": ["A"]},
+            spotify_id=f"sp:{uid}:live",
+        )
+        db_session.add(db_track)
+        await db_session.flush()
+        ct = DBConnectorTrack(
+            connector_name="spotify",
+            connector_track_identifier=f"sp:{uid}:dead",
+            title="T",
+            artists={"names": ["A"]},
+            raw_metadata={},
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(ct)
+        await db_session.flush()
+        db_session.add(
+            DBTrackMapping(
+                track_id=db_track.id,
+                connector_track_id=ct.id,
+                connector_name="spotify",
+                match_method="direct_import_stale_id",
+                confidence=100,
+                is_primary=False,
+            )
+        )
+        await db_session.flush()
+
+        await connector_repo.ensure_primary_for_connector(db_track.id, "spotify")
+
+        primaries = (
+            (
+                await db_session.execute(
+                    select(DBTrackMapping.id)
+                    .where(
+                        DBTrackMapping.track_id == db_track.id,
+                        DBTrackMapping.is_primary.is_(True),
+                    )
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert primaries == []
+        spotify_id = (
+            await db_session.execute(
+                select(DBTrack.spotify_id)
+                .where(DBTrack.id == db_track.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        assert spotify_id is None
+
     async def test_noop_when_primary_exists(
         self, db_session: AsyncSession, connector_repo
     ) -> None:

@@ -138,6 +138,24 @@ _ASSERT_DEFAULTS: dict[str, object] = {
 }
 
 
+# A stale-id mapping is a cache entry for a dead connector id, written beside
+# the live id it was redirected to so a later import carrying the old id still
+# resolves from cache. It never holds primacy: promoting one would copy the
+# dead id into the denormalized ``tracks.spotify_id`` fast path. Every
+# election reads this predicate; a pair whose only live rows are stale-id ones
+# has no live identity and is neither elected nor reported as a vacancy.
+_STALE_ID_METHODS: frozenset[MatchMethod] = frozenset(STALE_ID_FOR.values())
+
+
+def _not_stale_id(model: type[DBTrackMapping]) -> ColumnElement[bool]:
+    """Rows that may hold primacy — paired with ``live_only`` in every election.
+
+    Kept separate from ``live_only`` so each statement still names the
+    live-rows invariant itself (``test_live_rows_conformance`` reads for it).
+    """
+    return model.match_method.notin_(_STALE_ID_METHODS)
+
+
 def _vocabulary_match_method(value: str, *, row: UUID) -> MatchMethod:
     """Narrow a persisted ``match_method`` to the domain vocabulary.
 
@@ -1085,13 +1103,12 @@ class TrackConnectorRepository:
         asserted = {
             (row["track_id"], row["connector_track_id"]) for row in mapping_rows
         }
-        stale_methods = frozenset(STALE_ID_FOR.values())
         fill_vacancies = [
             (spec.track.id, spec.connector, ct_id)
             for spec in sorted(mappings, key=lambda s: -s.confidence)
             if spec.track.id
             and not spec.primary
-            and spec.match_method not in stale_methods
+            and spec.match_method not in _STALE_ID_METHODS
             and (spec.track.id, spec.connector) not in elected_pairs
             and (ct_id := connector_id_map.get((spec.connector, spec.connector_id)))
             and (spec.track.id, ct_id) in asserted
@@ -2014,13 +2031,16 @@ class TrackConnectorRepository:
     async def _get_remaining_mappings(
         self, track_id: UUID, connector_name: str
     ) -> list[TrackMapping]:
-        """Get all mappings for a (track, connector) pair, ordered by confidence desc.
+        """Electable mappings for a (track, connector) pair, confidence desc.
 
-        The ``id`` ascending secondary key makes the ordering total: on an
-        equal-confidence tie ``remaining[0]`` is deterministic, and the mapper's
-        display-fallback selection applies the SAME (confidence desc, id asc)
-        tiebreak, so the displayed identifier and the promoted primary agree
-        (v0.8.18 FM4c: one promotion policy).
+        Stale-id cache rows are left out (``_not_stale_id``): a pair with only
+        those left has no live identity, and the caller clears the denormalized
+        column instead of promoting a dead id. The ``id`` ascending secondary
+        key makes the ordering total: on an equal-confidence tie
+        ``remaining[0]`` is deterministic, and the mapper's display-fallback
+        selection applies the SAME (confidence desc, id asc) tiebreak, so the
+        displayed identifier and the promoted primary agree (v0.8.18 FM4c: one
+        promotion policy).
         """
         result = await self.session.execute(
             select(DBTrackMapping)
@@ -2028,6 +2048,7 @@ class TrackConnectorRepository:
                 DBTrackMapping.track_id == track_id,
                 DBTrackMapping.connector_name == connector_name,
                 live_only(DBTrackMapping),
+                _not_stale_id(DBTrackMapping),
             )
             .order_by(DBTrackMapping.confidence.desc(), DBTrackMapping.id.asc())
             # Promotion runs right after Core supersession/primary flips.
@@ -2564,6 +2585,7 @@ class TrackConnectorRepository:
                 DBTrackMapping.connector_track_id
                 == promotion_values.c.connector_track_id,
                 live_only(DBTrackMapping),
+                _not_stale_id(DBTrackMapping),
                 ~select(peer.id)
                 .where(
                     peer.user_id == DBTrackMapping.user_id,
@@ -2792,7 +2814,11 @@ class TrackConnectorRepository:
 
     @db_operation("find_missing_primary_violations")
     async def find_missing_primary_violations(self) -> list[dict[str, object]]:
-        """Find tracks with live mappings for a connector but none marked primary."""
+        """Find tracks with electable live mappings for a connector but no primary.
+
+        A pair whose only live rows are stale-id cache entries is not counted:
+        it has no live identity to elect (``_not_stale_id``).
+        """
         has_primary = (
             select(DBTrackMapping.track_id, DBTrackMapping.connector_name)
             .where(DBTrackMapping.is_primary.is_(True), live_only(DBTrackMapping))
@@ -2809,7 +2835,11 @@ class TrackConnectorRepository:
                 (DBTrackMapping.track_id == has_primary.c.track_id)
                 & (DBTrackMapping.connector_name == has_primary.c.connector_name),
             )
-            .where(has_primary.c.track_id.is_(None), live_only(DBTrackMapping))
+            .where(
+                has_primary.c.track_id.is_(None),
+                live_only(DBTrackMapping),
+                _not_stale_id(DBTrackMapping),
+            )
             .group_by(DBTrackMapping.track_id, DBTrackMapping.connector_name)
         )
         result = await self.session.execute(stmt)
@@ -2843,10 +2873,10 @@ class TrackConnectorRepository:
         denormalized ``tracks.spotify_id``/``mbid`` moves only for pairs whose
         promotion actually landed).
 
-        Stale-id mappings are candidates here, unlike in ``_fill_primary_vacancies``
-        where a live sibling is always arriving alongside them: a pair whose
-        only live mappings are stale-id ones would otherwise stay vacant
-        forever, and a cached dead id is what the pair has.
+        Stale-id cache rows are never candidates (``_not_stale_id``), here or in
+        any other election: a pair whose only live rows are stale-id ones has
+        no live identity, is not a vacancy, and is left for
+        ``ensure_primary_for_connector`` to clear the denormalized column on.
         """
         peer = aliased(DBTrackMapping)
         vacancies = (
@@ -2860,6 +2890,7 @@ class TrackConnectorRepository:
             .where(
                 DBTrackMapping.user_id == user_id,
                 live_only(DBTrackMapping),
+                _not_stale_id(DBTrackMapping),
                 ~select(peer.id)
                 .where(
                     peer.user_id == DBTrackMapping.user_id,

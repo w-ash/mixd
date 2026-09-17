@@ -10,6 +10,7 @@ from src.config import get_logger
 from src.domain.entities import Artist, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.shared import JsonDict
+from src.domain.entities.track_mapping import STALE_ID_FOR
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -23,6 +24,8 @@ from src.infrastructure.persistence.repositories._shared.connector_tracks import
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
 logger = get_logger(__name__)
+
+_STALE_ID_METHODS = frozenset(STALE_ID_FOR.values())
 
 
 class MissingPrimaryMappingWarning(UserWarning):
@@ -80,11 +83,13 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         # Second pass: fill in any missing connectors with the HIGHEST-
         # confidence non-primary mapping — the same selection
         # ensure_primary_for_connector makes, so the displayed identifier and
-        # the elected row agree (v0.8.18 FM4c: one election policy).
+        # the elected row agree (v0.8.18 FM4c: one election policy). Stale-id
+        # cache rows are skipped for the same reason: no election promotes
+        # them, and displaying a dead id would disagree with every writer.
         fallback_mappings: dict[str, DBTrackMapping] = {}
 
         for mapping in active_mappings:
-            if not mapping.is_primary:
+            if not mapping.is_primary and mapping.match_method not in _STALE_ID_METHODS:
                 conn_track = mapping.loaded_one(
                     DBTrackMapping.connector_track, DBConnectorTrack
                 )

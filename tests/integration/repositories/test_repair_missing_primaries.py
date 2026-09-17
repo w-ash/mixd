@@ -74,6 +74,7 @@ async def _add_mapping(
     is_primary: bool = False,
     user_id: str = _USER,
     mapping_id: UUID | None = None,
+    match_method: str = "isrc_match",
 ) -> UUID:
     mapping = DBTrackMapping(
         id=mapping_id or uuid7(),
@@ -81,7 +82,7 @@ async def _add_mapping(
         track_id=track_id,
         connector_track_id=connector_track_id,
         connector_name=connector,
-        match_method="isrc_match",
+        match_method=match_method,
         confidence=confidence,
         is_primary=is_primary,
     )
@@ -245,6 +246,49 @@ class TestWhatItLeavesAlone:
 
         assert [r.mapping_id for r in repaired] == [live]
         assert await _spotify_id(db_session, track_id) == live_identifier
+
+    async def test_a_stale_id_row_is_never_the_winner(
+        self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
+    ):
+        """A stale-id row caches a dead id; promoting it would write that dead
+        id into ``tracks.spotify_id``. It is never a candidate, even when it
+        carries the highest confidence."""
+        track_id = await _make_track(db_session)
+        stale_ct, _ = await _make_connector_track(db_session)
+        live_ct, live_identifier = await _make_connector_track(db_session)
+        await _add_mapping(
+            db_session,
+            track_id=track_id,
+            connector_track_id=stale_ct,
+            confidence=100,
+            match_method="direct_import_stale_id",
+        )
+        live_mapping = await _add_mapping(
+            db_session, track_id=track_id, connector_track_id=live_ct, confidence=60
+        )
+
+        repaired = await connector_repo.repair_missing_primaries(user_id=_USER)
+
+        assert [r.mapping_id for r in repaired] == [live_mapping]
+        assert await _primary_mapping_ids(db_session, track_id) == {live_mapping}
+        assert await _spotify_id(db_session, track_id) == live_identifier
+
+    async def test_a_pair_with_only_stale_id_rows_is_not_a_vacancy(
+        self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
+    ):
+        track_id = await _make_track(db_session)
+        stale_ct, _ = await _make_connector_track(db_session)
+        await _add_mapping(
+            db_session,
+            track_id=track_id,
+            connector_track_id=stale_ct,
+            confidence=100,
+            match_method="direct_import_stale_id",
+        )
+
+        assert await connector_repo.repair_missing_primaries(user_id=_USER) == []
+        assert await _primary_mapping_ids(db_session, track_id) == set()
+        assert await connector_repo.find_missing_primary_violations() == []
 
 
 class TestIdempotenceAndDryRun:
