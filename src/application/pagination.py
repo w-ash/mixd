@@ -22,12 +22,14 @@ class PageCursor:
     """Decoded cursor for keyset pagination.
 
     Attributes:
-        sort_column: The DB column name used for ordering (e.g., "title").
-        sort_value: The last row's value for that column. Datetimes stored as ISO strings.
+        sort_key: The ``KeysetSort.key`` the page was minted under (e.g.
+            "title_asc"). A reader compares it with the active sort and refuses
+            a cursor that would seek from the wrong end.
+        sort_value: The last row's value for the sort column. Datetimes stored as ISO strings.
         last_id: The last row's primary key (UUID), used as tiebreaker for stable ordering.
     """
 
-    sort_column: str
+    sort_key: str
     sort_value: str | int | float | None
     last_id: UUID
 
@@ -35,11 +37,11 @@ class PageCursor:
 def encode_cursor(cursor: PageCursor) -> str:
     """Encode a PageCursor as an opaque base64 string for use in API responses.
 
-    Format: base64(json({"c": column, "v": value, "id": id}))
+    Format: base64(json({"c": sort key, "v": value, "id": id}))
     Compact keys minimize URL length.
     """
     payload = {
-        "c": cursor.sort_column,
+        "c": cursor.sort_key,
         "v": cursor.sort_value,
         "id": str(cursor.last_id),
     }
@@ -64,14 +66,14 @@ def decode_cursor(encoded: str) -> PageCursor:
 
     payload = cast(dict[str, object], raw)
     try:
-        sort_column = payload["c"]
+        sort_key = payload["c"]
         sort_value = payload["v"]
         last_id_raw = payload["id"]
     except KeyError as exc:
         raise ValueError(f"Cursor missing required key: {exc}") from exc
 
-    if not isinstance(sort_column, str):
-        raise TypeError("Cursor sort_column must be a string")
+    if not isinstance(sort_key, str):
+        raise TypeError("Cursor sort_key must be a string")
     if not isinstance(last_id_raw, str):
         raise TypeError("Cursor last_id must be a UUID string")
     try:
@@ -81,7 +83,7 @@ def decode_cursor(encoded: str) -> PageCursor:
     if sort_value is not None and not isinstance(sort_value, str | int | float):
         raise TypeError("Cursor sort_value must be str, int, float, or None")
 
-    return PageCursor(sort_column=sort_column, sort_value=sort_value, last_id=last_id)
+    return PageCursor(sort_key=sort_key, sort_value=sort_value, last_id=last_id)
 
 
 def cursor_sort_value_from_row(value: object) -> str | int | float | None:

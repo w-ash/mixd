@@ -865,30 +865,17 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         data_stmt = self.select()
         if conditions:
             data_stmt = data_stmt.where(*conditions)
-        sort = TRACK_SORTS[sort_by]
-        data_stmt = self._apply_sort_and_page(
+        data_stmt = self.with_default_relationships(data_stmt)
+        db_tracks, next_page_key = await self._fetch_page(
             data_stmt,
-            sort=sort,
+            sort=TRACK_SORTS[sort_by],
             limit=limit,
             offset=offset,
             after_value=after_value,
             after_id=after_id,
         )
-        data_stmt = self.with_default_relationships(data_stmt)
-
-        result = await self.session.execute(data_stmt)
-        db_tracks = list(result.scalars().all())
 
         tracks = [await self.mapper.to_domain(db_track) for db_track in db_tracks]
-
-        # Build next-page keyset from the last row. The cursor value type
-        # depends on which column is active — see TrackListingPage docstring.
-        next_page_key: tuple[str | int | datetime | None, UUID] | None = None
-        if db_tracks and len(db_tracks) == limit:
-            last_db = db_tracks[-1]
-            cursor_value = cast("object", getattr(last_db, sort.column))
-            if cursor_value is None or isinstance(cursor_value, (str, int, datetime)):
-                next_page_key = (cursor_value, last_db.id)
 
         # Get authoritative liked status from track_likes table for returned tracks
         track_ids = [t.id for t in tracks]

@@ -4,7 +4,6 @@ Split from the former monolithic ``interfaces.py``.
 """
 
 from collections.abc import Awaitable, Mapping, Sequence
-from datetime import datetime
 from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict, TypeIs
 from uuid import UUID
 
@@ -100,21 +99,22 @@ DEFAULT_TRACK_SORT: Final[TrackSortBy] = "last_played_desc"
 
 # The one sort registry: the repository orders and seeks by it, the cursor
 # codec encodes by it. Keys are typed by the alias so a typo fails the type
-# checker; columns and flags are checked against the ORM model in the unit suite.
+# checker; the unit suite checks each entry's ``key`` equals its mapping key
+# and that columns and flags agree with the ORM model.
 TRACK_SORTS: Final[Mapping[TrackSortBy, KeysetSort]] = {
-    "title_asc": KeysetSort("title", "asc"),
-    "title_desc": KeysetSort("title", "desc"),
-    "added_desc": KeysetSort("created_at", "desc", is_datetime=True),
-    "added_asc": KeysetSort("created_at", "asc", is_datetime=True),
-    "duration_asc": KeysetSort("duration_ms", "asc", nullable=True),
-    "duration_desc": KeysetSort("duration_ms", "desc", nullable=True),
-    "plays_desc": KeysetSort("play_count", "desc"),
-    "plays_asc": KeysetSort("play_count", "asc"),
+    "title_asc": KeysetSort("title_asc", "title", "asc"),
+    "title_desc": KeysetSort("title_desc", "title", "desc"),
+    "added_desc": KeysetSort("added_desc", "created_at", "desc", is_datetime=True),
+    "added_asc": KeysetSort("added_asc", "created_at", "asc", is_datetime=True),
+    "duration_asc": KeysetSort("duration_asc", "duration_ms", "asc", nullable=True),
+    "duration_desc": KeysetSort("duration_desc", "duration_ms", "desc", nullable=True),
+    "plays_desc": KeysetSort("plays_desc", "play_count", "desc"),
+    "plays_asc": KeysetSort("plays_asc", "play_count", "asc"),
     "last_played_desc": KeysetSort(
-        "last_played_at", "desc", nullable=True, is_datetime=True
+        "last_played_desc", "last_played_at", "desc", nullable=True, is_datetime=True
     ),
     "last_played_asc": KeysetSort(
-        "last_played_at", "asc", nullable=True, is_datetime=True
+        "last_played_asc", "last_played_at", "asc", nullable=True, is_datetime=True
     ),
 }
 
@@ -130,10 +130,12 @@ class TrackListingPage(TypedDict):
     tracks: list[Track]
     total: int | None  # None when count was skipped (cursor-paginated pages)
     liked_track_ids: set[UUID]
-    # Cursor value type depends on the active sort column: str (title), int
-    # (duration_ms, play_count), or datetime (created_at, last_played_at). The
-    # application layer's PageCursor encodes/decodes for the wire.
-    next_page_key: tuple[str | int | datetime | None, UUID] | None
+    # The last row's (sort value, id); None on the last page. The value's
+    # concrete type follows the active sort column — str (title), int
+    # (duration_ms, play_count), datetime (created_at, last_played_at), or None
+    # in a nullable column's tail — and is opaque here; the application layer's
+    # PageCursor encodes/decodes it for the wire.
+    next_page_key: tuple[object, UUID] | None
     # Facet counts over the current filter set. None when not requested.
     facets: TrackFacets | None
 

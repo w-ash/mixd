@@ -148,13 +148,13 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
         after_id: UUID | None = None,
         operation_types: Sequence[str] | None = None,
         status: OperationStatus | None = None,
-    ) -> tuple[list[OperationRun], tuple[datetime, UUID] | None]:
+    ) -> tuple[list[OperationRun], tuple[object, UUID] | None]:
         """List runs newest-first, keyset-paginated by ``(started_at, id)``.
 
         Returns ``(rows, next_page_key)`` where ``next_page_key`` is None
-        on the last page. Fetches ``limit + 1`` rows to detect "more".
-        ``status`` filters to a single lifecycle state — e.g. ``"running"`` for
-        the "what's in flight now" operation-awareness query.
+        on the last page. ``status`` filters to a single lifecycle state —
+        e.g. ``"running"`` for the "what's in flight now" operation-awareness
+        query.
         """
         stmt = select(self.model_class).where(self.model_class.user_id == user_id)
 
@@ -164,27 +164,14 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
         if status is not None:
             stmt = stmt.where(self.model_class.status == status)
 
-        stmt = self._apply_sort_and_page(
+        db_rows, next_page_key = await self._fetch_page(
             stmt,
             sort=OPERATION_RUN_SORT,
-            limit=limit + 1,
+            limit=limit,
             after_value=after_started_at,
             after_id=after_id,
         )
-
-        result = await self.session.execute(stmt)
-        db_rows = list(result.scalars().all())
-
-        has_more = len(db_rows) > limit
-        if has_more:
-            db_rows = db_rows[:limit]
-
         runs = [await OperationRunMapper.to_domain(r) for r in db_rows]
-
-        next_page_key: tuple[datetime, UUID] | None = None
-        if has_more and runs:
-            last = runs[-1]
-            next_page_key = (last.started_at, last.id)
         return runs, next_page_key
 
     @db_operation("list_running_operation_runs_started_before")

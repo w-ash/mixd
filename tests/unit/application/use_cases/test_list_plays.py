@@ -61,7 +61,7 @@ class TestListPlaysUseCase:
         assert result.plays[0].artists == "Artist"
         assert result.next_cursor is not None
         decoded = decode_cursor(result.next_cursor)
-        assert decoded.sort_column == "played_at"
+        assert decoded.sort_key == "played_at_desc"
         assert decoded.last_id == plays[-1].id
 
     @pytest.mark.asyncio
@@ -92,7 +92,7 @@ class TestListPlaysUseCase:
         plays_repo = make_mock_plays_repo(list_play_events=([], None))
         uow = make_mock_uow(plays_repo=plays_repo, track_repo=make_mock_track_repo())
         bad = encode_cursor(
-            PageCursor(sort_column="played_at", sort_value=123, last_id=uuid7())
+            PageCursor(sort_key="played_at_desc", sort_value=123, last_id=uuid7())
         )
 
         with pytest.raises(ValueError, match="played_at"):

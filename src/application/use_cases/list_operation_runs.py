@@ -67,7 +67,7 @@ class ListOperationRunsUseCase:
             next_started_at, next_id = next_page_key
             next_cursor = encode_cursor(
                 PageCursor(
-                    sort_column=OPERATION_RUN_SORT.column,
+                    sort_key=OPERATION_RUN_SORT.key,
                     sort_value=cursor_sort_value_from_row(next_started_at),
                     last_id=next_id,
                 )

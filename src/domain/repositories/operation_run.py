@@ -14,7 +14,9 @@ from src.domain.repositories.keyset import KeysetSort
 
 # Runs page newest-first on ``(started_at, id)``; the cursor codec and the
 # repository seek read this one declaration.
-OPERATION_RUN_SORT: Final = KeysetSort("started_at", "desc", is_datetime=True)
+OPERATION_RUN_SORT: Final = KeysetSort(
+    "started_at_desc", "started_at", "desc", is_datetime=True
+)
 
 
 class OperationRunRepositoryProtocol(Protocol):
@@ -83,13 +85,15 @@ class OperationRunRepositoryProtocol(Protocol):
         after_id: UUID | None = None,
         operation_types: Sequence[str] | None = None,
         status: OperationStatus | None = None,
-    ) -> Awaitable[tuple[list[OperationRun], tuple[datetime, UUID] | None]]:
+    ) -> Awaitable[tuple[list[OperationRun], tuple[object, UUID] | None]]:
         """List runs newest-first, keyset-paginated.
 
         ``(after_started_at, after_id)`` is the decoded cursor — both must
         be passed together. Returns ``(rows, next_page_key)`` where
-        ``next_page_key`` is ``None`` on the last page. ``status`` filters to a
-        single lifecycle state (e.g. ``"running"`` for operation-awareness).
+        ``next_page_key`` is ``None`` on the last page (an exactly-full page
+        included) and otherwise the last row's ``(started_at, id)``. ``status``
+        filters to a single lifecycle state (e.g. ``"running"`` for
+        operation-awareness).
         """
         ...
 

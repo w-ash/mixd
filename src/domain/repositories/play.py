@@ -111,7 +111,9 @@ type ImportKind = Literal["file", "api"]
 
 # Play events page newest-first on ``(played_at, id)``; the cursor codec and
 # the repository seek read this one declaration.
-PLAY_EVENT_SORT: Final = KeysetSort("played_at", "desc", is_datetime=True)
+PLAY_EVENT_SORT: Final = KeysetSort(
+    "played_at_desc", "played_at", "desc", is_datetime=True
+)
 
 type PlaySortBy = Literal[
     "total_plays_desc",
@@ -308,11 +310,13 @@ class PlaysRepositoryProtocol(Protocol):
         service: str | None = None,
         track_id: UUID | None = None,
         limit: int = 50,
-    ) -> Awaitable[tuple[list[TrackPlay], tuple[datetime, UUID] | None]]:
+    ) -> Awaitable[tuple[list[TrackPlay], tuple[object, UUID] | None]]:
         """Page through play events newest-first, keyset on ``(played_at, id)``.
 
         Returns ``(rows, next_page_key)``; ``next_page_key`` is None on the
-        last page and otherwise feeds the next call's ``before``.
+        last page (an exactly-full page included) and otherwise carries the
+        last row's ``(played_at, id)`` — opaque here, encoded by the
+        application layer and decoded back into the next call's ``before``.
         """
         ...
 

@@ -59,6 +59,24 @@ class TestListPlayEvents:
         assert len(page3) == 1
         assert key3 is None
 
+    async def test_exactly_full_last_page_yields_no_key(self, db_session) -> None:
+        track = await _seed_track(db_session)
+        await _seed_plays(db_session, track.id, [0, 10, 20, 30])
+        repo = TrackPlayRepository(db_session)
+
+        page1, key1 = await repo.list_play_events(user_id="default", limit=2)
+        assert len(page1) == 2
+        assert key1 is not None
+
+        page2, key2 = await repo.list_play_events(
+            user_id="default", before=key1, limit=2
+        )
+        assert [p.played_at for p in page2] == [
+            _BASE + timedelta(minutes=10),
+            _BASE,
+        ]
+        assert key2 is None
+
     async def test_keyset_is_stable_while_newer_rows_insert(self, db_session) -> None:
         track = await _seed_track(db_session)
         await _seed_plays(db_session, track.id, [0, 10, 20, 30])
