@@ -85,16 +85,29 @@ class Reuse[TKey, TEntity]:
     of an earlier ``Create`` in the same batch) is set. Leaders are why a
     batch carrying an original and its remaster, neither yet known, mints
     one canonical and not two.
+
+    ``refused``/``refusal`` carry the best persisted candidate the planner
+    priced and turned down before the description folded onto a leader —
+    the same record a ``Create`` carries, so a consumer that records
+    refusals sees one per description whether or not a leader absorbed it.
+    A reuse of a persisted canonical never carries one: the accepted
+    candidate is the answer to the question the refusal would explain.
     """
 
     evidence: ResolutionEvidence
     canonical: TEntity | None = None
     leader: TKey | None = None
+    refused: TEntity | None = None
+    refusal: ResolutionEvidence | None = None
     kind: Literal["reuse"] = field(default="reuse", init=False)
 
     def __attrs_post_init__(self) -> None:
         if (self.canonical is None) == (self.leader is None):
             raise ValueError("Reuse names exactly one of canonical or leader")
+        if (self.refused is None) != (self.refusal is None):
+            raise ValueError("a refusal names both the candidate and the price")
+        if self.canonical is not None and self.refused is not None:
+            raise ValueError("a reuse of a persisted canonical carries no refusal")
 
 
 @define(frozen=True, slots=True)
@@ -104,8 +117,8 @@ class Create[TKey, TEntity]:
     ``refused``/``refusal`` carry the best same-entity candidate the planner
     priced and turned down, priced once here so a consumer that records
     refusals (the inward resolvers' refusal events) can explain the creation
-    without re-running the comparison. The ingest service does not record
-    them.
+    without re-running the comparison. A ``Reuse`` of a batch leader carries
+    the same pair. The ingest service does not record them.
 
     ``contested_leader``/``contest`` name an earlier creation in the same
     batch whose strong id this description collided with as a suspect: the
@@ -295,7 +308,12 @@ def _plan_one[TKey, TDesc, TEntity](
     for leader_key, leader_description in leaders.by_name.get(key, ()):
         evidence = rules.same(description, leader_description)
         if evidence is not None and evidence.zone == "accept":
-            return Reuse(evidence=evidence, leader=leader_key)
+            return Reuse(
+                evidence=evidence,
+                leader=leader_key,
+                refused=refused,
+                refusal=refusal,
+            )
     return Create(
         strong_id=item.strong_id,
         evidence=rules.creation(description),

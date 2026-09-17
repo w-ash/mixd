@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable, Generator, Hashable, Mapping, S
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import NamedTuple
+from uuid import UUID
 
 from attrs import define, evolve, field
 
@@ -357,7 +358,8 @@ class InwardTrackResolver[THint = object](ABC):
         by title+artist, hands the candidates to the planner under the
         names-alone rules, and creates connector mappings for what it reuses.
         A planned fold onto another unresolved id is not a reuse here — the
-        leader has no canonical yet — so both fall through to creation.
+        leader has no canonical yet — so both fall through to creation,
+        each still recording the candidate it refused.
         """
         # Extract metadata from identifiers via subclass hook
         pairs: list[tuple[str, str]] = []
@@ -428,11 +430,15 @@ class InwardTrackResolver[THint = object](ABC):
                     )
                 )
                 continue
-            if outcome.kind != "create" or outcome.refused is None:
+            # A creation and a fold onto an in-chunk leader both carry the
+            # candidate they refused: one event per identifier either way.
+            if (
+                outcome.kind == "defer_to_review"
+                or outcome.refused is None
+                or outcome.refusal is None
+            ):
                 continue
             refusal = outcome.refusal
-            if refusal is None:
-                continue
             evidence = refusal.evidence or {}
             title_similarity = evidence.get("title_similarity")
             logger.debug(
@@ -697,12 +703,17 @@ def _as_float(value: object) -> float | None:
 
 
 class LeaderNotPersistedError(LookupError):
-    """A follower's leader was rolled back, so there is nothing to map onto."""
+    """A write's leader was rolled back, so there is no row for it to depend on.
+
+    A follower has nothing to map onto; a contested creation has nothing to
+    queue its review against — and persisted without it, would keep its ISRC
+    withheld with no question ever asked.
+    """
 
     def __init__(self, requested_id: str, leader: str) -> None:
         super().__init__(
-            f"{requested_id} reuses the canonical {leader} creates, and that "
-            f"write was rolled back — deferred to the next import"
+            f"{requested_id} depends on the canonical {leader} creates, and "
+            f"that write was rolled back — deferred to the next import"
         )
 
 
@@ -775,6 +786,17 @@ class PlannedWrite[TPayload]:
     @property
     def defers_to_review(self) -> bool:
         return self.review is not None or self.contested is not None
+
+    @property
+    def required_leader(self) -> str | None:
+        """The current id of the earlier write this one cannot persist without.
+
+        A follower's leader, whose canonical it maps onto; a contested
+        creation's leader, whose canonical its review is queued against.
+        """
+        if self.contested is not None:
+            return self.contested.contested_leader
+        return self.leader
 
 
 def planned_write[TPayload](
@@ -1010,8 +1032,10 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         nothing to map onto: they fail rather than fall through to creation
         — the chunk has just decided they are that recording, so minting a
         canonical for them now would write the duplicate this pass exists
-        to prevent. The next import resolves them at the mapping lookup,
-        against whichever writer won.
+        to prevent. A contested creation fails with its leader the same
+        way: persisted alone it would hold neither the ISRC nor the review
+        that decides who keeps it. The next import resolves them at the
+        mapping lookup, against whichever writer won.
 
         Returns the resolved tracks and the ids whose write was rolled back —
         never absent ids, which the caller classifies separately.
@@ -1062,16 +1086,31 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         in this chunk or (``persisted``) an earlier savepoint of the pass.
         """
         connector_repo = uow.get_connector_repository()
+        persisted = persisted or {}
 
         created = [write for write in writes if write.creates_canonical]
         creates_by_id: dict[str, PlannedWrite[TPayload]] = {}
         for write in created:
             _ = creates_by_id.setdefault(write.current_id, write)
+        # Before anything is written: every leader a write depends on is
+        # either created in this chunk or already has a row from an earlier
+        # savepoint. Otherwise the write fails here, not after its own rows
+        # have landed in a savepoint that then has to be discarded.
+        for write in writes:
+            leader_id = write.required_leader
+            if (
+                leader_id is not None
+                and leader_id not in creates_by_id
+                and leader_id not in persisted
+            ):
+                raise LeaderNotPersistedError(write.requested_id, leader_id)
+
         saved = await uow.get_track_repository().save_tracks([
             self._creation_payload(write, user_id=user_id)
             for write in creates_by_id.values()
         ])
         track_by_current_id = dict(zip(creates_by_id, saved, strict=True))
+        leaders = {**persisted, **track_by_current_id}
         canonicals: dict[str, Track] = {
             write.requested_id: track_by_current_id[write.current_id]
             for write in created
@@ -1081,15 +1120,11 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
             for write in writes
             if write.reuse_track is not None
         })
-        for write in writes:
-            if write.leader is None:
-                continue
-            leader = track_by_current_id.get(write.leader) or (persisted or {}).get(
-                write.leader
-            )
-            if leader is None:
-                raise LeaderNotPersistedError(write.requested_id, write.leader)
-            canonicals[write.requested_id] = leader
+        canonicals.update({
+            write.requested_id: leaders[write.leader]
+            for write in writes
+            if write.leader is not None
+        })
 
         _ = await connector_repo.map_tracks_to_connectors(
             self._mapping_batch(writes, canonicals)
@@ -1101,7 +1136,7 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
             [write for write in creates_by_id.values() if write.defers_to_review],
             uow,
             user_id=user_id,
-            leaders={**(persisted or {}), **track_by_current_id},
+            leaders=leaders,
         )
 
         assertions = [
@@ -1143,9 +1178,11 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
 
         Against the persisted owner, or — for a collision with an earlier
         creation in the chunk — against the canonical that leader's current
-        id created (``leaders``). ``create_reviews_batch`` refreshes a
-        pending review and leaves an accepted or rejected one exactly as the
-        person left it, so a re-import never resurrects a dismissed question.
+        id created (``leaders``; ``_persist_planned_bulk`` has already failed
+        any write whose leader has no row). ``create_reviews_batch``
+        refreshes a pending review and leaves an accepted or rejected one
+        exactly as the person left it, so a re-import never resurrects a
+        dismissed question.
         """
         if not deferred:
             return
@@ -1162,40 +1199,54 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
                 )
                 continue
             if write.review is not None:
-                owner, priced = write.review.owner, write.review.review
                 review = review_for(
                     write.review,
                     connector=self.connector_name,
                     connector_track_id=connector_track_id,
                     user_id=user_id,
                 )
-            elif (
-                write.contested is not None
-                and write.contested.contested_leader is not None
-                and write.contested.contest is not None
-                and (leader := leaders.get(write.contested.contested_leader))
-                is not None
-            ):
-                owner, priced = leader, write.contested.contest
-                review = contest_review_for(
-                    write.contested,
-                    leader,
-                    connector=self.connector_name,
+            else:
+                review = self._contest_review(
+                    write,
+                    leaders,
                     connector_track_id=connector_track_id,
                     user_id=user_id,
                 )
-            else:
-                continue
             reviews.append(review)
             logger.warning(
                 "isrc_collision_deferred",
-                track_id=owner.id,
+                track_id=review.track_id,
                 connector=self.connector_name,
                 connector_id=write.current_id,
-                confidence=priced.confidence,
+                confidence=review.confidence,
             )
         if reviews:
             _ = await uow.get_match_review_repository().create_reviews_batch(reviews)
+
+    def _contest_review(
+        self,
+        write: PlannedWrite[TPayload],
+        leaders: Mapping[str, Track],
+        *,
+        connector_track_id: UUID,
+        user_id: str,
+    ) -> MatchReview:
+        """The review a contested creation queues against its persisted leader."""
+        contested = write.contested
+        if contested is None or contested.contested_leader is None:
+            raise ValueError("only a contested creation has a leader to review against")
+        leader = leaders.get(contested.contested_leader)
+        if leader is None:
+            raise LeaderNotPersistedError(
+                write.requested_id, contested.contested_leader
+            )
+        return contest_review_for(
+            contested,
+            leader,
+            connector=self.connector_name,
+            connector_track_id=connector_track_id,
+            user_id=user_id,
+        )
 
     def _mapping_batch(
         self,

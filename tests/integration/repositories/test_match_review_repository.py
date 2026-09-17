@@ -348,6 +348,33 @@ class TestResolvedReviewsDoNotResurrect:
         assert current.confidence == 81
         assert current.match_method == "isrc"
 
+    async def test_a_refresh_keeps_the_pending_rows_creation_time(
+        self, db_session: AsyncSession
+    ):
+        """Review age is how the queue is ordered and how staleness is counted;
+        a re-encounter refreshes the evidence, not the clock."""
+        track_id, ct_id = await _seed_track_and_connector_track(db_session)
+        repo = MatchReviewRepository(db_session)
+        review = MatchReview(
+            track_id=track_id,
+            connector_name="spotify",
+            connector_track_id=ct_id,
+            match_method="artist_title",
+            confidence=60,
+            match_weight=2.0,
+            user_id=TEST_USER_ID,
+        )
+        (first,) = await repo.create_reviews_batch([review])
+        assert first.created_at is not None
+        assert first.updated_at is not None
+
+        (refreshed,) = await repo.create_reviews_batch([review])
+
+        assert refreshed.id == first.id
+        assert refreshed.created_at == first.created_at
+        assert refreshed.updated_at is not None
+        assert refreshed.updated_at > first.updated_at
+
 
 class TestOneBadRowDoesNotPoisonTheTransaction:
     """The savepoint is what keeps a constraint failure local to its row.

@@ -431,6 +431,28 @@ class TestRefusals:
         assert isinstance(outcome, Reuse)
         assert outcome.canonical == "Ibrik"
 
+    def test_a_fold_onto_a_batch_leader_keeps_its_refusal(self):
+        """Two descriptions, one persisted near-miss: the second folds onto
+        the first and still carries the candidate it refused first."""
+        outcomes = plan_resolution(
+            [
+                Described(key="a", description="Ibrik"),
+                Described(key="b", description="Ibrik"),
+            ],
+            strong_owners={},
+            name_owners={"ibrik": ["IBRIK"]},
+            rules=_NameRules(prices={"IBRIK": 60, "Ibrik": 90}),
+        )
+
+        first, second = outcomes["a"], outcomes["b"]
+        assert isinstance(first, Create)
+        assert first.refused == "IBRIK"
+        assert isinstance(second, Reuse)
+        assert second.leader == "a"
+        assert second.refused == "IBRIK"
+        assert second.refusal is not None
+        assert second.refusal.confidence == 60
+
     def test_a_gated_out_candidate_leaves_no_refusal(self):
         outcomes = plan_resolution(
             [Described(key="k", description="Ibrik")],
@@ -484,6 +506,18 @@ class TestOutcomeInvariants:
             pass
         else:
             raise AssertionError("a Reuse with neither canonical nor leader")
+
+    def test_a_reuse_of_a_persisted_canonical_carries_no_refusal(self):
+        """The accepted candidate answers the question a refusal would explain."""
+        rules = TrackResolutionRules(CONFIG)
+        evidence = rules.creation(RecordingDescription("Ibrik", "Bonobo"))
+        with pytest.raises(ValueError, match="no refusal"):
+            _ = Reuse(
+                evidence=evidence,
+                canonical=_canonical(),
+                refused=_canonical(title="Kerala"),
+                refusal=evidence,
+            )
 
     def test_a_deferred_creation_must_withhold_the_id(self):
         rules = TrackResolutionRules(CONFIG)

@@ -859,6 +859,8 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         Uses SQLAlchemy 2.0 INSERT ... ON CONFLICT with RETURNING clause,
         followed by efficient relationship loading via identity map pattern.
+        A conflicting row keeps its ``created_at``; every other submitted
+        column, ``updated_at`` included, takes the incoming value.
 
         Performance: O(1+R) queries regardless of entity count, where R is
         the number of relationships. For 100 entities with 3 relationships:
@@ -992,11 +994,17 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             # PostgreSQL bulk upsert via ON CONFLICT
             stmt = pg_insert(self.model_class).values(entities)
 
-            # Determine which columns to update (exclude lookup keys and id)
+            # Columns the DO UPDATE refreshes: everything submitted except the
+            # lookup keys, ``id`` and ``created_at``. The batch stamps
+            # ``created_at`` for the INSERT arm, and letting it through here
+            # would restamp every conflicting row on each re-encounter — the
+            # single-row ``upsert`` excludes it for the same reason, and a
+            # queue ordered by creation age (``match_reviews``) depends on it
+            # holding still. ``updated_at`` still moves.
             all_keys: set[str] = set()
             for entity in entities:
                 all_keys.update(entity.keys())
-            update_keys = all_keys - set(lookup_keys) - {"id"}
+            update_keys = all_keys - set(lookup_keys) - {"id", "created_at"}
 
             # Create update_dict using the excluded values
             update_dict: dict[str, object] = {
