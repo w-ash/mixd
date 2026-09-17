@@ -46,6 +46,7 @@ from sqlalchemy.sql.schema import SchemaItem
 
 from src.config import get_logger
 from src.domain.entities.shared import JsonDict
+from src.domain.entities.track_mapping import MAPPING_ORIGINS, MATCH_METHODS
 
 # Type aliases to avoid import name conflicts between stdlib uuid and SQLAlchemy UUID
 UuidType = uuid_mod.UUID
@@ -66,6 +67,17 @@ convention = {
 
 # Create metadata with naming convention (single source of truth)
 metadata = MetaData(naming_convention=convention)
+
+
+def _vocabulary_check(column_name: str, vocabulary: frozenset[str]) -> str:
+    """Render an ``IN`` predicate over a domain vocabulary.
+
+    Sorted so the DDL text is deterministic: the migration that created the
+    constraint inlines the same sorted list, and a constraint whose text drifts
+    between the two is a schema the tests never run against.
+    """
+    members = ", ".join(f"'{value}'" for value in sorted(vocabulary))
+    return f"{column_name} IN ({members})"
 
 
 class DatabaseModel(AsyncAttrs, DeclarativeBase):
@@ -463,6 +475,18 @@ class DBTrackMapping(BaseEntity):
             "OR (superseded_at IS NOT NULL AND supersession_reason IS NOT NULL)",
             name="supersession_coherent",
         ),
+        # Storage-boundary enforcement of the domain vocabularies (migration
+        # 054). Growing either vocabulary means a new migration that drops and
+        # recreates the constraint — the Literal alias alone does not migrate
+        # the database.
+        CheckConstraint(
+            _vocabulary_check("match_method", MATCH_METHODS),
+            name="match_method_vocabulary",
+        ),
+        CheckConstraint(
+            _vocabulary_check("origin", MAPPING_ORIGINS),
+            name="origin_vocabulary",
+        ),
         # Performance indexes for common lookup patterns
         Index("ix_track_mappings_track_lookup", "track_id"),
         Index("ix_track_mappings_connector_lookup", "connector_track_id"),
@@ -527,6 +551,13 @@ class DBMatchReview(BaseEntity):
             "connector_name",
             "connector_track_id",
             name="uq_match_reviews_user_track_connector",
+        ),
+        # Same vocabulary as track_mappings: an accepted review becomes a
+        # mapping carrying this method. Growing the vocabulary means a new
+        # migration (054).
+        CheckConstraint(
+            _vocabulary_check("match_method", MATCH_METHODS),
+            name="match_method_vocabulary",
         ),
         Index("ix_match_reviews_status", "status"),
         Index("ix_match_reviews_track_id", "track_id"),
