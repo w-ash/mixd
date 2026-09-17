@@ -13,6 +13,7 @@ from src.application.pagination import (
     encode_cursor,
 )
 from src.application.use_cases._shared.command_validators import as_utc
+from src.domain.repositories.play import PLAY_EVENT_SORT
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
@@ -59,7 +60,7 @@ class ListPlaysUseCase:
             decoded = decode_cursor(command.encoded_cursor)
             # Cursor stores played_at as ISO string; the shared converter
             # parses it here so the repo never sees the wire format.
-            played_at = cursor_datetime_bound("played_at", decoded.sort_value)
+            played_at = cursor_datetime_bound(PLAY_EVENT_SORT, decoded.sort_value)
             before = (played_at, decoded.last_id)
 
         async with uow:
@@ -101,8 +102,8 @@ class ListPlaysUseCase:
             next_played_at, next_id = next_page_key
             next_cursor = encode_cursor(
                 PageCursor(
-                    sort_column="played_at",
-                    sort_value=cursor_sort_value_from_row("played_at", next_played_at),
+                    sort_column=PLAY_EVENT_SORT.column,
+                    sort_value=cursor_sort_value_from_row(next_played_at),
                     last_id=next_id,
                 )
             )

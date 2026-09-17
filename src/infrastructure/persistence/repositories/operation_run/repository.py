@@ -4,12 +4,13 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, and_, func, or_, select, update
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities.operation_run import OperationRun, OperationStatus
 from src.domain.entities.shared import JsonDict
+from src.domain.repositories.operation_run import OPERATION_RUN_SORT
 from src.infrastructure.persistence.database.db_models import DBOperationRun
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.mappers import SimpleMapperFactory
@@ -163,24 +164,14 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
         if status is not None:
             stmt = stmt.where(self.model_class.status == status)
 
-        if after_started_at is not None and after_id is not None:
-            # Keyset paginate by (started_at, id) descending. The OR form is
-            # equivalent to row-value comparison ((a, b) < (x, y)) and
-            # generates the same index plan, but types cleanly without
-            # coercing literals through ``tuple_()``.
-            stmt = stmt.where(
-                or_(
-                    self.model_class.started_at < after_started_at,
-                    and_(
-                        self.model_class.started_at == after_started_at,
-                        self.model_class.id < after_id,
-                    ),
-                )
-            )
-
-        stmt = stmt.order_by(
-            self.model_class.started_at.desc(), self.model_class.id.desc()
-        ).limit(limit + 1)
+        stmt = self._apply_sort_and_page(
+            stmt,
+            sort=OPERATION_RUN_SORT,
+            columns={"started_at": self.model_class.started_at},
+            limit=limit + 1,
+            after_value=after_started_at,
+            after_id=after_id if after_started_at is not None else None,
+        )
 
         result = await self.session.execute(stmt)
         db_rows = list(result.scalars().all())

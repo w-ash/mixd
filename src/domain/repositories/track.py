@@ -3,9 +3,9 @@
 Split from the former monolithic ``interfaces.py``.
 """
 
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Mapping, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict, TypeIs
 from uuid import UUID
 
 from attrs import define
@@ -19,6 +19,7 @@ from src.domain.matching.types import (
     ProgressCallback,
     RawProviderMatch,
 )
+from src.domain.repositories.keyset import KeysetSort
 from src.domain.repositories.resolution import SupersessionEdge
 
 if TYPE_CHECKING:
@@ -77,6 +78,50 @@ class TrackFacets(TypedDict):
     preference: dict[str, int]  # "star"|"yah"|"hmm"|"nah"|"unrated" → count
     liked: dict[str, int]  # "true"|"false" → count
     connector: dict[str, int]
+
+
+# No artist sort: ordering by the denormalized ``artists_text`` blob sorts by
+# the joined display string ("Bowie, Eno" ≠ "Eno, Bowie"), which is a different
+# thing from sorting by artist. It returns with first-class artists (v0.12.1).
+type TrackSortBy = Literal[
+    "title_asc",
+    "title_desc",
+    "added_desc",
+    "added_asc",
+    "duration_asc",
+    "duration_desc",
+    "plays_desc",
+    "plays_asc",
+    "last_played_desc",
+    "last_played_asc",
+]
+
+DEFAULT_TRACK_SORT: Final[TrackSortBy] = "last_played_desc"
+
+# The one sort registry: the repository orders and seeks by it, the cursor
+# codec encodes by it. Keys are typed by the alias so a typo fails the type
+# checker; the flags are checked against the ORM model in the unit suite.
+TRACK_SORTS: Final[Mapping[TrackSortBy, KeysetSort]] = {
+    "title_asc": KeysetSort("title_asc", "title", "asc"),
+    "title_desc": KeysetSort("title_desc", "title", "desc"),
+    "added_desc": KeysetSort("added_desc", "created_at", "desc", is_datetime=True),
+    "added_asc": KeysetSort("added_asc", "created_at", "asc", is_datetime=True),
+    "duration_asc": KeysetSort("duration_asc", "duration_ms", "asc", nullable=True),
+    "duration_desc": KeysetSort("duration_desc", "duration_ms", "desc", nullable=True),
+    "plays_desc": KeysetSort("plays_desc", "play_count", "desc"),
+    "plays_asc": KeysetSort("plays_asc", "play_count", "asc"),
+    "last_played_desc": KeysetSort(
+        "last_played_desc", "last_played_at", "desc", nullable=True, is_datetime=True
+    ),
+    "last_played_asc": KeysetSort(
+        "last_played_asc", "last_played_at", "asc", nullable=True, is_datetime=True
+    ),
+}
+
+
+def is_track_sort(value: str) -> TypeIs[TrackSortBy]:
+    """Narrow a request-supplied sort key to a declared one."""
+    return value in TRACK_SORTS
 
 
 class TrackListingPage(TypedDict):
@@ -216,7 +261,7 @@ class TrackRepositoryProtocol(Protocol):
         tag_mode: Literal["and", "or"] = "and",
         namespace: str | None = None,
         play_filters: PlayFilters = NO_PLAY_FILTERS,
-        sort_by: str = "last_played_desc",
+        sort_by: str = DEFAULT_TRACK_SORT,
         limit: int = 50,
         offset: int = 0,
         after_value: SortKey | None = None,

@@ -10,7 +10,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from src.application.pagination import TrackSortBy
 from src.application.runner import execute_use_case
 from src.application.use_cases.batch_tag_tracks import (
     BatchTagTracksCommand,
@@ -47,7 +46,7 @@ from src.application.use_cases.untag_track import (
     UntagTrackUseCase,
 )
 from src.config.constants import BusinessLimits
-from src.domain.repositories.track import PlayFilters
+from src.domain.repositories.track import PlayFilters, TrackSortBy
 from src.interface.api.deps import get_current_user_id, trigger_play_refresh
 from src.interface.api.schemas.tracks import (
     AddTagRequest,

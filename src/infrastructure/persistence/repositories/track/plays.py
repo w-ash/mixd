@@ -8,7 +8,6 @@ from uuid import UUID
 from attrs import define
 from sqlalchemy import (
     ColumnElement,
-    and_,
     delete as sa_delete,
     exists,
     func,
@@ -22,7 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.domain.entities import PlaySource, TrackPlay, ensure_utc
 from src.domain.entities.shared import JsonDict
-from src.domain.repositories.play import PlayAggregationResult, PlaySortBy
+from src.domain.repositories.play import (
+    PLAY_EVENT_SORT,
+    PlayAggregationResult,
+    PlaySortBy,
+)
 from src.infrastructure.persistence.database.db_models import (
     DBPlaySource,
     DBTrack,
@@ -771,22 +774,14 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             .where(*self._event_filters(since, until, service, track_id))
         )
 
-        if before is not None:
-            before_played_at, before_id = before
-            # OR form of (played_at, id) < (x, y): same index plan, cleaner
-            # types than tuple_() literals (precedent: operation_run repo).
-            stmt = stmt.where(
-                or_(
-                    DBTrackPlay.played_at < before_played_at,
-                    and_(
-                        DBTrackPlay.played_at == before_played_at,
-                        DBTrackPlay.id < before_id,
-                    ),
-                )
-            )
-
-        stmt = stmt.order_by(DBTrackPlay.played_at.desc(), DBTrackPlay.id.desc()).limit(
-            limit + 1
+        before_played_at, before_id = before if before is not None else (None, None)
+        stmt = self._apply_sort_and_page(
+            stmt,
+            sort=PLAY_EVENT_SORT,
+            columns={"played_at": DBTrackPlay.played_at},
+            limit=limit + 1,
+            after_value=before_played_at,
+            after_id=before_id,
         )
 
         rows = list((await self.session.execute(stmt)).scalars().all())

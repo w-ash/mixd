@@ -14,6 +14,7 @@ from src.application.pagination import (
     encode_cursor,
 )
 from src.domain.entities.operation_run import OperationRun, OperationStatus
+from src.domain.repositories.operation_run import OPERATION_RUN_SORT
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
@@ -45,7 +46,9 @@ class ListOperationRunsUseCase:
             decoded = decode_cursor(command.encoded_cursor)
             # Cursor stores started_at as ISO string; the shared converter
             # parses it back so the repo layer never sees the wire format.
-            after_started_at = cursor_datetime_bound("started_at", decoded.sort_value)
+            after_started_at = cursor_datetime_bound(
+                OPERATION_RUN_SORT, decoded.sort_value
+            )
             after_id = decoded.last_id
 
         async with uow:
@@ -64,10 +67,8 @@ class ListOperationRunsUseCase:
             next_started_at, next_id = next_page_key
             next_cursor = encode_cursor(
                 PageCursor(
-                    sort_column="started_at",
-                    sort_value=cursor_sort_value_from_row(
-                        "started_at", next_started_at
-                    ),
+                    sort_column=OPERATION_RUN_SORT.column,
+                    sort_value=cursor_sort_value_from_row(next_started_at),
                     last_id=next_id,
                 )
             )

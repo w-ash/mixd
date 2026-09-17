@@ -14,7 +14,9 @@ from sqlalchemy import (
     func,
     insert,
     inspect,
+    literal,
     select,
+    tuple_,
     update,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -29,6 +31,7 @@ from src.domain.repositories.errors import (
     is_transient_contention,
     postgres_sqlstate,
 )
+from src.domain.repositories.keyset import KeysetSort
 
 # Import needed for relationship chains in eager loading
 from src.infrastructure.persistence.database.db_models import DatabaseModel
@@ -225,6 +228,76 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         for condition in conditions:
             stmt = stmt.where(condition)
         return stmt
+
+    def _apply_sort_and_page[TSort](
+        self,
+        stmt: Select[tuple[TDBModel]],
+        *,
+        sort: KeysetSort,
+        columns: Mapping[str, InstrumentedAttribute[TSort]],
+        limit: int,
+        offset: int = 0,
+        after_value: object = None,
+        after_id: UUID | None = None,
+    ) -> Select[tuple[TDBModel]]:
+        """Apply ORDER BY, keyset/offset pagination, and LIMIT to ``stmt``.
+
+        ``columns`` is the repository's own allowlist, keyed by
+        ``KeysetSort.column`` — the declaration names the column, the
+        repository supplies the typed attribute. Keyset seeking engages
+        whenever ``after_id`` is present; a None ``after_value`` with a
+        nullable sort column means the cursor sits in the NULL tail. No cursor
+        falls back to OFFSET. The tie-breaker is always ``id``.
+        """
+        col = columns[sort.column]
+        nullable = sort.nullable
+        desc = sort.desc
+        id_col = self.model_class.id
+
+        # For a nullable column the NULL-ness leads the sort key as an explicit
+        # boolean running in the *same* direction as the column, rather than
+        # riding along as a NULLS LAST modifier. Same row order either way, but
+        # it keeps the keyset seek a single row comparison: the readable form,
+        # ``(col, id) </> (v, i) OR col IS NULL``, is correct and unseekable —
+        # the OR demotes the comparison from an Index Cond to a Filter, so a
+        # deep page rescans the user's whole range (measured: 47k buffers vs 52)
+        # instead of seeking. ``col IS NULL`` ascending and ``col IS NOT NULL``
+        # descending both put NULLs last, and both leave every key in the tuple
+        # pointing the same way, which is what makes the comparison indexable.
+        null_key = (col.isnot(None) if desc else col.is_(None)) if nullable else None
+
+        # A NULL cursor value on a NOT NULL column is malformed — offset instead.
+        use_keyset = after_id is not None and (after_value is not None or nullable)
+        if use_keyset:
+            if after_value is None:
+                # Inside the NULL tail only the id tiebreaker advances.
+                stmt = stmt.where(
+                    col.is_(None),
+                    id_col < after_id if desc else id_col > after_id,
+                )
+            else:
+                # A non-NULL cursor sits in the non-NULL run, so its null_key is
+                # False ascending (``IS NULL``) and True descending (``IS NOT
+                # NULL``) — which is exactly ``desc``.
+                keys = (
+                    tuple_(null_key, col, id_col)
+                    if null_key is not None
+                    else tuple_(col, id_col)
+                )
+                cursor = (
+                    tuple_(literal(desc), literal(after_value), literal(after_id))
+                    if null_key is not None
+                    else tuple_(literal(after_value), literal(after_id))
+                )
+                stmt = stmt.where(keys < cursor if desc else keys > cursor)
+        elif offset:
+            stmt = stmt.offset(offset)
+
+        ordering = (col.desc(), id_col.desc()) if desc else (col.asc(), id_col.asc())
+        if null_key is not None:
+            leading = null_key.desc() if desc else null_key.asc()
+            return stmt.order_by(leading, *ordering).limit(limit)
+        return stmt.order_by(*ordering).limit(limit)
 
     def count(
         self,

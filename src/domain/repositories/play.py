@@ -19,6 +19,7 @@ from src.domain.entities import (
     TrackPlay,
 )
 from src.domain.entities.progress import ProgressEmitter
+from src.domain.repositories.keyset import KeysetSort
 
 if TYPE_CHECKING:
     from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -107,6 +108,12 @@ type PlayImportParams = (
 # keys on (service, kind) rather than service alone.
 type ImportKind = Literal["file", "api"]
 
+
+# Play events page newest-first on ``(played_at, id)``; the cursor codec and
+# the repository seek read this one declaration.
+PLAY_EVENT_SORT: Final = KeysetSort(
+    "played_at_desc", "played_at", "desc", is_datetime=True
+)
 
 type PlaySortBy = Literal[
     "total_plays_desc",

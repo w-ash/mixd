@@ -1,22 +1,32 @@
 """Unit tests for cursor-based keyset pagination encoding/decoding.
 
 Verifies round-trip encoding, error handling for malformed input, and
-type coercion for different sort column types (strings, ints, datetimes).
+type coercion for every declared sort (strings, ints, datetimes, NULLs).
 """
 
 from datetime import UTC, datetime
-from uuid import uuid7
+from uuid import UUID, uuid7
 
+from hypothesis import given, strategies as st
 import pytest
 
 from src.application.pagination import (
-    TRACK_SORT_COLUMNS,
     PageCursor,
     cursor_datetime_bound,
     cursor_sort_value_from_row,
     cursor_sort_value_to_query,
     decode_cursor,
     encode_cursor,
+)
+from src.domain.repositories.keyset import KeysetSort
+from src.domain.repositories.operation_run import OPERATION_RUN_SORT
+from src.domain.repositories.play import PLAY_EVENT_SORT
+from src.domain.repositories.track import TRACK_SORTS
+
+ALL_SORTS: tuple[KeysetSort, ...] = (
+    *TRACK_SORTS.values(),
+    PLAY_EVENT_SORT,
+    OPERATION_RUN_SORT,
 )
 
 
@@ -127,64 +137,75 @@ class TestDecodeCursorErrors:
 class TestCursorSortValueConversion:
     """Type coercion between cursor values and database query values."""
 
-    def test_datetime_column_round_trip(self) -> None:
+    def test_datetime_sort_round_trip(self) -> None:
         dt = datetime(2025, 3, 15, 10, 0, 0, tzinfo=UTC)
+        sort = TRACK_SORTS["added_desc"]
 
         # Row value → cursor value (datetime → ISO string)
-        cursor_val = cursor_sort_value_from_row("created_at", dt)
+        cursor_val = cursor_sort_value_from_row(dt)
         assert isinstance(cursor_val, str)
 
         # Cursor value → query value (ISO string → datetime)
-        query_val = cursor_sort_value_to_query("created_at", cursor_val)
+        query_val = cursor_sort_value_to_query(sort, cursor_val)
         assert isinstance(query_val, datetime)
         assert query_val == dt
 
-    def test_string_column_passthrough(self) -> None:
-        assert cursor_sort_value_from_row("title", "Hello") == "Hello"
-        assert cursor_sort_value_to_query("title", "Hello") == "Hello"
+    def test_string_sort_passthrough(self) -> None:
+        sort = TRACK_SORTS["title_asc"]
+        assert cursor_sort_value_from_row("Hello") == "Hello"
+        assert cursor_sort_value_to_query(sort, "Hello") == "Hello"
 
-    def test_int_column_passthrough(self) -> None:
-        assert cursor_sort_value_from_row("duration_ms", 240000) == 240000
-        assert cursor_sort_value_to_query("duration_ms", 240000) == 240000
+    def test_int_sort_passthrough(self) -> None:
+        sort = TRACK_SORTS["duration_asc"]
+        assert cursor_sort_value_from_row(240000) == 240000
+        assert cursor_sort_value_to_query(sort, 240000) == 240000
 
     def test_none_passthrough(self) -> None:
-        assert cursor_sort_value_from_row("title", None) is None
-        assert cursor_sort_value_to_query("title", None) is None
+        sort = TRACK_SORTS["title_asc"]
+        assert cursor_sort_value_from_row(None) is None
+        assert cursor_sort_value_to_query(sort, None) is None
 
-    def test_numeric_value_on_datetime_column_raises(self) -> None:
+    def test_numeric_value_on_datetime_sort_raises(self) -> None:
         # A tampered or foreign cursor carrying a number for played_at used to
         # fall through as "no bound" and replay page one forever.
         with pytest.raises(ValueError, match="ISO datetime string"):
-            _ = cursor_sort_value_to_query("played_at", 123)
+            _ = cursor_sort_value_to_query(PLAY_EVENT_SORT, 123)
         with pytest.raises(ValueError, match="ISO datetime string"):
-            _ = cursor_sort_value_to_query("started_at", 1.5)
+            _ = cursor_sort_value_to_query(OPERATION_RUN_SORT, 1.5)
 
     def test_datetime_bound_requires_a_value(self) -> None:
         dt = datetime(2025, 3, 15, 10, 0, 0, tzinfo=UTC)
-        assert cursor_datetime_bound("played_at", dt.isoformat()) == dt
+        assert cursor_datetime_bound(PLAY_EVENT_SORT, dt.isoformat()) == dt
         with pytest.raises(ValueError, match="must be a datetime"):
-            _ = cursor_datetime_bound("played_at", None)
+            _ = cursor_datetime_bound(PLAY_EVENT_SORT, None)
 
 
-class TestSortRegistriesStayInSync:
-    """``TRACK_SORT_COLUMNS`` (application, for cursor encoding) and
-    ``TrackRepository._SORT_SPECS`` (infrastructure, for ORDER BY) hold the
-    same mapping and are kept in step by hand — the track repositories import
-    nothing from ``src.application``, and reversing that would invert the
-    dependency flow. So the duplication is deliberate; this test is what makes
-    it safe, turning a "keep these in sync" comment into a failing build."""
+def _row_values(sort: KeysetSort) -> st.SearchStrategy[object]:
+    """Row values a column declared like ``sort`` can hold."""
+    if sort.is_datetime:
+        base: st.SearchStrategy[object] = st.datetimes(timezones=st.just(UTC))
+    else:
+        base = st.one_of(st.text(), st.integers())
+    return st.one_of(base, st.none()) if sort.nullable else base
 
-    def test_the_two_registries_are_identical(self) -> None:
-        from src.infrastructure.persistence.repositories.track.core import (
-            TrackRepository,
+
+class TestEveryDeclaredSortRoundTrips:
+    """The codec is total over the declarations: for every sort, a row value
+    survives encode → decode → query conversion unchanged."""
+
+    @given(
+        st.sampled_from(ALL_SORTS).flatmap(
+            lambda sort: st.tuples(st.just(sort), _row_values(sort), st.uuids())
         )
-
-        assert TRACK_SORT_COLUMNS == TrackRepository._SORT_SPECS
-
-    def test_every_sort_key_resolves_to_a_known_column(self) -> None:
-        from src.infrastructure.persistence.repositories.track.core import (
-            TrackRepository,
+    )
+    def test_round_trip(self, case: tuple[KeysetSort, object, UUID]) -> None:
+        sort, value, last_id = case
+        cursor = PageCursor(
+            sort_column=sort.column,
+            sort_value=cursor_sort_value_from_row(value),
+            last_id=last_id,
         )
-
-        for column, _direction in TRACK_SORT_COLUMNS.values():
-            assert column in TrackRepository._SORT_COLUMNS
+        decoded = decode_cursor(encode_cursor(cursor))
+        assert decoded.sort_column == sort.column
+        assert decoded.last_id == last_id
+        assert cursor_sort_value_to_query(sort, decoded.sort_value) == value

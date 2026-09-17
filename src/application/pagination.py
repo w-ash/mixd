@@ -9,55 +9,12 @@ of OFFSET — O(1) seeks regardless of page depth.
 import base64
 from datetime import datetime
 import json
-from typing import Final, Literal, cast
+from typing import cast
 from uuid import UUID
 
 from attrs import define
 
-# ── Track sort definitions ──────────────────────────────────────────────
-
-# No artist sort: ordering by the denormalized ``artists_text`` blob sorts by
-# the joined display string ("Bowie, Eno" ≠ "Eno, Bowie"), which is a different
-# thing from sorting by artist. It returns with first-class artists (v0.12.1).
-type TrackSortBy = Literal[
-    "title_asc",
-    "title_desc",
-    "added_desc",
-    "added_asc",
-    "duration_asc",
-    "duration_desc",
-    "plays_desc",
-    "plays_asc",
-    "last_played_desc",
-    "last_played_asc",
-]
-
-# Sort key → (db_column, direction), used for cursor encoding and sort-key
-# validation. The track repository owns its own ORDER BY registry
-# (``_SORT_SPECS`` in infrastructure/persistence/repositories/track/core.py)
-# — keep the two in sync.
-TRACK_SORT_COLUMNS: Final[dict[TrackSortBy, tuple[str, str]]] = {
-    "title_asc": ("title", "asc"),
-    "title_desc": ("title", "desc"),
-    "added_desc": ("created_at", "desc"),
-    "added_asc": ("created_at", "asc"),
-    "duration_asc": ("duration_ms", "asc"),
-    "duration_desc": ("duration_ms", "desc"),
-    "plays_desc": ("play_count", "desc"),
-    "plays_asc": ("play_count", "asc"),
-    "last_played_desc": ("last_played_at", "desc"),
-    "last_played_asc": ("last_played_at", "asc"),
-}
-
-# Sort columns that store datetime values (ISO string in cursor).
-# ``played_at`` and ``started_at`` belong to the play-event and operation-run
-# listings' cursors, not to a track sort.
-_DATETIME_COLUMNS: Final = frozenset({
-    "created_at",
-    "last_played_at",
-    "played_at",
-    "started_at",
-})
+from src.domain.repositories.keyset import KeysetSort
 
 
 @define(frozen=True, slots=True)
@@ -127,12 +84,12 @@ def decode_cursor(encoded: str) -> PageCursor:
     return PageCursor(sort_column=sort_column, sort_value=sort_value, last_id=last_id)
 
 
-def cursor_sort_value_from_row(
-    _column_name: str, value: object
-) -> str | int | float | None:
+def cursor_sort_value_from_row(value: object) -> str | int | float | None:
     """Convert a database row value to a cursor-safe sort value.
 
-    Datetimes are serialized as ISO strings; scalars pass through.
+    Datetimes are serialized as ISO strings; scalars pass through. The reader
+    (``cursor_sort_value_to_query``) needs the sort declaration to undo this;
+    the writer does not.
     """
     if value is None:
         return None
@@ -145,11 +102,11 @@ def cursor_sort_value_from_row(
 
 
 def cursor_sort_value_to_query(
-    column_name: str, sort_value: str | float | None
+    sort: KeysetSort, sort_value: str | float | None
 ) -> str | int | float | datetime | None:
     """Convert a cursor's sort_value back to a query-compatible type.
 
-    Datetime columns (``_DATETIME_COLUMNS``) are parsed from ISO strings.
+    Datetime sorts are parsed from ISO strings.
 
     Raises:
         ValueError: If a datetime column carries a non-string or unparseable
@@ -158,23 +115,23 @@ def cursor_sort_value_to_query(
     """
     if sort_value is None:
         return None
-    if column_name in _DATETIME_COLUMNS:
+    if sort.is_datetime:
         if not isinstance(sort_value, str):
             raise ValueError(
-                f"Cursor sort_value for {column_name} must be an ISO datetime string"
+                f"Cursor sort_value for {sort.column} must be an ISO datetime string"
             )
         return datetime.fromisoformat(sort_value)
     return sort_value
 
 
-def cursor_datetime_bound(column_name: str, sort_value: str | float | None) -> datetime:
+def cursor_datetime_bound(sort: KeysetSort, sort_value: str | float | None) -> datetime:
     """The datetime keyset bound a cursor carries for a datetime-sorted list.
 
     Raises:
         ValueError: If the value is absent or not an ISO datetime string.
     """
-    match cursor_sort_value_to_query(column_name, sort_value):
+    match cursor_sort_value_to_query(sort, sort_value):
         case datetime() as bound:
             return bound
         case _:
-            raise ValueError(f"Cursor sort_value for {column_name} must be a datetime")
+            raise ValueError(f"Cursor sort_value for {sort.column} must be a datetime")

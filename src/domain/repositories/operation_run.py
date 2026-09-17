@@ -5,11 +5,18 @@ Split from the former monolithic ``interfaces.py``.
 
 from collections.abc import Awaitable, Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Final, Protocol
 from uuid import UUID
 
 from src.domain.entities.operation_run import OperationRun, OperationStatus
 from src.domain.entities.shared import JsonDict
+from src.domain.repositories.keyset import KeysetSort
+
+# Runs page newest-first on ``(started_at, id)``; the cursor codec and the
+# repository seek read this one declaration.
+OPERATION_RUN_SORT: Final = KeysetSort(
+    "started_at_desc", "started_at", "desc", is_datetime=True
+)
 
 
 class OperationRunRepositoryProtocol(Protocol):

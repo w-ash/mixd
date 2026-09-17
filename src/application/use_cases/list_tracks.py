@@ -7,15 +7,13 @@ plain listing. This avoids two nearly-identical use cases and maps cleanly to
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Final, Literal
+from typing import Literal
 from uuid import UUID
 
 from attrs import define, field
 
 from src.application.pagination import (
-    TRACK_SORT_COLUMNS,
     PageCursor,
-    TrackSortBy,
     cursor_sort_value_from_row,
     cursor_sort_value_to_query,
     decode_cursor,
@@ -26,11 +24,16 @@ from src.config.constants import BusinessLimits
 from src.domain.entities import Track
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.tag import normalize_tag
+from src.domain.repositories.keyset import KeysetSort
 from src.domain.repositories.track import (
+    DEFAULT_TRACK_SORT,
     NO_PLAY_FILTERS,
+    TRACK_SORTS,
     PlayFilters,
     TrackFacets,
     TrackListingPage,
+    TrackSortBy,
+    is_track_sort,
 )
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -49,20 +52,17 @@ def _normalize_tags(tags: Sequence[str] | None) -> tuple[str, ...] | None:
     return tuple(normalize_tag(t) for t in tags)
 
 
-DEFAULT_TRACK_SORT: Final[TrackSortBy] = "last_played_desc"
-
-
 def _known_sort(value: str) -> TrackSortBy:
     """Fall back to the default sort rather than raising on an unknown key.
 
     The repository documents unknown sorts as falling back, but it never got
-    the chance to: ``execute`` subscripts ``TRACK_SORT_COLUMNS`` directly, so an
+    the chance to: ``execute`` subscripts ``TRACK_SORTS`` directly, so an
     unrecognized value was a ``KeyError`` — a 500 — several frames earlier.
     Normalizing here makes the documented behavior true for every caller. The
     API's ``TrackSortBy`` Query type still rejects garbage with a 422 before it
     reaches this point; this covers programmatic callers and stale cursors.
     """
-    return value if value in TRACK_SORT_COLUMNS else DEFAULT_TRACK_SORT
+    return value if is_track_sort(value) else DEFAULT_TRACK_SORT
 
 
 @define(frozen=True, slots=True)
@@ -106,7 +106,7 @@ class ListTracksUseCase:
 
     @staticmethod
     def _resolve_cursor(
-        cursor: str, sort_column: str
+        cursor: str, sort: KeysetSort
     ) -> tuple[str | int | float | datetime | None, UUID | None, bool]:
         """Decode the cursor and resolve keyset bounds for the active sort.
 
@@ -118,13 +118,13 @@ class ListTracksUseCase:
         yields ``(None, None, False)``.
         """
         page_cursor = decode_cursor(cursor)
-        if page_cursor.sort_column != sort_column:
+        if page_cursor.sort_column != sort.column:
             logger.debug(
                 "Cursor sort column mismatch: "
-                f"cursor={page_cursor.sort_column}, current={sort_column}"
+                f"cursor={page_cursor.sort_column}, current={sort.column}"
             )
             return None, None, False
-        after_value = cursor_sort_value_to_query(sort_column, page_cursor.sort_value)
+        after_value = cursor_sort_value_to_query(sort, page_cursor.sort_value)
         return after_value, page_cursor.last_id, True
 
     async def execute(
@@ -138,13 +138,13 @@ class ListTracksUseCase:
         # Decode cursor if present and valid for the current sort
         after_value = None
         after_id = None
-        sort_column = TRACK_SORT_COLUMNS[command.sort_by][0]
+        sort = TRACK_SORTS[command.sort_by]
         has_cursor = False
 
         if command.cursor:
             try:
                 after_value, after_id, has_cursor = self._resolve_cursor(
-                    command.cursor, sort_column
+                    command.cursor, sort
                 )
             except ValueError:
                 logger.debug("Invalid cursor, falling back to offset")
@@ -176,8 +176,8 @@ class ListTracksUseCase:
                 raw_value, last_id = page["next_page_key"]
                 next_cursor = encode_cursor(
                     PageCursor(
-                        sort_column=sort_column,
-                        sort_value=cursor_sort_value_from_row(sort_column, raw_value),
+                        sort_column=sort.column,
+                        sort_value=cursor_sort_value_from_row(raw_value),
                         last_id=last_id,
                     )
                 )

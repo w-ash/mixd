@@ -24,7 +24,6 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
-from src.application.pagination import TRACK_SORT_COLUMNS, TrackSortBy
 from src.application.services.batch_file_import_service import ImportProgressSpec
 from src.config.constants import BusinessLimits
 from src.domain.entities import OperationResult, Playlist, Track
@@ -38,6 +37,7 @@ from src.domain.entities.preference import PREFERENCE_ORDER, PreferenceState
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.entities.schedule import Schedule, validate_time_of_day
 from src.domain.entities.tag import normalize_tag
+from src.domain.repositories.track import TRACK_SORTS, TrackSortBy, is_track_sort
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import (
@@ -258,12 +258,11 @@ def validate_preference_state(raw: str) -> PreferenceState:
 
 def validate_track_sort(raw: str) -> TrackSortBy:
     """Return a typed ``TrackSortBy`` or raise ``typer.BadParameter``."""
-    if raw not in TRACK_SORT_COLUMNS:
+    if not is_track_sort(raw):
         raise typer.BadParameter(
-            f"'{raw}' is not a valid sort — expected one of: "
-            f"{', '.join(TRACK_SORT_COLUMNS)}."
+            f"'{raw}' is not a valid sort — expected one of: {', '.join(TRACK_SORTS)}."
         )
-    return raw  # narrowed to TrackSortBy by the membership check
+    return raw
 
 
 def validate_tag(raw: str) -> str:
