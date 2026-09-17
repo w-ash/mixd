@@ -1,7 +1,7 @@
 """Integration tests for mapping origin guards.
 
 Tests that manual_override mappings are protected during:
-- ingest_external_tracks_bulk (confidence update skipped)
+- TrackResolutionService.ingest (confidence update skipped)
 - map_tracks_to_connectors (bulk upsert skipped)
 - merge_mappings_to_track (origin set on moved mappings)
 """
@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.db_models import DBTrackMapping
@@ -38,10 +39,10 @@ async def _create_track_with_mapping(
         raw_metadata={},
         last_updated=datetime.now(UTC),
     )
-    connector_repo = uow.get_connector_repository()
-    tracks = await connector_repo.ingest_external_tracks_bulk(
+    tracks = await TrackResolutionService().ingest(
         connector,
         [connector_track],
+        uow,
         user_id="default",
     )
     track_id = tracks[0].id
@@ -88,7 +89,6 @@ class TestIngestSkipsManualOverride:
 
         # Re-ingest the same connector track
         uow = get_unit_of_work(db_session)
-        connector_repo = uow.get_connector_repository()
         ct = ConnectorTrack(
             connector_name="spotify",
             connector_track_identifier="sp_manual_001",
@@ -97,9 +97,7 @@ class TestIngestSkipsManualOverride:
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
-        await connector_repo.ingest_external_tracks_bulk(
-            "spotify", [ct], user_id="default"
-        )
+        await TrackResolutionService().ingest("spotify", [ct], uow, user_id="default")
 
         result = await db_session.execute(
             select(
@@ -124,7 +122,6 @@ class TestIngestSkipsManualOverride:
 
         # Re-ingest the same connector track
         uow = get_unit_of_work(db_session)
-        connector_repo = uow.get_connector_repository()
         ct = ConnectorTrack(
             connector_name="spotify",
             connector_track_identifier="sp_auto_001",
@@ -133,9 +130,7 @@ class TestIngestSkipsManualOverride:
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
-        await connector_repo.ingest_external_tracks_bulk(
-            "spotify", [ct], user_id="default"
-        )
+        await TrackResolutionService().ingest("spotify", [ct], uow, user_id="default")
 
         result = await db_session.execute(
             select(DBTrackMapping.confidence, DBTrackMapping.last_seen_at).where(
@@ -167,9 +162,7 @@ class TestIngestSkipsManualOverride:
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
-        await uow.get_connector_repository().ingest_external_tracks_bulk(
-            "spotify", [ct], user_id="default"
-        )
+        await TrackResolutionService().ingest("spotify", [ct], uow, user_id="default")
 
         result = await db_session.execute(
             select(DBTrackMapping.last_seen_at).where(DBTrackMapping.id == mapping_id)

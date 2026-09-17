@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.db_models import DBTrack, DBTrackMapping
@@ -265,16 +266,17 @@ class TestOtherWriters:
 
         await _assert_no_vacancy(db_session, track.id)
 
-    async def test_ingest_external_tracks_bulk(self, db_session: AsyncSession):
+    async def test_track_resolution_ingest(self, db_session: AsyncSession):
         uow = get_unit_of_work(db_session)
         tag = uuid4().hex[:8]
 
-        tracks = await uow.get_connector_repository().ingest_external_tracks_bulk(
+        tracks = await TrackResolutionService().ingest(
             "spotify",
             [
                 _connector_track(f"sp_a_{tag}", title=f"Alpha {tag}"),
                 _connector_track(f"sp_b_{tag}", title=f"Beta {tag}"),
             ],
+            uow,
             user_id="default",
         )
 
@@ -286,12 +288,13 @@ class TestOtherWriters:
         (
             winner,
             loser,
-        ) = await uow.get_connector_repository().ingest_external_tracks_bulk(
+        ) = await TrackResolutionService().ingest(
             "spotify",
             [
                 _connector_track(f"sp_w_{tag}", title=f"Winner {tag}"),
                 _connector_track(f"sp_l_{tag}", title=f"Loser {tag}"),
             ],
+            uow,
             user_id="default",
         )
         assert winner.id

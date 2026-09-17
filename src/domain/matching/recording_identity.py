@@ -7,11 +7,11 @@ its original's ISRC, so two rows describing one recording routinely arrive with
 no shared identifier at all and only their names and lengths to go on.
 
 One answer, two call sites: the Spotify inward resolver (which asks after the
-provider has answered, about the metadata Spotify returned) and
-``ingest_external_tracks_bulk`` (which asks about a playlist or likes payload
-before creating a canonical for it). A second, subtly-different copy of "are
-these the same recording?" is how the two paths drift apart, and drift here is
-measured in duplicate canonicals.
+provider has answered, about the metadata Spotify returned) and the resolution
+planner's track rules (``canonical_resolution.TrackResolutionRules``, which
+asks about a playlist or likes payload before creating a canonical for it). A
+second, subtly-different copy of "are these the same recording?" is how the
+two paths drift apart, and drift here is measured in duplicate canonicals.
 """
 
 from attrs import define

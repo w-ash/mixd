@@ -143,17 +143,26 @@ class TrackListingPage(TypedDict):
 class TrackRepositoryProtocol(Protocol):
     """Repository interface for track persistence operations."""
 
+    def acquire_ingest_lock(self, user_id: str) -> Awaitable[None]:
+        """Take the user's canonical-track ingest lock for the open transaction.
+
+        An orchestrator that probes the table before it writes takes this
+        first, so the probe's answers hold until its ``save_tracks``.
+        """
+        ...
+
     def save_track(self, track: Track) -> Awaitable[Track]:
-        """Save track."""
+        """Persist one track: optimistic-locked update, or the one-row insert."""
         ...
 
     def save_tracks(self, tracks: Sequence[Track]) -> Awaitable[list[Track]]:
         """Insert a batch of new canonical tracks, returning them in input order.
 
-        The batch form of ``save_track``'s insert arm, for callers that create
-        a whole chunk of canonicals at once. A track whose identity key (ISRC,
-        MBID or Spotify id) is already claimed falls back to ``save_track``,
-        so the upsert-or-defer decision keeps living in exactly one place.
+        Repositories only persist: a track whose identity key (ISRC, MBID or
+        Spotify id) is already claimed — by the table or by an earlier row
+        of the batch — raises ``IdentityKeyClaimedError`` instead of being
+        merged. Which canonical an incoming row belongs to is decided
+        upstream by ``domain.matching.canonical_resolution``.
         """
         ...
 

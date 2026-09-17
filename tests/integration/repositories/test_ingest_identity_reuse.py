@@ -4,7 +4,8 @@ v0.10.3 finding C4: canonical reuse was keyed on ISRC, which a remaster never
 shares with its original, so every release of one song spawned its own
 canonical even though their normalized artist+title already collided. The
 Spotify inward resolver was fixed first; this covers the other creation path,
-``ingest_external_tracks_bulk``, which had no equivalent guard at all.
+the playlist/likes ingest (now ``TrackResolutionService.ingest``), which had
+no equivalent guard at all.
 
 Both paths now ask ``describes_same_recording`` — normalized *equality* plus
 agreeing durations — so the cases here are the ones that predicate has to keep
@@ -16,6 +17,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.persistence.database.db_models import (
     DBMatchReview,
@@ -72,7 +74,7 @@ async def _seed_original(
                 user_id=TEST_USER_ID,
             )
         )
-    tracks = await uow.get_connector_repository().ingest_external_tracks_bulk(
+    tracks = await TrackResolutionService().ingest(
         "spotify",
         [
             _connector_track(
@@ -83,6 +85,7 @@ async def _seed_original(
                 isrc=isrc,
             )
         ],
+        uow,
         user_id="default",
     )
     return tracks[0]
@@ -103,14 +106,11 @@ class TestIngestReusesAnExistingCanonical:
         original = await _seed_original(db_session)
         before = await _canonical_count(db_session)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id == original.id
@@ -125,14 +125,11 @@ class TestIngestReusesAnExistingCanonical:
         them, which is what every other creation path here avoids."""
         _ = await _seed_original(db_session)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].connector_track_identifiers["spotify"] == "sp_remaster"
@@ -142,14 +139,11 @@ class TestIngestReusesAnExistingCanonical:
     ):
         original = await _seed_original(db_session)
 
-        _ = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
-                user_id="default",
-            )
+        _ = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         methods = (
@@ -172,14 +166,11 @@ class TestIngestReusesAnExistingCanonical:
         described itself by keeps primacy."""
         original = await _seed_original(db_session)
 
-        _ = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
-                user_id="default",
-            )
+        _ = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         primaries = (
@@ -203,14 +194,11 @@ class TestIngestReusesAnExistingCanonical:
         be left holding a live mapping with no primary."""
         original = await _seed_original(db_session, connector_id=None)
 
-        _ = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
-                user_id="default",
-            )
+        _ = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         primaries = (
@@ -236,14 +224,11 @@ class TestIngestStillCreatesWhenItShould:
         their names normalize to."""
         original = await _seed_original(db_session, duration_ms=235_400)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_other", duration_ms=138_213, isrc=REMASTER_ISRC)],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_other", duration_ms=138_213, isrc=REMASTER_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id != original.id
@@ -257,21 +242,18 @@ class TestIngestStillCreatesWhenItShould:
             db_session, title="Ice Ice Baby", duration_ms=257_000
         )
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [
-                    _connector_track(
-                        "sp_remix",
-                        title="Ice Ice Baby (Wunderbros Dubstep Remix)",
-                        duration_ms=251_200,
-                        isrc=REMASTER_ISRC,
-                    )
-                ],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [
+                _connector_track(
+                    "sp_remix",
+                    title="Ice Ice Baby (Wunderbros Dubstep Remix)",
+                    duration_ms=251_200,
+                    isrc=REMASTER_ISRC,
+                )
+            ],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id != original.id
@@ -281,14 +263,11 @@ class TestIngestStillCreatesWhenItShould:
     ):
         original = await _seed_original(db_session, duration_ms=None)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id != original.id
@@ -300,14 +279,11 @@ class TestIngestStillCreatesWhenItShould:
         cross-tenant identity matching."""
         original = await _seed_original(db_session)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
-                user_id="alice",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="alice",
         )
 
         assert imported[0].id != original.id
@@ -323,17 +299,14 @@ class TestTwinsInsideOneBatch:
         folds onto."""
         before = await _canonical_count(db_session)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [
-                    _connector_track("sp_original", isrc=ORIGINAL_ISRC),
-                    _connector_track("sp_remaster", isrc=REMASTER_ISRC),
-                ],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [
+                _connector_track("sp_original", isrc=ORIGINAL_ISRC),
+                _connector_track("sp_remaster", isrc=REMASTER_ISRC),
+            ],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id == imported[1].id
@@ -356,21 +329,16 @@ class TestTwinsInsideOneBatch:
     async def test_two_masters_of_different_lengths_each_keep_their_canonical(
         self, db_session: AsyncSession
     ):
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [
-                    _connector_track(
-                        "sp_original", duration_ms=448_200, isrc=ORIGINAL_ISRC
-                    ),
-                    _connector_track(
-                        "sp_edit", duration_ms=216_000, isrc=REMASTER_ISRC
-                    ),
-                ],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [
+                _connector_track(
+                    "sp_original", duration_ms=448_200, isrc=ORIGINAL_ISRC
+                ),
+                _connector_track("sp_edit", duration_ms=216_000, isrc=REMASTER_ISRC),
+            ],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id != imported[1].id
@@ -386,19 +354,12 @@ class TestIsrcEvidenceStillDecidesFirst:
         only the ISRC exclusion can be what saves it."""
         owner = await _seed_original(db_session, duration_ms=200_000)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                # Same ISRC as the owner, 15s longer — suspect.
-                [
-                    _connector_track(
-                        "sp_remaster", duration_ms=215_000, isrc=ORIGINAL_ISRC
-                    )
-                ],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            # Same ISRC as the owner, 15s longer — suspect.
+            [_connector_track("sp_remaster", duration_ms=215_000, isrc=ORIGINAL_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id != owner.id
@@ -417,14 +378,11 @@ class TestIsrcEvidenceStillDecidesFirst:
         different canonical first."""
         owner = await _seed_original(db_session, duration_ms=245_733)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_same_isrc", isrc=ORIGINAL_ISRC)],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_same_isrc", isrc=ORIGINAL_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id == owner.id
@@ -437,14 +395,11 @@ class TestAlreadyMappedTracksAreUntouched:
         original = await _seed_original(db_session)
         before = await _canonical_count(db_session)
 
-        imported = (
-            await get_unit_of_work(db_session)
-            .get_connector_repository()
-            .ingest_external_tracks_bulk(
-                "spotify",
-                [_connector_track("sp_original", isrc=ORIGINAL_ISRC)],
-                user_id="default",
-            )
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_original", isrc=ORIGINAL_ISRC)],
+            get_unit_of_work(db_session),
+            user_id="default",
         )
 
         assert imported[0].id == original.id

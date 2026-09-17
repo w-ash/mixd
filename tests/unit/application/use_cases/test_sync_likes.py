@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.application.services.track_resolution import TrackResolutionService
 from src.application.use_cases.sync_likes import (
     _CHECKPOINT_LOOKBACK,
     CHECKPOINT_COMBINATIONS,
@@ -42,6 +43,31 @@ def _page_of_tracks(
     )
 
 
+def _echo_ingest(id_offset: int = 1):
+    """Stand in for ``TrackResolutionService.ingest``: one Track per payload."""
+
+    async def ingest(_self, _svc, tracks, _uow, *, user_id):
+        return [
+            Track(
+                id=i + id_offset,
+                title=t.title,
+                artists=[Artist(name="A")],
+                connector_track_identifiers={"spotify": t.connector_track_identifier},
+                user_id=user_id,
+            )
+            for i, t in enumerate(tracks)
+        ]
+
+    return ingest
+
+
+@pytest.fixture(autouse=True)
+def ingest():
+    """Every import test runs against a fake resolution service."""
+    with patch.object(TrackResolutionService, "ingest", _echo_ingest()) as fake:
+        yield fake
+
+
 class TestImportLikesIncrementalCommit:
     """Verify commit_batch() is called per batch and checkpoints advance."""
 
@@ -55,20 +81,6 @@ class TestImportLikesIncrementalCommit:
         # Connector repo: all tracks are new
         connector_repo = uow.get_connector_repository()
         connector_repo.find_tracks_by_connectors = AsyncMock(return_value={})
-        connector_repo.ingest_external_tracks_bulk = AsyncMock(
-            side_effect=lambda _svc, tracks, **kw: [
-                Track(
-                    id=i + 1,
-                    title=t.title,
-                    artists=[Artist(name="A")],
-                    connector_track_identifiers={
-                        "spotify": t.connector_track_identifier
-                    },
-                    user_id=TEST_USER_ID,
-                )
-                for i, t in enumerate(tracks)
-            ]
-        )
         # Like repo
         like_repo = uow.get_like_repository()
         like_repo.save_track_likes_batch = AsyncMock(return_value=[])
@@ -254,20 +266,6 @@ class TestImportLikesForceMode:
         connector_repo.find_tracks_by_connectors = AsyncMock(
             side_effect=_find_by_connectors
         )
-        connector_repo.ingest_external_tracks_bulk = AsyncMock(
-            side_effect=lambda _svc, tracks, **kw: [
-                Track(
-                    id=i + 2000,
-                    title=t.title,
-                    artists=[Artist(name="A")],
-                    connector_track_identifiers={
-                        "spotify": t.connector_track_identifier
-                    },
-                    user_id=TEST_USER_ID,
-                )
-                for i, t in enumerate(tracks)
-            ]
-        )
 
         with patch(
             "src.application.use_cases.sync_likes.resolve_liked_track_connector",
@@ -312,7 +310,6 @@ class TestImportLikesForceMode:
             for i, ct in enumerate(dup_tracks)
         }
         connector_repo.find_tracks_by_connectors = AsyncMock(return_value=existing_map)
-        connector_repo.ingest_external_tracks_bulk = AsyncMock(return_value=[])
 
         with patch(
             "src.application.use_cases.sync_likes.resolve_liked_track_connector",
@@ -369,20 +366,6 @@ class TestImportLikesForceMode:
 
         connector_repo = mock_uow.get_connector_repository()
         connector_repo.find_tracks_by_connectors = AsyncMock(return_value={})
-        connector_repo.ingest_external_tracks_bulk = AsyncMock(
-            side_effect=lambda _svc, tracks, **kw: [
-                Track(
-                    id=i + 2000,
-                    title=t.title,
-                    artists=[Artist(name="A")],
-                    connector_track_identifiers={
-                        "spotify": t.connector_track_identifier
-                    },
-                    user_id=TEST_USER_ID,
-                )
-                for i, t in enumerate(tracks)
-            ]
-        )
 
         with patch(
             "src.application.use_cases.sync_likes.resolve_liked_track_connector",

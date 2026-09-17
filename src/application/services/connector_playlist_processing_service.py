@@ -7,7 +7,10 @@ duplicate preservation, and performance optimization across create and update us
 
 from datetime import datetime
 
+from attrs import Factory, define
+
 from src.application.connector_protocols import TrackConversionConnector
+from src.application.services.track_resolution import TrackResolutionService
 from src.config import get_logger
 from src.domain.entities.playlist import (
     ConnectorPlaylist,
@@ -18,13 +21,13 @@ from src.domain.entities.playlist import (
 )
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import ConnectorTrack, Track
-from src.domain.repositories.connector import ConnectorRepositoryProtocol
 from src.domain.repositories.errors import is_transient_contention, postgres_sqlstate
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
 
+@define(slots=True)
 class ConnectorPlaylistProcessingService:
     """Service for processing ConnectorPlaylist data into domain Playlist.
 
@@ -41,6 +44,8 @@ class ConnectorPlaylistProcessingService:
     This service maintains DRY principles by providing shared functionality
     for both CreateCanonicalPlaylistUseCase and UpdateCanonicalPlaylistUseCase.
     """
+
+    resolution: TrackResolutionService = Factory(TrackResolutionService)
 
     async def process_connector_playlist(
         self,
@@ -252,7 +257,6 @@ class ConnectorPlaylistProcessingService:
         if new_connector_tracks:
             logger.info(f"Creating {len(new_connector_tracks)} new tracks in database")
             await self._ingest_new_tracks(
-                connector_repo,
                 connector_name,
                 new_connector_tracks,
                 track_id_to_domain_track,
@@ -270,7 +274,6 @@ class ConnectorPlaylistProcessingService:
 
     async def _ingest_new_tracks(
         self,
-        connector_repo: ConnectorRepositoryProtocol,
         connector_name: str,
         new_connector_tracks: list[ConnectorTrack],
         track_id_to_domain_track: dict[str, Track],
@@ -293,13 +296,15 @@ class ConnectorPlaylistProcessingService:
           of the N retries on the same contended index in turn, burning N times
           ``lock_timeout`` and *still* resolving nothing, leaving every playlist
           position recorded UNRESOLVED with no failure anywhere.
-        - **Anything else** — a bad value, a violated constraint — is about one
-          row, and the per-track loop exists to find it and save the other 31.
+        - **Anything else** — a bad value, a violated constraint, an identity
+          key the planner's probes did not see (``IdentityKeyClaimedError``)
+          — is about one row, and the per-track loop exists to find it and
+          save the other 31.
         """
         try:
             async with uow.savepoint():
-                newly_created_tracks = await connector_repo.ingest_external_tracks_bulk(
-                    connector_name, new_connector_tracks, user_id=user_id
+                newly_created_tracks = await self.resolution.ingest(
+                    connector_name, new_connector_tracks, uow, user_id=user_id
                 )
         except Exception as bulk_error:
             if is_transient_contention(bulk_error):
@@ -317,7 +322,6 @@ class ConnectorPlaylistProcessingService:
                 )
                 raise
             await self._fall_back_to_per_track(
-                connector_repo,
                 connector_name,
                 new_connector_tracks,
                 track_id_to_domain_track,
@@ -334,7 +338,6 @@ class ConnectorPlaylistProcessingService:
 
     async def _fall_back_to_per_track(
         self,
-        connector_repo: ConnectorRepositoryProtocol,
         connector_name: str,
         new_connector_tracks: list[ConnectorTrack],
         track_id_to_domain_track: dict[str, Track],
@@ -352,7 +355,6 @@ class ConnectorPlaylistProcessingService:
             exc_info=cause,
         )
         failed = await self._ingest_one_at_a_time(
-            connector_repo,
             connector_name,
             new_connector_tracks,
             track_id_to_domain_track,
@@ -440,7 +442,6 @@ class ConnectorPlaylistProcessingService:
 
     async def _ingest_one_at_a_time(
         self,
-        connector_repo: ConnectorRepositoryProtocol,
         connector_name: str,
         connector_tracks: list[ConnectorTrack],
         track_id_to_domain_track: dict[str, Track],
@@ -462,10 +463,10 @@ class ConnectorPlaylistProcessingService:
             try:
                 async with uow.savepoint():
                     await self._ingest_single_track(
-                        connector_repo,
                         connector_name,
                         connector_track,
                         track_id_to_domain_track,
+                        uow,
                         user_id=user_id,
                     )
             except Exception as individual_error:
@@ -481,10 +482,10 @@ class ConnectorPlaylistProcessingService:
 
     async def _ingest_single_track(
         self,
-        connector_repo: ConnectorRepositoryProtocol,
         connector_name: str,
         connector_track: ConnectorTrack,
         track_id_to_domain_track: dict[str, Track],
+        uow: UnitOfWorkProtocol,
         *,
         user_id: str,
     ) -> None:
@@ -494,8 +495,8 @@ class ConnectorPlaylistProcessingService:
         stays small; the same statements remain guarded by the caller's broad
         ``except``.
         """
-        single_track_result = await connector_repo.ingest_external_tracks_bulk(
-            connector_name, [connector_track], user_id=user_id
+        single_track_result = await self.resolution.ingest(
+            connector_name, [connector_track], uow, user_id=user_id
         )
         if single_track_result:
             track = single_track_result[0]

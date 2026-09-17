@@ -19,8 +19,10 @@ import this, never the reverse) and answers a different question — what do we
 tell the user? — where this one answers whether the caller should retry.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Final
+
+from src.domain.exceptions import DomainError
 
 # PostgreSQL SQLSTATEs that mean "someone else got here first", not "this data
 # is wrong". None of the three is a property of the rows being written, so the
@@ -85,3 +87,25 @@ def _sqlstate_attribute(candidate: object) -> str | None:
     if not isinstance(code, str):
         code = getattr(candidate, "pgcode", None)
     return code if isinstance(code, str) else None
+
+
+class IdentityKeyClaimedError(DomainError):
+    """A batch insert named an identity key the table already holds.
+
+    Raised by ``save_tracks`` instead of quietly merging into the owner: the
+    repository only persists, so which canonical an incoming row belongs to
+    is decided upstream (``domain.matching.canonical_resolution``) before the
+    row is handed here. Reaching this means the caller's lookup and planning
+    passes did not see the row the batch collides with — a caller bug worth
+    a visible failure, not a silent upsert. ``keys`` are the
+    ``(column, user_id, value)`` triples that were already claimed.
+    """
+
+    def __init__(self, keys: Iterable[tuple[str, str, str]]) -> None:
+        self.keys: Final = frozenset(keys)
+        listed = ", ".join(
+            f"{name}={value!r}" for name, _user, value in sorted(self.keys)
+        )
+        super().__init__(
+            f"identity keys already claimed by an existing canonical: {listed}"
+        )

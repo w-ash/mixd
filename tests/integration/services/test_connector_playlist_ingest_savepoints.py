@@ -45,14 +45,12 @@ from sqlalchemy.ext.asyncio import (
 from src.application.services.connector_playlist_processing_service import (
     ConnectorPlaylistProcessingService,
 )
+from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack
 from src.domain.entities.track import Track
 from src.domain.repositories.errors import LOCK_NOT_AVAILABLE, postgres_sqlstate
 from src.infrastructure.persistence.database.db_models import DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from src.infrastructure.persistence.repositories.track.connector import (
-    TrackConnectorRepository,
-)
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
 from src.infrastructure.persistence.repositories.track.ingest_lock import (
     ingest_lock_keys,
@@ -100,16 +98,16 @@ def _bulk_fails_batch_succeeds_singly(
     fallbacks apart: ``[3, 1, 1, 1]`` is the per-track loop, ``[3]`` a batch
     that failed outright.
     """
-    real = TrackConnectorRepository.ingest_external_tracks_bulk
+    real = TrackResolutionService.ingest
 
-    async def fake(self, connector, tracks, *, user_id):
+    async def fake(self, connector, tracks, uow, *, user_id):
         if calls is not None:
             calls.append(len(tracks))
         if len(tracks) > 1:
             _ = await session.execute(text("SELECT 1 / 0"))
-        return await real(self, connector, tracks, user_id=user_id)
+        return await real(self, connector, tracks, uow, user_id=user_id)
 
-    return patch.object(TrackConnectorRepository, "ingest_external_tracks_bulk", fake)
+    return patch.object(TrackResolutionService, "ingest", fake)
 
 
 class _LockHolder:
@@ -165,13 +163,13 @@ def _recording_ingest(calls: list[int]):
     now waits on. ``calls`` is only how a test tells one batch attempt apart
     from a per-track split.
     """
-    real = TrackConnectorRepository.ingest_external_tracks_bulk
+    real = TrackResolutionService.ingest
 
-    async def fake(self, connector, tracks, *, user_id):
+    async def fake(self, connector, tracks, uow, *, user_id):
         calls.append(len(tracks))
-        return await real(self, connector, tracks, user_id=user_id)
+        return await real(self, connector, tracks, uow, user_id=user_id)
 
-    return patch.object(TrackConnectorRepository, "ingest_external_tracks_bulk", fake)
+    return patch.object(TrackResolutionService, "ingest", fake)
 
 
 class TestBulkIngestFailureIsContained:
@@ -501,9 +499,7 @@ class TestTheTwoWritersSerialize:
                 # Bounded, so a regression that never releases fails instead
                 # of hanging the suite.
                 _ = await session.execute(text("SET lock_timeout = '10s'"))
-                ingested = await TrackConnectorRepository(
-                    session
-                ).ingest_external_tracks_bulk(
+                ingested = await TrackResolutionService().ingest(
                     CONNECTOR,
                     [
                         ConnectorTrack(
@@ -518,6 +514,7 @@ class TestTheTwoWritersSerialize:
                             last_updated=datetime.now(UTC),
                         )
                     ],
+                    get_unit_of_work(session),
                     user_id=_SERIALIZATION_USER,
                 )
                 order.append("b-ingested")

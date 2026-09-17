@@ -1,7 +1,10 @@
-"""Manages track connections between internal database and external music services.
+"""Persists track connections between the internal database and external services.
 
-Handles track ingestion from Spotify, Last.fm, and other music platforms, maps external
-tracks to canonical internal tracks, and stores service-specific metadata and IDs.
+Stores connector-track payloads, asserts mappings from canonical tracks to
+external ids, elects primaries and records the resolution events those
+writes earn. Which canonical an incoming payload belongs to is not decided
+here: ``application/services/track_resolution.py`` plans that with the domain
+planner and calls the persistence seams below in order.
 """
 
 # Lazy import cycle (mapper.py → this module for set_primary_mapping) handled by TYPE_CHECKING guard
@@ -47,16 +50,6 @@ from src.domain.entities.track_mapping import (
     is_match_method,
 )
 from src.domain.exceptions import NotFoundError
-from src.domain.matching.isrc_validation import (
-    assess_isrc_match_reliability,
-    compute_duration_diff_ms,
-)
-from src.domain.matching.recording_identity import (
-    RecordingDescription,
-    describe_track,
-    describes_same_recording,
-    identity_key,
-)
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.connector import (
     ConnectorMappingSpec,
@@ -85,6 +78,7 @@ from src.infrastructure.persistence.database.live_rows import (
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     DENORMALIZED_ID_COLUMNS,
+    artist_names_column,
     build_connector_track_row,
     extract_db_artist_names,
 )
@@ -96,9 +90,6 @@ from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.resolution import actively_suppressing
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
-from src.infrastructure.persistence.repositories.track.ingest_lock import (
-    acquire_user_track_ingest_lock,
-)
 from src.infrastructure.services.resolution_recorder import ResolutionRecorder
 
 logger = get_logger(__name__)
@@ -183,47 +174,6 @@ _ASSERT_REQUIRED = (
 _LIVE_MAPPING_KEY = ("user_id", "connector_track_id", "connector_name")
 
 
-@define(slots=True)
-class _IdentityReuseIndex:
-    """The canonicals one ingest batch may reuse instead of minting a twin.
-
-    Two populations, one lookup: the canonicals already in the database that
-    the title+artist probe proposed, and the ones this same batch has just
-    created. The second is not an optimisation — a playlist can carry an
-    original and its remaster with neither yet known to the database, and
-    without leaders accumulating here the batch would mint both.
-
-    Keyed by :func:`identity_key`, the equality partition
-    :func:`describes_same_recording` induces, so a lookup only ever has to
-    price the one bucket that could possibly answer. The predicate still rules
-    on every hit — the key is necessary, not sufficient.
-    """
-
-    # Identifiers whose group may reuse or become a leader. Everything else is
-    # excluded upstream by ``_build_identity_reuse_index`` and stays out of
-    # both roles.
-    eligible: set[str]
-    by_key: dict[tuple[str, str], Track]
-
-    def find(self, description: RecordingDescription) -> Track | None:
-        """The canonical that already describes this recording, if any."""
-        candidate = self.by_key.get(identity_key(description))
-        if candidate is None:
-            return None
-        if not describes_same_recording(describe_track(candidate), description):
-            return None
-        return candidate
-
-    def remember(self, description: RecordingDescription, track: Track) -> None:
-        """Offer a freshly created canonical as a leader for later groups.
-
-        First writer keeps the bucket: chunk order decides, so the earliest
-        group to describe a recording owns the canonical every later one folds
-        onto.
-        """
-        _ = self.by_key.setdefault(identity_key(description), track)
-
-
 @define(frozen=True, slots=True)
 class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
     """Converts external service track data between database and domain formats."""
@@ -268,7 +218,7 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
             connector_name=domain_model.connector_name,
             connector_track_identifier=domain_model.connector_track_identifier,
             title=domain_model.title,
-            artists={"names": [a.name for a in domain_model.artists]},
+            artists=artist_names_column(a.name for a in domain_model.artists),
             album=domain_model.album,
             duration_ms=domain_model.duration_ms,
             release_date=domain_model.release_date,
@@ -911,7 +861,10 @@ class TrackConnectorRepository:
 
     @db_operation("map_tracks_to_connectors")
     async def map_tracks_to_connectors(
-        self, mappings: list[ConnectorMappingSpec]
+        self,
+        mappings: list[ConnectorMappingSpec],
+        *,
+        connector_track_ids: Mapping[tuple[str, str], UUID] | None = None,
     ) -> list[Track]:
         """Link existing internal tracks to external service IDs with confidence scores.
 
@@ -919,6 +872,12 @@ class TrackConnectorRepository:
         drop rows that would overwrite manual overrides → assert mappings
         (append-only: a changed decision supersedes rather than overwrites) →
         elect primaries.
+
+        ``connector_track_ids`` — the ``(connector, external id) -> id`` map
+        of rows a caller has *already* upserted from the payload — skips the
+        upsert step. The ingest path passes it so that mapping a reused
+        canonical never rewrites ``connector_tracks`` with the canonical's
+        own title and length in place of what the service actually said.
 
         Every asserted pair leaves with a primary. A spec with ``primary=True``
         deposes and elects; every other spec fills a vacancy only, which is a
@@ -941,8 +900,12 @@ class TrackConnectorRepository:
             return []
 
         updated_tracks = self._build_updated_tracks(mappings)
-        connector_id_map = await self._upsert_connector_tracks(
-            self._build_connector_track_rows(mappings)
+        connector_id_map = (
+            dict(connector_track_ids)
+            if connector_track_ids is not None
+            else await self._upsert_connector_tracks(
+                self._build_connector_track_rows(mappings)
+            )
         )
         mapping_rows = await self._filter_manual_overrides(
             self._build_mapping_rows(mappings, connector_id_map)
@@ -1218,472 +1181,72 @@ class TrackConnectorRepository:
         ])
         return results[0] if results else track
 
-    @db_operation("ingest_external_tracks_bulk")
-    async def ingest_external_tracks_bulk(
-        self,
-        connector: str,
-        tracks: list[ConnectorTrack],
-        *,
-        user_id: str,
-    ) -> list[Track]:
-        """Import tracks from external music services into the internal database.
+    @db_operation("upsert_connector_tracks")
+    async def upsert_connector_tracks(
+        self, connector: str, tracks: Sequence[ConnectorTrack]
+    ) -> dict[str, ConnectorTrack]:
+        """Upsert one ``connector_tracks`` row per external id (last occurrence wins).
 
-        Creates new tracks or updates existing ones, stores service-specific metadata,
-        and establishes mappings. Optimized for processing large batches like playlists.
-
-        Args:
-            connector: Service name (e.g., "spotify", "lastfm").
-            tracks: External track data to import.
-
-        Returns:
-            List of internal Track objects created or updated.
+        Returns the stored rows keyed by external identifier, each carrying
+        its database id — the id every mapping and review for that payload
+        references.
         """
         if not tracks:
-            return []
-
-        # Before the first write: the competing writer is the play-import
-        # resolver's ``save_tracks``, which takes the same lock, so the two
-        # queue here instead of inside ``uq_tracks_user_isrc``. Transaction-
-        # scoped, so it is held for the rest of the caller's transaction.
-        await acquire_user_track_ingest_lock(self.session, user_id)
-
-        # 1. Group tracks by identifier upfront to handle duplicates in a single
-        # batch (Spotify can return the same track across pagination boundaries),
-        # then bulk upsert one connector track per unique identifier.
-        tracks_by_identifier = self._group_tracks_by_identifier(tracks)
-        connector_track_lookup = await self._upsert_connector_tracks_from_groups(
-            connector, tracks_by_identifier
-        )
-
-        # 2. Bulk-fetch all existing mappings for these connector tracks (N → 1).
-        existing_mapping_by_ct_id = await self._fetch_existing_mappings_by_ct_id(
-            [ct.id for ct in connector_track_lookup.values()], user_id
-        )
-
-        # 2.5. Pre-collect ISRC owners for groups that will create new tracks,
-        # so suspect collisions route to review instead of merging (FM2a).
-        new_isrcs = {
-            group[0].isrc
-            for identifier, group in tracks_by_identifier.items()
-            if group[0].isrc
-            and connector_track_lookup[identifier].id not in existing_mapping_by_ct_id
-        }
-        isrc_owners: dict[str, Track] = (
-            await self.track_repo.find_tracks_by_isrcs(
-                sorted(new_isrcs), user_id=user_id
-            )
-            if new_isrcs
-            else {}
-        )
-
-        # 2.6. And the canonicals a *name* match would reuse, for the groups
-        # the ISRC step left to create one. A remaster never shares its
-        # original's ISRC, so without this the two releases each mint their own
-        # canonical even though their normalized artist+title already collide
-        # (v0.10.3 finding C4).
-        reuse_index = await self._build_identity_reuse_index(
-            tracks_by_identifier,
-            connector_track_lookup,
-            existing_mapping_by_ct_id,
-            isrc_owners,
-            user_id=user_id,
-        )
-
-        # 3. Create or find a domain track per unique identifier, collecting the
-        # mapping rows that new tracks need.
-        domain_tracks: list[Track] = []
-        track_mappings_data: list[dict[str, object]] = []
-        reuse_primaries: list[tuple[UUID, str, UUID]] = []
-        elected: dict[UUID, str] = {}
-        for identifier, track_group in tracks_by_identifier.items():
-            domain_track, mapping_row, reused = await self._ingest_one_group(
-                connector,
-                identifier,
-                track_group,
-                connector_track_lookup,
-                existing_mapping_by_ct_id,
-                isrc_owners,
-                reuse_index,
-                user_id=user_id,
-            )
-            # Add the domain track for each occurrence in the playlist
-            domain_tracks.extend(domain_track for _ in track_group)
-            if mapping_row is not None:
-                track_mappings_data.append(mapping_row)
-            if reused:
-                reuse_primaries.append((
-                    domain_track.id,
-                    connector,
-                    connector_track_lookup[identifier].id,
-                ))
-            else:
-                elected.setdefault(domain_track.id, identifier)
-
-        # 3.5. Re-encounter is a freshness signal, not evidence: stamp
-        # last_seen_at on every mapping this batch re-encountered — including
-        # manual overrides (freshness is origin-independent) — instead of
-        # overwriting confidence (FM1a).
-        if existing_mapping_by_ct_id:
-            await self._touch_last_seen([
-                m.id for m in existing_mapping_by_ct_id.values()
-            ])
-
-        # 4. Bulk create mappings + set primaries for the newly created tracks.
-        await self._create_mappings_and_set_primaries(
-            connector, elected, track_mappings_data
-        )
-
-        # 4.5. A reused canonical elects nothing above — it is absent from
-        # ``elected`` — so the id it already described itself by keeps primacy
-        # and this batch's id is correctly a secondary alias. The one case that
-        # needs filling is a canonical with no mapping for this connector at
-        # all — a Last.fm-born track a Spotify playlist has just matched —
-        # which would otherwise be left with a live mapping and no primary.
-        # Vacancy-fill, never a deposition (see ``_batch_ensure_primary_mappings``).
-        if reuse_primaries:
-            _ = await self._batch_ensure_primary_mappings(reuse_primaries)
-
-        return domain_tracks
-
-    @staticmethod
-    def _group_tracks_by_identifier(
-        tracks: list[ConnectorTrack],
-    ) -> dict[str, list[ConnectorTrack]]:
-        """Group connector tracks by external identifier, preserving order."""
-        groups: dict[str, list[ConnectorTrack]] = {}
-        for track in tracks:
-            groups.setdefault(track.connector_track_identifier, []).append(track)
-        return groups
-
-    async def _upsert_connector_tracks_from_groups(
-        self, connector: str, groups: dict[str, list[ConnectorTrack]]
-    ) -> dict[str, ConnectorTrack]:
-        """Bulk upsert one connector track per group (last occurrence wins).
-
-        Returns a lookup keyed by external identifier.
-        """
+            return {}
         now = datetime.now(UTC)
-        connector_track_data: list[dict[str, object]] = [
+        by_identifier = {track.connector_track_identifier: track for track in tracks}
+        rows: list[dict[str, object]] = [
             build_connector_track_row(
                 connector,
                 identifier,
-                title=group[-1].title,
-                artist_names=[a.name for a in group[-1].artists],
-                album=group[-1].album,
-                duration_ms=group[-1].duration_ms,
-                release_date=group[-1].release_date,
-                isrc=group[-1].isrc,
-                raw_metadata=group[-1].raw_metadata,
+                title=track.title,
+                artist_names=[a.name for a in track.artists],
+                album=track.album,
+                duration_ms=track.duration_ms,
+                release_date=track.release_date,
+                isrc=track.isrc,
+                raw_metadata=track.raw_metadata,
                 last_updated=now,
             )
-            for identifier, group in groups.items()
+            for identifier, track in by_identifier.items()
         ]
-        connector_tracks = await self.connector_repo.bulk_upsert(
-            connector_track_data,
-            lookup_keys=["connector_name", "connector_track_identifier"],
+        stored = await self.connector_repo.bulk_upsert(
+            rows, lookup_keys=["connector_name", "connector_track_identifier"]
         )
-        return {ct.connector_track_identifier: ct for ct in connector_tracks}
+        return {ct.connector_track_identifier: ct for ct in stored}
 
-    async def _fetch_existing_mappings_by_ct_id(
-        self, connector_track_ids: list[UUID], user_id: str
-    ) -> dict[UUID, TrackMapping]:
-        """Bulk-fetch existing mappings for connector tracks, keyed by connector_track_id."""
-        existing = await self.mapping_repo.find_by([
-            self.mapping_repo.model_class.connector_track_id.in_(connector_track_ids),
-            self.mapping_repo.model_class.user_id == user_id,
-        ])
-        return {m.connector_track_id: m for m in existing}
+    @db_operation("touch_last_seen")
+    async def touch_last_seen(
+        self, connector: str, connector_track_ids: Sequence[UUID], *, user_id: str
+    ) -> None:
+        """Stamp ``last_seen_at`` on the live mappings of re-encountered payloads.
 
-    @staticmethod
-    def _describe_connector_track(track: ConnectorTrack) -> RecordingDescription:
-        """A connector payload as the same-recording question sees it."""
-        return RecordingDescription(
-            title=track.title,
-            artist=track.artists[0].name if track.artists else "",
-            duration_ms=track.duration_ms,
-        )
-
-    async def _build_identity_reuse_index(
-        self,
-        tracks_by_identifier: dict[str, list[ConnectorTrack]],
-        connector_track_lookup: dict[str, ConnectorTrack],
-        existing_mapping_by_ct_id: dict[UUID, TrackMapping],
-        isrc_owners: dict[str, Track],
-        *,
-        user_id: str,
-    ) -> _IdentityReuseIndex:
-        """Probe for canonicals that already describe this batch's new tracks.
-
-        One query for the batch, and only for the groups that would otherwise
-        create a canonical. The exclusions are the point:
-
-        - an **already-mapped** connector track has resolved; nothing is created
-          for it and there is nothing to fold.
-        - a group whose **ISRC has an owner** is decided by the ISRC path, and
-          decided either way. Non-suspect, ``save_track`` upserts onto the owner
-          — a name match must not get to nominate a *different* canonical first.
-          Suspect, v0.8.18 deliberately mints a distinct canonical without the
-          contested ISRC and queues a review; folding it onto some third
-          canonical on a name match would settle by the back door exactly what
-          that review exists to put in front of a person.
-        - a group with **no title or no artist** cannot be compared at all.
+        Re-encounter is a freshness signal, not evidence: it proves the
+        connector track still exists, not that the canonical match was
+        right, so confidence is never touched here (FM1a) — and freshness is
+        origin-independent, so manual overrides are stamped too.
         """
-        eligible = {
-            identifier
-            for identifier, group in tracks_by_identifier.items()
-            if connector_track_lookup[identifier].id not in existing_mapping_by_ct_id
-            and group[0].title
-            and group[0].artists
-            and group[0].artists[0].name
-            and not (group[0].isrc and group[0].isrc in isrc_owners)
-        }
-        if not eligible:
-            return _IdentityReuseIndex(eligible=eligible, by_key={})
-
-        owners = await self.track_repo.find_tracks_by_title_artist(
-            [
-                (
-                    tracks_by_identifier[identifier][0].title,
-                    tracks_by_identifier[identifier][0].artists[0].name,
-                )
-                for identifier in sorted(eligible)
-            ],
-            user_id=user_id,
-        )
-        # Keyed by what the *found canonical* normalizes to, not by the probe
-        # pair that surfaced it: the probe also answers on a
-        # parenthetical-stripped form, and a candidate reached that way keys
-        # differently from the payload — which is precisely the pairing
-        # ``describes_same_recording`` refuses.
-        by_key: dict[tuple[str, str], Track] = {}
-        for candidate in owners.values():
-            _ = by_key.setdefault(identity_key(describe_track(candidate)), candidate)
-        return _IdentityReuseIndex(eligible=eligible, by_key=by_key)
-
-    async def _ingest_one_group(
-        self,
-        connector: str,
-        identifier: str,
-        track_group: list[ConnectorTrack],
-        connector_track_lookup: dict[str, ConnectorTrack],
-        existing_mapping_by_ct_id: dict[UUID, TrackMapping],
-        isrc_owners: dict[str, Track],
-        reuse_index: _IdentityReuseIndex,
-        *,
-        user_id: str,
-    ) -> tuple[Track, dict[str, object] | None, bool]:
-        """Resolve one unique connector identifier to a domain track.
-
-        Returns the domain track, the mapping row it needs (``None`` when an
-        existing mapping was reused), and whether the track is a canonical this
-        group reused rather than created.
-        """
-        # Tracks in a group are identical except playlist position
-        representative_track = track_group[0]
-        connector_track_id = connector_track_lookup[identifier].id
-        mapping = existing_mapping_by_ct_id.get(connector_track_id)
-
-        if mapping:
-            domain_track = await self.track_repo.get_by_id(mapping.track_id)
-            logger.debug(
-                f"Found existing track {mapping.track_id} for {connector}:{identifier}"
-            )
-            return domain_track, None, False
-
-        description = self._describe_connector_track(representative_track)
-        if identifier in reuse_index.eligible:
-            reused = self._plan_identity_reuse(
-                connector, identifier, description, connector_track_id, reuse_index
-            )
-            if reused is not None:
-                return reused[0], reused[1], True
-
-        domain_track, mapping_row = await self._create_track_with_mapping_row(
-            connector, representative_track, connector_track_id, isrc_owners, user_id
-        )
-        if identifier in reuse_index.eligible:
-            reuse_index.remember(description, domain_track)
-        return domain_track, mapping_row, False
-
-    def _plan_identity_reuse(
-        self,
-        connector: str,
-        identifier: str,
-        description: RecordingDescription,
-        connector_track_id: UUID,
-        reuse_index: _IdentityReuseIndex,
-    ) -> tuple[Track, dict[str, object]] | None:
-        """Map this identifier onto a canonical that already holds the recording.
-
-        The same three-part gate the Spotify inward resolver applies before it
-        creates: normalized artist+title equality, agreeing durations (both in
-        ``describes_same_recording``), and the evaluation service's own accept.
-        The matcher is asked last and only to price a decision already made —
-        Fellegi-Sunter saturates on an exact artist+title agreement, so its
-        confidence separates nothing here, but taking the number from the model
-        keeps the mapping's confidence derived rather than invented.
-
-        Returns the canonical and its mapping row, or ``None`` to create. The
-        canonical comes back naming *this* batch's connector id, like every
-        other path out of this method: callers key the returned tracks by
-        ``connector_track_identifiers[connector]`` to attach playlist positions
-        and ``liked_at`` stamps, so a reused canonical that still named only
-        the id it was born with would leave those silently unresolved.
-        """
-        from src.config import create_evaluation_service
-
-        candidate = reuse_index.find(description)
-        if candidate is None:
-            return None
-
-        match = create_evaluation_service().evaluate_single_match(
-            candidate,
-            RawProviderMatch(
-                connector_id=identifier,
-                match_method="canonical_reuse",
-                service_data={
-                    "title": description.title,
-                    "artist": description.artist,
-                    "duration_ms": description.duration_ms,
-                },
-            ),
-            connector,
-        )
-        if not match.success:
-            return None
-
-        logger.info(
-            f"Identity reuse: {connector}:{identifier} describes the recording "
-            f"canonical {candidate.id} already holds",
-            connector=connector,
-            connector_id=identifier,
-            track_id=candidate.id,
-            confidence=match.confidence,
-        )
-        mapping_row: dict[str, object] = {
-            "user_id": candidate.user_id,
-            "track_id": candidate.id,
-            "connector_track_id": connector_track_id,
-            "connector_name": connector,
-            "match_method": "canonical_reuse",
-            "confidence": match.confidence,
-            # The election in step 4.5 decides primacy: a canonical that
-            # already has a primary for this connector keeps it.
-            "is_primary": False,
-        }
-        return candidate.with_connector_track_id(connector, identifier), mapping_row
-
-    async def _touch_last_seen(self, mapping_ids: list[UUID]) -> None:
-        """Bulk-stamp last_seen_at on re-encountered mappings.
-
-        Replaces the pre-v0.8.18 bump-to-100: re-encountering a connector
-        track proves it exists, not that the canonical match was right, so
-        confidence is never touched here.
-        """
+        if not connector_track_ids:
+            return
         _ = await self.session.execute(
             update(DBTrackMapping)
-            .where(DBTrackMapping.id.in_(mapping_ids), live_only(DBTrackMapping))
+            .where(
+                DBTrackMapping.user_id == user_id,
+                DBTrackMapping.connector_name == connector,
+                DBTrackMapping.connector_track_id.in_(list(connector_track_ids)),
+                live_only(DBTrackMapping),
+            )
             .values(last_seen_at=datetime.now(UTC))
         )
-
-    async def _create_track_with_mapping_row(
-        self,
-        connector: str,
-        representative_track: ConnectorTrack,
-        connector_track_id: UUID,
-        isrc_owners: dict[str, Track],
-        user_id: str,
-    ) -> tuple[Track, dict[str, object]]:
-        """Create a new canonical track from connector data; return it + its mapping row."""
-        artists = (
-            [Artist(name=a.name) for a in representative_track.artists]
-            if representative_track.artists
-            else []
-        )
-        isrc = await self._resolve_ingest_isrc(
-            connector, representative_track, isrc_owners, user_id=user_id
-        )
-        track_obj = Track(
-            title=representative_track.title,
-            artists=artists,
-            album=representative_track.album,
-            duration_ms=representative_track.duration_ms,
-            release_date=representative_track.release_date,
-            isrc=isrc,
-            user_id=user_id,
-        )
-        track_obj = track_obj.with_connector_track_id(
-            connector, representative_track.connector_track_identifier
-        )
-        track_obj = track_obj.with_connector_metadata(
-            connector, representative_track.raw_metadata or {}
-        )
-        domain_track = await self.track_repo.save_track(track_obj)
-
-        mapping_row: dict[str, object] = {
-            "user_id": domain_track.user_id,
-            "track_id": domain_track.id,
-            "connector_track_id": connector_track_id,
-            "connector_name": connector,
-            "match_method": "direct",
-            "confidence": 100,
-            "is_primary": False,  # Set via _batch_ensure_primary_mappings post-processing
-        }
-        return domain_track, mapping_row
-
-    async def _resolve_ingest_isrc(
-        self,
-        connector: str,
-        representative_track: ConnectorTrack,
-        isrc_owners: dict[str, Track],
-        *,
-        user_id: str,
-    ) -> str | None:
-        """Decide whether an ingested track may claim its ISRC.
-
-        A suspect collision (duration >10s off the owner's) queues an
-        ``isrc_suspect`` review against the owner and withholds the ISRC —
-        the new canonical is created without it, the owner untouched.
-        Review-accept later merges the two (v0.8.18 FM2a routing).
-        """
-        isrc = representative_track.isrc
-        if not isrc:
-            return None
-        owner = isrc_owners.get(isrc)
-        if owner is None:
-            return isrc
-
-        duration_diff_ms = compute_duration_diff_ms(
-            representative_track.duration_ms, owner.duration_ms
-        )
-        if not assess_isrc_match_reliability(duration_diff_ms).suspect:
-            return isrc
-
-        _ = await self.queue_isrc_collision_review(
-            owner,
-            connector,
-            representative_track.connector_track_identifier,
-            {
-                "title": representative_track.title,
-                "artist": representative_track.artists[0].name
-                if representative_track.artists
-                else "",
-                "artists": [a.name for a in representative_track.artists],
-                "duration_ms": representative_track.duration_ms,
-                "isrc": isrc,
-            },
-            user_id=user_id,
-        )
-        return None
 
     async def _record_assertion(self, assertion: MappingAssertion) -> None:
         """Emit the events an ``assert_mappings`` batch just earned.
 
-        This and ``_create_mappings_and_set_primaries`` are the only two places
-        that assert mappings, which is why they are the only two that emit
-        ``accepted``: every accept path in the codebase — the matching
-        pipeline, both inward resolvers, review-accept, orphan creation, relink
-        — funnels through one of them, so no accept can reach the database
+        ``map_tracks_to_connectors`` is the only place that asserts mappings,
+        which is why this is the only place that emits ``accepted``: every
+        accept path in the codebase — the ingest service, the matching
+        pipeline, both inward resolvers, review-accept, orphan creation,
+        relink — funnels through it, so no accept can reach the database
         without its event.
 
         A *touched* mapping earns nothing: re-encountering an unchanged
@@ -1774,32 +1337,6 @@ class TrackConnectorRepository:
     def _resolution_recorder(self) -> ResolutionRecorderProtocol:
         """The identity write seam bound to this repository's transaction."""
         return ResolutionRecorder(self.session)
-
-    async def _create_mappings_and_set_primaries(
-        self,
-        connector: str,
-        elected: Mapping[UUID, str],
-        track_mappings_data: list[dict[str, object]],
-    ) -> None:
-        """Assert new mappings, then set one primary per track-connector pair.
-
-        ``elected`` names the external id each track should describe itself by,
-        decided by the caller rather than read back off the returned tracks'
-        ``connector_track_identifiers``: those name *this batch's* id for every
-        track including a reused canonical, whose own primary this election
-        would then depose (the reuse is an alias — step 4.5 only fills a
-        vacancy).
-        """
-        if not track_mappings_data:
-            return
-
-        assertion = await self.mapping_repo.assert_mappings(track_mappings_data)
-        await self._record_assertion(assertion)
-
-        if elected:
-            _ = await self._batch_ensure_primary_mappings_by_external_id([
-                (track_id, connector, cid) for track_id, cid in elected.items()
-            ])
 
     async def _clear_denormalized_id(self, track_id: UUID, connector: str) -> None:
         """Clear denormalized ID column on DBTrack when no mappings remain for a connector."""

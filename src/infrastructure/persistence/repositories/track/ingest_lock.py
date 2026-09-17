@@ -3,8 +3,9 @@
 Two paths create rows in ``tracks`` and both key on the same user-scoped
 unique indexes (``uq_tracks_user_isrc``, ``_mbid``, ``_spotify_id``): the
 fire-and-forget play-import resolver, through
-``TrackRepository.save_tracks``, and the workflow's
-``TrackConnectorRepository.ingest_external_tracks_bulk``. Left to race,
+``TrackRepository.save_tracks``, and the workflow's ingest through
+``TrackResolutionService`` (which takes the lock via
+``TrackRepository.acquire_ingest_lock`` before it probes). Left to race,
 one blocks on the other's uncommitted index entries until ``lock_timeout``
 and the workflow node fails with 55P03.
 

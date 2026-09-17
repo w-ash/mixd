@@ -9,6 +9,7 @@ from sqlalchemy.dialects import postgresql
 
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
+from src.domain.repositories.errors import IdentityKeyClaimedError
 from src.infrastructure.persistence.database.db_models import DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.core import (
@@ -702,8 +703,9 @@ class TestFindTracksByMBID:
         assert mbid in result
         assert result[mbid].id == saved.id
 
-    async def test_mbid_upsert_path(self, db_session):
-        """Saving a track with same MBID should upsert, not create duplicate."""
+    async def test_a_claimed_mbid_is_refused_not_upserted(self, db_session):
+        """Repositories only persist: a second row naming a claimed MBID is a
+        caller that skipped the resolution planner, not a merge to perform."""
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
@@ -720,11 +722,10 @@ class TestFindTracksByMBID:
             artist="Artist",
             connector_track_identifiers={"musicbrainz": mbid},
         )
-        saved2 = await track_repo.save_track(track2)
+        with pytest.raises(IdentityKeyClaimedError) as raised:
+            _ = await track_repo.save_track(track2)
 
-        # Should be same row (upserted)
-        assert saved2.id == saved1.id
-        assert saved2.title == "MBID Track V2"
+        assert ("mbid", saved1.user_id, mbid) in raised.value.keys
 
 
 class TestTrackNormalizedColumns:
@@ -809,69 +810,71 @@ class TestSaveTracksBulk:
 
         assert saved.connector_track_identifiers["spotify"] == spotify_id
 
-    async def test_a_claimed_isrc_falls_back_to_the_row_at_a_time_path(
-        self, db_session
-    ):
-        """A key the table already holds is not new — ``save_track`` decides it."""
+    async def test_a_claimed_isrc_is_refused_naming_the_key(self, db_session):
+        """A key the table already holds is not new, and the batch does not
+        decide what it is instead: it raises, naming the claimed key, and
+        writes nothing — the fresh row beside it included."""
         track_repo = get_unit_of_work(db_session).get_track_repository()
         isrc = f"TEST{uuid4().hex[:8].upper()}"
         title = f"TEST_Owner_{uuid4()}"
         owner = await track_repo.save_track(
             make_track(title=title, isrc=isrc, duration_ms=200_000)
         )
+        fresh_title = f"TEST_Fresh_{uuid4()}"
 
-        # Same duration, so the ISRC guard upserts into the owner rather than
-        # deferring — the batch must reach that decision, not raise on the
-        # unique constraint or duplicate the recording.
-        saved = await track_repo.save_tracks([
-            make_track(
-                title=f"TEST_Incoming_{uuid4()}", isrc=isrc, duration_ms=200_500
-            ),
-            make_track(
-                title=f"TEST_Fresh_{uuid4()}",
-                connector_track_identifiers={"spotify": f"spotify_{uuid4()}"},
-            ),
-        ])
+        with pytest.raises(IdentityKeyClaimedError) as raised:
+            _ = await track_repo.save_tracks([
+                make_track(
+                    title=f"TEST_Incoming_{uuid4()}", isrc=isrc, duration_ms=200_500
+                ),
+                make_track(
+                    title=fresh_title,
+                    connector_track_identifiers={"spotify": f"spotify_{uuid4()}"},
+                ),
+            ])
 
-        assert saved[0].id == owner.id
-        assert saved[1].id != owner.id
+        assert raised.value.keys == {("isrc", owner.user_id, isrc)}
+        fresh_rows = (
+            await db_session.execute(
+                select(func.count())
+                .select_from(DBTrack)
+                .where(DBTrack.title == fresh_title)
+            )
+        ).scalar_one()
+        assert fresh_rows == 0
 
-    async def test_two_rows_claiming_one_key_collapse_onto_the_same_canonical(
-        self, db_session
-    ):
-        """Two relinks pointing at one current id must not race the constraint."""
+    async def test_two_rows_claiming_one_key_in_one_batch_are_refused(self, db_session):
+        """An in-batch twin is the planner's to fold onto a leader before the
+        batch is handed here; two rows naming one key would race the unique
+        constraint, so the second is refused up front."""
         track_repo = get_unit_of_work(db_session).get_track_repository()
         spotify_id = f"spotify_{uuid4()}"
 
-        saved = await track_repo.save_tracks([
-            make_track(
-                title=f"TEST_First_{uuid4()}",
-                connector_track_identifiers={"spotify": spotify_id},
-            ),
-            make_track(
-                title=f"TEST_Second_{uuid4()}",
-                connector_track_identifiers={"spotify": spotify_id},
-            ),
-        ])
+        with pytest.raises(IdentityKeyClaimedError) as raised:
+            _ = await track_repo.save_tracks([
+                make_track(
+                    title=f"TEST_First_{uuid4()}",
+                    connector_track_identifiers={"spotify": spotify_id},
+                ),
+                make_track(
+                    title=f"TEST_Second_{uuid4()}",
+                    connector_track_identifiers={"spotify": spotify_id},
+                ),
+            ])
 
-        assert saved[0].id == saved[1].id
+        assert {value for _, _, value in raised.value.keys} == {spotify_id}
 
     async def test_an_empty_batch_touches_nothing(self, db_session):
         track_repo = get_unit_of_work(db_session).get_track_repository()
 
         assert await track_repo.save_tracks([]) == []
 
-    async def test_a_pre_claimed_spotify_id_defers_with_exactly_one_warning(
-        self, db_session, test_user_id, capsys
+    async def test_a_pre_claimed_spotify_id_is_refused_and_writes_no_row(
+        self, db_session, test_user_id
     ):
-        """The deferred arm upserts into the owner — never a duplicate row —
-        and announces itself with ONE structured WARNING carrying the count:
-        new rows landing there mean the caller's mapping-lookup/reuse passes
-        are not seeing the rows the batch collides with (v0.10.2.9).
-
-        Asserted via capsys, not caplog: structlog renders straight to
-        stdout here, so stdlib handlers never see the record.
-        """
+        """Never a duplicate row, never a silent upsert into the owner: the
+        refusal is the signal that the caller's mapping-lookup/reuse passes
+        are not seeing the rows the batch collides with (v0.10.2.9)."""
         track_repo = get_unit_of_work(db_session).get_track_repository()
         spotify_id = f"TEST_spotify_{uuid4()}"
         owner = await track_repo.save_track(
@@ -882,35 +885,30 @@ class TestSaveTracksBulk:
             )
         )
 
-        _ = capsys.readouterr()  # drain setup noise so the count is the call's
-        (saved,) = await track_repo.save_tracks([
-            make_track(
-                title=f"TEST_Incoming_{uuid4()}",
-                user_id=test_user_id,
-                connector_track_identifiers={"spotify": spotify_id},
-            )
-        ])
-        logged = capsys.readouterr().out
+        with pytest.raises(IdentityKeyClaimedError):
+            _ = await track_repo.save_tracks([
+                make_track(
+                    title=f"TEST_Incoming_{uuid4()}",
+                    user_id=test_user_id,
+                    connector_track_identifiers={"spotify": spotify_id},
+                )
+            ])
 
-        assert saved.id == owner.id
         rows_claiming_id = (
             await db_session.execute(
-                select(func.count())
-                .select_from(DBTrack)
-                .where(
+                select(DBTrack.id, DBTrack.title).where(
                     DBTrack.user_id == test_user_id,
                     DBTrack.spotify_id == spotify_id,
                 )
             )
-        ).scalar_one()
-        assert rows_claiming_id == 1
+        ).all()
+        assert [(row.id, row.title) for row in rows_claiming_id] == [
+            (owner.id, owner.title)
+        ]
 
-        assert logged.count("save_tracks deferred") == 1
-        assert "deferred_count=1" in logged
-
-    async def test_a_version_bump_batch_does_not_warn(self, db_session, capsys):
-        """The optimistic-locking arm (version > 0) is deferred by design and
-        must stay out of the alarm."""
+    async def test_a_version_bump_row_takes_the_update_arm(self, db_session):
+        """The optimistic-locking arm (version > 0) has no batch form and is
+        neither an insert nor a claimed-key refusal."""
         track_repo = get_unit_of_work(db_session).get_track_repository()
         saved = await track_repo.save_track(
             make_track(
@@ -919,11 +917,8 @@ class TestSaveTracksBulk:
             )
         )
 
-        _ = capsys.readouterr()
         (updated,) = await track_repo.save_tracks([
             evolve(saved, album=f"TEST_Album_{uuid4()}")
         ])
-        logged = capsys.readouterr().out
 
         assert updated.version == saved.version + 1
-        assert "save_tracks deferred" not in logged

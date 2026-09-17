@@ -77,7 +77,10 @@ BASE_WHITELIST=115
 # in pyproject.toml, beside the identical musicbrainz/status.py precedent.
 BASE_NOQA=0
 BASE_TYPE_IGNORE=0
-BASE_PYRIGHT_IGNORE=18
+# 18 → 17 at v0.12.0.2: ``BaseRepository._extract_relationship_names`` deleted with
+# its only caller (``TrackRepository._refresh_and_map``, retired when ``save_track``
+# became the one-row case of ``save_tracks``); its ``reportIndexIssue`` went with it.
+BASE_PYRIGHT_IGNORE=17
 
 # `|| true`: grep exits 1 on zero matches, which is a ratchet success, not an error.
 whitelist=$(grep -cvE '^\s*(#|$)' vulture_whitelist.py || true)
