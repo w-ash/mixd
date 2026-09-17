@@ -5,7 +5,7 @@ from rich.table import Table
 import typer
 
 from src.application.use_cases.get_match_method_health import MatchingDrift
-from src.config.constants import MatchMethod
+from src.domain.entities.track_mapping import MATCH_METHOD_CATEGORY_ORDER
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.console import get_console
@@ -26,7 +26,7 @@ STATUS_STYLE: dict[str, str] = {
 }
 
 
-CATEGORY_ORDER = [*MatchMethod.CATEGORY_ORDER, "Unknown"]
+CATEGORY_ORDER = [*MATCH_METHOD_CATEGORY_ORDER, "Unknown"]
 
 
 @app.callback(invoke_without_command=True)

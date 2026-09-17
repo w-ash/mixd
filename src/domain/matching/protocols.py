@@ -10,6 +10,7 @@ from typing import Protocol
 from attrs import define, field
 
 from src.domain.entities import Track
+from src.domain.entities.track_mapping import MatchMethod
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 from .types import ProgressCallback, ProviderMatchResult
@@ -70,7 +71,7 @@ class ReuseExisting:
     track: Track
     spotify_id: str | None = None
     confidence: int = 0
-    match_method: str = ""
+    match_method: MatchMethod = "canonical_reuse"
     metadata: dict[str, object] = field(factory=dict)
     confidence_evidence: dict[str, object] | None = None
 
@@ -87,7 +88,7 @@ class NewMapping:
 
     spotify_id: str
     confidence: int
-    match_method: str
+    match_method: MatchMethod
     metadata: dict[str, object] = field(factory=dict)
     confidence_evidence: dict[str, object] | None = None
     album: str | None = None

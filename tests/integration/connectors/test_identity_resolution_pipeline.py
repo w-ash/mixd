@@ -8,7 +8,6 @@ ISRC collision) correctly resolves tracks in realistic scenarios.
 
 from unittest.mock import AsyncMock, MagicMock
 
-from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
@@ -47,7 +46,7 @@ class TestLastfmCanonicalParentheticalReuse:
 
         # Create connector mapping so Mapping Lookup knows this is a Spotify track
         await uow.get_connector_repository().map_track_to_connector(
-            existing, "spotify", "sp_123", MatchMethod.DIRECT_IMPORT, confidence=100
+            existing, "spotify", "sp_123", "direct_import", confidence=100
         )
 
         # Resolve Last.fm identifier — no parenthetical in the ID
@@ -249,7 +248,7 @@ class TestCrossDiscoveryISRCCollision:
         assert isinstance(outcome, ReuseExisting)
         assert outcome.track.id == track_a.id
         assert outcome.spotify_id == "sp_different_release"
-        assert outcome.match_method == MatchMethod.ISRC_MATCH
+        assert outcome.match_method == "isrc_match"
 
 
 class TestMBIDUpsertMerge:

@@ -10,7 +10,6 @@ from uuid import UUID
 from attrs import define
 
 from src.application.use_cases._shared.mapping_guard import require_owned_mapping
-from src.config.constants import MappingOrigin
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
@@ -76,7 +75,7 @@ class RelinkConnectorTrackUseCase:
             await connector_repo.update_mapping_track(
                 command.mapping_id,
                 command.new_track_id,
-                MappingOrigin.MANUAL_OVERRIDE,
+                "manual_override",
                 user_id=command.user_id,
             )
 

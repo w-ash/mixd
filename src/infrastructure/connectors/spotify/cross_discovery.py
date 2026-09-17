@@ -25,7 +25,6 @@ from collections.abc import Mapping, Sequence
 from attrs import define, evolve
 
 from src.config import create_evaluation_service, get_logger, settings
-from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
@@ -406,7 +405,7 @@ class SpotifyCrossDiscoveryProvider:
         return NewMapping(
             spotify_id=probe.spotify_id,
             confidence=probe.match_result.confidence,
-            match_method=MatchMethod.LASTFM_DISCOVERY,
+            match_method="lastfm_discovery",
             metadata=best_dict,
             confidence_evidence=probe.match_result.evidence_dict,
             album=probe.best.album.name if probe.best.album else None,
@@ -485,7 +484,7 @@ class SpotifyCrossDiscoveryProvider:
         return NewMapping(
             spotify_id=spotify_id,
             confidence=match_result.confidence,
-            match_method=MatchMethod.LASTFM_DISCOVERY,
+            match_method="lastfm_discovery",
             metadata=best_dict,
             confidence_evidence=match_result.evidence_dict,
             album=best.album.name if best.album else None,

@@ -43,7 +43,7 @@ from typing import Final, override
 from attrs import define, evolve
 
 from src.config import get_logger, settings
-from src.config.constants import MatchMethod, SpotifyConstants
+from src.config.constants import SpotifyConstants
 from src.config.telemetry import phase
 from src.domain.entities import Artist, Track
 from src.domain.entities.shared import JsonValue
@@ -55,7 +55,7 @@ from src.domain.matching.recording_identity import (
     describes_same_recording,
     identity_key,
 )
-from src.domain.matching.types import RawProviderMatch
+from src.domain.matching.types import DIRECT_IMPORT_CONFIDENCE, RawProviderMatch
 from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
@@ -131,8 +131,7 @@ def _is_redirect(write: PlannedWrite[SpotifyTrack]) -> bool:
     asserted the same thing either way.
     """
     return (
-        write.match_method
-        in (MatchMethod.DIRECT_IMPORT, MatchMethod.DIRECT_IMPORT_STALE_ID)
+        write.match_method in ("direct_import", "direct_import_stale_id")
         and write.requested_id_is_stale
     )
 
@@ -262,11 +261,11 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
         """How was this ID resolved? For downstream context tagging."""
         match self._provenance.get(spotify_id):
             case Provenance.REDIRECT:
-                return MatchMethod.SPOTIFY_REDIRECT
+                return "spotify_redirect"
             case Provenance.FALLBACK:
-                return MatchMethod.SEARCH_FALLBACK
+                return "search_fallback"
             case _:
-                return MatchMethod.PLAY_RESOLVER
+                return "spotify_connector_play_resolver"
 
     @property
     @override
@@ -710,8 +709,8 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                 requested_id=spotify_id,
                 current_id=current_id,
                 payload=spotify_track,
-                match_method=MatchMethod.DIRECT_IMPORT_STALE_ID,
-                confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+                match_method="direct_import_stale_id",
+                confidence=DIRECT_IMPORT_CONFIDENCE,
                 reuse_track=relink_owner,
                 primary=False,
             )
@@ -722,8 +721,8 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                 requested_id=spotify_id,
                 current_id=current_id,
                 payload=spotify_track,
-                match_method=MatchMethod.DIRECT_IMPORT,
-                confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+                match_method="direct_import",
+                confidence=DIRECT_IMPORT_CONFIDENCE,
             )
 
         primary_artist = spotify_track.artists[0].name if spotify_track.artists else ""
@@ -767,7 +766,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
             candidate,
             RawProviderMatch(
                 connector_id=spotify_track.id or "",
-                match_method=MatchMethod.CANONICAL_REUSE,
+                match_method="canonical_reuse",
                 service_data={
                     "title": spotify_track.name,
                     "artist": spotify_track.artists[0].name,
@@ -854,7 +853,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                 )
                 reused[write.requested_id] = evolve(
                     write,
-                    match_method=MatchMethod.CANONICAL_REUSE,
+                    match_method="canonical_reuse",
                     confidence=owner_confidence,
                     reuse_track=owner,
                 )
@@ -926,7 +925,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
         followers = [
             evolve(
                 item.write,
-                match_method=MatchMethod.CANONICAL_REUSE,
+                match_method="canonical_reuse",
                 confidence=item.confidence,
                 reuse_track=resolved[item.leader_id],
             )
@@ -985,7 +984,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                     requested_id=dead_id,
                     current_id=search_result.candidate.id or dead_id,
                     payload=search_result.candidate,
-                    match_method=MatchMethod.SEARCH_FALLBACK,
+                    match_method="search_fallback",
                     confidence=search_result.confidence,
                 )
                 for dead_id, search_result in search_results.items()

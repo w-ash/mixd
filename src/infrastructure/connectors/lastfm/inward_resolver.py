@@ -31,9 +31,9 @@ canonical is ever created.
 
 Identifier invariant: every Last.fm connector_track_identifier is
 ``make_lastfm_identifier(artist, title)``, minted PRIMARILY from the
-CORRECTED names (``MatchMethod.LASTFM_IMPORT``). When the corrected composite
+CORRECTED names (``"lastfm_import"``). When the corrected composite
 differs from the raw one, a SECONDARY mapping is also minted on the raw
-composite (``MatchMethod.LASTFM_RAW_ALIAS``) so a future raw-spelled import
+composite (``"lastfm_import_raw_alias"``) so a future raw-spelled import
 still hits the fast connector-mapping lookup. Correction only ever runs when
 creating a NEW connector track — never per-play.
 """
@@ -45,8 +45,8 @@ from attrs import define, evolve
 from pydantic import ValidationError
 
 from src.config import get_logger, settings
-from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
+from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.protocols import (
     CrossDiscoveryProvider,
@@ -103,7 +103,7 @@ class _PlannedLastfmMapping:
     """
 
     connector_id: str
-    match_method: str
+    match_method: MatchMethod
     primary: bool
     confidence: int
     confidence_evidence: dict[str, object] | None
@@ -121,7 +121,7 @@ class _PlannedSpotifyMapping:
     """
 
     spotify_id: str
-    match_method: str
+    match_method: MatchMethod
     confidence: int
     metadata: dict[str, object]
     confidence_evidence: dict[str, object] | None
@@ -401,7 +401,7 @@ class LastfmInwardResolver(InwardTrackResolver):
             evaluation_target,
             enriched.corrected_artist,
             enriched.corrected_title,
-            MatchMethod.LASTFM_IMPORT,
+            "lastfm_import",
             primary=True,
         )
         mappings = [primary]
@@ -415,7 +415,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                     evaluation_target,
                     enriched.raw_artist,
                     enriched.raw_title,
-                    MatchMethod.LASTFM_RAW_ALIAS,
+                    "lastfm_import_raw_alias",
                     primary=False,
                 )
             )
@@ -433,7 +433,7 @@ class LastfmInwardResolver(InwardTrackResolver):
         track: Track,
         artist_name: str,
         track_name: str,
-        match_method: str,
+        match_method: MatchMethod,
         *,
         primary: bool,
     ) -> _PlannedLastfmMapping:
@@ -441,7 +441,7 @@ class LastfmInwardResolver(InwardTrackResolver):
         connector_id = make_lastfm_identifier(artist_name, track_name)
         raw_match = RawProviderMatch(
             connector_id=connector_id,
-            match_method=MatchMethod.ARTIST_TITLE,
+            match_method="artist_title",
             service_data={
                 "title": track_name,
                 "artist": artist_name,

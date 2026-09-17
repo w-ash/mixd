@@ -20,7 +20,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.config.constants import MappingOrigin, MatchMethod
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -169,7 +168,7 @@ async def _move_a_primary_mapping_onto_the_destination(
             track=destination_domain,
             connector="spotify",
             connector_id=incumbent_identifier,
-            match_method=MatchMethod.ISRC_MATCH,
+            match_method="isrc_match",
             confidence=60,
             origin=incumbent_origin,
         )
@@ -191,7 +190,7 @@ async def _move_a_primary_mapping_onto_the_destination(
             track=source_domain,
             connector="spotify",
             connector_id=moving_identifier,
-            match_method=MatchMethod.ISRC_MATCH,
+            match_method="isrc_match",
             confidence=70,
         )
     ])
@@ -206,7 +205,7 @@ async def _move_a_primary_mapping_onto_the_destination(
             track=destination_domain,
             connector="spotify",
             connector_id=moving_identifier,
-            match_method=MatchMethod.ISRC_MATCH,
+            match_method="isrc_match",
             confidence=95,
         )
     ])
@@ -705,7 +704,7 @@ class TestSupersessionAndPrimacy:
             "track": domain_track,
             "connector": "spotify",
             "connector_id": f"sp_primacy_{uuid4().hex[:8]}",
-            "match_method": MatchMethod.ISRC_MATCH,
+            "match_method": "isrc_match",
         }
         await connector_repo.map_tracks_to_connectors([
             ConnectorMappingSpec(**spec_kwargs, confidence=70)
@@ -753,7 +752,7 @@ class TestSupersessionAndPrimacy:
                 track=departed_domain,
                 connector="spotify",
                 connector_id=connector_id,
-                match_method=MatchMethod.ISRC_MATCH,
+                match_method="isrc_match",
                 confidence=70,
             )
         ])
@@ -766,7 +765,7 @@ class TestSupersessionAndPrimacy:
                 track=arrived_domain,
                 connector="spotify",
                 connector_id=connector_id,
-                match_method=MatchMethod.ISRC_MATCH,
+                match_method="isrc_match",
                 confidence=95,
             )
         ])
@@ -794,7 +793,7 @@ class TestSupersessionAndPrimacy:
         move = await _move_a_primary_mapping_onto_the_destination(
             db_session,
             connector_repo,
-            incumbent_origin=MappingOrigin.MANUAL_OVERRIDE,
+            incumbent_origin="manual_override",
             incumbent_is_primary=True,
         )
         incumbent_ct = await _connector_track_id(db_session, move.incumbent_identifier)
@@ -826,7 +825,7 @@ class TestSupersessionAndPrimacy:
         move = await _move_a_primary_mapping_onto_the_destination(
             db_session,
             connector_repo,
-            incumbent_origin=MappingOrigin.AUTOMATIC,
+            incumbent_origin="automatic",
             incumbent_is_primary=True,
         )
         incumbent_ct = await _connector_track_id(db_session, move.incumbent_identifier)
@@ -854,7 +853,7 @@ class TestSupersessionAndPrimacy:
         move = await _move_a_primary_mapping_onto_the_destination(
             db_session,
             connector_repo,
-            incumbent_origin=MappingOrigin.AUTOMATIC,
+            incumbent_origin="automatic",
             incumbent_is_primary=False,
         )
         incumbent_ct = await _connector_track_id(db_session, move.incumbent_identifier)

@@ -12,6 +12,7 @@ from attrs import define, field
 
 from src.domain.entities.shared import JsonValue, empty_json_map
 from src.domain.entities.track import Track
+from src.domain.entities.track_mapping import MatchMethod
 
 type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 """Async progress callback: (completed_count, total, description)."""
@@ -20,7 +21,13 @@ type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 # included for a future *verified*-MBID path — since v0.8.18 the Last.fm
 # provider no longer emits it (unverified Last.fm MBIDs are hints, not
 # identity; see docs/backlog/identity-resolution-design-space.md FM1d).
-ISRC_GRADE_METHODS: Final[tuple[str, ...]] = ("isrc", "mbid")
+ISRC_GRADE_METHODS: Final[tuple[MatchMethod, ...]] = ("isrc", "mbid")
+
+# Confidence a resolver asserts for the two id-grade decisions it makes without
+# scoring. ISRC: the code matched across services. Direct import: the provider
+# answered for the id it was asked about — its own assertion, at face value.
+ISRC_MATCH_CONFIDENCE: Final = 95
+DIRECT_IMPORT_CONFIDENCE: Final = 100
 
 type MatchZone = Literal[
     "accept",
@@ -70,7 +77,9 @@ class RawProviderMatch(TypedDict):
     """
 
     connector_id: str  # External service ID (e.g., Spotify track ID)
-    match_method: str  # How the match was found ("isrc", "artist_title", "mbid")
+    match_method: (
+        MatchMethod  # How the match was found ("isrc", "artist_title", "mbid")
+    )
     service_data: Mapping[str, JsonValue]  # Raw data from external service
 
 
@@ -134,7 +143,7 @@ class MatchResult:
     review_required: bool = False
     connector_id: str = ""  # ID in the target system
     confidence: int = 0
-    match_method: str = ""  # "isrc", "mbid", "artist_title"
+    match_method: MatchMethod | None = None  # None until a provider matched
     service_data: Mapping[str, JsonValue] = field(
         factory=empty_json_map
     )  # Data from external service

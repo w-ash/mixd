@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 from src.config import settings
-from src.config.constants import MatchMethod, SpotifyConstants
+from src.config.constants import SpotifyConstants
 from src.domain.matching.protocols import (
     DiscoveryRequest,
     NewMapping,
@@ -107,7 +107,7 @@ class TestSuccessfulDiscovery:
 
         assert isinstance(outcome, NewMapping)
         assert outcome.spotify_id == "spotify123"
-        assert outcome.match_method == MatchMethod.LASTFM_DISCOVERY
+        assert outcome.match_method == "lastfm_discovery"
         # ISRC carried for backfill (normalized).
         assert outcome.isrc == "GBAYE9300106"
         connector.search_track.assert_called_once_with(
@@ -240,7 +240,7 @@ class TestISRCCollision:
         assert isinstance(outcome, ReuseExisting)
         assert outcome.track.id == 99
         assert outcome.spotify_id == "spotify123"
-        assert outcome.match_method == MatchMethod.ISRC_MATCH
+        assert outcome.match_method == "isrc_match"
         # No review queued for a non-suspect (clean) collision.
         uow.get_connector_repository().queue_isrc_collision_review.assert_not_called()
 

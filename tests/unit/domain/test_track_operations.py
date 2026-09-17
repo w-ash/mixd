@@ -19,7 +19,6 @@ from src.domain.entities import (
 from src.domain.entities.operations import TrackContextFields
 from src.domain.entities.track import (
     Artist,
-    ConnectorTrackMapping,
     Track,
     TrackLike,
     TrackList,
@@ -176,70 +175,6 @@ class TestTrackLikeEntity:
         assert like.is_liked is True  # Default to liked
         assert like.liked_at is None
         assert like.last_synced is None
-
-
-class TestConnectorTrackMappingEntity:
-    """Test connector track mapping entity for cross-service resolution."""
-
-    def test_connector_mapping_creation(self):
-        """Test creating a connector mapping."""
-        mapping = ConnectorTrackMapping(
-            connector_name="spotify",
-            connector_track_identifier="4iV5W9uYEdYUVa79Axb7Rh",
-            match_method="isrc",
-            confidence=95,
-            metadata={"algorithm_version": "1.0"},
-        )
-
-        assert mapping.connector_name == "spotify"
-        assert mapping.connector_track_identifier == "4iV5W9uYEdYUVa79Axb7Rh"
-        assert mapping.match_method == "isrc"
-        assert mapping.confidence == 95
-        assert mapping.metadata["algorithm_version"] == "1.0"
-
-    def test_connector_mapping_match_method_validation(self):
-        """Test that only valid match methods are accepted."""
-        valid_methods = ["direct", "isrc", "mbid", "artist_title"]
-
-        for method in valid_methods:
-            mapping = ConnectorTrackMapping(
-                connector_name="spotify",
-                connector_track_identifier="test_id",
-                match_method=method,
-                confidence=80,
-            )
-            assert mapping.match_method == method
-
-        # Invalid method should raise validation error
-        with pytest.raises(ValueError):
-            ConnectorTrackMapping(
-                connector_name="spotify",
-                connector_track_identifier="test_id",
-                match_method="invalid_method",
-                confidence=80,
-            )
-
-    def test_connector_mapping_confidence_validation(self):
-        """Test confidence score validation."""
-        # Valid confidence scores
-        for confidence in [0, 50, 100]:
-            mapping = ConnectorTrackMapping(
-                connector_name="spotify",
-                connector_track_identifier="test_id",
-                match_method="isrc",
-                confidence=confidence,
-            )
-            assert mapping.confidence == confidence
-
-        # Invalid confidence scores
-        for invalid_confidence in [-1, 101]:
-            with pytest.raises(ValueError):
-                ConnectorTrackMapping(
-                    connector_name="spotify",
-                    connector_track_identifier="test_id",
-                    match_method="isrc",
-                    confidence=invalid_confidence,
-                )
 
 
 class TestSyncCheckpoint:

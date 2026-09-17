@@ -14,7 +14,6 @@ from src.application.use_cases.resolve_match_review import (
     ResolveMatchReviewCommand,
     ResolveMatchReviewUseCase,
 )
-from src.config.constants import MatchMethod
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.domain.repositories.connector import IsrcCollisionSpec
 from src.infrastructure.persistence.database.db_models import DBMatchReview, DBTrack
@@ -58,7 +57,7 @@ class TestQueueIsrcCollisionReview:
                 select(DBMatchReview).where(DBMatchReview.track_id == owner.id)
             )
         ).scalar_one()
-        assert row.match_method == MatchMethod.ISRC_SUSPECT
+        assert row.match_method == "isrc_suspect"
         assert row.status == "pending"
         assert row.confidence_evidence is not None
         # The engine's own suspect check fired with real durations.
@@ -286,7 +285,7 @@ class TestIngestSuspectIsrcRouting:
                 select(DBMatchReview).where(DBMatchReview.track_id == owner.id)
             )
         ).scalar_one()
-        assert review.match_method == MatchMethod.ISRC_SUSPECT
+        assert review.match_method == "isrc_suspect"
         assert review.status == "pending"
 
     async def test_reimport_does_not_requeue_after_reject(

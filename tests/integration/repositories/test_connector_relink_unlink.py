@@ -211,7 +211,7 @@ class TestEnsurePrimaryForConnector:
                 track_id=db_track.id,
                 connector_track_id=ct.id,
                 connector_name="spotify",
-                match_method="search",
+                match_method="search_fallback",
                 confidence=conf,
                 is_primary=False,
             )

@@ -12,7 +12,7 @@ from uuid import uuid4
 from attrs.exceptions import FrozenInstanceError
 import pytest
 
-from src.config.constants import MatchMethod
+from src.domain.matching.types import ISRC_MATCH_CONFIDENCE
 from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
     record_substitutions,
@@ -159,14 +159,14 @@ class TestStaleIdMappingSpec:
             track=track,
             connector="spotify",
             requested_id="stale-id",
-            primary_method=MatchMethod.DIRECT_IMPORT,
+            primary_method="direct_import",
             confidence=100,
         )
 
         assert spec.track is track
         assert spec.connector == "spotify"
         assert spec.connector_id == "stale-id"
-        assert spec.match_method == MatchMethod.DIRECT_IMPORT_STALE_ID
+        assert spec.match_method == "direct_import_stale_id"
         assert spec.confidence == 100
         assert spec.metadata is None
         assert spec.primary is False
@@ -176,7 +176,7 @@ class TestStaleIdMappingSpec:
             track=make_track(),
             connector="apple_music",
             requested_id="old",
-            primary_method=MatchMethod.DIRECT_IMPORT,
+            primary_method="direct_import",
             confidence=90,
             metadata={"source": "equivalents"},
         )
@@ -188,11 +188,11 @@ class TestStaleIdMappingSpec:
             track=make_track(),
             connector="tidal",
             requested_id="old",
-            primary_method=MatchMethod.ISRC_MATCH,
-            confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
+            primary_method="isrc_match",
+            confidence=ISRC_MATCH_CONFIDENCE,
         )
 
-        assert spec.match_method == MatchMethod.ISRC_MATCH_STALE_ID
+        assert spec.match_method == "isrc_match_stale_id"
 
     def test_method_without_stale_variant_raises(self):
         # ``STALE_ID_FOR`` is authoritative: a primary method with no stale
@@ -202,7 +202,7 @@ class TestStaleIdMappingSpec:
                 track=make_track(),
                 connector="spotify",
                 requested_id="old",
-                primary_method=MatchMethod.CANONICAL_REUSE,
+                primary_method="canonical_reuse",
                 confidence=100,
             )
 

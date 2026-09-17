@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx2
 
 from src.config import settings
-from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.matching.protocols import NewMapping, Nothing
 from src.domain.repositories.connector import ConnectorMappingSpec
@@ -131,7 +130,7 @@ class TestCrossDiscovery:
             NewMapping(
                 spotify_id="spotify123",
                 confidence=90,
-                match_method=MatchMethod.LASTFM_DISCOVERY,
+                match_method="lastfm_discovery",
             )
         ]
 
@@ -161,7 +160,7 @@ class TestCrossDiscovery:
         spotify_specs = [s for s in _mapping_specs(uow) if s.connector == "spotify"]
         assert [s.connector_id for s in spotify_specs] == ["spotify123"]
         assert spotify_specs[0].primary is True
-        assert spotify_specs[0].match_method == MatchMethod.LASTFM_DISCOVERY
+        assert spotify_specs[0].match_method == "lastfm_discovery"
 
     async def test_chunk_makes_one_batched_discovery_call(self):
         """A multi-identifier chunk issues ONE ``discover_batch`` call carrying
@@ -182,7 +181,7 @@ class TestCrossDiscovery:
             NewMapping(
                 spotify_id="sp2",
                 confidence=90,
-                match_method=MatchMethod.LASTFM_DISCOVERY,
+                match_method="lastfm_discovery",
             ),
             Nothing(),
         ]
@@ -452,7 +451,7 @@ class TestCanonicalReuse:
         specs = _mapping_specs(uow)
         assert len(specs) == 1
         assert specs[0].connector == "lastfm"
-        assert specs[0].match_method == MatchMethod.CANONICAL_REUSE
+        assert specs[0].match_method == "canonical_reuse"
         assert specs[0].primary is True
 
         # No API calls needed — no skeletal track creation
@@ -614,8 +613,8 @@ class TestCorrectedNameDualMapping:
         methods_by_id = {spec.connector_id: spec.match_method for spec in lastfm_specs}
 
         assert methods_by_id == {
-            corrected_key: MatchMethod.LASTFM_IMPORT,
-            raw_key: MatchMethod.LASTFM_RAW_ALIAS,
+            corrected_key: "lastfm_import",
+            raw_key: "lastfm_import_raw_alias",
         }
 
         # The raw alias is minted with primary=False so it never demotes the
@@ -656,7 +655,7 @@ class TestCorrectedNameDualMapping:
         assert lastfm_specs[0].connector_id == make_lastfm_identifier(
             "Radiohead", "Creep"
         )
-        assert lastfm_specs[0].match_method == MatchMethod.LASTFM_IMPORT
+        assert lastfm_specs[0].match_method == "lastfm_import"
 
 
 class TestCanonicalDisplayCasing:

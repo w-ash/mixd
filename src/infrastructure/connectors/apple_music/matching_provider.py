@@ -127,7 +127,7 @@ class AppleMusicMatchingProvider(BaseMatchingProvider):
         """Raw match data from an Apple Music song — no business logic.
 
         ``match_method`` is the raw-method string ``"isrc"`` (as Spotify
-        emits), NOT ``MatchMethod.ISRC_MATCH``: domain confidence scoring
+        emits), NOT ``"isrc_match"``: domain confidence scoring
         keys ISRC-grade evidence on ``ISRC_GRADE_METHODS = ("isrc", "mbid")``.
         The ``isrc_match`` provenance string belongs to mapping specs the
         inward resolver writes.

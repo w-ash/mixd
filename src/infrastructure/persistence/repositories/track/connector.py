@@ -35,11 +35,16 @@ from sqlalchemy.orm import aliased
 from structlog.stdlib import BoundLogger
 
 from src.config import get_logger
-from src.config.constants import DenormalizedTrackColumns, MappingOrigin, MatchMethod
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.shared import JsonDict, JsonValue
-from src.domain.entities.track_mapping import SupersessionReason
+from src.domain.entities.track_mapping import (
+    MappingOrigin,
+    MatchMethod,
+    SupersessionReason,
+    is_mapping_origin,
+    is_match_method,
+)
 from src.domain.exceptions import NotFoundError
 from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
@@ -77,6 +82,7 @@ from src.infrastructure.persistence.database.live_rows import (
     live_only,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
+    DENORMALIZED_ID_COLUMNS,
     build_connector_track_row,
     extract_db_artist_names,
 )
@@ -121,14 +127,20 @@ _ASSERT_RETRY_ATTEMPTS = 3
 
 # Columns an asserted mapping row may carry, with the defaults applied when a
 # caller omits them. Every row in one INSERT must present the same key set.
+# ``match_method`` has no default: a decision without a method is not one.
 _ASSERT_DEFAULTS: dict[str, object] = {
-    "match_method": "",
     "confidence": 0,
     "confidence_evidence": None,
-    "origin": MappingOrigin.AUTOMATIC,
+    "origin": "automatic",
     "is_primary": False,
 }
-_ASSERT_REQUIRED = ("user_id", "track_id", "connector_track_id", "connector_name")
+_ASSERT_REQUIRED = (
+    "user_id",
+    "track_id",
+    "connector_track_id",
+    "connector_name",
+    "match_method",
+)
 
 # The live-identity key — the columns behind ``uq_track_mappings_live_connector``.
 _LIVE_MAPPING_KEY = ("user_id", "connector_track_id", "connector_name")
@@ -249,16 +261,22 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
         the entity is frozen so no mutation risk. Cast avoids a copy.
         """
         evidence = cast("dict[str, object] | None", db_model.confidence_evidence)
+        method, origin = db_model.match_method, db_model.origin
+        if not is_match_method(method) or not is_mapping_origin(origin):
+            raise ValueError(
+                f"track_mapping {db_model.id} carries a value outside the domain "
+                f"vocabulary: match_method={method!r} origin={origin!r}"
+            )
         return TrackMapping(
             id=db_model.id,
             user_id=db_model.user_id,
             track_id=db_model.track_id,
             connector_track_id=db_model.connector_track_id,
             connector_name=db_model.connector_name,
-            match_method=db_model.match_method,
+            match_method=method,
             confidence=db_model.confidence,
             confidence_evidence=evidence,
-            origin=db_model.origin,
+            origin=origin,
             is_primary=db_model.is_primary,
             last_seen_at=db_model.last_seen_at,
             superseded_by_id=db_model.superseded_by_id,
@@ -1086,7 +1104,7 @@ class TrackConnectorRepository:
         result = await self.session.execute(
             select(DBTrackMapping.connector_track_id).where(
                 DBTrackMapping.connector_track_id.in_(ct_ids_in_batch),
-                DBTrackMapping.origin == MappingOrigin.MANUAL_OVERRIDE,
+                DBTrackMapping.origin == "manual_override",
                 live_only(DBTrackMapping),
             )
         )
@@ -1106,12 +1124,12 @@ class TrackConnectorRepository:
         track: Track,
         connector: str,
         connector_id: str,
-        match_method: str,
+        match_method: MatchMethod,
         confidence: int,
         metadata: dict[str, object] | None = None,
         confidence_evidence: dict[str, object] | None = None,
         auto_set_primary: bool = True,
-        origin: str = "automatic",
+        origin: MappingOrigin = "automatic",
     ) -> Track:
         """Link an existing internal track to an external service ID.
 
@@ -1466,7 +1484,7 @@ class TrackConnectorRepository:
             candidate,
             RawProviderMatch(
                 connector_id=identifier,
-                match_method=MatchMethod.CANONICAL_REUSE,
+                match_method="canonical_reuse",
                 service_data={
                     "title": description.title,
                     "artist": description.artist,
@@ -1491,7 +1509,7 @@ class TrackConnectorRepository:
             "track_id": candidate.id,
             "connector_track_id": connector_track_id,
             "connector_name": connector,
-            "match_method": MatchMethod.CANONICAL_REUSE,
+            "match_method": "canonical_reuse",
             "confidence": match.confidence,
             # The election in step 4.5 decides primacy: a canonical that
             # already has a primary for this connector keeps it.
@@ -1641,7 +1659,7 @@ class TrackConnectorRepository:
                     # accept, and the log has to be able to tell them apart —
                     # "why does my library believe this" answers differently.
                     event_type="manual_override"
-                    if row.origin == MappingOrigin.MANUAL_OVERRIDE
+                    if row.origin == "manual_override"
                     else "accepted",
                     connector_name=row.connector_name,
                     connector_track_id=row.connector_track_id,
@@ -1729,7 +1747,7 @@ class TrackConnectorRepository:
 
     async def _clear_denormalized_id(self, track_id: UUID, connector: str) -> None:
         """Clear denormalized ID column on DBTrack when no mappings remain for a connector."""
-        column_name = DenormalizedTrackColumns.COLUMN_MAP.get(connector)
+        column_name = DENORMALIZED_ID_COLUMNS.get(connector)
         if column_name:
             await self.session.execute(
                 update(DBTrack)
@@ -2060,6 +2078,7 @@ class TrackConnectorRepository:
                 match_method=match_method,
             )
             for track_id, conn_id, confidence, match_method in result.tuples()
+            if is_match_method(match_method)
         }
 
     @db_operation("queue_isrc_collision_review")
@@ -2127,7 +2146,7 @@ class TrackConnectorRepository:
             track_id=existing_track.id,
             connector_name=connector,
             connector_track_id=connector_track_uuid,
-            match_method=MatchMethod.ISRC_SUSPECT,
+            match_method="isrc_suspect",
             confidence=match.confidence,
             match_weight=match.evidence.match_weight if match.evidence else 0.0,
             confidence_evidence=match.evidence_dict,
@@ -2222,7 +2241,7 @@ class TrackConnectorRepository:
                     track_id=collision.owner.id,
                     connector_name=connector,
                     connector_track_id=ct_uuid,
-                    match_method=MatchMethod.ISRC_SUSPECT,
+                    match_method="isrc_suspect",
                     confidence=match.confidence,
                     match_weight=(
                         match.evidence.match_weight if match.evidence else 0.0
@@ -2571,7 +2590,7 @@ class TrackConnectorRepository:
 
         by_column: dict[str, list[tuple[UUID, str]]] = defaultdict(list)
         for track_id, connector_name, ct_id in promoted:
-            column_name = DenormalizedTrackColumns.COLUMN_MAP.get(connector_name)
+            column_name = DENORMALIZED_ID_COLUMNS.get(connector_name)
             external_id = external_by_ct_id.get(ct_id)
             if column_name and external_id:
                 by_column[column_name].append((track_id, external_id))

@@ -12,7 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 from attrs import evolve
 
 from src.config import settings
-from src.config.constants import MatchMethod, SpotifyConstants
+from src.config.constants import SpotifyConstants
+from src.domain.matching.types import ISRC_MATCH_CONFIDENCE
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.connectors.spotify.client import (
     SpotifyTracksFetch,
@@ -203,12 +204,12 @@ class TestRedirectDetection:
 
         # Primary mapping: new canonical ID — the only one promoted
         assert specs[0].connector_id == new_id
-        assert specs[0].match_method == MatchMethod.DIRECT_IMPORT
+        assert specs[0].match_method == "direct_import"
         assert specs[0].confidence == 100
 
         # Secondary mapping: old stale ID, cached but never primary
         assert specs[1].connector_id == old_id
-        assert specs[1].match_method == f"{MatchMethod.DIRECT_IMPORT}_stale_id"
+        assert specs[1].match_method == "direct_import_stale_id"
         assert specs[1].confidence == 100
 
         assert _promoted_ids(connector_repo) == [new_id]
@@ -650,7 +651,7 @@ class TestCanonicalReuse:
         assert len(specs) == 1
         assert specs[0].connector == "spotify"
         assert specs[0].connector_id == "sp_id_1"
-        assert specs[0].match_method == MatchMethod.CANONICAL_REUSE
+        assert specs[0].match_method == "canonical_reuse"
         assert specs[0].primary is True
 
     async def test_no_reuse_without_hints(self):
@@ -744,20 +745,23 @@ class TestResolutionMethod:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         resolver._provenance = {"old_id": Provenance.REDIRECT}
 
-        assert resolver.get_resolution_method("old_id") == MatchMethod.SPOTIFY_REDIRECT
+        assert resolver.get_resolution_method("old_id") == "spotify_redirect"
 
     async def test_resolution_method_returns_fallback(self):
         connector = AsyncMock()
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         resolver._provenance = {"dead_id": Provenance.FALLBACK}
 
-        assert resolver.get_resolution_method("dead_id") == MatchMethod.SEARCH_FALLBACK
+        assert resolver.get_resolution_method("dead_id") == "search_fallback"
 
     async def test_resolution_method_returns_default(self):
         connector = AsyncMock()
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
-        assert resolver.get_resolution_method("normal_id") == MatchMethod.PLAY_RESOLVER
+        assert (
+            resolver.get_resolution_method("normal_id")
+            == "spotify_connector_play_resolver"
+        )
 
 
 class TestISRCDedup:
@@ -795,7 +799,7 @@ class TestISRCDedup:
 
         # Should have created a mapping with ISRC_MATCH method, not saved a new track
         specs = _mapping_specs(connector_repo)
-        assert any(spec.match_method == MatchMethod.ISRC_MATCH for spec in specs)
+        assert any(spec.match_method == "isrc_match" for spec in specs)
         # The reused canonical still claims primacy for the incoming id
         assert _promoted_ids(connector_repo) == [spotify_id]
         # save_track should NOT have been called (reused existing)
@@ -923,8 +927,8 @@ class TestISRCSuspectGuard:
 
         # No ISRC_MATCH mapping created (that would be a silent merge)
         specs = _mapping_specs(connector_repo)
-        assert not any(spec.match_method == MatchMethod.ISRC_MATCH for spec in specs)
-        assert any(spec.match_method == MatchMethod.DIRECT_IMPORT for spec in specs)
+        assert not any(spec.match_method == "isrc_match" for spec in specs)
+        assert any(spec.match_method == "direct_import" for spec in specs)
 
     async def test_non_suspect_duration_diff_still_reuses_existing_canonical(self):
         """A small duration difference under the suspect threshold behaves exactly
@@ -964,7 +968,7 @@ class TestISRCSuspectGuard:
 
         connector_repo.queue_isrc_collision_reviews.assert_not_called()
         specs = _mapping_specs(connector_repo)
-        assert any(spec.match_method == MatchMethod.ISRC_MATCH for spec in specs)
+        assert any(spec.match_method == "isrc_match" for spec in specs)
         track_repo.save_track.assert_not_called()
 
 
@@ -1016,7 +1020,7 @@ class TestIdentityReuseBeforeCreation:
         track_repo.save_track.assert_not_called()
         (spec,) = _mapping_specs(connector_repo)
         assert spec.connector_id == remaster_id
-        assert spec.match_method == MatchMethod.CANONICAL_REUSE
+        assert spec.match_method == "canonical_reuse"
         assert spec.track.id == original.id
         assert metrics.failed == 0
 
@@ -1057,7 +1061,7 @@ class TestIdentityReuseBeforeCreation:
         assert result[long_id].id != short_edit.id
         track_repo.save_track.assert_called_once()
         (spec,) = _mapping_specs(connector_repo)
-        assert spec.match_method == MatchMethod.DIRECT_IMPORT
+        assert spec.match_method == "direct_import"
 
     async def test_a_remix_matched_only_by_parenthetical_stripping_is_refused(self):
         """The probe proposes candidates loosely; reuse decides on the full name.
@@ -1163,8 +1167,8 @@ class TestIdentityReuseBeforeCreation:
         }
         assert sorted(methods) == sorted([first, second])
         assert sorted(methods.values()) == sorted([
-            MatchMethod.CANONICAL_REUSE,
-            MatchMethod.DIRECT_IMPORT,
+            "canonical_reuse",
+            "direct_import",
         ])
 
     async def test_two_masters_of_different_lengths_each_keep_their_canonical(self):
@@ -1209,7 +1213,7 @@ class TestIdentityReuseBeforeCreation:
 
         # Whichever of the two leads is the one that creates — poison that write.
         async def _refuse_the_creation(specs, **_kwargs):
-            if any(spec.match_method == MatchMethod.DIRECT_IMPORT for spec in specs):
+            if any(spec.match_method == "direct_import" for spec in specs):
                 raise RuntimeError("deadlock detected")
             return [spec.track for spec in specs]
 
@@ -1294,8 +1298,8 @@ class TestIdentityReuseBeforeCreation:
             for spec in _mapping_specs(connector_repo)
         }
         assert methods == {
-            current: MatchMethod.DIRECT_IMPORT,
-            requested: MatchMethod.DIRECT_IMPORT_STALE_ID,
+            current: "direct_import",
+            requested: "direct_import_stale_id",
         }
 
 
@@ -1523,7 +1527,10 @@ class TestWriteFailureIsolation:
 
         assert resolver.redirect_resolved_ids == set()
         assert metrics.redirects == 0
-        assert resolver.get_resolution_method("bad_id") == MatchMethod.PLAY_RESOLVER
+        assert (
+            resolver.get_resolution_method("bad_id")
+            == "spotify_connector_play_resolver"
+        )
 
     async def test_a_deferred_isrc_suspect_is_forgotten_when_its_write_fails(self):
         """The deferral set is written before the canonical — and rolled back with it."""
@@ -1950,11 +1957,11 @@ class TestDeadIdSearchWidening:
         # Substitution recorded: living id primary, dead id cached as stale.
         specs = _mapping_specs(connector_repo)
         assert [spec.connector_id for spec in specs] == [self.LIVING_ID, self.DEAD_ID]
-        assert specs[0].match_method == MatchMethod.SEARCH_FALLBACK
+        assert specs[0].match_method == "search_fallback"
         assert (
             specs[0].confidence >= SpotifyConstants.FALLBACK_SIMILARITY_THRESHOLD * 100
         )
-        assert specs[1].match_method == MatchMethod.SEARCH_FALLBACK_STALE_ID
+        assert specs[1].match_method == "search_fallback_stale_id"
         assert _promoted_ids(connector_repo) == [self.LIVING_ID]
 
     async def test_both_queries_are_issued_in_their_documented_forms(self):
@@ -2314,13 +2321,13 @@ class TestBulkAndPerItemPathsAgree:
 
         assert bulk_mappings == item_mappings
         assert bulk_mappings == {
-            (self.PLAIN_ID, MatchMethod.DIRECT_IMPORT, 100, True),
-            (self.NEW_ID, MatchMethod.DIRECT_IMPORT, 100, True),
-            (self.OLD_ID, MatchMethod.DIRECT_IMPORT_STALE_ID, 100, False),
+            (self.PLAIN_ID, "direct_import", 100, True),
+            (self.NEW_ID, "direct_import", 100, True),
+            (self.OLD_ID, "direct_import_stale_id", 100, False),
             (
                 self.ISRC_ID,
-                MatchMethod.ISRC_MATCH,
-                MatchMethod.ISRC_MATCH_CONFIDENCE,
+                "isrc_match",
+                ISRC_MATCH_CONFIDENCE,
                 True,
             ),
         }
@@ -2487,9 +2494,7 @@ class TestIdentityFoldBucketing:
         # Each id maps under its own method: one creation per leader, one
         # reuse per follower.
         methods = sorted(spec.match_method for spec in _mapping_specs(connector_repo))
-        assert methods == sorted(
-            [MatchMethod.DIRECT_IMPORT] * 3 + [MatchMethod.CANONICAL_REUSE] * 2
-        )
+        assert methods == sorted(["direct_import"] * 3 + ["canonical_reuse"] * 2)
 
 
 class TestProvenanceDrivesMetricsAndMethods:
@@ -2531,14 +2536,11 @@ class TestProvenanceDrivesMetricsAndMethods:
         assert metrics.redirects == len(resolver.redirect_resolved_ids) == 1
         assert metrics.fallbacks == len(resolver.fallback_resolved_ids) == 1
         assert metrics.write_failed == 0
+        assert resolver.get_resolution_method(self.OLD_ID) == "spotify_redirect"
+        assert resolver.get_resolution_method(self.DEAD_ID) == "search_fallback"
         assert (
-            resolver.get_resolution_method(self.OLD_ID) == MatchMethod.SPOTIFY_REDIRECT
-        )
-        assert (
-            resolver.get_resolution_method(self.DEAD_ID) == MatchMethod.SEARCH_FALLBACK
-        )
-        assert (
-            resolver.get_resolution_method(self.PLAIN_ID) == MatchMethod.PLAY_RESOLVER
+            resolver.get_resolution_method(self.PLAIN_ID)
+            == "spotify_connector_play_resolver"
         )
 
     async def test_a_second_pass_resets_tracking_and_stale_hints(self):
@@ -2569,5 +2571,8 @@ class TestProvenanceDrivesMetricsAndMethods:
         assert resolver.fallback_resolved_ids == set()
         assert metrics.redirects == 0
         assert metrics.fallbacks == 0
-        assert resolver.get_resolution_method(self.OLD_ID) == MatchMethod.PLAY_RESOLVER
+        assert (
+            resolver.get_resolution_method(self.OLD_ID)
+            == "spotify_connector_play_resolver"
+        )
         connector.search_track.assert_not_called()

@@ -9,12 +9,16 @@ from src.domain.entities.track_mapping import TrackMapping
 class TestTrackMappingOrigin:
     def test_default_origin_is_automatic(self):
         mapping = TrackMapping(
-            track_id=uuid7(), connector_track_id=uuid7(), connector_name="spotify"
+            match_method="direct",
+            track_id=uuid7(),
+            connector_track_id=uuid7(),
+            connector_name="spotify",
         )
         assert mapping.origin == "automatic"
 
     def test_origin_can_be_set_to_manual_override(self):
         mapping = TrackMapping(
+            match_method="direct",
             track_id=uuid7(),
             connector_track_id=uuid7(),
             connector_name="spotify",
@@ -28,7 +32,10 @@ class TestTrackMappingSupersession:
         # A freshly constructed mapping is live (no supersession recorded) and
         # carries no pending re-verification.
         mapping = TrackMapping(
-            track_id=uuid7(), connector_track_id=uuid7(), connector_name="spotify"
+            match_method="direct",
+            track_id=uuid7(),
+            connector_track_id=uuid7(),
+            connector_name="spotify",
         )
         assert mapping.superseded_by_id is None
         assert mapping.superseded_at is None
@@ -40,6 +47,7 @@ class TestTrackMappingSupersession:
         successor_id = uuid7()
         superseded_at = datetime.now(UTC)
         mapping = TrackMapping(
+            match_method="direct",
             track_id=uuid7(),
             connector_track_id=uuid7(),
             connector_name="spotify",
@@ -57,6 +65,7 @@ class TestTrackMappingSupersession:
         # id_dead with nothing to relink to: superseded_at/reason are set but
         # superseded_by_id legitimately stays None.
         mapping = TrackMapping(
+            match_method="direct",
             track_id=uuid7(),
             connector_track_id=uuid7(),
             connector_name="spotify",

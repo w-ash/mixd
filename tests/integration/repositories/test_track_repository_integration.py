@@ -107,7 +107,7 @@ class TestTrackRepositoryIntegration:
 
         saved_track = await track_repo.save_track(test_track)
 
-        # save_track persists only the connectors in DenormalizedTrackColumns.COLUMN_MAP
+        # save_track persists only the connectors in DENORMALIZED_ID_COLUMNS
         # (spotify, musicbrainz). Others like lastfm are dropped — they require a
         # separate create_mapping call.
         assert "spotify" in saved_track.connector_track_identifiers

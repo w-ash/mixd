@@ -16,8 +16,17 @@ recorder could only get at it through a function-scoped import.
 
 from collections.abc import Iterable, Mapping
 from datetime import datetime
+from typing import Final
 
 from src.domain.entities.shared import JsonDict
+
+# Connector name → the fast-path id column on ``tracks`` that mirrors the
+# connector's primary mapping. Persistence knowledge (column names), so it
+# lives here rather than in the domain vocabulary.
+DENORMALIZED_ID_COLUMNS: Final[Mapping[str, str]] = {
+    "spotify": "spotify_id",
+    "musicbrainz": "mbid",
+}
 
 
 def extract_db_artist_names(artists: JsonDict) -> list[str]:

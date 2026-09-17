@@ -151,7 +151,7 @@ class TidalMatchingProvider(BaseMatchingProvider):
         """Raw match data from a Tidal track — no business logic.
 
         ``match_method`` is the raw-method string ``"isrc"`` (as Spotify and
-        Apple emit), NOT ``MatchMethod.ISRC_MATCH``: domain confidence
+        Apple emit), NOT ``"isrc_match"``: domain confidence
         scoring keys ISRC-grade evidence on ``ISRC_GRADE_METHODS``. The
         ``isrc_match`` provenance string belongs to mapping specs the inward
         resolver writes. No artist/album keys: the 1:N lookup does not

@@ -16,7 +16,6 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config.constants import MatchMethod
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.persistence.database.db_models import (
     DBMatchReview,
@@ -224,7 +223,7 @@ class TestIngestReusesAnExistingCanonical:
             .scalars()
             .all()
         )
-        assert primaries == [MatchMethod.CANONICAL_REUSE]
+        assert primaries == ["canonical_reuse"]
 
 
 class TestIngestStillCreatesWhenItShould:
@@ -407,7 +406,7 @@ class TestIsrcEvidenceStillDecidesFirst:
                 select(DBMatchReview).where(DBMatchReview.track_id == owner.id)
             )
         ).scalar_one()
-        assert review.match_method == MatchMethod.ISRC_SUSPECT
+        assert review.match_method == "isrc_suspect"
 
     async def test_a_trustworthy_isrc_owner_still_wins_the_group(
         self, db_session: AsyncSession

@@ -16,7 +16,11 @@ from datetime import UTC, datetime
 
 from attrs import define
 
-from src.config.constants import MatchMethod
+from src.domain.entities.track_mapping import (
+    MATCH_METHOD_CATEGORIES,
+    MATCH_METHOD_DESCRIPTIONS,
+    is_match_method,
+)
 from src.domain.repositories.connector import ConnectorRepositoryProtocol
 from src.domain.repositories.match_review import MatchReviewRepositoryProtocol
 from src.domain.repositories.resolution import ResolutionNegativeRepositoryProtocol
@@ -137,8 +141,8 @@ class GetMatchMethodHealthUseCase:
                 MethodHealthStat(
                     match_method=row["match_method"],
                     connector_name=row["connector_name"],
-                    category=MatchMethod.CATEGORIES.get(row["match_method"], "Unknown"),
-                    description=MatchMethod.DESCRIPTIONS.get(row["match_method"], ""),
+                    category=_category_of(row["match_method"]),
+                    description=_description_of(row["match_method"]),
                     total_count=row["total_count"],
                     recent_count=row["recent_count"],
                     avg_confidence=row["avg_confidence"],
@@ -199,7 +203,7 @@ async def _compute_drift(
         review_pending_depth=pending_depth,
         review_oldest_pending_days=oldest_days,
         review_pending_by_method=pending_by_method,
-        isrc_suspect_pending_count=pending_by_method.get(MatchMethod.ISRC_SUSPECT, 0),
+        isrc_suspect_pending_count=pending_by_method.get("isrc_suspect", 0),
         confidence_evidence_divergence_count=(
             await connector_repo.count_confidence_evidence_divergence(user_id=user_id)
         ),
@@ -212,6 +216,15 @@ async def _compute_drift(
     )
 
 
+def _category_of(method: str) -> str:
+    """Presentation category; a value outside the vocabulary reads "Unknown"."""
+    return MATCH_METHOD_CATEGORIES[method] if is_match_method(method) else "Unknown"
+
+
+def _description_of(method: str) -> str:
+    return MATCH_METHOD_DESCRIPTIONS[method] if is_match_method(method) else ""
+
+
 def _fallback_shares(stats: list[MethodHealthStat]) -> list[FallbackShareStat]:
     """Recent search_fallback* share of total recent mappings, grouped by connector."""
     totals: dict[str, int] = {}
@@ -220,7 +233,7 @@ def _fallback_shares(stats: list[MethodHealthStat]) -> list[FallbackShareStat]:
         totals[stat.connector_name] = (
             totals.get(stat.connector_name, 0) + stat.recent_count
         )
-        if stat.match_method.startswith(MatchMethod.SEARCH_FALLBACK):
+        if stat.match_method.startswith("search_fallback"):
             fallbacks[stat.connector_name] = (
                 fallbacks.get(stat.connector_name, 0) + stat.recent_count
             )

@@ -25,15 +25,19 @@ from typing import NamedTuple
 from attrs import define, evolve, field
 
 from src.config import create_evaluation_service, get_logger
-from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
+from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
     compute_duration_diff_ms,
 )
-from src.domain.matching.types import RawProviderMatch
+from src.domain.matching.types import (
+    DIRECT_IMPORT_CONFIDENCE,
+    ISRC_MATCH_CONFIDENCE,
+    RawProviderMatch,
+)
 from src.domain.repositories.connector import ConnectorMappingSpec, IsrcCollisionSpec
 from src.domain.repositories.errors import (
     is_transient_contention,
@@ -375,7 +379,7 @@ class InwardTrackResolver[THint = object](ABC):
 
             raw_match = RawProviderMatch(
                 connector_id=meta.connector_id,
-                match_method=MatchMethod.CANONICAL_REUSE,
+                match_method="canonical_reuse",
                 service_data={
                     "title": meta.title,
                     "artist": meta.artist,
@@ -437,7 +441,7 @@ class InwardTrackResolver[THint = object](ABC):
                         track=candidate,
                         connector=self.connector_name,
                         connector_id=meta.connector_id,
-                        match_method=MatchMethod.CANONICAL_REUSE,
+                        match_method="canonical_reuse",
                         confidence=match_result.confidence,
                         metadata={
                             "artist_name": meta.artist,
@@ -703,7 +707,7 @@ class PlannedWrite[TPayload]:
     requested_id: str
     current_id: str
     payload: TPayload
-    match_method: str
+    match_method: MatchMethod
     confidence: int
     # An existing canonical already holds this recording — map onto it,
     # create nothing.
@@ -750,8 +754,8 @@ def plan_isrc_write[TPayload](
             requested_id=requested_id,
             current_id=current_id,
             payload=payload,
-            match_method=MatchMethod.DIRECT_IMPORT,
-            confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+            match_method="direct_import",
+            confidence=DIRECT_IMPORT_CONFIDENCE,
         )
 
     duration_diff_ms = compute_duration_diff_ms(duration_ms, existing.duration_ms)
@@ -760,8 +764,8 @@ def plan_isrc_write[TPayload](
             requested_id=requested_id,
             current_id=current_id,
             payload=payload,
-            match_method=MatchMethod.ISRC_MATCH,
-            confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
+            match_method="isrc_match",
+            confidence=ISRC_MATCH_CONFIDENCE,
             reuse_track=existing,
         )
 
@@ -773,8 +777,8 @@ def plan_isrc_write[TPayload](
         requested_id=requested_id,
         current_id=current_id,
         payload=payload,
-        match_method=MatchMethod.DIRECT_IMPORT,
-        confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+        match_method="direct_import",
+        confidence=DIRECT_IMPORT_CONFIDENCE,
         review=IsrcCollisionReview(owner=existing, service_data=service_data),
     )
 

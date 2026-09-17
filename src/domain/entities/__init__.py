@@ -77,7 +77,6 @@ from .tag import (
 from .track import (
     Artist,
     ConnectorTrack,
-    ConnectorTrackMapping,
     MetadataKey,
     Track,
     TrackLike,
@@ -109,7 +108,6 @@ __all__ = [
     "ConnectorStatus",
     "ConnectorStatusState",
     "ConnectorTrack",
-    "ConnectorTrackMapping",
     "ConnectorTrackPlay",
     "ConnectorTrackRef",
     "IntegrityCheckResult",

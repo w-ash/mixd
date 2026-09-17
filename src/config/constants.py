@@ -239,118 +239,12 @@ class TrackConstants:
     INGEST_LOCK_CLASS: Final = 0x74726B69
 
 
-class MappingOrigin:
-    """How a track mapping was established.
-
-    Used to protect manual corrections from being overwritten by
-    automated sync operations. Manual overrides are never replaced
-    by subsequent ingestion or matching runs.
-    """
-
-    AUTOMATIC: Final = "automatic"
-    MANUAL_OVERRIDE: Final = "manual_override"
-
-
 class ReviewStatus:
     """Status of a match review item in the review queue."""
 
     PENDING: Final = "pending"
     ACCEPTED: Final = "accepted"
     REJECTED: Final = "rejected"
-
-
-class MatchMethod:
-    """Track resolution method identifiers.
-
-    Used in connector mappings and play context to record HOW a track ID
-    was resolved. Written by inward resolvers, read by play resolvers for
-    context tagging, and asserted in tests.
-    """
-
-    DIRECT_IMPORT: Final = "direct_import"
-    SEARCH_FALLBACK: Final = "search_fallback"
-    ARTIST_TITLE: Final = "artist_title"
-    SPOTIFY_REDIRECT: Final = "spotify_redirect"
-    PLAY_RESOLVER: Final = "spotify_connector_play_resolver"
-    LASTFM_DISCOVERY: Final = "lastfm_discovery"
-    LASTFM_IMPORT: Final = "lastfm_import"
-    # Secondary mapping on the raw (pre-autocorrect) artist::title composite,
-    # added alongside a corrected-name primary mapping so a future import
-    # carrying the same raw spelling still hits the fast connector-mapping
-    # lookup instead of re-running getInfo/getCorrection.
-    LASTFM_RAW_ALIAS: Final = "lastfm_import_raw_alias"
-    CANONICAL_REUSE: Final = "canonical_reuse"
-    ISRC_MATCH: Final = "isrc_match"
-    # ISRC collision with suspect duration delta — routed to review, not merged
-    ISRC_SUSPECT: Final = "isrc_suspect"
-    # Secondary mappings for stale IDs (old ID → same canonical track)
-    DIRECT_IMPORT_STALE_ID: Final = "direct_import_stale_id"
-    SEARCH_FALLBACK_STALE_ID: Final = "search_fallback_stale_id"
-    ISRC_MATCH_STALE_ID: Final = "isrc_match_stale_id"
-
-    # The stale-id variant a substitution writes for each primary method.
-    # Authoritative: ``stale_id_mapping_spec`` reads this map directly.
-    STALE_ID_FOR: Final[dict[str, str]] = {
-        DIRECT_IMPORT: DIRECT_IMPORT_STALE_ID,
-        SEARCH_FALLBACK: SEARCH_FALLBACK_STALE_ID,
-        ISRC_MATCH: ISRC_MATCH_STALE_ID,
-    }
-
-    # Confidence scores for automated resolution strategies
-    ISRC_MATCH_CONFIDENCE: Final = 95
-    # The provider answered for the id it was asked about — its own assertion,
-    # taken at face value.
-    DIRECT_IMPORT_CONFIDENCE: Final = 100
-
-    CATEGORY_ORDER: Final[tuple[str, ...]] = (
-        "Primary Import",
-        "Identity Resolution",
-        "Cross-Service Discovery",
-        "Error Recovery",
-        "Secondary Cache",
-    )
-
-    CATEGORIES: Final[dict[str, str]] = {
-        "direct_import": "Primary Import",
-        "artist_title": "Primary Import",
-        "lastfm_import": "Primary Import",
-        "canonical_reuse": "Identity Resolution",
-        "isrc_match": "Identity Resolution",
-        "isrc_suspect": "Identity Resolution",
-        "mbid_match": "Identity Resolution",
-        "lastfm_discovery": "Cross-Service Discovery",
-        "spotify_connector_play_resolver": "Cross-Service Discovery",
-        "search_fallback": "Error Recovery",
-        "spotify_redirect": "Error Recovery",
-        "direct_import_stale_id": "Secondary Cache",
-        "search_fallback_stale_id": "Secondary Cache",
-        "isrc_match_stale_id": "Secondary Cache",
-        "lastfm_import_raw_alias": "Secondary Cache",
-    }
-
-    DESCRIPTIONS: Final[dict[str, str]] = {
-        "direct_import": "Standard Spotify import",
-        "artist_title": "Standard Last.fm import",
-        "lastfm_import": "Standard Last.fm import (with confidence)",
-        "canonical_reuse": "Canonical reuse — existing track matched",
-        "isrc_match": "ISRC dedup across services",
-        "isrc_suspect": "ISRC reuse suspected — queued for review",
-        "mbid_match": "MusicBrainz ID bridging",
-        "lastfm_discovery": "Spotify found via Last.fm enrichment",
-        "spotify_connector_play_resolver": "Spotify play context resolution",
-        "search_fallback": "Dead Spotify ID → search fallback",
-        "spotify_redirect": "Spotify ID relinking detected",
-        "direct_import_stale_id": "Stale ID cache (redirect)",
-        "search_fallback_stale_id": "Stale ID cache (fallback)",
-        "isrc_match_stale_id": "Stale ID cache (ISRC reuse)",
-        "lastfm_import_raw_alias": "Last.fm raw-spelling alias (pre-autocorrect) cache",
-    }
-
-
-class DenormalizedTrackColumns:
-    """Mapping from connector name to fast-path column on DBTrack."""
-
-    COLUMN_MAP: Final[dict[str, str]] = {"spotify": "spotify_id", "musicbrainz": "mbid"}
 
 
 class ConnectorPriority:

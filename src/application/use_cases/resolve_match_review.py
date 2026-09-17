@@ -11,7 +11,7 @@ from uuid import UUID
 from attrs import define
 
 from src.config import get_logger
-from src.config.constants import MappingOrigin, ReviewStatus
+from src.config.constants import ReviewStatus
 from src.domain.entities.match_review import MatchReview
 from src.domain.exceptions import NotFoundError
 from src.domain.matching.content_digest import connector_side
@@ -93,7 +93,7 @@ class ResolveMatchReviewUseCase:
                 match_method=review.match_method,
                 confidence=review.confidence,
                 confidence_evidence=review.confidence_evidence,
-                origin=MappingOrigin.MANUAL_OVERRIDE,
+                origin="manual_override",
             )
             mapping_created = True
             logger.info(
@@ -219,7 +219,7 @@ class ResolveMatchReviewUseCase:
         mappings = await connector_repo.get_full_mappings_for_track(
             other.id, user_id=user_id
         )
-        if any(m["origin"] == MappingOrigin.MANUAL_OVERRIDE for m in mappings):
+        if any(m["origin"] == "manual_override" for m in mappings):
             logger.info(
                 "Deferred canonical has manual mappings — re-pointing only",
                 deferred_track_id=other.id,

@@ -7,7 +7,6 @@ same canonical tracks. Uses real database + mocked API clients.
 
 from unittest.mock import AsyncMock, MagicMock
 
-from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
@@ -151,7 +150,7 @@ class TestLastfmThenSpotify:
             track_a,
             "lastfm",
             "radiohead::creep",
-            MatchMethod.LASTFM_IMPORT,
+            "lastfm_import",
             confidence=85,
         )
 
@@ -169,7 +168,7 @@ class TestLastfmThenSpotify:
             track_b,
             "lastfm",
             "radiohead::everything in its right place",
-            MatchMethod.LASTFM_IMPORT,
+            "lastfm_import",
             confidence=85,
         )
 
@@ -269,7 +268,7 @@ class TestMixedResolutionPaths:
             track_a,
             "lastfm",
             "band a::already mapped",
-            MatchMethod.LASTFM_IMPORT,
+            "lastfm_import",
             confidence=85,
         )
 

@@ -9,6 +9,8 @@ from uuid import UUID, uuid7
 
 from attrs import define, field
 
+from src.domain.entities.track_mapping import MatchMethod
+
 
 @define(frozen=True, slots=True)
 class MatchReview:
@@ -22,7 +24,7 @@ class MatchReview:
     track_id: UUID
     connector_name: str
     connector_track_id: UUID
-    match_method: str
+    match_method: MatchMethod
     confidence: int
     match_weight: float
     user_id: str = "default"

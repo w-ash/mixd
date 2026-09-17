@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.config.constants import MatchMethod
 from src.domain.entities import Track
+from src.domain.matching.types import DIRECT_IMPORT_CONFIDENCE, ISRC_MATCH_CONFIDENCE
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     IsrcCollisionReview,
@@ -746,8 +746,8 @@ def _create_write(
         requested_id=requested_id,
         current_id=current_id or requested_id,
         payload=f"payload:{requested_id}",
-        match_method=MatchMethod.DIRECT_IMPORT,
-        confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+        match_method="direct_import",
+        confidence=DIRECT_IMPORT_CONFIDENCE,
     )
 
 
@@ -772,8 +772,8 @@ class TestPlanIsrcWrite:
 
         assert write.creates_canonical
         assert write.review is None
-        assert write.match_method == MatchMethod.DIRECT_IMPORT
-        assert write.confidence == MatchMethod.DIRECT_IMPORT_CONFIDENCE
+        assert write.match_method == "direct_import"
+        assert write.confidence == DIRECT_IMPORT_CONFIDENCE
         assert write.primary is True
 
     def test_claimed_isrc_with_agreeing_duration_plans_a_reuse(self):
@@ -782,8 +782,8 @@ class TestPlanIsrcWrite:
 
         assert write.reuse_track is owner
         assert write.review is None
-        assert write.match_method == MatchMethod.ISRC_MATCH
-        assert write.confidence == MatchMethod.ISRC_MATCH_CONFIDENCE
+        assert write.match_method == "isrc_match"
+        assert write.confidence == ISRC_MATCH_CONFIDENCE
 
     def test_suspect_duration_plans_a_review_creation(self):
         owner = make_track(7, duration_ms=200_000)
@@ -793,8 +793,8 @@ class TestPlanIsrcWrite:
         assert write.review is not None
         assert write.review.owner is owner
         assert write.review.service_data["isrc"] == "USUM72309818"
-        assert write.match_method == MatchMethod.DIRECT_IMPORT
-        assert write.confidence == MatchMethod.DIRECT_IMPORT_CONFIDENCE
+        assert write.match_method == "direct_import"
+        assert write.confidence == DIRECT_IMPORT_CONFIDENCE
 
 
 class TestPlannedWritePipeline:
@@ -806,8 +806,8 @@ class TestPlannedWritePipeline:
             requested_id="sus",
             current_id="sus",
             payload="payload:sus",
-            match_method=MatchMethod.DIRECT_IMPORT,
-            confidence=MatchMethod.DIRECT_IMPORT_CONFIDENCE,
+            match_method="direct_import",
+            confidence=DIRECT_IMPORT_CONFIDENCE,
             review=IsrcCollisionReview(owner=make_track(7), service_data={"isrc": "X"}),
         )
         substituting_write = _create_write("old", "new")
@@ -866,9 +866,7 @@ class TestPlannedWritePipeline:
         stale_ids = sorted(s.connector_id for s in specs if not s.primary)
         assert stale_ids == ["old1", "old2"]
         assert all(
-            s.match_method == MatchMethod.DIRECT_IMPORT_STALE_ID
-            for s in specs
-            if not s.primary
+            s.match_method == "direct_import_stale_id" for s in specs if not s.primary
         )
 
     async def test_reuse_write_maps_requested_id_and_creates_nothing(self):
@@ -877,8 +875,8 @@ class TestPlannedWritePipeline:
             requested_id="id-1",
             current_id="id-1",
             payload="payload:id-1",
-            match_method=MatchMethod.ISRC_MATCH,
-            confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
+            match_method="isrc_match",
+            confidence=ISRC_MATCH_CONFIDENCE,
             reuse_track=held,
         )
         resolver = PipelineResolver([reuse_write])

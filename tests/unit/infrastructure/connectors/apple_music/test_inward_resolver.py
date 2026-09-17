@@ -9,7 +9,7 @@ base class.
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.config.constants import MatchMethod
+from src.domain.matching.types import ISRC_MATCH_CONFIDENCE
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.connectors.apple_music.client import CatalogSongsLookup
 from src.infrastructure.connectors.apple_music.inward_resolver import (
@@ -91,8 +91,8 @@ class TestIsrcReuse:
         spec = specs[0]
         assert spec.connector == "apple"
         assert spec.connector_id == "101"
-        assert spec.match_method == MatchMethod.ISRC_MATCH
-        assert spec.confidence == MatchMethod.ISRC_MATCH_CONFIDENCE
+        assert spec.match_method == "isrc_match"
+        assert spec.confidence == ISRC_MATCH_CONFIDENCE
         assert spec.primary is True
 
     async def test_suspect_duration_queues_review_and_withholds_isrc(self):
@@ -123,7 +123,7 @@ class TestIsrcReuse:
         assert collisions[0].owner.id == owner.id
         assert collisions[0].connector_id == "101"
         specs = _mapping_specs(connector_repo)
-        assert specs[0].match_method == MatchMethod.DIRECT_IMPORT
+        assert specs[0].match_method == "direct_import"
 
     async def test_isrc_without_holder_creates_direct_import(self):
         """(c) Nobody holds the ISRC → new canonical from Apple metadata."""
@@ -144,7 +144,7 @@ class TestIsrcReuse:
         assert saved.user_id == "test-user"
         assert saved.connector_track_identifiers["apple"] == "101"
         spec = _mapping_specs(connector_repo)[0]
-        assert spec.match_method == MatchMethod.DIRECT_IMPORT
+        assert spec.match_method == "direct_import"
         assert spec.confidence == 100
         assert spec.primary is True
 
@@ -241,9 +241,9 @@ class TestCatalogIdDivergence:
         primary = next(s for s in specs if s.primary)
         secondary = next(s for s in specs if not s.primary)
         assert primary.connector_id == "new202"
-        assert primary.match_method == MatchMethod.DIRECT_IMPORT
+        assert primary.match_method == "direct_import"
         assert secondary.connector_id == "old101"
-        assert secondary.match_method == MatchMethod.DIRECT_IMPORT_STALE_ID
+        assert secondary.match_method == "direct_import_stale_id"
 
         # The substitution is recorded against the requested id.
         recorded = [

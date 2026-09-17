@@ -12,6 +12,7 @@ from src.config import create_matching_config, get_logger
 from src.config.constants import SpotifyConstants
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
+from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.algorithms import select_best_by_title_similarity
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.types import (
@@ -202,7 +203,7 @@ class SpotifyProvider(BaseMatchingProvider):
         return []
 
     def _create_raw_match(
-        self, spotify_track: SpotifyTrack, match_method: str
+        self, spotify_track: SpotifyTrack, match_method: MatchMethod
     ) -> RawProviderMatch | None:
         """Create raw match data from Spotify track data.
 

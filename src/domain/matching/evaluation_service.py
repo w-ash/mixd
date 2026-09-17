@@ -14,6 +14,7 @@ from uuid import UUID
 from attrs import define
 
 from src.domain.entities import Track
+from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.algorithms import (
     InternalTrackData,
     ServiceTrackData,
@@ -45,7 +46,7 @@ class TrackMatchEvaluationService:
 
     config: MatchingConfig
 
-    def should_accept_match(self, confidence: int, _match_method: str) -> bool:
+    def should_accept_match(self, confidence: int, _match_method: MatchMethod) -> bool:
         """Business rule: auto-accept if above the upper threshold.
 
         Args:
@@ -57,7 +58,7 @@ class TrackMatchEvaluationService:
         """
         return confidence >= self.config.auto_accept_threshold
 
-    def should_review_match(self, confidence: int, _match_method: str) -> bool:
+    def should_review_match(self, confidence: int, _match_method: MatchMethod) -> bool:
         """Business rule: queue for review if in the gray zone.
 
         The gray zone is between review_threshold and auto_accept_threshold.

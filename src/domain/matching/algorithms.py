@@ -10,6 +10,8 @@ from typing import Final, NotRequired, TypedDict
 from attrs import define
 from rapidfuzz import fuzz
 
+from src.domain.entities.track_mapping import MatchMethod
+
 from .config import MatchingConfig
 from .isrc_validation import assess_isrc_match_reliability, compute_duration_diff_ms
 from .probabilistic import (
@@ -156,7 +158,7 @@ def select_best_by_title_similarity[T](
 def calculate_confidence(
     internal_track_data: InternalTrackData,
     service_track_data: ServiceTrackData,
-    match_method: str,
+    match_method: MatchMethod,
     config: MatchingConfig,
 ) -> tuple[int, ConfidenceEvidence]:
     """Calculate confidence score using Fellegi-Sunter probabilistic model.

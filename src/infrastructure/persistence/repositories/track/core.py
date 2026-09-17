@@ -27,7 +27,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.config import get_logger
-from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
 from src.domain.entities.preference import PREFERENCE_ORDER
 from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
@@ -56,6 +55,9 @@ from src.infrastructure.persistence.database.live_rows import (
     INCLUDE_SUPERSEDED,
     expire_mapping_identity,
     live_only,
+)
+from src.infrastructure.persistence.repositories._shared.connector_tracks import (
+    DENORMALIZED_ID_COLUMNS,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
@@ -416,7 +418,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     _TRACK_ID_TYPES: ClassVar[dict[str, str]] = {
         "internal": "id",
         "isrc": "isrc",
-        **DenormalizedTrackColumns.COLUMN_MAP,
+        **DENORMALIZED_ID_COLUMNS,
     }
 
     # Sortable column registry — restricts dynamic sort_field lookups to an
@@ -610,7 +612,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         }
 
         # Add denormalized connector IDs (fast-path lookup columns)
-        for connector, column in DenormalizedTrackColumns.COLUMN_MAP.items():
+        for connector, column in DENORMALIZED_ID_COLUMNS.items():
             if connector in track.connector_track_identifiers:
                 values[column] = track.connector_track_identifiers[connector]
         return values
@@ -1466,7 +1468,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 "from_id": from_id,
                 "to_id": to_id,
                 "now": datetime.now(UTC),
-                "manual_override": MappingOrigin.MANUAL_OVERRIDE,
+                "manual_override": "manual_override",
                 "conflation": _CONFLATION,
             },
         )

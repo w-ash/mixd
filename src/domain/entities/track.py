@@ -180,30 +180,6 @@ class ConnectorTrack:
     id: UUID = field(factory=uuid7)
 
 
-@define(frozen=True, slots=True)
-class ConnectorTrackMapping:
-    """Cross-connected-service entity mapping with confidence scoring.
-
-    Tracks how entities are resolved across connectors with metadata
-    about match quality and resolution method.
-    """
-
-    connector_name: str = field(validator=validators.instance_of(str))
-    connector_track_identifier: str = field(validator=validators.instance_of(str))
-    match_method: str = field(
-        validator=validators.in_([
-            "direct",  # Direct match where internal object was created from the connector
-            "isrc",  # Matched by ISRC
-            "mbid",  # Matched by MusicBrainz ID
-            "artist_title",  # Matched by artist and title
-        ]),
-    )
-    confidence: int = field(
-        validator=[validators.instance_of(int), validators.ge(0), validators.le(100)],
-    )
-    metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
-
-
 class TrackListMetadata(TypedDict, total=False):
     """Known metadata keys that flow through TrackList pipelines.
 

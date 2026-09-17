@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.domain.matching.protocols import ReuseExisting
 from src.infrastructure.connectors.lastfm.conversions import (
@@ -102,7 +101,7 @@ class TestAllMintSchemesConvergeOnOneRow:
             spotify_canonical,
             "spotify",
             "sp_lb_001",
-            MatchMethod.DIRECT_IMPORT,
+            "direct_import",
             confidence=100,
         )
         # Keyed by the release-aware triple — the probe's album ("Debut")

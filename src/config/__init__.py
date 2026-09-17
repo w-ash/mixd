@@ -14,9 +14,9 @@ setup_logging(verbose: bool = False) -> None
     Configure structlog + stdlib handlers for the application
 
 Constants (non-configurable system values):
-    BusinessLimits, HTTPStatus, MatchMethod, MappingOrigin, ReviewStatus,
-    WorkflowConstants, SpotifyConstants, LastFMConstants, SSEConstants,
-    ConnectorPriority, DenormalizedTrackColumns, IntegrityConstants
+    BusinessLimits, HTTPStatus, ReviewStatus, WorkflowConstants,
+    SpotifyConstants, LastFMConstants, SSEConstants, ConnectorPriority,
+    IntegrityConstants
 
 Usage:
 ------
@@ -32,12 +32,9 @@ logger = get_logger(__name__)
 from .constants import (
     BusinessLimits,
     ConnectorPriority,
-    DenormalizedTrackColumns,
     HTTPStatus,
     IntegrityConstants,
     LastFMConstants,
-    MappingOrigin,
-    MatchMethod,
     ReviewStatus,
     SpotifyConstants,
     SSEConstants,
@@ -63,12 +60,9 @@ from .settings import (
 __all__ = [
     "BusinessLimits",
     "ConnectorPriority",
-    "DenormalizedTrackColumns",
     "HTTPStatus",
     "IntegrityConstants",
     "LastFMConstants",
-    "MappingOrigin",
-    "MatchMethod",
     "ReviewStatus",
     "SSEConstants",
     "SpotifyConstants",

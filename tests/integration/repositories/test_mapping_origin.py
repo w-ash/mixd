@@ -12,7 +12,6 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config.constants import MappingOrigin
 from src.domain.entities import Artist, ConnectorTrack
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.db_models import DBTrackMapping
@@ -83,7 +82,7 @@ class TestIngestSkipsManualOverride:
         track_id, mapping_id = await _create_track_with_mapping(
             db_session,
             connector_id="sp_manual_001",
-            origin=MappingOrigin.MANUAL_OVERRIDE,
+            origin="manual_override",
             confidence=50,
         )
 
@@ -111,7 +110,7 @@ class TestIngestSkipsManualOverride:
         )
         row = result.one()
         assert row.confidence == 50
-        assert row.origin == MappingOrigin.MANUAL_OVERRIDE
+        assert row.origin == "manual_override"
         # Freshness is origin-independent: manual overrides get stamped too.
         assert row.last_seen_at is not None
 
@@ -119,7 +118,7 @@ class TestIngestSkipsManualOverride:
         track_id, mapping_id = await _create_track_with_mapping(
             db_session,
             connector_id="sp_auto_001",
-            origin=MappingOrigin.AUTOMATIC,
+            origin="automatic",
             confidence=50,
         )
 
@@ -155,7 +154,7 @@ class TestIngestSkipsManualOverride:
         track_id, mapping_id = await _create_track_with_mapping(
             db_session,
             connector_id="sp_full_001",
-            origin=MappingOrigin.AUTOMATIC,
+            origin="automatic",
             confidence=100,
         )
 
@@ -187,7 +186,7 @@ class TestMapTracksSkipsManualOverride:
         track_id, mapping_id = await _create_track_with_mapping(
             db_session,
             connector_id="sp_map_001",
-            origin=MappingOrigin.MANUAL_OVERRIDE,
+            origin="manual_override",
             confidence=80,
         )
 
@@ -212,7 +211,7 @@ class TestMapTracksSkipsManualOverride:
         )
         row = result.one()
         assert row.confidence == 80
-        assert row.origin == MappingOrigin.MANUAL_OVERRIDE
+        assert row.origin == "manual_override"
 
 
 class TestMergeSetsManualOverride:
@@ -247,4 +246,4 @@ class TestMergeSetsManualOverride:
         )
         row = result.one()
         assert row.track_id == winner_id
-        assert row.origin == MappingOrigin.MANUAL_OVERRIDE
+        assert row.origin == "manual_override"

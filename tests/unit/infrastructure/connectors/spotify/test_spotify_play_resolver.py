@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 import pytest
 
 from src.application.connector_protocols import Closeable
-from src.config.constants import MatchMethod, SpotifyConstants
+from src.config.constants import SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     TrackResolutionMetrics,
@@ -287,7 +287,7 @@ class TestResolverFiltering:
         assert context["shuffle"] is False
         assert context["track_name"] == "Test Song"
         assert context["artist_name"] == "Test Artist"
-        assert context["resolution_method"] == MatchMethod.PLAY_RESOLVER
+        assert context["resolution_method"] == "spotify_connector_play_resolver"
 
 
 def _fragments(
@@ -868,7 +868,7 @@ class TestFallbackHintsIntegration:
         plays, metrics = outcome.track_plays, outcome.metrics
 
         assert len(plays) == 1
-        assert plays[0].context["resolution_method"] == MatchMethod.SEARCH_FALLBACK
+        assert plays[0].context["resolution_method"] == "search_fallback"
         assert metrics["fallback_resolved"] == 1
 
 
@@ -910,7 +910,7 @@ class TestRedirectResolvedPlays:
         plays, metrics = outcome.track_plays, outcome.metrics
 
         assert len(plays) == 1
-        assert plays[0].context["resolution_method"] == MatchMethod.SPOTIFY_REDIRECT
+        assert plays[0].context["resolution_method"] == "spotify_redirect"
         assert metrics["redirect_resolved"] == 1
 
     async def test_redirect_resolved_metric(self):
@@ -1055,7 +1055,7 @@ class TestIncognitoPreFilter:
             tracks_map or {},
             TrackResolutionMetrics(existing=len(tracks_map or {})),
         )
-        inward.get_resolution_method.return_value = MatchMethod.PLAY_RESOLVER
+        inward.get_resolution_method.return_value = "spotify_connector_play_resolver"
         inward.isrc_suspect_deferred_ids = set()
         resolver._inward_resolver = inward
         return resolver, inward

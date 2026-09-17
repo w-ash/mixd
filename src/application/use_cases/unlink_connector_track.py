@@ -10,7 +10,6 @@ from uuid import UUID
 from attrs import define
 
 from src.application.use_cases._shared.mapping_guard import require_owned_mapping
-from src.config.constants import MappingOrigin
 from src.domain.entities.track import Artist, Track
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.connector import ConnectorRepositoryProtocol
@@ -139,7 +138,7 @@ class UnlinkConnectorTrackUseCase:
             metadata=None,
             confidence_evidence=None,
             auto_set_primary=True,
-            origin=MappingOrigin.MANUAL_OVERRIDE,
+            origin="manual_override",
         )
 
         return saved_track.id

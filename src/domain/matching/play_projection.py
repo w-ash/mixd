@@ -163,7 +163,7 @@ _SPOTIFY_API_KNOWN_KEYS: Final = (
 _ARCHITECTURE_VERSION: Final = "connector_plays_deferred_resolution"
 # The spotify resolver's per-run resolution method (direct/redirect/fallback)
 # is not reconstructible from the ledger; the projection records the stable
-# resolver marker instead (MatchMethod.PLAY_RESOLVER's value).
+# resolver marker instead ("spotify_connector_play_resolver").
 _SPOTIFY_RESOLUTION_METHOD: Final = "spotify_connector_play_resolver"
 _LASTFM_RESOLUTION_METHOD: Final = "lastfm_connector_play_resolver"
 

@@ -10,7 +10,6 @@ from uuid import UUID
 
 from attrs import Factory, define, field
 
-from src.config.constants import MappingOrigin
 from src.domain.entities import Playlist, Track, TrackLike
 from src.domain.entities.preference import PreferenceState
 from src.domain.repositories.connector import FullMappingInfo
@@ -33,7 +32,7 @@ class ConnectorMappingInfo:
     mapping_id: UUID
     match_method: str = ""
     confidence: int = 0
-    origin: str = MappingOrigin.AUTOMATIC
+    origin: str = "automatic"
     is_primary: bool = False
     connector_track_title: str = ""
     connector_track_artists: list[str] = Factory(list[str])

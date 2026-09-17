@@ -18,6 +18,7 @@ from src.domain.entities import (
 from src.domain.entities.connector import ConnectorDescriptor
 from src.domain.entities.playlist import ConnectorPlaylistSummary
 from src.domain.entities.shared import JsonDict, JsonValue
+from src.domain.entities.track_mapping import MappingOrigin, MatchMethod
 
 
 @define(frozen=True, slots=True)
@@ -46,7 +47,7 @@ class ConnectorMappingSpec:
     track: Track
     connector: str
     connector_id: str
-    match_method: str
+    match_method: MatchMethod
     confidence: int
     metadata: dict[str, object] | None = None
     confidence_evidence: dict[str, object] | None = None
@@ -55,7 +56,7 @@ class ConnectorMappingSpec:
     # supersedes the incumbent, so setting it afterwards would write the
     # supersession against the wrong value — and the old follow-up statement
     # matched on (track, connector) and flipped sibling mappings with it.
-    origin: str = "automatic"
+    origin: MappingOrigin = "automatic"
     # Should this mapping own primacy for its (track, connector) pair? A flag
     # here rather than a parallel ``(track_id, connector, connector_id)`` list
     # alongside the specs: that list could only ever repeat identifiers the
@@ -76,7 +77,7 @@ class PrimaryMappingDetail:
 
     connector_id: str
     confidence: int
-    match_method: str
+    match_method: MatchMethod
 
 
 class MatchMethodStatRow(TypedDict):
@@ -135,12 +136,12 @@ class ConnectorRepositoryProtocol(Protocol):
         track: Track,
         connector: str,
         connector_id: str,
-        match_method: str,
+        match_method: MatchMethod,
         confidence: int,
         metadata: dict[str, object] | None = None,
         confidence_evidence: dict[str, object] | None = None,
         auto_set_primary: bool = True,
-        origin: str = "automatic",
+        origin: MappingOrigin = "automatic",
     ) -> Awaitable[Track]:
         """Map an existing track to a connector.
 

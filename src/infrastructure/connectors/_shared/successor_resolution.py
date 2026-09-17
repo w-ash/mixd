@@ -19,9 +19,9 @@ from uuid import UUID
 
 from attrs import define, field
 
-from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue, empty_json_map
+from src.domain.entities.track_mapping import STALE_ID_FOR, MatchMethod
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.domain.repositories.resolution import (
     ResolutionDecision,
@@ -121,7 +121,7 @@ def stale_id_mapping_spec(
     track: Track,
     connector: str,
     requested_id: str,
-    primary_method: str,
+    primary_method: MatchMethod,
     confidence: int,
     metadata: dict[str, object] | None = None,
 ) -> ConnectorMappingSpec:
@@ -130,13 +130,13 @@ def stale_id_mapping_spec(
     It exists to make the old id resolve from cache, not to describe the
     track — hence never primary, and the ``*_STALE_ID`` variant of whatever
     method minted the primary mapping, read from the authoritative
-    ``MatchMethod.STALE_ID_FOR`` map.
+    ``STALE_ID_FOR`` map.
     """
     return ConnectorMappingSpec(
         track=track,
         connector=connector,
         connector_id=requested_id,
-        match_method=MatchMethod.STALE_ID_FOR[primary_method],
+        match_method=STALE_ID_FOR[primary_method],
         confidence=confidence,
         metadata=metadata,
     )

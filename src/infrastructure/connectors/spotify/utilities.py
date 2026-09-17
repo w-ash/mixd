@@ -12,7 +12,7 @@ from typing import Protocol
 
 from attrs import define
 
-from src.config.constants import MatchMethod, SpotifyConstants
+from src.config.constants import SpotifyConstants
 from src.domain.entities import Artist, Track
 from src.domain.matching.algorithms import select_best_by_title_similarity
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
@@ -303,7 +303,7 @@ def _rank_and_evaluate(
     primary_artist = best.artists[0].name if best.artists else ""
     raw_match = RawProviderMatch(
         connector_id=connector_id,
-        match_method=MatchMethod.ARTIST_TITLE,
+        match_method="artist_title",
         service_data={
             "title": best.name,
             "artist": primary_artist,
