@@ -6,6 +6,7 @@ import warnings
 from attrs import define
 from sqlalchemy.orm.interfaces import ORMOption
 
+from src.config import get_logger
 from src.domain.entities import Artist, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.shared import JsonDict
@@ -20,6 +21,8 @@ from src.infrastructure.persistence.repositories._shared.connector_tracks import
     extract_db_artist_names,
 )
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
+
+logger = get_logger(__name__)
 
 
 class MissingPrimaryMappingWarning(UserWarning):
@@ -122,9 +125,16 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             _ = connector_track_identifiers.setdefault("musicbrainz", db_model.mbid)
 
         if fallback_mappings:
+            # structlog carries the detail for operators; the Python warning
+            # is the test gate (``filterwarnings = error``) and keeps a
+            # constant message so the warning registry does not grow per track.
+            logger.warning(
+                "missing_primary_mapping",
+                track_id=str(db_model.id),
+                connectors=sorted(fallback_mappings),
+            )
             warnings.warn(
-                f"Track {db_model.id} has no primary connector mapping for "
-                f"{sorted(fallback_mappings)}",
+                "Track has live connector mappings with no primary",
                 MissingPrimaryMappingWarning,
                 stacklevel=2,
             )

@@ -5,8 +5,6 @@ hand; these pin that the runtime sets, the stale-id pairing and the
 presentation maps all describe the same members.
 """
 
-from typing import get_args
-
 from src.domain.entities.track_mapping import (
     MAPPING_ORIGINS,
     MATCH_METHOD_CATEGORIES,
@@ -14,8 +12,6 @@ from src.domain.entities.track_mapping import (
     MATCH_METHOD_DESCRIPTIONS,
     MATCH_METHODS,
     STALE_ID_FOR,
-    MappingOrigin,
-    MatchMethod,
     is_mapping_origin,
     is_match_method,
 )
@@ -23,10 +19,6 @@ from src.domain.matching.types import ISRC_GRADE_METHODS
 
 
 class TestVocabularySets:
-    def test_runtime_set_matches_the_literal(self):
-        assert frozenset(get_args(MatchMethod.__value__)) == MATCH_METHODS
-        assert frozenset(get_args(MappingOrigin.__value__)) == MAPPING_ORIGINS
-
     def test_guards_accept_members_and_reject_the_empty_string(self):
         assert all(is_match_method(m) for m in MATCH_METHODS)
         assert not is_match_method("")

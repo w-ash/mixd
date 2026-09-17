@@ -17,6 +17,9 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackMapping,
 )
+from src.infrastructure.persistence.repositories.track.connector import (
+    TrackMappingMapper,
+)
 from src.infrastructure.persistence.repositories.track.mapper import (
     MissingPrimaryMappingWarning,
     TrackMapper,
@@ -88,7 +91,7 @@ class TestWalkWinsOverDenormColumn:
             _transient_mapping(track, identifier="sp_live_row", confidence=95)
         ]
 
-        with pytest.warns(MissingPrimaryMappingWarning, match=str(track.id)):
+        with pytest.warns(MissingPrimaryMappingWarning):
             domain_track = await TrackMapper.to_domain(track)
 
         # The live non-primary mapping still wins over the stale column; the
@@ -133,3 +136,24 @@ class TestFallbackSelectsHighestConfidence:
             domain_track = await TrackMapper.to_domain(track)
 
         assert domain_track.connector_track_identifiers["spotify"] == "sp_first"
+
+
+class TestMappingRowsOutsideTheVocabulary:
+    """A persisted value the domain vocabulary does not name is a schema fact
+    nobody designed; the mapper says so instead of narrowing silently."""
+
+    async def test_unknown_match_method_raises(self):
+        track = _transient_track(spotify_id=None)
+        mapping = _transient_mapping(track, identifier="sp_x", confidence=50)
+        mapping.match_method = "search"
+
+        with pytest.raises(ValueError, match="match_method"):
+            _ = await TrackMappingMapper.to_domain(mapping)
+
+    async def test_unknown_origin_raises(self):
+        track = _transient_track(spotify_id=None)
+        mapping = _transient_mapping(track, identifier="sp_x", confidence=50)
+        mapping.origin = "manual"
+
+        with pytest.raises(ValueError, match="origin"):
+            _ = await TrackMappingMapper.to_domain(mapping)

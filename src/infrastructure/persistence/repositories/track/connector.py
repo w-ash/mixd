@@ -39,6 +39,7 @@ from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.track_mapping import (
+    STALE_ID_FOR,
     MappingOrigin,
     MatchMethod,
     SupersessionReason,
@@ -134,6 +135,23 @@ _ASSERT_DEFAULTS: dict[str, object] = {
     "origin": "automatic",
     "is_primary": False,
 }
+
+
+def _vocabulary_match_method(value: str, *, row: UUID) -> MatchMethod:
+    """Narrow a persisted ``match_method`` to the domain vocabulary.
+
+    One policy for every reader: a row outside the vocabulary is a schema
+    fact nobody designed, so it raises rather than being skipped by one
+    reader and surfaced by another.
+    """
+    if not is_match_method(value):
+        raise ValueError(
+            f"track_mapping row {row} carries a match_method outside the domain "
+            f"vocabulary: {value!r}"
+        )
+    return value
+
+
 _ASSERT_REQUIRED = (
     "user_id",
     "track_id",
@@ -261,11 +279,12 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
         the entity is frozen so no mutation risk. Cast avoids a copy.
         """
         evidence = cast("dict[str, object] | None", db_model.confidence_evidence)
-        method, origin = db_model.match_method, db_model.origin
-        if not is_match_method(method) or not is_mapping_origin(origin):
+        method = _vocabulary_match_method(db_model.match_method, row=db_model.id)
+        origin = db_model.origin
+        if not is_mapping_origin(origin):
             raise ValueError(
-                f"track_mapping {db_model.id} carries a value outside the domain "
-                f"vocabulary: match_method={method!r} origin={origin!r}"
+                f"track_mapping {db_model.id} carries an origin outside the domain "
+                f"vocabulary: {origin!r}"
             )
         return TrackMapping(
             id=db_model.id,
@@ -925,32 +944,9 @@ class TrackConnectorRepository:
                 promote_to_primary, connector_id_map=connector_id_map
             )
 
-        # A pair that also carried a ``primary=True`` spec in this batch was
-        # just elected and is skipped: a stale-id secondary written beside its
-        # live id must never reach first-wins dedup on its own. Highest
-        # confidence first, so first-wins is the same choice
-        # ``ensure_primary_for_connector`` makes.
-        elected_pairs = {
-            (track_id, connector) for track_id, connector, _ in promote_to_primary
-        }
-        fill_vacancies = [
-            (
-                spec.track.id,
-                spec.connector,
-                connector_id_map[spec.connector, spec.connector_id],
-            )
-            for spec in sorted(mappings, key=lambda s: -s.confidence)
-            if spec.track.id
-            and not spec.primary
-            and (spec.track.id, spec.connector) not in elected_pairs
-            and (spec.connector, spec.connector_id) in connector_id_map
-        ]
-        if fill_vacancies:
-            _ = await self._batch_ensure_primary_mappings(
-                fill_vacancies,
-                external_by_ct_id={
-                    ct_id: external for (_, external), ct_id in connector_id_map.items()
-                },
+        if mapping_rows:
+            await self._fill_primary_vacancies(
+                mappings, mapping_rows, connector_id_map, promote_to_primary
             )
 
         # Note: metrics extraction lives in the application layer
@@ -1063,6 +1059,49 @@ class TrackConnectorRepository:
             for restoration in assertion.primacy_restorations
         ]
         _ = await self._batch_ensure_primary_mappings(primaries)
+
+    async def _fill_primary_vacancies(
+        self,
+        mappings: list[ConnectorMappingSpec],
+        mapping_rows: list[dict[str, object]],
+        connector_id_map: dict[tuple[str, str], UUID],
+        promote_to_primary: list[tuple[UUID, str, str]],
+    ) -> None:
+        """Elect a primary for every asserted pair that still lacks one.
+
+        Candidates are the rows that were actually asserted — a spec whose
+        row ``_filter_manual_overrides`` dropped would win first-wins dedup
+        and then match nothing, leaving the pair vacant. A pair that also
+        carried a ``primary=True`` spec in this batch was just elected and is
+        skipped, and a stale-id secondary is never a candidate: it exists so a
+        dead id resolves from cache, and promoting it would write that dead id
+        into the denormalized column. Highest confidence first, so first-wins
+        is the same choice ``ensure_primary_for_connector`` makes.
+        """
+        elected_pairs = {
+            (track_id, connector) for track_id, connector, _ in promote_to_primary
+        }
+        asserted = {
+            (row["track_id"], row["connector_track_id"]) for row in mapping_rows
+        }
+        stale_methods = frozenset(STALE_ID_FOR.values())
+        fill_vacancies = [
+            (spec.track.id, spec.connector, ct_id)
+            for spec in sorted(mappings, key=lambda s: -s.confidence)
+            if spec.track.id
+            and not spec.primary
+            and spec.match_method not in stale_methods
+            and (spec.track.id, spec.connector) not in elected_pairs
+            and (ct_id := connector_id_map.get((spec.connector, spec.connector_id)))
+            and (spec.track.id, ct_id) in asserted
+        ]
+        if fill_vacancies:
+            _ = await self._batch_ensure_primary_mappings(
+                fill_vacancies,
+                external_by_ct_id={
+                    ct_id: external for (_, external), ct_id in connector_id_map.items()
+                },
+            )
 
     @staticmethod
     def _build_mapping_rows(
@@ -2074,10 +2113,9 @@ class TrackConnectorRepository:
             track_id: PrimaryMappingDetail(
                 connector_id=conn_id,
                 confidence=confidence,
-                match_method=match_method,
+                match_method=_vocabulary_match_method(match_method, row=track_id),
             )
             for track_id, conn_id, confidence, match_method in result.tuples()
-            if is_match_method(match_method)
         }
 
     @db_operation("queue_isrc_collision_review")

@@ -10,12 +10,12 @@ the same thing from the display side.
 
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities import ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorMappingSpec
-from src.infrastructure.persistence.database.db_models import DBTrackMapping
+from src.infrastructure.persistence.database.db_models import DBTrack, DBTrackMapping
 from src.infrastructure.persistence.database.live_rows import live_only
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_connector_track, make_track
@@ -159,6 +159,92 @@ class TestMapTracksToConnectors:
 
         (domain,) = await _assert_no_vacancy(db_session, track.id)
         assert domain.connector_track_identifiers["spotify"] == live
+
+    async def test_candidate_dropped_by_a_manual_override_does_not_block_election(
+        self, db_session: AsyncSession
+    ):
+        """A higher-confidence spec whose row a manual override elsewhere
+        filtered out must not win first-wins dedup and leave the surviving
+        lower-confidence row without a primary."""
+        connector_repo = get_unit_of_work(db_session).get_connector_repository()
+        pinned_owner = await _save_track(db_session, f"Pinned {uuid4().hex[:8]}")
+        track = await _save_track(db_session, f"Gold Rush {uuid4().hex[:8]}")
+        pinned_id = f"sp_pinned_{uuid4().hex[:8]}"
+        await connector_repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=pinned_owner,
+                connector="spotify",
+                connector_id=pinned_id,
+                match_method="direct_import",
+                confidence=100,
+                origin="manual_override",
+                primary=True,
+            )
+        ])
+
+        await connector_repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id=pinned_id,
+                match_method="isrc",
+                confidence=90,
+            ),
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id=f"sp_survivor_{uuid4().hex[:8]}",
+                match_method="artist_title",
+                confidence=70,
+            ),
+        ])
+
+        await _assert_no_vacancy(db_session, track.id, pinned_owner.id)
+        assert len(await _live_primary_ct_ids(db_session, track.id)) == 1
+
+    async def test_a_lone_stale_id_secondary_never_takes_a_vacant_slot(
+        self, db_session: AsyncSession
+    ):
+        """A stale-id row exists so a dead id resolves from cache; promoting
+        it would write the dead id into ``tracks.spotify_id``."""
+        connector_repo = get_unit_of_work(db_session).get_connector_repository()
+        track = await _save_track(db_session, f"Gold Rush {uuid4().hex[:8]}")
+        live = f"sp_live_{uuid4().hex[:8]}"
+        await connector_repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id=live,
+                match_method="direct_import",
+                confidence=100,
+                primary=True,
+            )
+        ])
+        # Pre-existing drift no writer produces any more: a vacant pair.
+        _ = await db_session.execute(
+            update(DBTrackMapping)
+            .where(DBTrackMapping.track_id == track.id)
+            .values(is_primary=False)
+            .execution_options(synchronize_session=False)
+        )
+
+        await connector_repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id=f"sp_dead_{uuid4().hex[:8]}",
+                match_method="direct_import_stale_id",
+                confidence=100,
+            )
+        ])
+
+        assert await _live_primary_ct_ids(db_session, track.id) == set()
+        spotify_id = (
+            await db_session.execute(
+                select(DBTrack.spotify_id).where(DBTrack.id == track.id)
+            )
+        ).scalar_one()
+        assert spotify_id == live, "the dead id must never reach the column"
 
 
 class TestOtherWriters:

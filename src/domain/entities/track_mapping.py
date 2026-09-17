@@ -6,7 +6,7 @@ layer and domain/application layers.
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Final, Literal, TypeIs
+from typing import Final, Literal, TypeIs, cast, get_args
 from uuid import UUID, uuid7
 
 from attrs import define, field
@@ -64,31 +64,12 @@ type MatchMethod = Literal[
     "isrc_match_stale_id",
 ]
 
-MATCH_METHODS: Final[frozenset[MatchMethod]] = frozenset({
-    "direct",
-    "isrc",
-    "mbid",
-    "artist_title",
-    "direct_import",
-    "search_fallback",
-    "spotify_redirect",
-    "spotify_connector_play_resolver",
-    "lastfm_discovery",
-    "lastfm_import",
-    "lastfm_import_raw_alias",
-    "canonical_reuse",
-    "isrc_match",
-    "isrc_suspect",
-    "mbid_match",
-    "direct_import_stale_id",
-    "search_fallback_stale_id",
-    "isrc_match_stale_id",
-})
-"""Runtime membership test for :data:`MatchMethod`.
-
-Kept adjacent to the type so the two are edited together; the vocabulary
-test checks they agree.
-"""
+# ``cast("object", ...)`` keeps the PEP 695 ``__value__`` (typed Any) out of
+# strict type checking — the idiom ``workflows/nodes/registry.py`` uses.
+MATCH_METHODS: Final[frozenset[MatchMethod]] = frozenset(
+    get_args(cast("object", MatchMethod.__value__))
+)
+"""Runtime membership test for :data:`MatchMethod`, derived from the alias."""
 
 
 def is_match_method(value: str) -> TypeIs[MatchMethod]:
@@ -108,10 +89,9 @@ STALE_ID_FOR: Final[Mapping[MatchMethod, MatchMethod]] = {
 # subsequent ingestion or matching run.
 type MappingOrigin = Literal["automatic", "manual_override"]
 
-MAPPING_ORIGINS: Final[frozenset[MappingOrigin]] = frozenset({
-    "automatic",
-    "manual_override",
-})
+MAPPING_ORIGINS: Final[frozenset[MappingOrigin]] = frozenset(
+    get_args(cast("object", MappingOrigin.__value__))
+)
 
 
 def is_mapping_origin(value: str) -> TypeIs[MappingOrigin]:
