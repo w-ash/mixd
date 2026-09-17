@@ -1085,6 +1085,44 @@ class TestPlannedWritePipeline:
         assert metrics.failed == 2
         assert metrics.write_failed == 2
 
+    async def test_a_contested_creation_fails_when_its_leader_is_rolled_back(
+        self,
+    ):
+        """Persisted alone it would hold neither the ISRC nor the review that
+        decides who keeps it — and nothing would ever ask the question."""
+        resolver = PipelineResolver(
+            answers=[
+                _answer("leader", isrc="USUM72309818", duration_ms=200_000),
+                _answer("twin", isrc="USUM72309818", duration_ms=260_000),
+            ]
+        )
+        uow, track_repo, _, _, review_repo = _pipeline_uow()
+
+        async def _refuse_the_leader(tracks):
+            if any(track.isrc == "USUM72309818" for track in tracks):
+                raise RuntimeError("identity key claimed by a concurrent import")
+            return [make_track(2, title="T") for _ in tracks]
+
+        track_repo.save_tracks.side_effect = _refuse_the_leader
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["leader", "twin"], uow, user_id="test-user"
+        )
+
+        assert result == {}
+        assert metrics.created == 0
+        assert metrics.failed == 2
+        assert metrics.write_failed == 2
+        review_repo.create_reviews_batch.assert_not_awaited()
+        # The chunk, then the leader alone; the twin's own per-item retry
+        # never reached ``save_tracks`` — the guard fails it before an
+        # ISRC-less row could land.
+        saved = [
+            [track.isrc for track in call.args[0]]
+            for call in track_repo.save_tracks.await_args_list
+        ]
+        assert saved == [["USUM72309818", None], ["USUM72309818"]]
+
 
 class TestReuseRefusalEvents:
     """A priced-but-refused reuse candidate leaves a ``rejected`` event."""
@@ -1113,6 +1151,28 @@ class TestReuseRefusalEvents:
             "title_similarity": 0.6,
             "title_threshold": 0.9,
         }
+
+    async def test_a_fold_onto_an_in_chunk_leader_still_records_its_refusal(self):
+        """Two ids with one name and one near-miss candidate: the second folds
+        onto the first, and each still leaves its own ``rejected`` event."""
+        candidate = make_track(42, title="My Song (Live at Wembley)", artist="Artist")
+        uow = _make_reuse_uow({("my song", "artist"): candidate})
+
+        resolver = ReuseHintResolver({
+            "id_a": ("Artist", "My Song"),
+            "id_b": ("Artist", "My Song"),
+        })
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a", "id_b"], uow, user_id="test-user"
+        )
+
+        assert metrics.reused == 0
+        assert set(result) == {"id_a", "id_b"}
+        (call,) = uow.get_resolution_recorder().record.await_args_list
+        events = call.args[0]
+        assert [event.event_type for event in events] == ["rejected", "rejected"]
+        assert {event.track_id for event in events} == {candidate.id}
+        assert {event.payload["connector_id"] for event in events} == {"id_a", "id_b"}
 
     async def test_an_accepted_reuse_leaves_no_event(self):
         candidate = make_track(42, title="My Songs", artist="Artist")

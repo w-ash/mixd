@@ -350,7 +350,9 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
         for write in writes:
             if _is_redirect(write):
                 self._provenance[write.requested_id] = Provenance.REDIRECT
-            elif write.review is not None:
+            elif write.defers_to_review:
+                # Against a persisted owner or an in-chunk leader alike: both
+                # withheld the ISRC and queued the question.
                 self._provenance[write.requested_id] = Provenance.ISRC_DEFERRED
 
     @override

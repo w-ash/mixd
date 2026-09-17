@@ -1266,6 +1266,50 @@ class TestIdentityReuseBeforeCreation:
         uow.get_match_review_repository().create_reviews_batch.assert_called_once()
         track_repo.save_track.assert_called_once()
         assert result[suspect_id].id not in {42, 43}
+        assert resolver.isrc_suspect_deferred_ids == {suspect_id}
+
+    async def test_a_suspect_in_chunk_collision_counts_as_deferred(self):
+        """Against an in-chunk leader as against a persisted owner: the ISRC
+        was withheld and a review queued, so the metric must see it."""
+        leader, twin = "isrc_leader_id_000001", "isrc_twin_id_00000001"
+        connector = self._fetch({
+            leader: make_spotify_track(
+                leader,
+                "Same Song",
+                "Same Artist",
+                duration_ms=200_000,
+                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+            ),
+            twin: make_spotify_track(
+                twin,
+                "Same Song",
+                "Same Artist",
+                duration_ms=260_000,
+                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+            ),
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, _ = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.save_track.side_effect = [make_track(1), make_track(2)]
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [leader, twin], uow, user_id="test-user"
+        )
+
+        assert set(result) == {leader, twin}
+        assert metrics.created == 2
+        uow.get_match_review_repository().create_reviews_batch.assert_called_once()
+        # Which of the two leads is chunk order, and chunk order is a set —
+        # the invariant is that exactly the contested one is deferred.
+        (deferred,) = resolver.isrc_suspect_deferred_ids
+        assert deferred in {leader, twin}
+        led_by = twin if deferred == leader else leader
+        (review,) = (
+            uow.get_match_review_repository().create_reviews_batch.call_args.args[0]
+        )
+        assert review.track_id == result[led_by].id
 
     async def test_a_relink_still_records_its_substitution(self):
         """A stale requested id keeps the redirect shape: dual mapping and event."""
