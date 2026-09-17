@@ -13,7 +13,7 @@ paths:
 - **Exception logging**: `logger.error(msg, exc_info=True)` — structlog stdlib mode uses standard `exc_info` kwarg
 - **Context propagation**: `with logging_context(key=value):` for async-safe contextvars — NOT `logger.contextualize()`
 - **httpx2 event hooks on AsyncClient**: hooks MUST be `async def` — `AsyncClient` always awaits them; sync hook raises `TypeError`
-- **No TYPE_CHECKING** unless circular imports (exception: `operations.py` → `spotify/personal_data`)
+- **No TYPE_CHECKING** unless circular imports (exceptions: `operations.py` → `spotify/personal_data`; `database/models/track.py` → `models/mapping.py`, `models/play.py` — the ORM leaf names its reverse-relationship targets, which SQLAlchemy resolves through the registry)
 - **Multi-exception syntax**: `except CancelledError, Exception:` (no parens, PEP 758)
 - **No suppressions**: resolve lint/type warnings by fixing the code, not `# noqa` / `# type: ignore` / `# pyright: ignore[...]` / file-level `reportAny`. For `Any`, reach for `object`, `Awaitable[T]`, `ParamSpec`, `Protocol`, `TypeVar`, or Pydantic models. A genuinely-required suppression (third-party stubs, `# noqa: S104` for an intentional `0.0.0.0` bind) needs user sign-off first.
   - **Carve-out (repository layer):** string-keyed SQLAlchemy column reflection — `getattr(self.model_class, field)` for dynamic column access, and the SQLAlchemy-generic `ORMOption` / `InstrumentedAttribute[Any]` surface — is a **pre-approved** `# pyright: ignore[reportAny]` (no per-instance sign-off). The only alternative is an uglier `cast("QueryableAttribute[object]", …)`, a suppression in disguise. Keep these few; `scripts/check_ratchet.sh`'s `BASE_PYRIGHT_IGNORE` bounds the total so they can't proliferate.
