@@ -611,16 +611,26 @@ class TrackConnectorRepository:
         # The specs that named which connector id each track's primary should
         # be: a deposition, not a vacancy fill. ``connector_id_map`` was just
         # built (or passed) from these same rows, so the external-id →
-        # internal-id conversion is a dict lookup, never a query.
+        # internal-id conversion is a dict lookup, never a query. Only a row
+        # this batch actually asserted can be elected: a spec the
+        # manual-override filter dropped has no row under this track, and a
+        # stale-id spec is never electable — a ``reset`` that cannot promote
+        # what it deposed raises, so neither may reach it. Their pairs fall
+        # through to the vacancy fill below instead.
         external_by_ct_id = {
             ct_id: external for (_, external), ct_id in connector_id_map.items()
+        }
+        asserted = {
+            (row["track_id"], row["connector_track_id"]) for row in mapping_rows
         }
         promote_to_primary = [
             PrimaryCandidate(spec.track.id, spec.connector, ct_id)
             for spec in mappings
             if spec.primary
             and spec.track.id
+            and spec.match_method not in STALE_ID_METHODS
             and (ct_id := connector_id_map.get((spec.connector, spec.connector_id)))
+            and (spec.track.id, ct_id) in asserted
         ]
         if promote_to_primary:
             _ = await self.mapping_repo.ensure_primaries(
@@ -630,7 +640,7 @@ class TrackConnectorRepository:
         if mapping_rows:
             await self._fill_primary_vacancies(
                 mappings,
-                mapping_rows,
+                asserted,
                 connector_id_map,
                 promote_to_primary,
                 external_by_ct_id=external_by_ct_id,
@@ -743,7 +753,7 @@ class TrackConnectorRepository:
     async def _fill_primary_vacancies(
         self,
         mappings: list[ConnectorMappingSpec],
-        mapping_rows: list[dict[str, object]],
+        asserted: set[tuple[object, object]],
         connector_id_map: dict[tuple[str, str], UUID],
         promote_to_primary: list[PrimaryCandidate],
         *,
@@ -751,21 +761,19 @@ class TrackConnectorRepository:
     ) -> None:
         """Elect a primary for every asserted pair that still lacks one.
 
-        Candidates are the rows that were actually asserted — a spec whose
-        row ``filter_manual_overrides`` dropped would win first-wins dedup
-        and then match nothing, leaving the pair vacant. A pair that also
-        carried a ``primary=True`` spec in this batch was just elected and is
-        skipped, and a stale-id secondary is never a candidate: it exists so a
-        dead id resolves from cache, and promoting it would write that dead id
-        into the denormalized column. Highest confidence first, so first-wins
-        is the same choice ``ensure_primary_for_connector`` makes.
+        Candidates are the rows that were actually asserted (``asserted`` is
+        their (track, connector track) set) — a spec whose row
+        ``filter_manual_overrides`` dropped would win first-wins dedup and
+        then match nothing, leaving the pair vacant. A pair that also carried
+        a ``primary=True`` spec in this batch was just elected and is skipped,
+        and a stale-id secondary is never a candidate: it exists so a dead id
+        resolves from cache, and promoting it would write that dead id into
+        the denormalized column. Highest confidence first, so first-wins is
+        the same choice ``ensure_primary_for_connector`` makes.
         """
         elected_pairs = {
             (candidate.owner_id, candidate.connector_name)
             for candidate in promote_to_primary
-        }
-        asserted = {
-            (row["track_id"], row["connector_track_id"]) for row in mapping_rows
         }
         fill_vacancies = [
             PrimaryCandidate(spec.track.id, spec.connector, ct_id)

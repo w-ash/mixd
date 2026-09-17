@@ -18,6 +18,7 @@ never on ``DatabaseModel.metadata``, so the schema gates never see it.
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid7
 
 import pytest
@@ -140,13 +141,14 @@ def _row(
     origin: str = "automatic",
     user_id: str = _USER,
     evidence: JsonDict | None = None,
+    match_method: str = "direct",
 ) -> dict[str, object]:
     return {
         "user_id": user_id,
         "artist_id": artist_id,
         "connector_artist_id": connector_artist_id,
         "connector_name": "spotify",
-        "match_method": "direct",
+        "match_method": match_method,
         "confidence": confidence,
         "confidence_evidence": evidence,
         "origin": origin,
@@ -230,6 +232,57 @@ class TestAssertWithoutSupersession:
         assert [w.id for w in outcome.written] == [first.created[0]]
         assert outcome.written[0].owner_id == other
 
+    async def test_a_mixed_batch_tells_inserts_from_updates_by_returning(
+        self, db_session: AsyncSession, repo: ArtistMappingProbeRepository
+    ) -> None:
+        """One statement, both outcomes: the new key is created, the existing
+        one touched — classified from ``xmax``, not from id bookkeeping."""
+        artist, ca_old, ca_new = uuid7(), uuid7(), uuid7()
+        first = await repo.assert_mappings([_row(artist, ca_old)])
+
+        outcome = await repo.assert_mappings([
+            _row(artist, ca_old),
+            _row(artist, ca_new),
+        ])
+
+        assert outcome.touched == first.created
+        assert len(outcome.created) == 1
+        assert outcome.created[0] == (await _rows(db_session, ca_new))[0].id
+        assert not outcome.rewritten
+        assert [w.id for w in outcome.written] == list(outcome.created)
+
+    async def test_a_row_the_pre_read_missed_is_still_a_rewrite(
+        self, db_session: AsyncSession, repo: ArtistMappingProbeRepository
+    ) -> None:
+        """The race: a row committed between ``_live_incumbents`` and the
+        upsert is updated by ``DO UPDATE`` but was never read. It used to
+        land in no bucket — no event, no restoration. Simulated by an empty
+        incumbent read."""
+        artist, other, ca = uuid7(), uuid7(), uuid7()
+        first = await repo.assert_mappings([_row(artist, ca, confidence=60)])
+        _ = await repo.ensure_primaries(
+            [PrimaryCandidate(artist, "spotify", ca)], mode="fill"
+        )
+
+        with patch.object(
+            ArtistMappingProbeRepository, "_live_incumbents", AsyncMock(return_value={})
+        ):
+            outcome = await repo.assert_mappings([_row(other, ca, confidence=95)])
+
+        assert outcome.rewritten == first.created
+        assert not outcome.created
+        assert not outcome.touched
+        assert [w.id for w in outcome.written] == [first.created[0]]
+        assert outcome.written[0].owner_id == other
+        # Nobody read the incumbent, so its primacy is unknown: restoring is
+        # the safe side (fill mode never deposes), and the owner it left
+        # cannot be named.
+        assert outcome.primacy_restorations == (PrimaryCandidate(other, "spotify", ca),)
+        assert outcome.vacated_owners == ()
+        (row,) = await _rows(db_session, ca)
+        assert row.artist_id == other
+        assert row.is_primary is False
+
 
 class TestElection:
     async def test_fill_promotes_into_a_vacancy_and_respects_an_incumbent(
@@ -272,6 +325,42 @@ class TestElection:
         assert promoted == 1
         assert (await _rows(db_session, ca_a))[0].is_primary is False
         assert (await _rows(db_session, ca_b))[0].is_primary is True
+
+    async def test_reset_onto_a_stale_id_row_raises_and_keeps_the_incumbent(
+        self, db_session: AsyncSession, repo: ArtistMappingProbeRepository
+    ) -> None:
+        """A reset that cannot promote what it deposed must not release the
+        savepoint: the pair would be left with no primary at all."""
+        artist, ca_live, ca_stale = uuid7(), uuid7(), uuid7()
+        _ = await repo.assert_mappings([
+            _row(artist, ca_live, match_method="direct_import"),
+            _row(artist, ca_stale, match_method="direct_import_stale_id"),
+        ])
+        _ = await repo.ensure_primaries(
+            [PrimaryCandidate(artist, "spotify", ca_live)], mode="fill"
+        )
+
+        with pytest.raises(ValueError, match="promoted 0 of 1 artist mapping"):
+            _ = await repo.ensure_primaries(
+                [PrimaryCandidate(artist, "spotify", ca_stale)], mode="reset"
+            )
+
+        # The savepoint rolled back: the deposition never landed, and the
+        # transaction is still usable.
+        assert (await _rows(db_session, ca_live))[0].is_primary is True
+        assert (await _rows(db_session, ca_stale))[0].is_primary is False
+
+    async def test_reset_onto_a_missing_row_raises(
+        self, repo: ArtistMappingProbeRepository
+    ) -> None:
+        """The row named was retired (or never asserted) under the caller."""
+        artist, ca = uuid7(), uuid7()
+        _ = await repo.assert_mappings([_row(artist, ca)])
+
+        with pytest.raises(ValueError, match="promoted 0 of 1"):
+            _ = await repo.ensure_primaries(
+                [PrimaryCandidate(artist, "spotify", uuid7())], mode="reset"
+            )
 
     async def test_repair_fills_every_vacancy_highest_confidence_first(
         self, db_session: AsyncSession, repo: ArtistMappingProbeRepository

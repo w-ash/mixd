@@ -293,12 +293,15 @@ class SupersessionEdge(NamedTuple):
     Tenancy travels with the edge, rather than being supplied once per caller,
     because a single batch can span users and connectors — the recorder groups
     by (user_id, connector_name) internally, so no caller has to.
+    ``entity_kind`` says which mapping table the two ids point into; the event
+    is stamped with it.
     """
 
     predecessor_id: UUID
     successor_id: UUID
     user_id: str
     connector_name: str
+    entity_kind: EntityKind = "track"
 
 
 class ResolutionRecorderProtocol(Protocol):

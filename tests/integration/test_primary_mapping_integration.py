@@ -7,11 +7,14 @@ operations against a real PostgreSQL database.
 
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.repositories.connector import ConnectorMappingSpec
+from src.domain.repositories.mapping import PrimaryCandidate
 from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
@@ -292,3 +295,76 @@ class TestPrimaryMappingQueries:
 
         assert mapping_status["sp_relink_A"] is False
         assert mapping_status["sp_relink_B"] is True
+
+    async def test_reset_onto_a_stale_id_row_leaves_primary_and_column_intact(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """A reset election that promotes nothing rolls its deposition back.
+
+        The stale-id row is a cache entry for a dead identifier and can never
+        be primary; a reset naming it used to depose the live primary, promote
+        nothing, and commit — a vacancy, with ``tracks.spotify_id`` still
+        pointing at the deposed row.
+        """
+        track_repo = TrackRepository(db_session)
+        saved_track = await track_repo.save_track(
+            Track(
+                id=None,
+                title="Stale Reset Test",
+                artists=[Artist(name="Stale Artist")],
+                user_id=TEST_USER_ID,
+            )
+        )
+        assert saved_track.id is not None
+        test_data_tracker.add_track(saved_track.id)
+        repo = TrackConnectorRepository(db_session)
+        await repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=saved_track,
+                connector="spotify",
+                connector_id="sp_stale_live",
+                match_method="direct_import",
+                confidence=100,
+                primary=True,
+            ),
+            ConnectorMappingSpec(
+                track=saved_track,
+                connector="spotify",
+                connector_id="sp_stale_dead",
+                match_method="direct_import_stale_id",
+                confidence=100,
+            ),
+        ])
+        await db_session.commit()
+        dead_ct_id = (
+            await db_session.execute(
+                select(DBConnectorTrack.id).where(
+                    DBConnectorTrack.connector_track_identifier == "sp_stale_dead"
+                )
+            )
+        ).scalar_one()
+
+        with pytest.raises(ValueError, match="promoted 0 of 1 track mapping"):
+            _ = await repo.ensure_primaries(
+                [PrimaryCandidate(saved_track.id, "spotify", dead_ct_id)],
+                mode="reset",
+            )
+
+        primaries = await db_session.execute(
+            select(DBConnectorTrack.connector_track_identifier)
+            .join(
+                DBTrackMapping,
+                DBTrackMapping.connector_track_id == DBConnectorTrack.id,
+            )
+            .where(
+                DBTrackMapping.track_id == saved_track.id,
+                DBTrackMapping.is_primary.is_(True),
+            )
+        )
+        assert list(primaries.scalars().all()) == ["sp_stale_live"]
+        spotify_id = (
+            await db_session.execute(
+                select(DBTrack.spotify_id).where(DBTrack.id == saved_track.id)
+            )
+        ).scalar_one()
+        assert spotify_id == "sp_stale_live"

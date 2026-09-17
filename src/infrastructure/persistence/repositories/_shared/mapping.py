@@ -27,6 +27,7 @@ from uuid import UUID, uuid7
 from attrs import define, field
 from psycopg.errors import UniqueViolation
 from sqlalchemy import (
+    Boolean,
     ColumnCollection,
     ColumnElement,
     FromClause,
@@ -34,6 +35,7 @@ from sqlalchemy import (
     case,
     column,
     func,
+    literal_column,
     select,
     true,
     tuple_,
@@ -131,6 +133,21 @@ class MappingShape:
     connector_id_col: str
     live_key: tuple[str, ...]
     supersession: bool
+
+    def __attrs_post_init__(self) -> None:
+        """Reject a live key the incumbent read cannot reconstruct.
+
+        ``_live_incumbents`` keys what it reads by ``user_id``, the connector
+        id column and ``connector_name``; a live key spelled over any other
+        column would silently never match an incumbent.
+        """
+        allowed = {"user_id", self.connector_id_col, "connector_name"}
+        unknown = sorted(set(self.live_key) - allowed)
+        if unknown:
+            raise ValueError(
+                f"MappingShape({self.entity_kind!r}): live_key names column(s) "
+                f"{unknown} outside {sorted(allowed)}"
+            )
 
     @property
     def required_keys(self) -> tuple[str, ...]:
@@ -327,6 +344,30 @@ def _is_unique_violation(error: IntegrityError) -> bool:
     return isinstance(error.orig, UniqueViolation)
 
 
+# The columns a superseding table must carry. ``supersession_reason`` is only
+# ever a string key in the assert's ``set_`` — never resolved through
+# ``MappingColumns`` — so without this check a table missing just that one
+# passes construction and fails on its first changed decision.
+_SUPERSESSION_COLUMNS: Final = (
+    "superseded_at",
+    "superseded_by_id",
+    "supersession_reason",
+)
+
+
+def _require_shape_columns(table: FromClause, shape: MappingShape) -> None:
+    """Fail at construction, naming shape and table, when the two disagree."""
+    required = [shape.owner_id_col, shape.connector_id_col, *shape.live_key]
+    if shape.supersession:
+        required.extend(_SUPERSESSION_COLUMNS)
+    missing = sorted(name for name in required if name not in table.c)
+    if missing:
+        raise ValueError(
+            f"MappingShape({shape.entity_kind!r}) names column(s) {missing} "
+            f"that table {table.description!r} does not have"
+        )
+
+
 class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
     """Assert, scope, elect and record for one typed mapping table.
 
@@ -350,6 +391,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         super().__init__(session=session, model_class=model_class, mapper=mapper)
         self.shape = shape
         self.table = model_class.__table__
+        _require_shape_columns(self.table, shape)
         self.columns = MappingColumns.of(self.table.c, shape)
 
     # ── hooks ────────────────────────────────────────────────────────
@@ -682,6 +724,16 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         history. Primacy is cleared on a rewrite for the same reason a
         retirement clears it: the pair the row now belongs to may already
         hold a primary, and two would violate the primary partial unique.
+
+        Insert-or-update is read off ``RETURNING`` (``xmax = 0`` is true only
+        for a freshly inserted tuple), not inferred from the pre-upsert read:
+        a row another transaction committed between ``_live_incumbents`` and
+        this statement is updated here without ever having been read. Touch
+        versus rewrite still needs the incumbent's decision, so such a row —
+        updated, but with no incumbent on record — is classified as rewritten:
+        the event and the (vacancy-only) restoration are the safe side of not
+        knowing, and its prior owner, which nobody read, cannot be reported
+        as vacated.
         """
         cols = self.columns
         insert_stmt = pg_insert(self.model_class).values(prepared)
@@ -704,30 +756,39 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
                     ),
                 },
             )
-            .returning(cols.id)
+            .returning(cols.id, literal_column("xmax = 0", Boolean), *cols.live_key)
             .execution_options(synchronize_session=False)
         )
         result = await self.session.execute(upsert)
-        affected = set(result.scalars().all())
+        # (id, inserted, *live_key) — the key's width is the shape's.
+        returned: Sequence[Sequence[object]] = result.all()
+        affected = [
+            (cast("UUID", row[0]), cast("bool", row[1]), tuple(row[2:]))
+            for row in returned
+        ]
 
-        inserted_ids = {cast("UUID", row["id"]) for row in prepared}
-        created = tuple(mid for mid in affected if mid in inserted_ids)
+        by_key = {self._key_of(row): row for row in prepared}
+        created: list[UUID] = []
         touched: list[UUID] = []
         rewritten: list[UUID] = []
-        written = [self._written_row(row) for row in prepared if row["id"] in affected]
+        written: list[AssertedMappingRow] = []
         restorations: list[PrimaryCandidate] = []
         vacated: set[tuple[UUID, str]] = set()
-        for row in prepared:
-            incumbent = incumbents.get(self._key_of(row))
-            if incumbent is None or incumbent.id not in affected:
+        for mapping_id, inserted, key in affected:
+            row = by_key[key]
+            if inserted:
+                created.append(mapping_id)
+                written.append(self._written_row(row))
                 continue
-            if incumbent.decision == self._decision_of(row):
-                touched.append(incumbent.id)
+            incumbent = incumbents.get(key)
+            if incumbent is not None and incumbent.decision == self._decision_of(row):
+                touched.append(mapping_id)
                 continue
-            rewritten.append(incumbent.id)
-            written.append(self._written_row(row, id_=incumbent.id))
-            if incumbent.is_primary:
+            rewritten.append(mapping_id)
+            written.append(self._written_row(row, id_=mapping_id))
+            if incumbent is None or incumbent.is_primary:
                 restorations.append(self._candidate_of(row))
+            if incumbent is not None and incumbent.is_primary:
                 new_owner = cast("UUID", row[self.shape.owner_id_col])
                 if incumbent.owner_id != new_owner:
                     vacated.add((
@@ -744,7 +805,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
             )
 
         return MappingAssertion(
-            created=created,
+            created=tuple(created),
             touched=tuple(touched),
             rewritten=tuple(rewritten),
             primacy_restorations=tuple(restorations),
@@ -818,17 +879,42 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         logged and reported as ``False``, which left the caller's transaction
         poisoned with nothing to tell it so.
 
+        **Deduplicated first, by (owner, connector), first wins.** The primary
+        partial unique admits one live primary per (user, owner, connector),
+        and the promotion's guard is evaluated against the statement-start
+        snapshot — it cannot see rows this same UPDATE is promoting. Two rows
+        for one pair in one batch would therefore both pass the guard and
+        collide.
+
         Returns the number of mappings promoted; a ``fill`` over an occupied
-        pair promotes nothing and is not an error.
+        pair promotes nothing and is not an error. A ``reset`` that promotes
+        fewer pairs than it was asked to *is*: the deposition already ran, so
+        releasing the savepoint would leave those pairs with no primary and a
+        denormalized column pointing at the deposed row. The ``ValueError``
+        rolls the savepoint back with the incumbents intact — the named row is
+        a stale-id cache entry, or was retired under the caller's feet.
         """
         if not candidates:
             return 0
+        deduped: dict[tuple[UUID, str], PrimaryCandidate] = {}
+        for candidate in candidates:
+            _ = deduped.setdefault(
+                (candidate.owner_id, candidate.connector_name), candidate
+            )
+        elect = list(deduped.values())
         async with self.session.begin_nested():
             if mode == "reset":
-                await self._reset_primaries(candidates)
-            return await self._promote_into_vacancies(
-                candidates, external_ids=external_ids
+                await self._reset_primaries(elect)
+            promoted = await self._promote_into_vacancies(
+                elect, external_ids=external_ids
             )
+            if mode == "reset" and promoted < len(elect):
+                raise ValueError(
+                    f"reset election promoted {promoted} of {len(elect)} "
+                    f"{self.shape.entity_kind} mapping(s): a named mapping is "
+                    "not live or is a stale-id row and cannot be primary"
+                )
+            return promoted
 
     async def _reset_primaries(self, candidates: Sequence[PrimaryCandidate]) -> None:
         """Clear ``is_primary`` on every live mapping of these (owner, connector) pairs.
@@ -862,11 +948,8 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
     ) -> int:
         """Fill a vacant primary slot for each pair, in one statement.
 
-        **Deduplicated first, by (owner, connector), first wins.** The primary
-        partial unique admits one live primary per (user, owner, connector),
-        and the guard below is evaluated against the statement-start snapshot
-        — it cannot see rows this same UPDATE is promoting. Two rows for one
-        pair in one batch would therefore both pass the guard and collide.
+        ``candidates`` is one per (owner, connector) — :meth:`ensure_primaries`
+        deduplicates before calling.
 
         **``RETURNING`` is the "promotion landed" signal**: the FM4d rule needs
         to know exactly which pairs moved before a hook touches a denormalized
@@ -874,17 +957,11 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         count to read instead.
         """
         cols = self.columns
-        deduped: dict[tuple[UUID, str], PrimaryCandidate] = {}
-        for candidate in candidates:
-            _ = deduped.setdefault(
-                (candidate.owner_id, candidate.connector_name), candidate
-            )
-
         promotion_values = values(
             column("owner_id", PGUUID(as_uuid=True)),
             column("connector_id", PGUUID(as_uuid=True)),
             name="promotion_values",
-        ).data([(c.owner_id, c.connector_id) for c in deduped.values()])
+        ).data([(c.owner_id, c.connector_id) for c in candidates])
 
         peer = MappingColumns.of(self.table.alias("peer").c, self.shape)
         result = await self.session.execute(
@@ -1050,8 +1127,8 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
             reason=assertion.reason,
         )
 
-    @staticmethod
     async def _record_supersession_edges(
+        self,
         recorder: ResolutionRecorderProtocol,
         edges: Mapping[UUID, UUID],
         successor_owners: Mapping[UUID, tuple[str, str]],
@@ -1065,7 +1142,8 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         ``reason`` comes from the assertion that produced these edges: a
         relink asserts with ``manual``, and an event saying ``rematch`` about
         a row whose column says ``manual`` is the log contradicting the data
-        it exists to explain.
+        it exists to explain. ``entity_kind`` is the shape's, as on every
+        other event this repository emits.
         """
         supersession_edges = [
             SupersessionEdge(
@@ -1073,6 +1151,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
                 successor_id=successor,
                 user_id=owner[0],
                 connector_name=owner[1],
+                entity_kind=self.shape.entity_kind,
             )
             for predecessor, successor in edges.items()
             if (owner := successor_owners.get(successor)) is not None

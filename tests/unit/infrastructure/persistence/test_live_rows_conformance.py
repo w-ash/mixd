@@ -31,6 +31,19 @@ _TABLE = "track_mappings"
 _BUILDERS = frozenset({"select", "update", "delete"})
 _LIVE_TOKENS = ("live_only(", "include_superseded", "INCLUDE_SUPERSEDED")
 
+# The generic mapping repository never names ``DBTrackMapping``: every
+# statement in it is built over ``self.model_class`` or the typed column
+# handles ``cols.`` / ``peer.``, and scopes itself with ``MappingColumns.live``
+# (``superseded_at IS NULL`` on a superseding table, ``true()`` otherwise).
+# Without this second vocabulary the guard above was blind to the one module
+# that will address every mapping table.
+_GENERIC_MODULE = _SRC / "infrastructure/persistence/repositories/_shared/mapping.py"
+_GENERIC_MODEL_TOKENS = ("self.model_class", "cols.", "peer.")
+_GENERIC_LIVE_TOKEN = ".live"
+# A builder *call*, not any method whose name ends in one — ``pg_insert(...)
+# .on_conflict_do_update(`` is an upsert, scoped by its own ``index_where``.
+_BUILDER_CALL = re.compile(r"(?<![\w.])(?:select|update|delete)\(")
+
 # An inline opt-out for a SQL statement that genuinely must span both live and
 # retired rows. Spelled out in full so it reads as a decision in the diff, and
 # it must carry a reason after the marker.
@@ -62,8 +75,9 @@ def _is_docstring(node: ast.stmt) -> bool:
     )
 
 
-def _offending_statements(source: str, tree: ast.Module) -> list[tuple[int, str]]:
-    offenders: list[tuple[int, str]] = []
+def _leaf_segments(source: str, tree: ast.Module) -> list[tuple[int, str]]:
+    """Source of every leaf statement, docstrings excluded."""
+    segments: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, _LEAF_STATEMENTS):
             continue
@@ -74,13 +88,37 @@ def _offending_statements(source: str, tree: ast.Module) -> list[tuple[int, str]
             # rule naturally name the model and the builders in their prose.
             continue
         segment = ast.get_source_segment(source, node)
-        if segment is None:
-            continue
-        if _mentions_builder_over_model(segment) and not any(
-            token in segment for token in _LIVE_TOKENS
-        ):
-            offenders.append((node.lineno, segment.splitlines()[0].strip()))
-    return offenders
+        if segment is not None:
+            segments.append((node.lineno, segment))
+    return segments
+
+
+def _offending_statements(source: str, tree: ast.Module) -> list[tuple[int, str]]:
+    return [
+        (lineno, segment.splitlines()[0].strip())
+        for lineno, segment in _leaf_segments(source, tree)
+        if _mentions_builder_over_model(segment)
+        and not any(token in segment for token in _LIVE_TOKENS)
+    ]
+
+
+def _mentions_builder_over_generic(segment: str) -> bool:
+    """True when the statement builds a select/update/delete over the generic's handles."""
+    if not any(token in segment for token in _GENERIC_MODEL_TOKENS):
+        return False
+    return _BUILDER_CALL.search(segment) is not None
+
+
+def _offending_generic_statements(
+    source: str, tree: ast.Module
+) -> list[tuple[int, str]]:
+    """Generic-repository statements that build over the table without ``.live``."""
+    return [
+        (lineno, segment.splitlines()[0].strip())
+        for lineno, segment in _leaf_segments(source, tree)
+        if _mentions_builder_over_generic(segment)
+        and _GENERIC_LIVE_TOKEN not in segment
+    ]
 
 
 def _sql_fragments(sql: str) -> list[str]:
@@ -155,6 +193,24 @@ def test_textual_mapping_sql_is_live_scoped(path: Path):
     )
 
 
+def test_generic_mapping_statements_are_live_scoped():
+    source = _GENERIC_MODULE.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    scoped = [
+        segment
+        for _, segment in _leaf_segments(source, tree)
+        if _mentions_builder_over_generic(segment)
+    ]
+    # The generic is the module this vocabulary exists for: a scan that finds
+    # nothing to check there is scanning the wrong tokens.
+    assert len(scoped) >= 5, "expected the generic's select/update statements"
+    offenders = _offending_generic_statements(source, tree)
+    assert not offenders, (
+        f"{_GENERIC_MODULE}: statement(s) over the mapping table without "
+        f"{_GENERIC_LIVE_TOKEN}: {offenders}"
+    )
+
+
 def test_the_guard_can_actually_fail():
     """A scan that never fails is decoration; prove it catches the real shape."""
     unscoped = (
@@ -166,6 +222,24 @@ def test_the_guard_can_actually_fail():
 
     textual = 'from x import text\nQ = text("UPDATE track_mappings SET x = 1")\n'
     assert _offending_textual_sql(textual, ast.parse(textual))
+
+    generic = (
+        "def f(self, cols):\n"
+        "    return self.session.execute(\n"
+        "        update(self.model_class).where(cols.id == 1).values(is_primary=False)\n"
+        "    )\n"
+    )
+    assert _offending_generic_statements(generic, ast.parse(generic))
+
+    scoped = generic.replace("cols.id == 1", "cols.id == 1, cols.live")
+    assert not _offending_generic_statements(scoped, ast.parse(scoped))
+
+    # An upsert is not a builder call: its scope is its own ``index_where``.
+    upsert = (
+        "def f(self, cols):\n"
+        "    return pg_insert(self.model_class).on_conflict_do_update(set_={})\n"
+    )
+    assert not _offending_generic_statements(upsert, ast.parse(upsert))
 
 
 def test_one_scoped_cte_arm_does_not_exempt_its_siblings():

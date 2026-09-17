@@ -191,7 +191,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         """Filter out matches whose pair is an active cannot-link constraint.
 
         Grouped by owner because a batch may span users — the same reason
-        ``TrackConnectorRepository._record_assertion`` groups its assertions.
+        ``MappingRepository.record_assertion`` groups its assertions.
         Reading the tenant off the first candidate checked everyone else's
         pairs against the wrong owner, and with RLS inert in production
         (PDR-002: the Neon owner role has BYPASSRLS) that is not an error but a
