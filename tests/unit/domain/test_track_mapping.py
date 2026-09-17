@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 from src.domain.entities.track_mapping import TrackMapping
+from tests.fixtures import TEST_USER_ID
 
 
 class TestTrackMappingOrigin:
@@ -13,6 +14,7 @@ class TestTrackMappingOrigin:
             track_id=uuid7(),
             connector_track_id=uuid7(),
             connector_name="spotify",
+            user_id=TEST_USER_ID,
         )
         assert mapping.origin == "automatic"
 
@@ -23,6 +25,7 @@ class TestTrackMappingOrigin:
             connector_track_id=uuid7(),
             connector_name="spotify",
             origin="manual_override",
+            user_id=TEST_USER_ID,
         )
         assert mapping.origin == "manual_override"
 
@@ -36,6 +39,7 @@ class TestTrackMappingSupersession:
             track_id=uuid7(),
             connector_track_id=uuid7(),
             connector_name="spotify",
+            user_id=TEST_USER_ID,
         )
         assert mapping.superseded_by_id is None
         assert mapping.superseded_at is None
@@ -55,6 +59,7 @@ class TestTrackMappingSupersession:
             superseded_at=superseded_at,
             supersession_reason="rematch",
             supersession_scope="market:GB",
+            user_id=TEST_USER_ID,
         )
         assert mapping.superseded_by_id == successor_id
         assert mapping.superseded_at == superseded_at
@@ -71,6 +76,7 @@ class TestTrackMappingSupersession:
             connector_name="spotify",
             superseded_at=datetime.now(UTC),
             supersession_reason="id_dead",
+            user_id=TEST_USER_ID,
         )
         assert mapping.superseded_by_id is None
         assert mapping.supersession_reason == "id_dead"

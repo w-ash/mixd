@@ -63,8 +63,10 @@ from tests.fixtures.mocks import (
     make_tracking_emitter,
 )
 from tests.fixtures.pending_actions import InMemoryPendingActionStore
+from tests.fixtures.tenants import TEST_USER_ID
 
 __all__ = [
+    "TEST_USER_ID",
     "InMemoryPendingActionStore",
     "attach_resolution_recorder",
     "discover_one",

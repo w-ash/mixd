@@ -19,19 +19,18 @@ from src.infrastructure.services.base_play_importer import (
 from tests.fixtures.mocks import make_mock_uow
 
 
-def _make_play(track_name: str, **overrides: str) -> ConnectorTrackPlay:
+def _make_play(track_name: str, user_id: str = "wrong-tenant") -> ConnectorTrackPlay:
     """Build a minimal valid connector play.
 
-    ``user_id`` is left to the entity's ``"default"`` attrs default unless an
-    override is given — that default is the realistic failure shape a chunked
-    importer produces when it forgets to stamp a row.
+    ``user_id`` defaults to a tenant that is not the importing user — the
+    failure shape a chunked importer produces when it stamps a row wrongly.
     """
     return ConnectorTrackPlay(
         artist_name="Test Artist",
         track_name=track_name,
         played_at=datetime(2024, 6, 15, 14, 30, tzinfo=UTC),
         service="lastfm",
-        **overrides,
+        user_id=user_id,
     )
 
 
@@ -56,7 +55,7 @@ class TestRequireUniformTenancy:
         """A defaulted row past the first is caught, not waved through."""
         track_plays = [
             _make_play("First", user_id="u1"),
-            _make_play("Second"),  # takes the "default" attrs default
+            _make_play("Second"),  # stamped with the wrong tenant
             _make_play("Third", user_id="u1"),
         ]
 
@@ -65,7 +64,7 @@ class TestRequireUniformTenancy:
 
         message = str(exc_info.value)
         assert "play 1" in message
-        assert "'default'" in message
+        assert "'wrong-tenant'" in message
         assert "LastfmPlayImporter" in message
 
 

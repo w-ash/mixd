@@ -26,6 +26,7 @@ from src.domain.matching.play_projection import build_play_context
 from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
 )
+from tests.fixtures import TEST_USER_ID
 
 _PLAYED_AT = datetime(2024, 11, 5, 9, 15, 0, tzinfo=UTC)
 
@@ -53,6 +54,7 @@ class TestSpotifyContextParity:
                 "extra_field": "passes through",
             },
             import_source="spotify_export",
+            user_id=TEST_USER_ID,
         )
         resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
         spotify_id = track_uri.rsplit(":", 1)[-1]
@@ -84,6 +86,7 @@ class TestSpotifyApiContextParity:
                 "extra_field": "passes through",
             },
             import_source="spotify_api",
+            user_id=TEST_USER_ID,
         )
 
     def test_domain_builder_matches_resolver_builder(self):

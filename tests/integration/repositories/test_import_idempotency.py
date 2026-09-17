@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 
 class TestImportIdempotency:
@@ -44,6 +44,7 @@ class TestImportIdempotency:
             import_timestamp=datetime.now(UTC),
             import_source="test_import",
             import_batch_id=batch_id,
+            user_id=TEST_USER_ID,
         )
 
         await plays_repo.bulk_insert_plays([test_play])
@@ -89,6 +90,7 @@ class TestImportIdempotency:
             import_timestamp=datetime.now(UTC),
             import_source="lastfm_api",
             import_batch_id=batch_1,
+            user_id=TEST_USER_ID,
         )
 
         # Same (track, service, played_at) as play_1 — only batch_id and context differ.
@@ -101,6 +103,7 @@ class TestImportIdempotency:
             import_timestamp=datetime.now(UTC),
             import_source="lastfm_api",
             import_batch_id=batch_2,
+            user_id=TEST_USER_ID,
         )
 
         await plays_repo.bulk_insert_plays([play_1])
@@ -150,6 +153,7 @@ class TestNullMsPlayedIdempotency:
                 import_timestamp=datetime.now(UTC),
                 import_source="lastfm_api",
                 import_batch_id=batch,
+                user_id=TEST_USER_ID,
             )
 
         await plays_repo.bulk_insert_plays([scrobble("TEST_BATCH_1")])
@@ -171,6 +175,7 @@ class TestNullMsPlayedIdempotency:
             import_timestamp=datetime.now(UTC),
             import_source="lastfm_api",
             import_batch_id="TEST_BATCH_3",
+            user_id=TEST_USER_ID,
         )
         await plays_repo.bulk_insert_plays([richer])
         all_plays = await plays_repo.find_plays_in_window(
@@ -196,6 +201,7 @@ class TestNullMsPlayedIdempotency:
                 import_timestamp=datetime.now(UTC),
                 import_source="lastfm_api",
                 import_batch_id=batch,
+                user_id=TEST_USER_ID,
             )
 
         inserted, duplicates = await connector_repo.bulk_insert_connector_plays([

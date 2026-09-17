@@ -16,7 +16,12 @@ from src.application.use_cases.unlink_connector_track import (
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.domain.entities.track_mapping import TrackMapping
 from src.domain.exceptions import NotFoundError
-from tests.fixtures import make_mock_connector_repo, make_mock_track_repo, make_mock_uow
+from tests.fixtures import (
+    TEST_USER_ID,
+    make_mock_connector_repo,
+    make_mock_track_repo,
+    make_mock_uow,
+)
 
 
 def _make_mapping(
@@ -35,6 +40,7 @@ def _make_mapping(
         confidence=95,
         origin="automatic",
         is_primary=is_primary,
+        user_id=TEST_USER_ID,
     )
 
 
@@ -115,7 +121,10 @@ class TestUnlinkOrphanCreation:
         mapping = _make_mapping()
         ct = _make_connector_track()
         saved_orphan = Track(
-            id=42, title="Test Track", artists=[Artist(name="Test Artist")]
+            id=42,
+            title="Test Track",
+            artists=[Artist(name="Test Artist")],
+            user_id=TEST_USER_ID,
         )
 
         connector_repo = make_mock_connector_repo()

@@ -8,7 +8,7 @@ from src.config import create_matching_config
 from src.domain.entities import Artist, Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import RawProviderMatch
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 config = create_matching_config()
 
@@ -255,7 +255,9 @@ class TestEvaluateRawMatches:
 
     def test_tracks_with_none_ids_skipped(self):
         """Tracks without database IDs should be skipped."""
-        track_no_id = Track(title="No ID", artists=[Artist(name="Artist")])
+        track_no_id = Track(
+            title="No ID", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+        )
         tracks = [track_no_id]
         raw_matches: dict[int, RawProviderMatch] = {}
 

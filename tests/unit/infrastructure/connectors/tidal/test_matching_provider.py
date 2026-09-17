@@ -16,7 +16,7 @@ from src.infrastructure.connectors.tidal.client import TIDAL_COUNTRY_CODE
 from src.infrastructure.connectors.tidal.matching_provider import (
     TidalMatchingProvider,
 )
-from tests.fixtures import make_tidal_track_resource
+from tests.fixtures import TEST_USER_ID, make_tidal_track_resource
 
 
 def _make_provider(resources_by_isrc=None, failing_isrcs=()):
@@ -44,6 +44,7 @@ def _isrc_track(
         isrc=isrc,
         duration_ms=duration_ms,
         artists=[Artist(name="Test Artist")],
+        user_id=TEST_USER_ID,
     )
 
 
@@ -157,7 +158,9 @@ class TestIsrcMatching:
     async def test_track_without_isrc_fails_without_artist_title_call(self):
         """No ISRC → NO_ISRC failure from the IsrcOnly strategy, no lookup."""
         provider, client = _make_provider()
-        track = Track(title="No Code", artists=[Artist(name="Someone")])
+        track = Track(
+            title="No Code", artists=[Artist(name="Someone")], user_id=TEST_USER_ID
+        )
 
         result = await provider.fetch_raw_matches_for_tracks([track])
 

@@ -15,6 +15,7 @@ from src.application.use_cases.update_canonical_playlist import (
 )
 from src.domain.entities.track import TrackList
 from tests.fixtures import (
+    TEST_USER_ID,
     make_mock_metric_config,
     make_playlist_with_entries,
     make_track,
@@ -374,7 +375,9 @@ class TestUpdateCanonicalPlaylistUnresolved:
         from tests.fixtures import make_connector_playlist
 
         kept = make_track(title="A")
-        current = Playlist(name="P", entries=[PlaylistEntry(track=kept)])
+        current = Playlist(
+            name="P", entries=[PlaylistEntry(track=kept)], user_id=TEST_USER_ID
+        )
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
         # Fresh remote: same resolved track plus a newly-unmatched position.
@@ -389,6 +392,7 @@ class TestUpdateCanonicalPlaylistUnresolved:
                     ),
                 ),
             ],
+            user_id=TEST_USER_ID,
         )
         command = UpdateCanonicalPlaylistCommand(
             user_id="test-user",

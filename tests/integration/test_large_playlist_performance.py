@@ -12,6 +12,7 @@ from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Artist, Track, TrackList
 from src.domain.playlist.diff_engine import calculate_playlist_diff
 from src.domain.playlist.execution_strategies import plan_api_operations
+from tests.fixtures import TEST_USER_ID
 
 # Peak allocation budget for a 10K-track diff + operation plan. The measured
 # figure is ~4.7MB; this is ~5x headroom so the assertion is a regression guard,
@@ -34,22 +35,32 @@ class TestLargePlaylistPerformance:
         """Create playlist with 5,000 tracks."""
         tracks = [
             Track(
-                id=i, title=f"Track {i:04d}", artists=[Artist(name=f"Artist {i:04d}")]
+                id=i,
+                title=f"Track {i:04d}",
+                artists=[Artist(name=f"Artist {i:04d}")],
+                user_id=TEST_USER_ID,
             )
             for i in range(5000)
         ]
-        return Playlist.from_tracklist(name="5K Test Playlist", tracklist=tracks)
+        return Playlist.from_tracklist(
+            name="5K Test Playlist", tracklist=tracks, user_id=TEST_USER_ID
+        )
 
     @pytest.fixture
     def large_playlist_10k(self):
         """Create playlist with 10,000 tracks (Spotify's maximum)."""
         tracks = [
             Track(
-                id=i, title=f"Track {i:05d}", artists=[Artist(name=f"Artist {i:05d}")]
+                id=i,
+                title=f"Track {i:05d}",
+                artists=[Artist(name=f"Artist {i:05d}")],
+                user_id=TEST_USER_ID,
             )
             for i in range(10000)
         ]
-        return Playlist.from_tracklist(name="10K Test Playlist", tracklist=tracks)
+        return Playlist.from_tracklist(
+            name="10K Test Playlist", tracklist=tracks, user_id=TEST_USER_ID
+        )
 
     async def test_5k_playlist_idempotency_performance(
         self, large_playlist_5k, db_session, test_data_tracker
@@ -171,7 +182,12 @@ class TestLargePlaylistPerformance:
         """Test performance with playlist containing many duplicates."""
         # Create playlist where same track appears multiple times
         base_tracks = [
-            Track(id=i, title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
+            Track(
+                id=i,
+                title=f"Track {i}",
+                artists=[Artist(name=f"Artist {i}")],
+                user_id=TEST_USER_ID,
+            )
             for i in range(100)  # Only 100 unique tracks
         ]
 
@@ -180,7 +196,9 @@ class TestLargePlaylistPerformance:
         for _ in range(50):
             tracks.extend(base_tracks)
 
-        playlist = Playlist.from_tracklist(name="Duplicate Heavy", tracklist=tracks)
+        playlist = Playlist.from_tracklist(
+            name="Duplicate Heavy", tracklist=tracks, user_id=TEST_USER_ID
+        )
 
         # Reverse the entire playlist
         target_tracks = list(reversed(tracks))

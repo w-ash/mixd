@@ -23,6 +23,7 @@ from src.infrastructure.connectors._shared.inward_track_resolver import (
 from src.infrastructure.connectors.lastfm.play_resolver import (
     LastfmConnectorPlayResolver,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 @pytest.mark.slow
@@ -51,6 +52,7 @@ class TestLastfmImportE2E:
             title="Test Song",
             artists=[Artist(name="Test Artist")],
             album="Test Album",
+            user_id=TEST_USER_ID,
         )
         track_repo = unit_of_work.get_track_repository()
         test_track = await track_repo.save_track(track)
@@ -194,6 +196,7 @@ class TestLastfmImportE2E:
         track = Track(
             title="Checkpoint Test",
             artists=[Artist(name="Test Artist")],
+            user_id=TEST_USER_ID,
         )
         track_repo = unit_of_work.get_track_repository()
         test_track = await track_repo.save_track(track)

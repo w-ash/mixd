@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.domain.entities.track import Artist, Track, TrackList
+from tests.fixtures import TEST_USER_ID
 
 
 class TestNodeFactories:
@@ -78,7 +79,12 @@ class TestCombinerNodeFactory:
 
         tl2 = TrackList(
             tracks=[
-                Track(title="Track C", artists=[Artist(name="Artist 3")], version=1)
+                Track(
+                    title="Track C",
+                    artists=[Artist(name="Artist 3")],
+                    version=1,
+                    user_id=TEST_USER_ID,
+                )
             ]
         )
 

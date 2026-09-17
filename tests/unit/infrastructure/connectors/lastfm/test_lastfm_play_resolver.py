@@ -19,7 +19,7 @@ from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identif
 from src.infrastructure.connectors.lastfm.play_resolver import (
     LastfmConnectorPlayResolver,
 )
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 from tests.fixtures.mocks import make_mock_uow
 
 
@@ -36,6 +36,7 @@ def _play(
         # (service, import_source), and the real importer always stamps this.
         import_source="lastfm_api",
         service_metadata=metadata,
+        user_id=TEST_USER_ID,
     )
 
 

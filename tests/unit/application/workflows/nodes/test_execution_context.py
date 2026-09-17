@@ -14,6 +14,7 @@ from src.application.connector_protocols import (
 )
 from src.application.workflows.nodes.execution_context import NodeContext
 from src.domain.entities.track import Artist, Track, TrackList
+from tests.fixtures import TEST_USER_ID
 
 
 class TestExtractTracklist:
@@ -70,7 +71,11 @@ class TestCollectTracklists:
 
     def test_collects_from_multiple_tasks(self, sample_tracklist):
         """Collect tracklists from multiple task IDs."""
-        tl2 = TrackList(tracks=[Track(title="Song C", artists=[Artist(name="A3")])])
+        tl2 = TrackList(
+            tracks=[
+                Track(title="Song C", artists=[Artist(name="A3")], user_id=TEST_USER_ID)
+            ]
+        )
         context = {
             "task_a": {"tracklist": sample_tracklist},
             "task_b": {"tracklist": tl2},

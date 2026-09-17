@@ -239,7 +239,9 @@ def make_mock_playlist_link_repo(**overrides) -> AsyncMock:
         "get_links_for_playlist", []
     )
     repo.get_link.return_value = overrides.pop("get_link", None)
-    repo.create_link.side_effect = overrides.pop("create_link", lambda link: link)
+    repo.create_link.side_effect = overrides.pop(
+        "create_link", lambda link, *, user_id: link
+    )
     repo.delete_link.return_value = overrides.pop("delete_link", True)
     repo.update_sync_status.return_value = overrides.pop("update_sync_status", None)
     repo.list_by_user_connector.return_value = overrides.pop(

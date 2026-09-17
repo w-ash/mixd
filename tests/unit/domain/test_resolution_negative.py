@@ -4,11 +4,12 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 from src.domain.entities.resolution_negative import ResolutionNegative
+from tests.fixtures import TEST_USER_ID
 
 
 class TestResolutionNegativeConstruction:
     def test_defaults(self):
-        negative = ResolutionNegative()
+        negative = ResolutionNegative(user_id=TEST_USER_ID)
         assert negative.user_id == "default"
         assert negative.kind == "no_match"
         assert negative.connector_name == ""
@@ -30,6 +31,7 @@ class TestResolutionNegativeConstruction:
             matcher_version="abc123def456",
             check_again=check_again,
             last_checked_at=datetime.now(UTC),
+            user_id=TEST_USER_ID,
         )
         assert negative.kind == "no_match"
         assert negative.candidate_track_id is None
@@ -45,6 +47,7 @@ class TestResolutionNegativeConstruction:
             candidate_track_id=candidate_track_id,
             matcher_version="abc123def456",
             content_digest="deadbeef",
+            user_id=TEST_USER_ID,
         )
         assert negative.kind == "rejected_pair"
         assert negative.connector_track_id == connector_track_id
@@ -58,8 +61,12 @@ class TestResolutionNegativeConstruction:
             kind="rejected_pair",
             candidate_track_id=uuid7(),
             unrejected_at=unrejected_at,
+            user_id=TEST_USER_ID,
         )
         assert negative.unrejected_at == unrejected_at
 
     def test_each_negative_gets_a_distinct_id(self):
-        assert ResolutionNegative().id != ResolutionNegative().id
+        assert (
+            ResolutionNegative(user_id=TEST_USER_ID).id
+            != ResolutionNegative(user_id=TEST_USER_ID).id
+        )

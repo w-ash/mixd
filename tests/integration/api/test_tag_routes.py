@@ -12,6 +12,8 @@ from uuid import UUID, uuid7
 
 import httpx2
 
+from tests.fixtures import TEST_USER_ID
+
 
 async def _create_track(
     client: httpx2.AsyncClient, title: str, artist: str = "Artist"
@@ -19,7 +21,9 @@ async def _create_track(
     from src.application.runner import execute_use_case
     from src.domain.entities.track import Artist, Track
 
-    track = Track(id=None, title=title, artists=[Artist(name=artist)])
+    track = Track(
+        id=None, title=title, artists=[Artist(name=artist)], user_id=TEST_USER_ID
+    )
 
     async def _save(uow):
         async with uow:

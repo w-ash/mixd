@@ -182,9 +182,7 @@ class DBTrack(BaseEntity):
 
     __tablename__: str = "tracks"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     version: Mapped[int] = mapped_column(default=1, server_default="1")
     title: Mapped[str] = mapped_column(String(), nullable=False)
     artists: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
@@ -372,9 +370,7 @@ class DBTrackMapping(BaseEntity):
 
     __tablename__: str = "track_mappings"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     # RESTRICT, not CASCADE (migration 051): mappings are append-only history
     # and a cascade is a silent history delete — production reached a state
     # where resolution_events named superseding mappings a track delete had
@@ -518,9 +514,7 @@ class DBMatchReview(BaseEntity):
 
     __tablename__: str = "match_reviews"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -587,9 +581,7 @@ class DBResolutionEvent(DatabaseModel):
 
     __tablename__: str = "resolution_events"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     # DB-assigned and never set from Python — the writer's clock is not a
     # trustworthy ordering key across processes. ``clock_timestamp()`` rather
     # than ``now()``: the latter is the transaction's start instant, so every
@@ -660,9 +652,7 @@ class DBResolutionNegative(BaseEntity):
 
     __tablename__: str = "resolution_negatives"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
     connector_track_id: Mapped[UuidType] = mapped_column(
@@ -735,9 +725,7 @@ class DBTrackMetric(BaseEntity):
         Index(None, "track_id", "connector_name", "metric_type"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -769,9 +757,7 @@ class DBTrackLike(BaseEntity):
         Index(None, "service", "is_liked"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -824,9 +810,7 @@ class DBTrackPlay(BaseEntity):
         # NOTE: BRIN index on played_at created via Alembic migration 002_pg_opt
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -868,9 +852,7 @@ class DBConnectorPlay(BaseEntity):
 
     __tablename__: str = "connector_plays"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     connector_name: Mapped[str] = mapped_column(String(32))  # "lastfm", "spotify"
     connector_track_identifier: Mapped[str] = mapped_column(
         String()
@@ -964,9 +946,7 @@ class DBPlaySource(BaseEntity):
         Index("ix_play_sources_connector_play", "connector_play_id"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_play_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
         ForeignKey("track_plays.id", ondelete="CASCADE"),
@@ -987,9 +967,7 @@ class DBPlaylist(BaseEntity):
 
     __tablename__: str = "playlists"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     name: Mapped[str] = mapped_column(String())
     description: Mapped[str | None] = mapped_column(String(1000))
     track_count: Mapped[int] = mapped_column(default=0)
@@ -1063,9 +1041,7 @@ class DBPlaylistMapping(BaseEntity):
         Index("ix_playlist_mappings_sync_status", "sync_status"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     playlist_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
         ForeignKey("playlists.id", ondelete="CASCADE"),
@@ -1221,9 +1197,7 @@ class DBPlaylistSyncBase(BaseEntity):
         Index("ix_playlist_sync_bases_user", "user_id"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     link_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
         ForeignKey("playlist_mappings.id", ondelete="CASCADE"),
@@ -1428,9 +1402,7 @@ class DBOAuthToken(BaseEntity):
 
     __tablename__: str = "oauth_tokens"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     service: Mapped[str] = mapped_column(String(32), nullable=False)
     token_type: Mapped[str] = mapped_column(String(20), nullable=False)
     access_token: Mapped[str | None] = mapped_column(String())
@@ -1481,9 +1453,7 @@ class DBUserSettings(BaseEntity):
 
     __tablename__: str = "user_settings"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     key: Mapped[str] = mapped_column(String(64), nullable=False)
     settings: Mapped[JsonDict] = mapped_column(PgJsonb, default=dict)
 
@@ -1545,9 +1515,7 @@ class DBTrackPreference(BaseEntity):
         Index("ix_track_preferences_user_id_preferred_at", "user_id", "preferred_at"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -1579,9 +1547,7 @@ class DBTrackPreferenceEvent(BaseEntity):
         Index("ix_track_preference_events_user_id_track_id", "user_id", "track_id"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -1615,9 +1581,7 @@ class DBTrackTag(BaseEntity):
         Index("ix_track_tags_user_id_tagged_at", "user_id", "tagged_at"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -1649,9 +1613,7 @@ class DBTrackTagEvent(BaseEntity):
         Index("ix_track_tag_events_user_id_track_id", "user_id", "track_id"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -1690,9 +1652,7 @@ class DBPlaylistAssignment(BaseEntity):
         ),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     connector_playlist_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
         ForeignKey("connector_playlists.id", ondelete="CASCADE"),
@@ -1732,9 +1692,7 @@ class DBPlaylistAssignmentMember(BaseEntity):
         Index("ix_playlist_assignment_members_assignment_id", "assignment_id"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     assignment_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
         ForeignKey("playlist_assignments.id", ondelete="CASCADE"),
@@ -1769,9 +1727,7 @@ class DBOperationRun(BaseEntity):
         Index("ix_operation_runs_user_id_started_at", "user_id", "started_at"),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     operation_type: Mapped[str] = mapped_column(String(64), nullable=False)
     # SSE registry's queue key — lets /operations/{id}/run-snapshot and
     # /operations/active resolve operation_id -> audit row (and hand the
@@ -1867,9 +1823,7 @@ class DBSchedule(BaseEntity):
         ),
     )
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     # Exclusive arc — exactly one is set (enforced by CHECK in migration 025).
     workflow_id: Mapped[UuidType | None] = mapped_column(
         PgUuidCol(as_uuid=True),

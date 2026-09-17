@@ -24,6 +24,7 @@ from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
 )
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
+from tests.fixtures import TEST_USER_ID
 
 
 async def _seed_track(session: AsyncSession, title: str = "Track") -> int:
@@ -33,6 +34,7 @@ async def _seed_track(session: AsyncSession, title: str = "Track") -> int:
         title=f"{title} {uid}",
         artists={"names": [f"Artist {uid}"]},
         spotify_id=f"sp_{uid}",
+        user_id=TEST_USER_ID,
     )
     session.add(track)
     await session.flush()
@@ -74,6 +76,7 @@ async def _seed_mapping(
         confidence=100,
         origin="automatic",
         is_primary=is_primary,
+        user_id=TEST_USER_ID,
     )
     session.add(mapping)
     await session.flush()
@@ -303,6 +306,7 @@ class TestDuplicateTracksByFingerprint:
                 title="Same Song",
                 artists={"names": ["Same Artist"]},
                 album="Same Album",
+                user_id=TEST_USER_ID,
             )
             db_session.add(track)
         await db_session.flush()
@@ -320,6 +324,7 @@ class TestDuplicateTracksByFingerprint:
                 title="Same Song",
                 artists={"names": ["Same Artist"]},
                 album=album,
+                user_id=TEST_USER_ID,
             )
             db_session.add(track)
         await db_session.flush()
@@ -350,6 +355,7 @@ class TestStalePendingReviews:
             status=ReviewStatus.PENDING,
             created_at=old_date,
             updated_at=old_date,
+            user_id=TEST_USER_ID,
         )
         db_session.add(review)
         await db_session.flush()
@@ -370,6 +376,7 @@ class TestStalePendingReviews:
             confidence=65,
             match_weight=3.5,
             status=ReviewStatus.PENDING,
+            user_id=TEST_USER_ID,
         )
         db_session.add(review)
         await db_session.flush()
@@ -390,7 +397,9 @@ class TestCountStaleDenormalizedIds:
     async def test_ignores_track_with_no_spotify_id_and_no_mapping(
         self, db_session: AsyncSession
     ):
-        track = DBTrack(title="Track", artists={"names": ["Artist"]})
+        track = DBTrack(
+            title="Track", artists={"names": ["Artist"]}, user_id=TEST_USER_ID
+        )
         db_session.add(track)
         await db_session.flush()
 
@@ -402,7 +411,10 @@ class TestCountStaleDenormalizedIds:
         uid = uuid4().hex[:8]
         matching_id = f"sp_{uid}"
         track = DBTrack(
-            title="Track", artists={"names": ["Artist"]}, spotify_id=matching_id
+            title="Track",
+            artists={"names": ["Artist"]},
+            spotify_id=matching_id,
+            user_id=TEST_USER_ID,
         )
         db_session.add(track)
         ct = DBConnectorTrack(
@@ -475,6 +487,7 @@ class TestCountConfidenceEvidenceDivergence:
             confidence=100,
             origin="automatic",
             is_primary=True,
+            user_id=TEST_USER_ID,
         )
         db_session.add(mapping)
         await db_session.flush()
@@ -495,6 +508,7 @@ class TestCountConfidenceEvidenceDivergence:
             confidence_evidence={"final_score": 100},
             origin="automatic",
             is_primary=True,
+            user_id=TEST_USER_ID,
         )
         db_session.add(mapping)
         await db_session.flush()
@@ -515,6 +529,7 @@ class TestCountConfidenceEvidenceDivergence:
             confidence_evidence={"final_score": 82.5},
             origin="automatic",
             is_primary=True,
+            user_id=TEST_USER_ID,
         )
         db_session.add(mapping)
         await db_session.flush()
@@ -538,6 +553,7 @@ class TestCountConfidenceEvidenceDivergence:
             confidence_evidence={"final_score": 82.5},
             origin="automatic",
             is_primary=True,
+            user_id=TEST_USER_ID,
         )
         db_session.add(mapping)
         await db_session.flush()
@@ -566,6 +582,7 @@ class TestCountCreatedSince:
             confidence=65,
             match_weight=3.5,
             status=ReviewStatus.ACCEPTED,
+            user_id=TEST_USER_ID,
         )
         db_session.add(review)
         await db_session.flush()
@@ -588,6 +605,7 @@ class TestCountCreatedSince:
             status=ReviewStatus.PENDING,
             created_at=old_date,
             updated_at=old_date,
+            user_id=TEST_USER_ID,
         )
         db_session.add(review)
         await db_session.flush()
@@ -630,6 +648,7 @@ class TestCountPendingByMethod:
                 confidence=70,
                 match_weight=3.0,
                 status=ReviewStatus.PENDING,
+                user_id=TEST_USER_ID,
             ),
             DBMatchReview(
                 track_id=track_id2,
@@ -639,6 +658,7 @@ class TestCountPendingByMethod:
                 confidence=72,
                 match_weight=3.0,
                 status=ReviewStatus.PENDING,
+                user_id=TEST_USER_ID,
             ),
             DBMatchReview(
                 track_id=track_id3,
@@ -648,6 +668,7 @@ class TestCountPendingByMethod:
                 confidence=65,
                 match_weight=3.0,
                 status=ReviewStatus.ACCEPTED,
+                user_id=TEST_USER_ID,
             ),
         ])
         await db_session.flush()

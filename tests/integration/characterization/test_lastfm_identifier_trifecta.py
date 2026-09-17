@@ -27,7 +27,7 @@ from src.infrastructure.connectors.spotify.cross_discovery import (
 )
 from src.infrastructure.persistence.database.db_models import DBConnectorTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import discover_one
+from tests.fixtures import TEST_USER_ID, discover_one
 
 _URL = "https://www.last.fm/music/Neon+Priest/_/Gold+Rush"
 _MBID = "0198a4b6-1111-7222-8333-444455556666"
@@ -95,6 +95,7 @@ class TestAllMintSchemesConvergeOnOneRow:
                 artists=[Artist(name="Neon Priest")],
                 duration_ms=200_000,
                 connector_track_identifiers={"spotify": "sp_lb_001"},
+                user_id=TEST_USER_ID,
             )
         )
         await uow.get_connector_repository().map_track_to_connector(

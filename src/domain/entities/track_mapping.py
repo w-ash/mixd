@@ -178,7 +178,7 @@ class TrackMapping:
     ``None`` in practice — see the field below.
     """
 
-    user_id: str = "default"
+    user_id: str = field(kw_only=True)
     track_id: UUID = field(factory=uuid7)
     connector_track_id: UUID = field(factory=uuid7)
     connector_name: str = ""

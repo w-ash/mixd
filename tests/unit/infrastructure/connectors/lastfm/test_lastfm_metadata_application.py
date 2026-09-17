@@ -10,6 +10,7 @@ from src.infrastructure.connectors.lastfm.conversions import (
     convert_lastfm_to_domain_track,
 )
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
+from tests.fixtures import TEST_USER_ID
 
 
 class TestLastFMMetadataApplication:
@@ -24,6 +25,7 @@ class TestLastFMMetadataApplication:
             title="Test Track",
             artists=[Artist(name="Test Artist")],
             album="Test Album",
+            user_id=TEST_USER_ID,
         )
 
         # Create LastFMTrackInfo with user playcount
@@ -78,6 +80,7 @@ class TestLastFMMetadataApplication:
                     "lastfm_user_loved": True,
                 }
             },
+            user_id=TEST_USER_ID,
         )
 
         print("\n🔍 Testing attribute retrieval:")
@@ -114,6 +117,7 @@ class TestLastFMMetadataApplication:
             id=1,
             title="Test Track",
             artists=[Artist(name="Test Artist")],
+            user_id=TEST_USER_ID,
         )
 
         print("\n Testing complete fast enrichment flow:")

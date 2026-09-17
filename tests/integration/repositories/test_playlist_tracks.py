@@ -14,6 +14,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrack,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 async def _setup_track_in_playlists(
@@ -30,6 +31,7 @@ async def _setup_track_in_playlists(
         artists={"names": ["Test Artist"]},
         created_at=now,
         updated_at=now,
+        user_id=TEST_USER_ID,
     )
     session.add(track)
     await session.flush()
@@ -42,6 +44,7 @@ async def _setup_track_in_playlists(
             track_count=0,
             created_at=now,
             updated_at=now,
+            user_id=TEST_USER_ID,
         )
         session.add(p)
         await session.flush()
@@ -101,6 +104,7 @@ class TestGetPlaylistsForTrack:
             artists={"names": ["Nobody"]},
             created_at=now,
             updated_at=now,
+            user_id=TEST_USER_ID,
         )
         db_session.add(track)
         await db_session.flush()

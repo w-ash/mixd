@@ -20,6 +20,7 @@ from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
 )
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
+from tests.fixtures import TEST_USER_ID
 
 
 class TestPrimaryMappingDatabaseIntegration:
@@ -52,7 +53,9 @@ class TestPrimaryMappingQueries:
         self, db_session: AsyncSession, test_data_tracker
     ):
         """Primary-only lookup carries the stored confidence and match method."""
-        db_track = DBTrack(title="Provenance Test", artists={"names": ["Artist"]})
+        db_track = DBTrack(
+            title="Provenance Test", artists={"names": ["Artist"]}, user_id=TEST_USER_ID
+        )
         db_session.add(db_track)
         await db_session.flush()
         test_data_tracker.add_track(db_track.id)
@@ -82,6 +85,7 @@ class TestPrimaryMappingQueries:
                 match_method="direct",
                 confidence=100,
                 is_primary=False,
+                user_id=TEST_USER_ID,
             ),
             DBTrackMapping(
                 track_id=db_track.id,
@@ -90,6 +94,7 @@ class TestPrimaryMappingQueries:
                 match_method="artist_title",
                 confidence=65,
                 is_primary=True,
+                user_id=TEST_USER_ID,
             ),
         ])
         await db_session.commit()
@@ -106,7 +111,9 @@ class TestPrimaryMappingQueries:
         self, db_session: AsyncSession, test_data_tracker
     ):
         """get_connector_metadata returns metadata from the primary connector track only."""
-        db_track = DBTrack(title="Metadata Test", artists={"names": ["Artist"]})
+        db_track = DBTrack(
+            title="Metadata Test", artists={"names": ["Artist"]}, user_id=TEST_USER_ID
+        )
         db_session.add(db_track)
         await db_session.flush()
         test_data_tracker.add_track(db_track.id)
@@ -136,6 +143,7 @@ class TestPrimaryMappingQueries:
                 match_method="direct",
                 confidence=100,
                 is_primary=False,
+                user_id=TEST_USER_ID,
             ),
             DBTrackMapping(
                 track_id=db_track.id,
@@ -144,6 +152,7 @@ class TestPrimaryMappingQueries:
                 match_method="direct",
                 confidence=100,
                 is_primary=True,
+                user_id=TEST_USER_ID,
             ),
         ])
         await db_session.commit()
@@ -205,7 +214,10 @@ class TestPrimaryMappingQueries:
         # Create a canonical track with no spotify_id
         track_repo = TrackRepository(db_session)
         track = Track(
-            id=None, title="Denorm Test", artists=[Artist(name="Denorm Artist")]
+            id=None,
+            title="Denorm Test",
+            artists=[Artist(name="Denorm Artist")],
+            user_id=TEST_USER_ID,
         )
         saved_track = await track_repo.save_track(track)
         await db_session.commit()
@@ -237,7 +249,10 @@ class TestPrimaryMappingQueries:
         """When a second mapping is added with auto_set_primary, only the newest is primary."""
         track_repo = TrackRepository(db_session)
         track = Track(
-            id=None, title="Relink Test", artists=[Artist(name="Relink Artist")]
+            id=None,
+            title="Relink Test",
+            artists=[Artist(name="Relink Artist")],
+            user_id=TEST_USER_ID,
         )
         saved_track = await track_repo.save_track(track)
         await db_session.commit()

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.track import TrackList
-from tests.fixtures import make_tracks
+from tests.fixtures import TEST_USER_ID, make_tracks
 
 
 class TestTrackListImmutability:
@@ -96,7 +96,7 @@ class TestPlaylistTrackListConversion:
         """playlist.tracks extracts resolved tracks from entries."""
         tracks = make_tracks(3)
         entries = [PlaylistEntry(track=t) for t in tracks]
-        playlist = Playlist(name="Test", entries=entries)
+        playlist = Playlist(name="Test", entries=entries, user_id=TEST_USER_ID)
 
         assert len(playlist.tracks) == 3
         assert playlist.tracks == tracks
@@ -106,7 +106,9 @@ class TestPlaylistTrackListConversion:
         tl = TrackList(tracks=tracks)
         now = datetime.now(UTC)
 
-        playlist = Playlist.from_tracklist("New Playlist", tl, added_at=now)
+        playlist = Playlist.from_tracklist(
+            "New Playlist", tl, added_at=now, user_id=TEST_USER_ID
+        )
 
         assert playlist.name == "New Playlist"
         assert len(playlist.entries) == 2
@@ -117,6 +119,6 @@ class TestPlaylistTrackListConversion:
         """from_tracklist also accepts list[Track] for convenience."""
         tracks = make_tracks(2)
 
-        playlist = Playlist.from_tracklist("Test", tracks)
+        playlist = Playlist.from_tracklist("Test", tracks, user_id=TEST_USER_ID)
 
         assert len(playlist.entries) == 2

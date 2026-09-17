@@ -73,7 +73,7 @@ class ResolutionEvent:
     """
 
     id: UUID = field(factory=uuid7)
-    user_id: str = "default"
+    user_id: str = field(kw_only=True)
     event_type: ResolutionEventType = "accepted"
     # Content hash of the full matcher config (src.domain.matching.version) —
     # a provenance/validity key, never an auto-re-resolution trigger.

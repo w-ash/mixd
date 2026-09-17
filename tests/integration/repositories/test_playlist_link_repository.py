@@ -16,6 +16,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBPlaylistMapping,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 async def _setup_playlist_with_link(
@@ -131,7 +132,10 @@ class TestCreateLink:
 
         # Set up prerequisite rows
         db_playlist = DBPlaylist(
-            name=f"Create Test {uid}", description=None, track_count=0
+            name=f"Create Test {uid}",
+            description=None,
+            track_count=0,
+            user_id=TEST_USER_ID,
         )
         db_playlist.playlist_tracks = []
         db_session.add(db_playlist)
@@ -164,7 +168,7 @@ class TestCreateLink:
             connector_playlist_identifier=f"create_{uid}",
             sync_direction=SyncDirection.PULL,
         )
-        created = await link_repo.create_link(new_link)
+        created = await link_repo.create_link(new_link, user_id=TEST_USER_ID)
         await db_session.flush()
 
         assert created.id is not None
@@ -183,7 +187,7 @@ class TestCreateLink:
         )
 
         with pytest.raises(ValueError, match="ConnectorPlaylist not found"):
-            await link_repo.create_link(link)
+            await link_repo.create_link(link, user_id=TEST_USER_ID)
 
 
 class TestUpdateSyncStatus:
@@ -334,7 +338,12 @@ async def _seed_playlists_and_cps(db_session, *, count: int) -> list[tuple[UUID,
     """Seed N DBPlaylist + N DBConnectorPlaylist rows; return [(playlist_id, cp_identifier)]."""
     uid = uuid4().hex[:8]
     playlists = [
-        DBPlaylist(name=f"Batch {uid} {i}", description=None, track_count=0)
+        DBPlaylist(
+            name=f"Batch {uid} {i}",
+            description=None,
+            track_count=0,
+            user_id=TEST_USER_ID,
+        )
         for i in range(count)
     ]
     for pl in playlists:

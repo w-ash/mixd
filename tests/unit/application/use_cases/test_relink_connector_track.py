@@ -15,6 +15,7 @@ from src.application.use_cases.relink_connector_track import (
 from src.domain.entities.track_mapping import TrackMapping
 from src.domain.exceptions import NotFoundError
 from tests.fixtures import (
+    TEST_USER_ID,
     make_mock_connector_repo,
     make_mock_track_repo,
     make_mock_uow,
@@ -40,6 +41,7 @@ def _make_mapping(
         confidence=confidence,
         origin=origin,
         is_primary=is_primary,
+        user_id=TEST_USER_ID,
     )
 
 
@@ -60,6 +62,7 @@ class TestRelinkHappyPath:
                 confidence=95,
                 origin="manual_override",
                 is_primary=False,
+                user_id=TEST_USER_ID,
             )
         )
         connector_repo.ensure_primary_for_connector = AsyncMock()

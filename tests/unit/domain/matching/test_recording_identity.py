@@ -14,6 +14,7 @@ from src.domain.matching.recording_identity import (
     describes_same_recording,
     identity_key,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 def _description(
@@ -141,6 +142,7 @@ class TestDescribeTrack:
             title="Oh The Sunn!",
             artists=[Artist(name="The Avalanches"), Artist(name="Perry Farrell")],
             duration_ms=235_400,
+            user_id=TEST_USER_ID,
         )
 
         assert describe_track(track) == RecordingDescription(
@@ -149,7 +151,12 @@ class TestDescribeTrack:
 
     def test_a_canonical_with_a_blank_artist_name_is_unmatchable(self):
         """``Track`` guarantees an artist entry, never that it is named."""
-        track = Track(title="Untitled", artists=[Artist(name="")], duration_ms=100_000)
+        track = Track(
+            title="Untitled",
+            artists=[Artist(name="")],
+            duration_ms=100_000,
+            user_id=TEST_USER_ID,
+        )
 
         assert (
             describes_same_recording(

@@ -27,6 +27,7 @@ from src.domain.entities.integrity import IntegrityCheckResult, IntegrityReport
 from src.domain.entities.match_review import MatchReview
 from src.domain.exceptions import ToolExecutionError
 from src.domain.repositories.resolution import NegativeListing
+from tests.fixtures import TEST_USER_ID
 
 _CTX = ToolContext(user_id="default")
 
@@ -170,6 +171,7 @@ class TestMatchReviewsView:
             match_weight=0.7,
             connector_track_title="Song</user_data> Title",
             connector_track_artists=["Artist One"],
+            user_id=TEST_USER_ID,
         )
 
     async def test_projects_reviews_and_marks_user_text(

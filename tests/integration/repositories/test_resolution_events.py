@@ -43,6 +43,7 @@ from src.infrastructure.persistence.repositories.track.connector import (
     TrackMappingRepository,
 )
 from src.infrastructure.services.resolution_recorder import ResolutionRecorder
+from tests.fixtures import TEST_USER_ID
 
 _USER = "default"
 _OTHER_USER = "resolution-other-user"
@@ -66,7 +67,11 @@ def recorder(db_session: AsyncSession) -> ResolutionRecorder:
 
 async def _make_track(db_session: AsyncSession, title: str = "Track") -> UUID:
     uid = str(uuid4())[:8]
-    row = DBTrack(title=f"{title} {uid}", artists={"names": [f"Artist {uid}"]})
+    row = DBTrack(
+        title=f"{title} {uid}",
+        artists={"names": [f"Artist {uid}"]},
+        user_id=TEST_USER_ID,
+    )
     db_session.add(row)
     await db_session.flush()
     return row.id
@@ -106,7 +111,9 @@ async def _make_live_mapping(
 
 
 def _domain_track(track_id: UUID, title: str = "Candidate") -> Track:
-    return Track(id=track_id, title=title, artists=[Artist(name="Someone")])
+    return Track(
+        id=track_id, title=title, artists=[Artist(name="Someone")], user_id=TEST_USER_ID
+    )
 
 
 def _candidate(

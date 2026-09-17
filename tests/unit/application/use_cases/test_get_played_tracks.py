@@ -15,6 +15,7 @@ from src.application.use_cases.get_played_tracks import (
 from src.config.constants import BusinessLimits
 from src.domain.entities import Track, TrackPlay
 from src.domain.entities.track import Artist
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.mocks import make_mock_uow
 
 
@@ -93,12 +94,14 @@ class TestGetPlayedTracksUseCase:
                 title="Track 1",
                 artists=[Artist(name="Artist 1")],
                 album="Album 1",
+                user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Track 2",
                 artists=[Artist(name="Artist 2")],
                 album="Album 2",
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -111,12 +114,14 @@ class TestGetPlayedTracksUseCase:
                 service="spotify",
                 played_at=datetime(2024, 1, 1, tzinfo=UTC),
                 ms_played=180000,
+                user_id=TEST_USER_ID,
             ),
             TrackPlay(
                 track_id=2,
                 service="spotify",
                 played_at=datetime(2024, 1, 2, tzinfo=UTC),
                 ms_played=200000,
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -190,9 +195,24 @@ class TestGetPlayedTracksUseCase:
         """Test that connector filter is applied to plays."""
         # Mock plays with mixed services
         mixed_plays = [
-            TrackPlay(track_id=1, service="spotify", played_at=datetime.now(UTC)),
-            TrackPlay(track_id=2, service="lastfm", played_at=datetime.now(UTC)),
-            TrackPlay(track_id=3, service="spotify", played_at=datetime.now(UTC)),
+            TrackPlay(
+                track_id=1,
+                service="spotify",
+                played_at=datetime.now(UTC),
+                user_id=TEST_USER_ID,
+            ),
+            TrackPlay(
+                track_id=2,
+                service="lastfm",
+                played_at=datetime.now(UTC),
+                user_id=TEST_USER_ID,
+            ),
+            TrackPlay(
+                track_id=3,
+                service="spotify",
+                played_at=datetime.now(UTC),
+                user_id=TEST_USER_ID,
+            ),
         ]
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.return_value = mixed_plays
@@ -265,9 +285,24 @@ class TestGetPlayedTracksUseCase:
     async def test_execute_filters_none_track_ids(self, mock_uow):
         """Test that plays with None track_id are filtered out."""
         plays_with_none = [
-            TrackPlay(track_id=None, service="spotify", played_at=datetime.now(UTC)),
-            TrackPlay(track_id=1, service="spotify", played_at=datetime.now(UTC)),
-            TrackPlay(track_id=2, service="spotify", played_at=datetime.now(UTC)),
+            TrackPlay(
+                track_id=None,
+                service="spotify",
+                played_at=datetime.now(UTC),
+                user_id=TEST_USER_ID,
+            ),
+            TrackPlay(
+                track_id=1,
+                service="spotify",
+                played_at=datetime.now(UTC),
+                user_id=TEST_USER_ID,
+            ),
+            TrackPlay(
+                track_id=2,
+                service="spotify",
+                played_at=datetime.now(UTC),
+                user_id=TEST_USER_ID,
+            ),
         ]
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.return_value = plays_with_none

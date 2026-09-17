@@ -26,6 +26,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 class TestSaveTrackIsrcGuard:
@@ -52,6 +53,7 @@ class TestSaveTrackIsrcGuard:
                 album="Debut",
                 duration_ms=200_000,
                 isrc="USNP12400001",
+                user_id=TEST_USER_ID,
             )
         )
 
@@ -64,6 +66,7 @@ class TestSaveTrackIsrcGuard:
                 album="Remaster Compilation",
                 duration_ms=215_000,
                 isrc="USNP12400001",
+                user_id=TEST_USER_ID,
             )
         )
 
@@ -97,6 +100,7 @@ class TestSaveTrackIsrcGuard:
                 artists=[Artist(name="Neon Priest")],
                 duration_ms=200_000,
                 isrc="USNP12400001",
+                user_id=TEST_USER_ID,
             )
         )
         returned = await track_repo.save_track(
@@ -107,6 +111,7 @@ class TestSaveTrackIsrcGuard:
                 album="Debut (Deluxe)",
                 duration_ms=200_500,  # within tolerance
                 isrc="USNP12400001",
+                user_id=TEST_USER_ID,
             )
         )
 
@@ -196,6 +201,7 @@ class TestCrossDiscoveryReusesIsrcOwner:
                 artists=[Artist(name="Radiohead")],
                 isrc="GBAYE9300106",
                 duration_ms=238_000,
+                user_id=TEST_USER_ID,
             )
         )
 

@@ -22,6 +22,7 @@ from src.infrastructure.persistence.database.db_models import (
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 @pytest.fixture
@@ -47,6 +48,7 @@ async def _setup_track_with_mapping(
         title=f"Track {uid}",
         artists={"names": [f"Artist {uid}"]},
         spotify_id=external_id if connector_name == "spotify" else None,
+        user_id=TEST_USER_ID,
     )
     db_session.add(db_track)
     await db_session.flush()
@@ -70,6 +72,7 @@ async def _setup_track_with_mapping(
         confidence=confidence,
         origin=origin,
         is_primary=is_primary,
+        user_id=TEST_USER_ID,
     )
     db_session.add(db_mapping)
     await db_session.flush()
@@ -127,7 +130,9 @@ class TestUpdateMappingTrack:
     ) -> None:
         track_id, _, mapping_id = await _setup_track_with_mapping(db_session)
 
-        target = DBTrack(title="Target", artists={"names": ["Target Artist"]})
+        target = DBTrack(
+            title="Target", artists={"names": ["Target Artist"]}, user_id=TEST_USER_ID
+        )
         db_session.add(target)
         await db_session.flush()
 
@@ -188,7 +193,9 @@ class TestEnsurePrimaryForConnector:
 
         uid = str(uuid4())[:8]
 
-        db_track = DBTrack(title=f"NoPri {uid}", artists={"names": ["A"]})
+        db_track = DBTrack(
+            title=f"NoPri {uid}", artists={"names": ["A"]}, user_id=TEST_USER_ID
+        )
         db_session.add(db_track)
         await db_session.flush()
 
@@ -214,6 +221,7 @@ class TestEnsurePrimaryForConnector:
                 match_method="search_fallback",
                 confidence=conf,
                 is_primary=False,
+                user_id=TEST_USER_ID,
             )
             db_session.add(m)
         await db_session.flush()
@@ -248,6 +256,7 @@ class TestEnsurePrimaryForConnector:
             title=f"StaleOnly {uid}",
             artists={"names": ["A"]},
             spotify_id=f"sp:{uid}:live",
+            user_id=TEST_USER_ID,
         )
         db_session.add(db_track)
         await db_session.flush()
@@ -269,6 +278,7 @@ class TestEnsurePrimaryForConnector:
                 match_method="direct_import_stale_id",
                 confidence=100,
                 is_primary=False,
+                user_id=TEST_USER_ID,
             )
         )
         await db_session.flush()

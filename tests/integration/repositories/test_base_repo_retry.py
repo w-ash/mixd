@@ -33,6 +33,7 @@ from src.infrastructure.persistence.repositories._shared.retry_policies import (
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
+from tests.fixtures import TEST_USER_ID
 
 
 def _concurrent_session_error() -> InvalidRequestError:
@@ -61,11 +62,16 @@ class _PlainMapper(BaseModelMapper[DBTrack, Track]):
 
     @staticmethod
     async def to_domain(db_model: DBTrack) -> Track:
-        return Track(id=db_model.id, title=db_model.title, artists=[Artist(name="t")])
+        return Track(
+            id=db_model.id,
+            title=db_model.title,
+            artists=[Artist(name="t")],
+            user_id=TEST_USER_ID,
+        )
 
     @staticmethod
     def to_db(domain_model: Track) -> DBTrack:
-        return DBTrack(title=domain_model.title)
+        return DBTrack(title=domain_model.title, user_id=TEST_USER_ID)
 
     @staticmethod
     def get_default_relationships() -> list[str]:
@@ -84,7 +90,12 @@ def track_repo(db_session: AsyncSession) -> BaseRepository[DBTrack, Track]:
 
 async def _insert_track(db_session: AsyncSession, title: str) -> None:
     """Insert a track row inside the test's savepoint."""
-    track = DBTrack(title=title, artists={"names": ["test"]}, duration_ms=200000)
+    track = DBTrack(
+        title=title,
+        artists={"names": ["test"]},
+        duration_ms=200000,
+        user_id=TEST_USER_ID,
+    )
     track.mappings = []
     track.metrics = []
     track.likes = []

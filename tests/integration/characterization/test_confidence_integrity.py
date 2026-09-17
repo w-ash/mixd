@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.persistence.database.db_models import DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 def _connector_track(identifier: str) -> ConnectorTrack:
@@ -102,6 +103,7 @@ class TestFastPathReturnsStoredProvenance:
                 id=None,
                 title="Fast Path",
                 artists=[Artist(name="Neon Priest")],
+                user_id=TEST_USER_ID,
             )
         )
         # A review-accepted-style 65-confidence artist_title mapping (primary).
@@ -133,13 +135,23 @@ class TestFastPathReturnsStoredProvenance:
         connector_repo = uow.get_connector_repository()
 
         direct = await track_repo.save_track(
-            Track(id=None, title="Direct", artists=[Artist(name="A")])
+            Track(
+                id=None,
+                title="Direct",
+                artists=[Artist(name="A")],
+                user_id=TEST_USER_ID,
+            )
         )
         await connector_repo.map_track_to_connector(
             direct, "spotify", "sp_direct_100", "direct", confidence=100
         )
         reviewed = await track_repo.save_track(
-            Track(id=None, title="Reviewed", artists=[Artist(name="B")])
+            Track(
+                id=None,
+                title="Reviewed",
+                artists=[Artist(name="B")],
+                user_id=TEST_USER_ID,
+            )
         )
         await connector_repo.map_track_to_connector(
             reviewed, "spotify", "sp_reviewed_65", "artist_title", confidence=65

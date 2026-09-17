@@ -18,7 +18,7 @@ from src.application.use_cases.tag_track import TagTrackResult
 from src.application.use_cases.untag_track import UntagTrackResult
 from src.domain.entities import Playlist, Track
 from src.interface.cli.app import app
-from tests.fixtures import make_playlist_with_entries, make_track
+from tests.fixtures import TEST_USER_ID, make_playlist_with_entries, make_track
 
 runner = CliRunner()
 
@@ -247,7 +247,7 @@ class TestBatchTag:
     def test_empty_playlist_is_no_op(self) -> None:
         # make_playlist_with_entries clobbers track_ids=[] with defaults
         # (`[] or [...]` picks the fallback), so construct empty directly.
-        playlist = Playlist(name="Empty", entries=[])
+        playlist = Playlist(name="Empty", entries=[], user_id=TEST_USER_ID)
         with patch(
             "src.interface.cli.tag_commands.resolve_playlist_ref",
             return_value=playlist,

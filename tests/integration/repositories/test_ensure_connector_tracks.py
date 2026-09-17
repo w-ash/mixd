@@ -17,6 +17,7 @@ from src.infrastructure.persistence.repositories.match_review import (
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 async def _seed_track(session: AsyncSession) -> UUID:
@@ -26,6 +27,7 @@ async def _seed_track(session: AsyncSession) -> UUID:
         title=f"Track {uid}",
         artists=[{"name": f"Artist {uid}"}],
         spotify_id=f"sp_{uid}",
+        user_id=TEST_USER_ID,
     )
     session.add(track)
     await session.flush()
@@ -116,6 +118,7 @@ class TestEnsureConnectorTracks:
             match_method="artist_title",
             confidence=60,
             match_weight=2.5,
+            user_id=TEST_USER_ID,
         )
         created = await review_repo.create_review(review)
 

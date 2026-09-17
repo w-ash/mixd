@@ -9,6 +9,7 @@ import httpx2
 from src.application.runner import execute_use_case
 from src.domain.entities.operations import TrackPlay
 from src.domain.entities.track import Artist, Track
+from tests.fixtures import TEST_USER_ID
 
 _BASE = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
@@ -17,7 +18,12 @@ async def _seed_track_with_plays(offsets_minutes: list[int]) -> UUID:
     async def _save(uow):
         async with uow:
             track = await uow.get_track_repository().save_track(
-                Track(id=None, title="Played", artists=[Artist(name="Artist")])
+                Track(
+                    id=None,
+                    title="Played",
+                    artists=[Artist(name="Artist")],
+                    user_id=TEST_USER_ID,
+                )
             )
             plays = [
                 TrackPlay(

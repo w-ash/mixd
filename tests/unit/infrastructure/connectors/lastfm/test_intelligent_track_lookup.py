@@ -16,6 +16,7 @@ from src.domain.entities import Artist, Track
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
+from tests.fixtures import TEST_USER_ID
 
 
 @pytest.fixture
@@ -32,6 +33,7 @@ def sample_track():
         id=1,
         title="Test Song",
         artists=[Artist(name="Test Artist")],
+        user_id=TEST_USER_ID,
     )
 
 
@@ -46,6 +48,7 @@ def multi_artist_track():
             Artist(name="Artist Two"),
             Artist(name="Artist Three"),
         ],
+        user_id=TEST_USER_ID,
     )
 
 

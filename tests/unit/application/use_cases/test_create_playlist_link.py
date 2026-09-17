@@ -48,7 +48,7 @@ def _make_uow_with_playlist(playlist: Playlist | None = None) -> MagicMock:
     uow.get_connector_playlist_repository().upsert_model.side_effect = lambda cp: cp
 
     # Link repo creates links
-    def create_link(link: PlaylistLink) -> PlaylistLink:
+    def create_link(link: PlaylistLink, *, user_id: str) -> PlaylistLink:
         from attrs import evolve
 
         return evolve(link, id=uuid7())

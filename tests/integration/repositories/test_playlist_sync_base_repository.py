@@ -17,12 +17,15 @@ from src.infrastructure.persistence.database.db_models import (
     DBPlaylistMapping,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 async def _make_link(session: AsyncSession) -> UUID:
     """Create the playlist → connector_playlist → mapping chain, return link id."""
     now = datetime.now(UTC)
-    playlist = DBPlaylist(name="P", track_count=0, created_at=now, updated_at=now)
+    playlist = DBPlaylist(
+        name="P", track_count=0, created_at=now, updated_at=now, user_id=TEST_USER_ID
+    )
     connector_playlist = DBConnectorPlaylist(
         connector_name="spotify",
         connector_playlist_identifier="ext1",

@@ -8,6 +8,7 @@ from uuid import UUID
 
 import httpx2
 
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.factories import nonexistent_id
 
 
@@ -27,7 +28,12 @@ async def _create_track_with_mapping(
             track_repo = uow.get_track_repository()
             connector_repo = uow.get_connector_repository()
 
-            track = Track(id=None, title=title, artists=[Artist(name=artist)])
+            track = Track(
+                id=None,
+                title=title,
+                artists=[Artist(name=artist)],
+                user_id=TEST_USER_ID,
+            )
             saved = await track_repo.save_track(track)
 
             await connector_repo.map_track_to_connector(
@@ -58,7 +64,12 @@ async def _create_bare_track(
     async def _create(uow):
         async with uow:
             track_repo = uow.get_track_repository()
-            track = Track(id=None, title=title, artists=[Artist(name=artist)])
+            track = Track(
+                id=None,
+                title=title,
+                artists=[Artist(name=artist)],
+                user_id=TEST_USER_ID,
+            )
             saved = await track_repo.save_track(track)
             await uow.commit()
             return saved.id

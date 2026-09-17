@@ -21,15 +21,22 @@ from src.infrastructure.persistence.repositories.admin import AdminRepository
 from src.infrastructure.persistence.repositories.track.preferences import (
     TrackPreferenceRepository,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 async def test_truncate_removes_all_data_tables(db_session: AsyncSession):
     """Seed every data table, truncate, verify zero rows remain."""
-    track = DBTrack(title="To Be Wiped", artists={"names": ["Test"]})
+    track = DBTrack(
+        title="To Be Wiped", artists={"names": ["Test"]}, user_id=TEST_USER_ID
+    )
     db_session.add(track)
     await db_session.flush()
 
-    db_session.add(DBTrackLike(track_id=track.id, service="spotify", is_liked=True))
+    db_session.add(
+        DBTrackLike(
+            track_id=track.id, service="spotify", is_liked=True, user_id=TEST_USER_ID
+        )
+    )
     await db_session.flush()
 
     repo = TrackPreferenceRepository(db_session)

@@ -945,6 +945,7 @@ class Side:
             duration_ms=self.duration_ms,
             isrc=self.isrc,
             id=self.track_id,
+            user_id=self.owner,
         )
 
     def describe(self) -> str:

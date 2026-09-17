@@ -32,7 +32,7 @@ from src.infrastructure.persistence.repositories.workflow.core import WorkflowRe
 from src.infrastructure.persistence.repositories.workflow.runs import (
     WorkflowRunRepository,
 )
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 
 class TestRaiseOnSqlGuardFires:
@@ -103,10 +103,18 @@ async def _make_playlist_with_track(session: AsyncSession) -> tuple:
     """Persist a playlist with one track row; return (playlist_id, track_id)."""
     now = datetime.now(UTC)
     playlist = DBPlaylist(
-        name="Guard PL", track_count=1, created_at=now, updated_at=now
+        name="Guard PL",
+        track_count=1,
+        created_at=now,
+        updated_at=now,
+        user_id=TEST_USER_ID,
     )
     track = DBTrack(
-        title="Guard Track", artists={"names": ["A"]}, created_at=now, updated_at=now
+        title="Guard Track",
+        artists={"names": ["A"]},
+        created_at=now,
+        updated_at=now,
+        user_id=TEST_USER_ID,
     )
     session.add_all([playlist, track])
     await session.flush()

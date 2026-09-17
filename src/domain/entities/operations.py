@@ -255,7 +255,7 @@ class ConnectorTrackPlay:
     track_name: str
     played_at: datetime = field(validator=validate_timezone_aware)
     service: str  # "spotify", "lastfm"
-    user_id: str = "default"
+    user_id: str
     album_name: str | None = None
     ms_played: int | None = None
     service_metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
@@ -389,7 +389,7 @@ class TrackPlay:
     track_id: UUID | None
     service: str
     played_at: datetime = field(validator=validate_timezone_aware)
-    user_id: str = "default"
+    user_id: str
     ms_played: int | None = None
     context: Mapping[str, JsonValue] | None = None
     id: UUID = field(factory=uuid7)

@@ -120,8 +120,10 @@ class PlaylistLinkRepositoryProtocol(Protocol):
         """Get a single playlist link by ID."""
         ...
 
-    def create_link(self, link: PlaylistLink) -> Awaitable[PlaylistLink]:
-        """Create a new playlist link. Ensures the DBConnectorPlaylist exists."""
+    def create_link(
+        self, link: PlaylistLink, *, user_id: str
+    ) -> Awaitable[PlaylistLink]:
+        """Create a new playlist link under ``user_id``. Ensures the DBConnectorPlaylist exists."""
         ...
 
     def update_sync_status(

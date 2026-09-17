@@ -13,6 +13,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 def _make_db_track() -> DBTrack:
@@ -22,6 +23,7 @@ def _make_db_track() -> DBTrack:
         title=f"Track_{uid}",
         artists={"names": [f"Artist_{uid}"]},
         duration_ms=200000,
+        user_id=TEST_USER_ID,
     )
     track.mappings = []
     track.likes = []
@@ -68,6 +70,7 @@ async def _insert_mapping(
         confidence=confidence,
         is_primary=True,
         origin="automatic",
+        user_id=TEST_USER_ID,
     )
     session.add(mapping)
     await session.flush()

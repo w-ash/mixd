@@ -460,7 +460,8 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 connector_playlist_name=cp.name,
                 sync_direction=command.sync_direction,
                 sync_status=SyncStatus.NEVER_SYNCED,
-            )
+            ),
+            user_id=command.user_id,
         )
         # Atomic per item: canonical + link land together (or not at all).
         # ``commit_batch`` (not ``commit``) is the incremental-commit primitive for a

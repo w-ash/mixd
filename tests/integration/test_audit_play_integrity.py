@@ -19,6 +19,7 @@ from scripts.audit_play_integrity import (
 )
 from src.domain.entities import Artist, ConnectorTrack, ConnectorTrackPlay
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 _PLAYED_AT = datetime(2026, 7, 20, 12, 0, 0, tzinfo=UTC)
 _ARTIST = "TEST_AuditArtist"
@@ -43,6 +44,7 @@ def _api_play(*, played_at: datetime = _PLAYED_AT) -> ConnectorTrackPlay:
         import_timestamp=datetime.now(UTC),
         import_source="spotify_api",
         import_batch_id=f"TEST_BATCH_{uuid4()}",
+        user_id=TEST_USER_ID,
     )
 
 
@@ -56,6 +58,7 @@ def _scrobble(*, played_at: datetime) -> ConnectorTrackPlay:
         import_timestamp=datetime.now(UTC),
         import_source="lastfm_api",
         import_batch_id=f"TEST_BATCH_{uuid4()}",
+        user_id=TEST_USER_ID,
     )
 
 
@@ -122,6 +125,7 @@ def _export_play(
         import_batch_id=f"TEST_BATCH_{uuid4()}",
         resolved_track_id=resolved_track_id,
         resolved_at=datetime.now(UTC) if resolved_track_id else None,
+        user_id=TEST_USER_ID,
     )
 
 

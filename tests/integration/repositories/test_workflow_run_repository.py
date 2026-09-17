@@ -21,6 +21,7 @@ from src.infrastructure.persistence.repositories.workflow.core import WorkflowRe
 from src.infrastructure.persistence.repositories.workflow.runs import (
     WorkflowRunRepository,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 def _make_def(wf_id: str = "test", name: str = "Test") -> WorkflowDef:
@@ -659,8 +660,12 @@ class TestWorkflowRunJsonbWrites:
         repo = WorkflowRunRepository(db_session)
         saved = await repo.create_run(_make_run(workflow.id))
 
-        added_track = Track(title="Added", artists=[Artist(name="ArtistA")])
-        removed_track = Track(title="Removed", artists=[Artist(name="ArtistR")])
+        added_track = Track(
+            title="Added", artists=[Artist(name="ArtistA")], user_id=TEST_USER_ID
+        )
+        removed_track = Track(
+            title="Removed", artists=[Artist(name="ArtistR")], user_id=TEST_USER_ID
+        )
         diff = PlaylistDiff(
             operations=[
                 PlaylistOperation(

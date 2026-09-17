@@ -19,7 +19,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyTrack,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import discover_one
+from tests.fixtures import TEST_USER_ID, discover_one
 
 
 class TestLastfmCanonicalParentheticalReuse:
@@ -40,6 +40,7 @@ class TestLastfmCanonicalParentheticalReuse:
                 artists=[Artist(name="Ultraviolet")],
                 duration_ms=220000,
                 connector_track_identifiers={"spotify": "sp_123"},
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(existing.id)
@@ -78,6 +79,7 @@ class TestLastfmCanonicalParentheticalReuse:
                 title="New Kind of Soft",
                 artists=[Artist(name="Ultraviolet")],
                 duration_ms=220000,
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(existing.id)
@@ -111,6 +113,7 @@ class TestSpotifyISRCDedup:
                 artists=[Artist(name="Radiohead")],
                 isrc="GBAYE9300106",
                 duration_ms=238000,
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(existing.id)
@@ -209,6 +212,7 @@ class TestCrossDiscoveryISRCCollision:
                 artists=[Artist(name="Radiohead")],
                 isrc="GBAYE9300106",
                 duration_ms=238000,
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(track_a.id)
@@ -220,6 +224,7 @@ class TestCrossDiscoveryISRCCollision:
             title="Creep",
             artists=[Artist(name="Radiohead")],
             duration_ms=238000,
+            user_id=TEST_USER_ID,
         )
 
         # Mock Spotify search returning a match with Track A's ISRC
@@ -269,6 +274,7 @@ class TestMBIDUpsertMerge:
                 title="Creep",
                 artists=[Artist(name="Radiohead")],
                 connector_track_identifiers={"musicbrainz": mbid},
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(track1.id)
@@ -282,6 +288,7 @@ class TestMBIDUpsertMerge:
                 album="Pablo Honey",
                 duration_ms=238000,
                 connector_track_identifiers={"musicbrainz": mbid},
+                user_id=TEST_USER_ID,
             )
         )
 

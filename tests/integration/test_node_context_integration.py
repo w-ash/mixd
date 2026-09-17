@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from src.application.workflows.context import create_workflow_context
 from src.domain.entities.track import Artist, Track, TrackList
+from tests.fixtures import TEST_USER_ID
 
 
 class TestNodeContextIntegration:
@@ -95,6 +96,7 @@ class TestNodeContextIntegration:
                     artists=[Artist(name="Context Test Artist")],
                     album="Context Test Album",
                     duration_ms=180000,
+                    user_id=TEST_USER_ID,
                 )
             ]
         )

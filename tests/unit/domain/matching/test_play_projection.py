@@ -30,6 +30,7 @@ from src.domain.matching.play_projection import (
     normalized_start_time,
     project_ledger_entries,
 )
+from tests.fixtures import TEST_USER_ID
 
 _BASE = datetime(2024, 11, 5, 9, 0, 0, tzinfo=UTC)
 _TRACK_A = UUID("00000000-0000-7000-8000-00000000000a")
@@ -54,6 +55,7 @@ def _lastfm_obs(
         resolved_track_id=track_id,
         import_source="lastfm_api",
         import_batch_id="batch-lastfm",
+        user_id=TEST_USER_ID,
     )
 
 
@@ -88,6 +90,7 @@ def _export_obs(
         resolved_track_id=track_id,
         import_source="spotify_export",
         import_batch_id="batch-export",
+        user_id=TEST_USER_ID,
     )
 
 
@@ -104,6 +107,7 @@ class TestChannelRegistry:
             played_at=_BASE,
             resolved_track_id=_TRACK_A,
             import_source="tidal_api",
+            user_id=TEST_USER_ID,
         )
         with pytest.raises(UnknownChannelError, match="tidal"):
             channel_for(stray)
@@ -733,6 +737,7 @@ def _api_obs(
         resolved_track_id=track_id,
         import_source="spotify_api",
         import_batch_id="batch-api",
+        user_id=TEST_USER_ID,
     )
 
 
@@ -880,6 +885,7 @@ def _apple_obs(
         resolved_track_id=track_id,
         import_source="apple_api",
         import_batch_id="batch-apple",
+        user_id=TEST_USER_ID,
     )
 
 

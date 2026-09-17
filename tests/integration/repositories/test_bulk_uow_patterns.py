@@ -14,7 +14,7 @@ import pytest
 
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 
 class TestBulkUoWPatterns:
@@ -63,6 +63,7 @@ class TestBulkUoWPatterns:
                     PlaylistEntry(track=track, added_at=datetime.now(UTC))
                     for track in saved_tracks
                 ],
+                user_id=TEST_USER_ID,
             )
             saved_playlist = await playlist_repo.save_playlist(playlist)
             assert len(saved_playlist.entries) == 3

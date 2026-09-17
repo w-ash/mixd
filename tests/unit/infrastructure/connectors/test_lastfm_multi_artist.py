@@ -6,6 +6,7 @@ import pytest
 
 from src.domain.entities import Artist, Track
 from src.infrastructure.connectors.lastfm import LastFMConnector, LastFMTrackInfo
+from tests.fixtures import TEST_USER_ID
 
 
 @pytest.fixture
@@ -23,6 +24,7 @@ def single_artist_track():
         id=1,
         title="Test Track",
         artists=[Artist(name="Single Artist")],
+        user_id=TEST_USER_ID,
     )
 
 
@@ -37,6 +39,7 @@ def multi_artist_track():
             Artist(name="Nosaj Thing"),
             Artist(name="Jacques Green"),
         ],
+        user_id=TEST_USER_ID,
     )
 
 

@@ -17,7 +17,7 @@ from src.application.use_cases.get_track_details import (
 from src.domain.entities import Playlist, TrackLike
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.connector import FullMappingInfo
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 from tests.fixtures.mocks import make_mock_uow
 
 # Shared track UUID used across helper factories
@@ -63,12 +63,14 @@ def _make_likes() -> list[TrackLike]:
             service="spotify",
             is_liked=True,
             liked_at=datetime(2024, 6, 15, tzinfo=UTC),
+            user_id=TEST_USER_ID,
         ),
         TrackLike(
             track_id=_TRACK_UUID,
             service="lastfm",
             is_liked=True,
             liked_at=datetime(2024, 7, 1, tzinfo=UTC),
+            user_id=TEST_USER_ID,
         ),
     ]
 
@@ -83,8 +85,10 @@ def _make_play_aggregations(track_id):
 
 def _make_playlists() -> list[Playlist]:
     return [
-        Playlist(name="Favorites"),
-        Playlist(name="Chill Vibes", description="Relaxing tunes"),
+        Playlist(name="Favorites", user_id=TEST_USER_ID),
+        Playlist(
+            name="Chill Vibes", description="Relaxing tunes", user_id=TEST_USER_ID
+        ),
     ]
 
 

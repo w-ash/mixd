@@ -60,7 +60,8 @@ class Track:
     release_date: datetime | None = field(default=None)
     isrc: str | None = field(default=None)
 
-    user_id: str = "default"
+    # Tenant is always explicit: no default at any layer (v0.12.0.2).
+    user_id: str = field(kw_only=True)
 
     # Extended properties
     id: UUID = field(factory=uuid7)
@@ -143,7 +144,7 @@ class TrackLike:
 
     track_id: UUID
     service: str  # 'spotify', 'lastfm', 'mixd'
-    user_id: str = "default"
+    user_id: str
     is_liked: bool = True  # Default to liked since most cases create likes
     liked_at: datetime | None = None
     last_synced: datetime | None = None

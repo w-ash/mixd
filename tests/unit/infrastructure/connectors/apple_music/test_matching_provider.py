@@ -15,7 +15,7 @@ from src.infrastructure.connectors.apple_music.client import CatalogSongsLookup
 from src.infrastructure.connectors.apple_music.matching_provider import (
     AppleMusicMatchingProvider,
 )
-from tests.fixtures import make_apple_song
+from tests.fixtures import TEST_USER_ID, make_apple_song
 
 STOREFRONT_PATCH = (
     "src.infrastructure.connectors.apple_music.matching_provider.resolve_storefront"
@@ -33,7 +33,12 @@ def _make_provider(songs=None, failed_values=None, storefront="us"):
 
 
 def _isrc_track(isrc: str = "USUM72309818", title: str = "Test Song") -> Track:
-    return Track(title=title, isrc=isrc, artists=[Artist(name="Test Artist")])
+    return Track(
+        title=title,
+        isrc=isrc,
+        artists=[Artist(name="Test Artist")],
+        user_id=TEST_USER_ID,
+    )
 
 
 class TestServiceContract:
@@ -105,7 +110,9 @@ class TestIsrcMatching:
     async def test_track_without_isrc_fails_without_artist_title_call(self):
         """No ISRC → NO_ISRC failure from the IsrcOnly strategy, no lookup."""
         provider, client, _ = _make_provider()
-        track = Track(title="No Code", artists=[Artist(name="Someone")])
+        track = Track(
+            title="No Code", artists=[Artist(name="Someone")], user_id=TEST_USER_ID
+        )
 
         with patch(STOREFRONT_PATCH, AsyncMock(return_value="us")):
             result = await provider.fetch_raw_matches_for_tracks([track])

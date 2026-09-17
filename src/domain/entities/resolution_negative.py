@@ -31,7 +31,7 @@ class ResolutionNegative:
     """One remembered non-match — a backoff state or a sticky rejection."""
 
     id: UUID = field(factory=uuid7)
-    user_id: str = "default"
+    user_id: str = field(kw_only=True)
     kind: NegativeKind = "no_match"
     connector_name: str = ""
     connector_track_id: UUID | None = None

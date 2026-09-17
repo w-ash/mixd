@@ -10,6 +10,7 @@ from uuid import UUID, uuid7
 import httpx2
 from sqlalchemy import text
 
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.factories import nonexistent_id
 
 
@@ -30,11 +31,12 @@ async def _seed_review(client: httpx2.AsyncClient) -> UUID:
         # Create a track
         await session.execute(
             text(
-                "INSERT INTO tracks (id, title, artists, created_at, updated_at) "
-                "VALUES (:id, :title, :artists, :now, :now)"
+                "INSERT INTO tracks (id, user_id, title, artists, created_at, "
+                "updated_at) VALUES (:id, :user_id, :title, :artists, :now, :now)"
             ),
             {
                 "id": track_id,
+                "user_id": TEST_USER_ID,
                 "title": "Test Track",
                 "artists": '{"names": ["Test Artist"]}',
                 "now": now,
@@ -64,12 +66,14 @@ async def _seed_review(client: httpx2.AsyncClient) -> UUID:
         await session.execute(
             text(
                 "INSERT INTO match_reviews "
-                "(id, track_id, connector_name, connector_track_id, match_method, "
-                "confidence, match_weight, status, created_at, updated_at) "
-                "VALUES (:id, :tid, :cn, :ctid, :mm, :conf, :mw, :status, :now, :now)"
+                "(id, user_id, track_id, connector_name, connector_track_id, "
+                "match_method, confidence, match_weight, status, created_at, "
+                "updated_at) VALUES (:id, :user_id, :tid, :cn, :ctid, :mm, :conf, "
+                ":mw, :status, :now, :now)"
             ),
             {
                 "id": review_id,
+                "user_id": TEST_USER_ID,
                 "tid": track_id,
                 "cn": "spotify",
                 "ctid": ct_id,

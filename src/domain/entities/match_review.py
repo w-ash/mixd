@@ -27,7 +27,7 @@ class MatchReview:
     match_method: MatchMethod
     confidence: int
     match_weight: float
-    user_id: str = "default"
+    user_id: str
     # See TrackMapping.confidence_evidence — dict[str, object] for the same reason.
     confidence_evidence: dict[str, object] | None = None
     status: str = "pending"

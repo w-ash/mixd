@@ -9,6 +9,7 @@ from src.domain.playlist import (
     PlaylistOperation,
     PlaylistOperationType,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 class TestBuildPlaylistChanges:
@@ -20,8 +21,12 @@ class TestBuildPlaylistChanges:
         without crashing psycopg's default JSON adapter — which has no
         encoder for ``UUID``.
         """
-        added_track = Track(title="Added", artists=[Artist(name="A")])
-        removed_track = Track(title="Removed", artists=[Artist(name="R")])
+        added_track = Track(
+            title="Added", artists=[Artist(name="A")], user_id=TEST_USER_ID
+        )
+        removed_track = Track(
+            title="Removed", artists=[Artist(name="R")], user_id=TEST_USER_ID
+        )
         diff = PlaylistDiff(
             operations=[
                 PlaylistOperation(

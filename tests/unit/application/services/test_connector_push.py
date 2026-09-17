@@ -24,6 +24,7 @@ from src.domain.entities.track import TrackList
 from src.domain.exceptions import ConnectorSyncError
 from src.domain.playlist.diff_engine import PlaylistOpsOutcome
 from tests.fixtures import (
+    TEST_USER_ID,
     make_connector_playlist,
     make_connector_playlist_item,
     make_mock_uow,
@@ -74,7 +75,9 @@ class TestExecuteConnectorOperations:
 class TestOverwriteExternalPlaylist:
     async def test_no_changes_is_noop_without_connector_call(self):
         track = make_track(title="A")
-        same = Playlist(name="P", entries=[PlaylistEntry(track=track)])
+        same = Playlist(
+            name="P", entries=[PlaylistEntry(track=track)], user_id=TEST_USER_ID
+        )
         connector = MagicMock()
         connector.execute_playlist_operations = AsyncMock()
         with patch(f"{_PUSH_MOD}.resolve_playlist_connector", return_value=connector):
@@ -87,7 +90,9 @@ class TestOverwriteExternalPlaylist:
 
     async def test_overwrite_executes_and_reports_counts(self):
         current = Playlist(
-            name="P", entries=[PlaylistEntry(track=make_track(title="A"))]
+            name="P",
+            entries=[PlaylistEntry(track=make_track(title="A"))],
+            user_id=TEST_USER_ID,
         )
         target = Playlist(
             name="P",
@@ -95,6 +100,7 @@ class TestOverwriteExternalPlaylist:
                 *current.entries,
                 PlaylistEntry(track=make_track(title="B")),
             ],
+            user_id=TEST_USER_ID,
         )
         connector = MagicMock()
         connector.execute_playlist_operations = AsyncMock(
@@ -154,7 +160,9 @@ class TestExternalAsPlaylist:
 class TestAppendNewTracks:
     async def test_appends_only_tracks_not_already_present(self):
         existing = make_track(title="A")
-        current = Playlist(name="P", entries=[PlaylistEntry(track=existing)])
+        current = Playlist(
+            name="P", entries=[PlaylistEntry(track=existing)], user_id=TEST_USER_ID
+        )
         new = make_track(title="B")
         connector = MagicMock()
         connector.append_tracks_to_playlist = AsyncMock()
@@ -173,7 +181,9 @@ class TestAppendNewTracks:
         # Same spotify track surfacing as a different canonical-id instance.
         existing = make_track(title="A", connector_track_identifiers={"spotify": "sA"})
         dup = make_track(title="A again", connector_track_identifiers={"spotify": "sA"})
-        current = Playlist(name="P", entries=[PlaylistEntry(track=existing)])
+        current = Playlist(
+            name="P", entries=[PlaylistEntry(track=existing)], user_id=TEST_USER_ID
+        )
         connector = MagicMock()
         connector.append_tracks_to_playlist = AsyncMock()
         with patch(f"{_PUSH_MOD}.resolve_playlist_connector", return_value=connector):

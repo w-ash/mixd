@@ -22,7 +22,7 @@ from src.domain.entities.playlist import Playlist
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.exceptions import NotFoundError
 from src.domain.playlist.reconciliation import SyncPlan
-from tests.fixtures import make_mock_uow
+from tests.fixtures import TEST_USER_ID, make_mock_uow
 
 _RESOLVER = "src.application.use_cases._shared.playlist_resolver.require_playlist_link"
 
@@ -41,7 +41,7 @@ async def test_preview_maps_plan_to_result():
     link = _link()
     uow = make_mock_uow()
     uow.get_playlist_repository().get_playlist_by_id = AsyncMock(
-        return_value=Playlist(name="My Playlist")
+        return_value=Playlist(name="My Playlist", user_id=TEST_USER_ID)
     )
     plan = SyncPlan(
         direction=SyncDirection.PULL,

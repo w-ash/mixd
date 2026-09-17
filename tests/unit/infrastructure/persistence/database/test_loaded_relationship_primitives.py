@@ -12,6 +12,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBPlaylistTrack,
     DBTrack,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 class TestLoadedListUnloaded:
@@ -20,7 +21,7 @@ class TestLoadedListUnloaded:
     def test_transient_instance_returns_empty(self):
         # A fresh transient instance has never loaded `tracks` — no SQL is
         # emitted (the call would raise MissingGreenlet if it tried).
-        playlist = DBPlaylist()
+        playlist = DBPlaylist(user_id=TEST_USER_ID)
         assert playlist.loaded_list(DBPlaylist.tracks, DBPlaylistTrack) == []
 
 
@@ -28,7 +29,7 @@ class TestLoadedListLoaded:
     """A populated relationship comes back as a typed list."""
 
     def test_returns_assigned_collection(self):
-        playlist = DBPlaylist()
+        playlist = DBPlaylist(user_id=TEST_USER_ID)
         pt1 = DBPlaylistTrack()
         pt2 = DBPlaylistTrack()
         playlist.tracks = [pt1, pt2]
@@ -38,7 +39,7 @@ class TestLoadedListLoaded:
         assert all(isinstance(x, DBPlaylistTrack) for x in result)
 
     def test_empty_assigned_collection_returns_empty(self):
-        playlist = DBPlaylist()
+        playlist = DBPlaylist(user_id=TEST_USER_ID)
         playlist.tracks = []
         assert playlist.loaded_list(DBPlaylist.tracks, DBPlaylistTrack) == []
 
@@ -55,7 +56,7 @@ class TestLoadedOneLoaded:
     """A populated to-one relationship comes back as the typed value."""
 
     def test_returns_assigned_value(self):
-        track = DBTrack(title="x", artists={"names": ["a"]})
+        track = DBTrack(title="x", artists={"names": ["a"]}, user_id=TEST_USER_ID)
         pt = DBPlaylistTrack()
         pt.track = track
         assert pt.loaded_one(DBPlaylistTrack.track, DBTrack) is track
@@ -63,7 +64,7 @@ class TestLoadedOneLoaded:
     def test_type_mismatch_returns_none(self):
         # item_type is the runtime narrowing guard: a value of the wrong type
         # (or the NO_VALUE sentinel) fails the isinstance check.
-        track = DBTrack(title="x", artists={"names": ["a"]})
+        track = DBTrack(title="x", artists={"names": ["a"]}, user_id=TEST_USER_ID)
         pt = DBPlaylistTrack()
         pt.track = track
         assert pt.loaded_one(DBPlaylistTrack.track, DBPlaylist) is None
