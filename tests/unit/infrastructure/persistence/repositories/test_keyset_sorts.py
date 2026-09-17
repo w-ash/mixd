@@ -32,6 +32,18 @@ class TestTrackSortRegistry:
         members = set(get_args(cast("object", TrackSortBy.__value__)))
         assert set(TRACK_SORTS) == members
 
+    def test_each_entry_carries_its_own_mapping_key(self) -> None:
+        """The cursor's ``c`` field is ``sort.key``; a registry entry whose key
+        differs from its mapping key would mint cursors no lookup can match."""
+        for name, sort in TRACK_SORTS.items():
+            assert sort.key == name
+
+
+class TestDeclaredKeysAreDistinct:
+    def test_no_two_declarations_share_a_key(self) -> None:
+        keys = [sort.key for _, sort in DECLARED]
+        assert len(keys) == len(set(keys))
+
 
 class TestDeclarationsMatchTheModels:
     def test_columns_exist_and_flags_agree(self) -> None:

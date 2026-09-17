@@ -155,7 +155,7 @@ class TestListTracksCursorPagination:
 
         test_id = uuid7()
         cursor = encode_cursor(
-            PageCursor(sort_column="title", sort_value="Radiohead", last_id=test_id)
+            PageCursor(sort_key="title_asc", sort_value="Radiohead", last_id=test_id)
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
@@ -190,7 +190,7 @@ class TestListTracksCursorPagination:
 
         # Cursor was built for title sort, but command uses duration sort
         cursor = encode_cursor(
-            PageCursor(sort_column="title", sort_value="Test", last_id=uuid7())
+            PageCursor(sort_key="title_asc", sort_value="Test", last_id=uuid7())
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
@@ -203,6 +203,28 @@ class TestListTracksCursorPagination:
         assert call_kwargs["after_value"] is None
         assert call_kwargs["after_id"] is None
 
+    async def test_cursor_from_opposite_direction_is_refused(self, mock_uow) -> None:
+        """A ``title_asc`` cursor under ``title_desc`` shares the column but would
+        seek from the wrong end — the key mismatch refuses it."""
+        from uuid import uuid7
+
+        from src.application.pagination import PageCursor, encode_cursor
+
+        cursor = encode_cursor(
+            PageCursor(sort_key="title_asc", sort_value="Test", last_id=uuid7())
+        )
+        mock_uow.get_track_repository().list_tracks.return_value = _page()
+
+        command = ListTracksCommand(
+            user_id="test-user", cursor=cursor, sort_by="title_desc"
+        )
+        await ListTracksUseCase().execute(command, mock_uow)
+
+        call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
+        assert call_kwargs["after_value"] is None
+        assert call_kwargs["after_id"] is None
+        assert call_kwargs["include_total"] is True
+
     async def test_total_none_when_cursor_present(self, mock_uow) -> None:
         """When a cursor is used, include_total=False and total=None is propagated."""
         from uuid import uuid7
@@ -210,15 +232,19 @@ class TestListTracksCursorPagination:
         from src.application.pagination import PageCursor, encode_cursor
 
         cursor = encode_cursor(
-            PageCursor(sort_column="title", sort_value="Test", last_id=uuid7())
+            PageCursor(sort_key="title_asc", sort_value="Test", last_id=uuid7())
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page(
             total=None,  # Repository returns None when include_total=False
         )
 
-        command = ListTracksCommand(user_id="test-user", cursor=cursor)
+        command = ListTracksCommand(
+            user_id="test-user", cursor=cursor, sort_by="title_asc"
+        )
         result = await ListTracksUseCase().execute(command, mock_uow)
 
+        call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
+        assert call_kwargs["include_total"] is False
         assert result.total is None
 
 

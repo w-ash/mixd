@@ -445,6 +445,43 @@ class TestListTracksKeysetPagination:
         assert len(page["tracks"]) == 1
         assert page["next_page_key"] is None
 
+    async def test_keyset_exactly_full_last_page_yields_no_key(
+        self, db_session: AsyncSession
+    ) -> None:
+        """A last page that fills the limit exactly emits no next key — the
+        probe row, not the page size, decides whether more pages exist."""
+        await _insert_track(db_session, "Alpha")
+        await _insert_track(db_session, "Beta")
+        await _insert_track(db_session, "Gamma")
+        await _insert_track(db_session, "Delta")
+
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        p1 = await track_repo.list_tracks(
+            user_id="default", sort_by="title_asc", limit=2
+        )
+        assert [t.title for t in p1["tracks"]] == ["Alpha", "Beta"]
+        assert p1["next_page_key"] is not None
+
+        sort_val, last_id = p1["next_page_key"]
+        p2 = await track_repo.list_tracks(
+            user_id="default",
+            sort_by="title_asc",
+            limit=2,
+            after_value=sort_val,
+            after_id=last_id,
+        )
+        assert [t.title for t in p2["tracks"]] == ["Delta", "Gamma"]
+        assert p2["next_page_key"] is None
+
+        # The same holds on offset paging: the exactly-full final page is last.
+        by_offset = await track_repo.list_tracks(
+            user_id="default", sort_by="title_asc", limit=2, offset=2
+        )
+        assert [t.title for t in by_offset["tracks"]] == ["Delta", "Gamma"]
+        assert by_offset["next_page_key"] is None
+
     async def test_keyset_with_search_filter(self, db_session: AsyncSession) -> None:
         """Keyset pagination respects active search filters."""
         await _insert_track(db_session, "Alpha Rock", artist="Band A")

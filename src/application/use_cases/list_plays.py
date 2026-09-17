@@ -102,7 +102,7 @@ class ListPlaysUseCase:
             next_played_at, next_id = next_page_key
             next_cursor = encode_cursor(
                 PageCursor(
-                    sort_column=PLAY_EVENT_SORT.column,
+                    sort_key=PLAY_EVENT_SORT.key,
                     sort_value=cursor_sort_value_from_row(next_played_at),
                     last_id=next_id,
                 )

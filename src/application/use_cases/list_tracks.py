@@ -111,14 +111,14 @@ class ListTracksUseCase:
         ValueError`` stays narrow while still covering both raising calls
         (``decode_cursor`` and ``cursor_sort_value_to_query``); an invalid
         cursor raises ``ValueError`` and the caller falls back to offset paging.
-        Returns ``(after_value, after_id, has_cursor)``; a sort-column mismatch
-        yields ``(None, None, False)``.
+        Returns ``(after_value, after_id, has_cursor)``; a cursor minted under
+        another sort key yields ``(None, None, False)``.
         """
         page_cursor = decode_cursor(cursor)
-        if page_cursor.sort_column != sort.column:
+        if page_cursor.sort_key != sort.key:
             logger.debug(
-                "Cursor sort column mismatch: "
-                f"cursor={page_cursor.sort_column}, current={sort.column}"
+                "Cursor sort key mismatch: "
+                f"cursor={page_cursor.sort_key}, current={sort.key}"
             )
             return None, None, False
         after_value = cursor_sort_value_to_query(sort, page_cursor.sort_value)
@@ -173,7 +173,7 @@ class ListTracksUseCase:
                 raw_value, last_id = page["next_page_key"]
                 next_cursor = encode_cursor(
                     PageCursor(
-                        sort_column=sort.column,
+                        sort_key=sort.key,
                         sort_value=cursor_sort_value_from_row(raw_value),
                         last_id=last_id,
                     )

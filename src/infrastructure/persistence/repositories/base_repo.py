@@ -298,6 +298,39 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return stmt.order_by(leading, *ordering).limit(limit)
         return stmt.order_by(*ordering).limit(limit)
 
+    async def _fetch_page(
+        self,
+        stmt: Select[tuple[TDBModel]],
+        *,
+        sort: KeysetSort,
+        limit: int,
+        offset: int = 0,
+        after_value: object = None,
+        after_id: UUID | None = None,
+    ) -> tuple[list[TDBModel], tuple[object, UUID] | None]:
+        """Fetch one page of ``stmt`` under ``sort`` and the key to the next.
+
+        Probes ``limit + 1`` rows so the last page is known without a second
+        query: the next-page key is the trimmed page's last ``(sort value,
+        id)`` when the probe row exists, else None — an exactly-full last page
+        emits no key. Loader options already on ``stmt`` are kept.
+        """
+        stmt = self._apply_sort_and_page(
+            stmt,
+            sort=sort,
+            limit=limit + 1,
+            offset=offset,
+            after_value=after_value,
+            after_id=after_id,
+        )
+        rows = list((await self.session.execute(stmt)).scalars().all())
+        if len(rows) <= limit:
+            return rows, None
+        rows = rows[:limit]
+        last = rows[-1]
+        next_value = cast("object", getattr(last, sort.column))
+        return rows, (next_value, last.id)
+
     def count(
         self,
         conditions: Mapping[str, object] | Sequence[ColumnElement[bool]] | None = None,

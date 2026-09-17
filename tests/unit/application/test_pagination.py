@@ -35,7 +35,7 @@ class TestCursorRoundTrip:
 
     def test_string_sort_value(self) -> None:
         original = PageCursor(
-            sort_column="title", sort_value="Radiohead", last_id=uuid7()
+            sort_key="title_asc", sort_value="Radiohead", last_id=uuid7()
         )
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
@@ -44,7 +44,7 @@ class TestCursorRoundTrip:
 
     def test_integer_sort_value(self) -> None:
         original = PageCursor(
-            sort_column="duration_ms", sort_value=240000, last_id=uuid7()
+            sort_key="duration_asc", sort_value=240000, last_id=uuid7()
         )
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
@@ -52,16 +52,14 @@ class TestCursorRoundTrip:
         assert decoded == original
 
     def test_none_sort_value(self) -> None:
-        original = PageCursor(
-            sort_column="duration_ms", sort_value=None, last_id=uuid7()
-        )
+        original = PageCursor(sort_key="duration_asc", sort_value=None, last_id=uuid7())
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
 
         assert decoded == original
 
     def test_float_sort_value(self) -> None:
-        original = PageCursor(sort_column="score", sort_value=0.95, last_id=uuid7())
+        original = PageCursor(sort_key="score_desc", sort_value=0.95, last_id=uuid7())
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
 
@@ -71,7 +69,7 @@ class TestCursorRoundTrip:
         """Datetimes are stored as ISO strings in the cursor."""
         dt = datetime(2025, 6, 15, 12, 30, 0, tzinfo=UTC)
         original = PageCursor(
-            sort_column="created_at", sort_value=dt.isoformat(), last_id=uuid7()
+            sort_key="added_desc", sort_value=dt.isoformat(), last_id=uuid7()
         )
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
@@ -102,13 +100,13 @@ class TestDecodeCursorErrors:
         with pytest.raises(ValueError, match="missing required key"):
             decode_cursor(encoded)
 
-    def test_wrong_sort_column_type(self) -> None:
+    def test_wrong_sort_key_type(self) -> None:
         import base64
         import json
 
         payload = json.dumps({"c": 123, "v": "x", "id": str(uuid7())}).encode()
         encoded = base64.urlsafe_b64encode(payload).decode()
-        with pytest.raises(TypeError, match="sort_column must be a string"):
+        with pytest.raises(TypeError, match="sort_key must be a string"):
             decode_cursor(encoded)
 
     def test_wrong_last_id_type(self) -> None:
@@ -201,11 +199,11 @@ class TestEveryDeclaredSortRoundTrips:
     def test_round_trip(self, case: tuple[KeysetSort, object, UUID]) -> None:
         sort, value, last_id = case
         cursor = PageCursor(
-            sort_column=sort.column,
+            sort_key=sort.key,
             sort_value=cursor_sort_value_from_row(value),
             last_id=last_id,
         )
         decoded = decode_cursor(encode_cursor(cursor))
-        assert decoded.sort_column == sort.column
+        assert decoded.sort_key == sort.key
         assert decoded.last_id == last_id
         assert cursor_sort_value_to_query(sort, decoded.sort_value) == value

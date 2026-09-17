@@ -766,7 +766,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         service: str | None = None,
         track_id: UUID | None = None,
         limit: int = 50,
-    ) -> tuple[list[TrackPlay], tuple[datetime, UUID] | None]:
+    ) -> tuple[list[TrackPlay], tuple[object, UUID] | None]:
         """Page play events newest-first, keyset on ``(played_at, id)``."""
         stmt = (
             select(DBTrackPlay)
@@ -775,24 +775,14 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         )
 
         before_played_at, before_id = before if before is not None else (None, None)
-        stmt = self._apply_sort_and_page(
+        rows, next_page_key = await self._fetch_page(
             stmt,
             sort=PLAY_EVENT_SORT,
-            limit=limit + 1,
+            limit=limit,
             after_value=before_played_at,
             after_id=before_id,
         )
-
-        rows = list((await self.session.execute(stmt)).scalars().all())
-        has_more = len(rows) > limit
-        if has_more:
-            rows = rows[:limit]
-
         plays = [await TrackPlayMapper.to_domain(r) for r in rows]
-        next_page_key: tuple[datetime, UUID] | None = None
-        if has_more and plays:
-            last = plays[-1]
-            next_page_key = (last.played_at, last.id)
         return plays, next_page_key
 
     @db_operation("get_play_histogram")
