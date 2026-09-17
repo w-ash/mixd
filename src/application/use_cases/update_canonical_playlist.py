@@ -247,7 +247,7 @@ class UpdateCanonicalPlaylistUseCase:
         # the caller owns the boundary when commit=False).
         if not command.dry_run:
             await self.metrics_service.extract_track_metrics(
-                processed_playlist.tracks, uow
+                processed_playlist.tracks, uow, user_id=command.user_id
             )
             if commit:
                 await uow.commit()

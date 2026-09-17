@@ -313,7 +313,8 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         Probes ``limit + 1`` rows so the last page is known without a second
         query: the next-page key is the trimmed page's last ``(sort value,
         id)`` when the probe row exists, else None — an exactly-full last page
-        emits no key. Loader options already on ``stmt`` are kept.
+        emits no key, and so does an empty page (``limit=0`` fetches only the
+        probe row). Loader options already on ``stmt`` are kept.
         """
         stmt = self._apply_sort_and_page(
             stmt,
@@ -327,6 +328,8 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if len(rows) <= limit:
             return rows, None
         rows = rows[:limit]
+        if not rows:
+            return rows, None
         last = rows[-1]
         next_value = cast("object", getattr(last, sort.column))
         return rows, (next_value, last.id)

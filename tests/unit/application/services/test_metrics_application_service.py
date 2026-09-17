@@ -64,6 +64,7 @@ class TestSubOperationProgressIntegration:
                 connector="lastfm",
                 metric_names=["lastfm_user_playcount"],
                 uow=mock_uow,
+                user_id="u1",
                 connector_instance=mock_connector,
                 progress_broker=mock_progress_broker,
                 parent_operation_id="parent-op-1",
@@ -100,6 +101,7 @@ class TestSubOperationProgressIntegration:
             connector="lastfm",
             metric_names=["lastfm_user_playcount"],
             uow=mock_uow,
+            user_id="u1",
             connector_instance=mock_connector,
             progress_broker=None,
             parent_operation_id=None,
@@ -145,6 +147,7 @@ class TestLogLevels:
                 connector="lastfm",
                 metric_names=["lastfm_user_playcount"],
                 uow=mock_uow,
+                user_id="u1",
                 connector_instance=mock_connector,
             )
 
@@ -179,6 +182,7 @@ class TestExceptionPropagation:
                 connector="lastfm",
                 metric_names=["lastfm_user_playcount"],
                 uow=mock_uow,
+                user_id="u1",
                 connector_instance=mock_connector,
             )
 
@@ -205,6 +209,7 @@ class TestExtractMetricsFromMetadataCoercion:
             metric_names=["playcount"],
             field_map={"playcount": "playcount"},
             connector="lastfm",
+            user_id="u1",
         )
         assert len(result) == 1
         assert result[0].value == 1.0
@@ -225,6 +230,7 @@ class TestExtractMetricsFromMetadataCoercion:
             metric_names=["playcount"],
             field_map={"playcount": "playcount"},
             connector="lastfm",
+            user_id="u1",
         )
         assert result[0].value == 0.0
         assert type(result[0].value) is float
@@ -241,6 +247,7 @@ class TestExtractMetricsFromMetadataCoercion:
             metric_names=["playcount"],
             field_map={"playcount": "playcount"},
             connector="lastfm",
+            user_id="u1",
         )
         assert result[0].value == 42.0
         assert type(result[0].value) is float
@@ -257,6 +264,7 @@ class TestExtractMetricsFromMetadataCoercion:
             metric_names=["playcount"],
             field_map={"playcount": "playcount"},
             connector="lastfm",
+            user_id="u1",
         )
         assert result[0].value == 12.5
 
@@ -272,6 +280,7 @@ class TestExtractMetricsFromMetadataCoercion:
             metric_names=["playcount"],
             field_map={"playcount": "playcount"},
             connector="lastfm",
+            user_id="u1",
         )
         assert result == []
 
@@ -287,5 +296,64 @@ class TestExtractMetricsFromMetadataCoercion:
             metric_names=["playcount"],
             field_map={"playcount": "playcount"},
             connector="lastfm",
+            user_id="u1",
         )
         assert result == []
+
+
+class TestTenantThreading:
+    """Every metric the service persists carries the caller's tenant.
+
+    ``track_metrics.user_id`` has no column default (v0.12.0.2), so the
+    service must stamp the tenant on each ``TrackMetric`` before the
+    repository sees it — on both the cache-miss fetch path and the
+    connector-metadata extraction path.
+    """
+
+    async def test_fresh_metrics_are_saved_under_the_caller_tenant(self):
+        service = _make_service()
+        track = make_track(
+            id=1, title="Test", connector_track_identifiers={"lastfm": "ext-1"}
+        )
+        mock_uow = _make_uow_with_tracks({1: track})
+        mock_connector = AsyncMock()
+        mock_connector.get_external_track_data = AsyncMock(
+            return_value={1: {"lastfm_user_playcount": 5}}
+        )
+
+        await service.get_external_track_metrics(
+            track_ids=[1],
+            connector="lastfm",
+            metric_names=["lastfm_user_playcount"],
+            uow=mock_uow,
+            user_id="tenant-a",
+            connector_instance=mock_connector,
+        )
+
+        save = mock_uow.get_metrics_repository().save_track_metrics
+        save.assert_awaited_once()
+        saved = save.await_args.args[0]
+        assert [m.value for m in saved] == [5.0]
+        assert {m.user_id for m in saved} == {"tenant-a"}
+
+    async def test_extracted_metrics_are_saved_under_the_caller_tenant(self):
+        mock_metric_config = MagicMock()
+        mock_metric_config.get_all_connectors_metrics.return_value = {
+            "lastfm": ["lastfm_user_playcount"]
+        }
+        mock_metric_config.get_all_field_mappings.return_value = {
+            "lastfm_user_playcount": "playcount"
+        }
+        service = MetricsApplicationService(metric_config=mock_metric_config)
+        track = make_track(
+            id=1, title="Test", connector_metadata={"lastfm": {"playcount": 7}}
+        )
+        mock_uow = make_mock_uow()
+
+        await service.extract_track_metrics([track], mock_uow, user_id="tenant-b")
+
+        save = mock_uow.get_metrics_repository().save_track_metrics
+        save.assert_awaited_once()
+        saved = save.await_args.args[0]
+        assert [(m.track_id, m.value) for m in saved] == [(1, 7.0)]
+        assert {m.user_id for m in saved} == {"tenant-b"}

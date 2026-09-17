@@ -24,7 +24,8 @@ class MetricsRepositoryProtocol(Protocol):
         Args:
             metrics: List of ``TrackMetric`` entities — bool-valued metrics
                 must be coerced to ``float`` at the construction boundary
-                (the DB column is ``float``).
+                (the DB column is ``float``). Each entity carries the tenant
+                it is written under (``user_id``); there is no column default.
 
         Returns:
             Number of metrics saved

@@ -30,6 +30,7 @@ class TrackMetricMapper(BaseModelMapper[DBTrackMetric, TrackMetric]):
         """Convert DB metric to domain entity."""
         return TrackMetric(
             id=db_model.id,
+            user_id=db_model.user_id,
             track_id=db_model.track_id,
             connector_name=db_model.connector_name,
             metric_type=db_model.metric_type,
@@ -42,6 +43,7 @@ class TrackMetricMapper(BaseModelMapper[DBTrackMetric, TrackMetric]):
     def to_db(domain_model: TrackMetric) -> DBTrackMetric:
         """Convert domain entity to DB model."""
         return DBTrackMetric(
+            user_id=domain_model.user_id,
             track_id=domain_model.track_id,
             connector_name=domain_model.connector_name,
             metric_type=domain_model.metric_type,
@@ -117,7 +119,8 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, TrackMetric]):
         Takes ``TrackMetric`` entities (symmetric with ``to_domain``) and
         bulk-upserts via ``pg_insert(...).on_conflict_do_update``. The unique
         constraint on ``(track_id, connector_name, metric_type)`` collapses
-        repeated samples to the most recent value.
+        repeated samples to the most recent value. Each row is tenanted from
+        the entity's ``user_id``; the column has no default.
         """
         if not metrics:
             return 0
@@ -126,6 +129,7 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, TrackMetric]):
         # at the boundary keeps SQLAlchemy happy without leaking Any.
         values: list[dict[str, object]] = [
             {
+                "user_id": m.user_id,
                 "track_id": m.track_id,
                 "connector_name": m.connector_name,
                 "metric_type": m.metric_type,

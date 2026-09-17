@@ -13,9 +13,12 @@ from src.application.pagination import (
     decode_cursor,
     encode_cursor,
 )
+from src.config import get_logger
 from src.domain.entities.operation_run import OperationRun, OperationStatus
 from src.domain.repositories.operation_run import OPERATION_RUN_SORT
 from src.domain.repositories.uow import UnitOfWorkProtocol
+
+logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
@@ -44,12 +47,20 @@ class ListOperationRunsUseCase:
         after_id: UUID | None = None
         if command.encoded_cursor is not None:
             decoded = decode_cursor(command.encoded_cursor)
-            # Cursor stores started_at as ISO string; the shared converter
-            # parses it back so the repo layer never sees the wire format.
-            after_started_at = cursor_datetime_bound(
-                OPERATION_RUN_SORT, decoded.sort_value
-            )
-            after_id = decoded.last_id
+            # A cursor minted under another sort key cannot bound this page;
+            # treat it as no cursor (first page) rather than seek from the
+            # wrong end. Cursor stores started_at as ISO string; the shared
+            # converter parses it back so the repo never sees the wire format.
+            if decoded.sort_key == OPERATION_RUN_SORT.key:
+                after_started_at = cursor_datetime_bound(
+                    OPERATION_RUN_SORT, decoded.sort_value
+                )
+                after_id = decoded.last_id
+            else:
+                logger.debug(
+                    "Cursor sort key mismatch: "
+                    f"cursor={decoded.sort_key}, current={OPERATION_RUN_SORT.key}"
+                )
 
         async with uow:
             repo = uow.get_operation_run_repository()

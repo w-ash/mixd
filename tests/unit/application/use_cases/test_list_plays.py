@@ -103,6 +103,25 @@ class TestListPlaysUseCase:
         plays_repo.list_play_events.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_cursor_from_another_sort_key_starts_at_first_page(self):
+        """A cursor minted under a different sort cannot bound this page."""
+        plays_repo = make_mock_plays_repo(list_play_events=([], None))
+        uow = make_mock_uow(plays_repo=plays_repo, track_repo=make_mock_track_repo())
+        foreign = encode_cursor(
+            PageCursor(
+                sort_key="title_asc",
+                sort_value=datetime(2026, 8, 1, tzinfo=UTC).isoformat(),
+                last_id=uuid7(),
+            )
+        )
+
+        _ = await ListPlaysUseCase().execute(
+            ListPlaysCommand(user_id="u1", encoded_cursor=foreign), uow
+        )
+
+        assert plays_repo.list_play_events.await_args.kwargs["before"] is None
+
+    @pytest.mark.asyncio
     async def test_missing_track_falls_back_to_placeholder(self):
         track_id = uuid7()
         play = _play(track_id, datetime(2026, 8, 1, tzinfo=UTC))
