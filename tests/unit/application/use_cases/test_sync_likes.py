@@ -379,6 +379,143 @@ class TestImportLikesForceMode:
         connector.get_liked_tracks.assert_awaited_once_with(limit=50, cursor="100")
 
 
+def _ingest_refusing(bad_id: str):
+    """A resolution service that throws on ``bad_id`` — and so on any batch
+    containing it — while every other payload ingests normally."""
+    echo = _echo_ingest()
+
+    async def ingest(self, svc, tracks, uow, *, user_id):
+        if any(t.connector_track_identifier == bad_id for t in tracks):
+            raise RuntimeError(f"identity key claimed: {bad_id}")
+        return await echo(self, svc, tracks, uow, user_id=user_id)
+
+    return ingest
+
+
+class TestImportLikesIngestFallback:
+    """One bad payload must cost the page that payload, not the whole page."""
+
+    @pytest.fixture
+    def mock_uow(self):
+        uow = make_mock_uow()
+        checkpoint_repo = uow.get_checkpoint_repository()
+        checkpoint_repo.get_sync_checkpoint = AsyncMock(return_value=None)
+        checkpoint_repo.save_sync_checkpoint = AsyncMock(side_effect=lambda cp: cp)
+        uow.get_connector_repository().find_tracks_by_connectors = AsyncMock(
+            return_value={}
+        )
+        like_repo = uow.get_like_repository()
+        like_repo.get_liked_status_batch = AsyncMock(
+            side_effect=lambda ids, services, **kw: {tid: set(services) for tid in ids}
+        )
+        like_repo.save_track_likes_batch = AsyncMock(return_value=[])
+        return uow
+
+    async def test_a_thrown_batch_falls_back_to_per_payload_and_keeps_the_rest(
+        self, mock_uow
+    ):
+        page = _page_of_tracks(5, 0, cursor=None)
+        bad_id = page[0][2].connector_track_identifier
+        connector = AsyncMock()
+        connector.get_liked_tracks = AsyncMock(return_value=page)
+
+        with (
+            patch.object(TrackResolutionService, "ingest", _ingest_refusing(bad_id)),
+            patch(
+                "src.application.use_cases.sync_likes.resolve_liked_track_connector",
+                return_value=connector,
+            ),
+        ):
+            result = await ImportLikesUseCase().execute(
+                ImportLikesCommand(user_id="test-user", connector="spotify", limit=50),
+                mock_uow,
+            )
+
+        # The bulk attempt and each of the five retries ran under a savepoint.
+        assert mock_uow.savepoint.call_count == 6
+        # The four good payloads were liked (spotify + mixd each); the bad one
+        # was not, and is reported rather than silently dropped.
+        (entries,) = (
+            mock_uow.get_like_repository().save_track_likes_batch.await_args.args
+        )
+        assert len(entries) == 8
+        assert result.summary_metrics.get("imported") == 4
+        assert result.summary_metrics.get("failed") == 1
+
+    async def test_a_failed_ingest_never_triggers_early_stop(self, mock_uow):
+        """Page 1 is four already-synced tracks plus one whose ingest throws.
+        ``new_in_batch`` is 0 and the duplicate rate is above the threshold,
+        but a thrown batch is not evidence of an already-synced page."""
+        page_1 = _page_of_tracks(5, 0, cursor="c1")
+        page_2 = _page_of_tracks(5, 1, cursor=None)
+        connector = AsyncMock()
+        connector.get_liked_tracks = AsyncMock(side_effect=[page_1, page_2])
+
+        dup_tracks, new_track = page_1[0][:4], page_1[0][4]
+        existing_map = {
+            ("spotify", ct.connector_track_identifier): Track(
+                id=i + 1000,
+                title=ct.title,
+                artists=[Artist(name="A")],
+                user_id=TEST_USER_ID,
+            )
+            for i, ct in enumerate(dup_tracks)
+        }
+        connector_repo = mock_uow.get_connector_repository()
+        connector_repo.find_tracks_by_connectors = AsyncMock(
+            side_effect=[existing_map, {}]
+        )
+
+        with (
+            patch.object(
+                TrackResolutionService,
+                "ingest",
+                _ingest_refusing(new_track.connector_track_identifier),
+            ),
+            patch(
+                "src.application.use_cases.sync_likes.resolve_liked_track_connector",
+                return_value=connector,
+            ),
+        ):
+            await ImportLikesUseCase().execute(
+                ImportLikesCommand(user_id="test-user", connector="spotify", limit=50),
+                mock_uow,
+            )
+
+        assert connector.get_liked_tracks.await_count == 2
+
+    async def test_contention_during_ingest_fails_the_run(self, mock_uow):
+        """Lock contention is not about the rows: no fallback, no checkpoint."""
+
+        class _LockNotAvailable(Exception):
+            sqlstate = "55P03"
+
+        async def contended(self, svc, tracks, uow, *, user_id):
+            raise _LockNotAvailable("key held by concurrent writer")
+
+        connector = AsyncMock()
+        connector.get_liked_tracks = AsyncMock(
+            return_value=_page_of_tracks(5, 0, cursor=None)
+        )
+
+        with (
+            patch.object(TrackResolutionService, "ingest", contended),
+            patch(
+                "src.application.use_cases.sync_likes.resolve_liked_track_connector",
+                return_value=connector,
+            ),
+            pytest.raises(_LockNotAvailable),
+        ):
+            await ImportLikesUseCase().execute(
+                ImportLikesCommand(user_id="test-user", connector="spotify", limit=50),
+                mock_uow,
+            )
+
+        assert mock_uow.savepoint.call_count == 1
+        mock_uow.get_checkpoint_repository().save_sync_checkpoint.assert_not_awaited()
+        mock_uow.commit_batch.assert_not_awaited()
+
+
 class TestExportLovesIncrementalCommit:
     """Verify commit_batch() is called per batch in Last.fm export."""
 

@@ -388,6 +388,78 @@ class TestIsrcEvidenceStillDecidesFirst:
         assert imported[0].id == owner.id
 
 
+class TestIsrcReuseBackfillsBlankMetadata:
+    """An ISRC owner missing a duration or album takes the payload's; what it
+    already holds is left as it was. Without the fill, an owner of unknown
+    length is refused by every later name-only reuse and accrues twins."""
+
+    async def test_a_blank_duration_is_filled_and_a_set_album_kept(
+        self, db_session: AsyncSession
+    ):
+        uow = get_unit_of_work(db_session)
+        owner = await uow.get_track_repository().save_track(
+            Track(
+                title="Ibrik",
+                artists=[Artist(name="Bonobo")],
+                album="Original Album",
+                duration_ms=None,
+                isrc=ORIGINAL_ISRC,
+                user_id=TEST_USER_ID,
+            )
+        )
+
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_by_isrc", isrc=ORIGINAL_ISRC, duration_ms=245_733)],
+            uow,
+            user_id=TEST_USER_ID,
+        )
+
+        assert imported[0].id == owner.id
+        row = (
+            await db_session.execute(
+                select(
+                    DBTrack.title, DBTrack.album, DBTrack.duration_ms, DBTrack.isrc
+                ).where(DBTrack.id == owner.id)
+            )
+        ).one()
+        assert row.duration_ms == 245_733
+        assert row.album == "Original Album"
+        assert row.title == "Ibrik"
+        assert row.isrc == ORIGINAL_ISRC
+
+    async def test_the_filled_owner_is_then_reusable_on_names_alone(
+        self, db_session: AsyncSession
+    ):
+        uow = get_unit_of_work(db_session)
+        owner = await uow.get_track_repository().save_track(
+            Track(
+                title="Ibrik",
+                artists=[Artist(name="Bonobo")],
+                duration_ms=None,
+                isrc=ORIGINAL_ISRC,
+                user_id=TEST_USER_ID,
+            )
+        )
+        _ = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_by_isrc", isrc=ORIGINAL_ISRC, duration_ms=245_733)],
+            uow,
+            user_id=TEST_USER_ID,
+        )
+        before = await _canonical_count(db_session)
+
+        imported = await TrackResolutionService().ingest(
+            "spotify",
+            [_connector_track("sp_remaster", isrc=REMASTER_ISRC, duration_ms=245_900)],
+            uow,
+            user_id=TEST_USER_ID,
+        )
+
+        assert imported[0].id == owner.id
+        assert await _canonical_count(db_session) == before
+
+
 class TestAlreadyMappedTracksAreUntouched:
     async def test_a_re_sync_resolves_by_mapping_and_creates_nothing(
         self, db_session: AsyncSession

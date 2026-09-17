@@ -9,6 +9,7 @@ pricing, not a stub of it.
 from collections.abc import Hashable
 
 from attrs import define
+import pytest
 
 from src.config import create_matching_config
 from src.domain.entities import Artist, Track
@@ -21,6 +22,7 @@ from src.domain.matching.canonical_resolution import (
     ResolutionEvidence,
     Reuse,
     TrackResolutionRules,
+    contest_review_for,
     plan_canonical_resolution,
     plan_resolution,
     review_for,
@@ -171,8 +173,12 @@ class TestStrongIdsInsideOneBatch:
         assert plan["b"].canonical is None
         assert plan["b"].evidence.method == "isrc_match"
 
-    def test_a_suspect_in_batch_claim_creates_without_the_id_and_no_review(self):
-        """The owner is unpersisted, so there is nothing to review against."""
+    def test_a_suspect_in_batch_claim_creates_without_the_id_and_names_the_leader(
+        self,
+    ):
+        """The leader is not persisted yet, so the planner cannot build the
+        review itself; it names the leader and prices the collision so the
+        caller can, once the leader has a row."""
         plan = _plan(
             _described("a", isrc=ISRC, duration_ms=200_000),
             _described("b", isrc=ISRC, duration_ms=215_000),
@@ -180,6 +186,53 @@ class TestStrongIdsInsideOneBatch:
 
         assert isinstance(plan["b"], Create)
         assert plan["b"].strong_id is None
+        assert plan["b"].contested_leader == "a"
+        assert plan["b"].contest is not None
+        assert plan["b"].contest.method == "isrc_suspect"
+        assert plan["b"].contest.zone == "review"
+
+    def test_an_uncontested_creation_names_no_leader(self):
+        (outcome,) = _plan(_described("a", isrc=ISRC)).values()
+
+        assert isinstance(outcome, Create)
+        assert outcome.contested_leader is None
+        assert outcome.contest is None
+
+    def test_the_contest_review_names_the_leader_and_the_connector_track(self):
+        plan = _plan(
+            _described("a", isrc=ISRC, duration_ms=200_000),
+            _described("b", isrc=ISRC, duration_ms=215_000),
+        )
+        contested = plan["b"]
+        assert isinstance(contested, Create)
+        leader = _canonical(isrc=ISRC, duration_ms=200_000)
+
+        review = contest_review_for(
+            contested,
+            leader,
+            connector="spotify",
+            connector_track_id=leader.id,
+            user_id="u",
+        )
+
+        assert review.track_id == leader.id
+        assert review.match_method == "isrc_suspect"
+        assert contested.contest is not None
+        assert review.confidence == contested.contest.confidence
+        assert review.user_id == "u"
+
+    def test_an_uncontested_creation_has_no_contest_review(self):
+        (outcome,) = _plan(_described("a", isrc=ISRC)).values()
+        assert isinstance(outcome, Create)
+
+        with pytest.raises(ValueError, match="contested"):
+            _ = contest_review_for(
+                outcome,
+                _canonical(isrc=ISRC),
+                connector="spotify",
+                connector_track_id=_canonical().id,
+                user_id="u",
+            )
 
     def test_a_deferred_creation_is_not_a_leader(self):
         owner = _canonical(isrc=ISRC, duration_ms=200_000)

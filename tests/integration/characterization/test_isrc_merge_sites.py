@@ -39,7 +39,8 @@ class TestSaveTrackIsrcGuard:
     ``TrackResolutionService`` via the domain planner: a suspect collision
     never claims the contested ISRC (the incoming track becomes a distinct
     canonical with isrc NULL, the owner untouched), and a non-suspect
-    collision reuses the owner as-is rather than overwriting it.
+    collision reuses the owner rather than overwriting it — only a column
+    the owner has no value for is filled from the payload.
     """
 
     async def test_suspect_isrc_collision_defers_instead_of_clobbering(
@@ -98,7 +99,8 @@ class TestSaveTrackIsrcGuard:
         self, db_session: AsyncSession
     ):
         """Same-duration ISRC collision: the owner is reused, and — unlike the
-        old upsert — its metadata is left as it was."""
+        old upsert — the metadata it already holds is left as it was (only a
+        blank column may take the payload's value)."""
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
@@ -107,6 +109,7 @@ class TestSaveTrackIsrcGuard:
                 id=None,
                 title="Gold Rush",
                 artists=[Artist(name="Neon Priest")],
+                album="Debut",
                 duration_ms=200_000,
                 isrc="USNP12400001",
                 user_id=TEST_USER_ID,
@@ -135,7 +138,7 @@ class TestSaveTrackIsrcGuard:
                 select(DBTrack.album).where(DBTrack.id == original.id)
             )
         ).scalar_one()
-        assert owner_album is None
+        assert owner_album == "Debut"
         method = (
             await db_session.execute(
                 select(DBTrackMapping.match_method).where(

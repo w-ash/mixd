@@ -1114,27 +1114,31 @@ class TrackConnectorRepository:
         """Drop mapping rows whose connector track has a manual-override mapping.
 
         MANUAL_OVERRIDE rows are user-pinned identity decisions — an automatic
-        bulk map must never clobber them.
+        bulk map must never clobber them. Per user: connector tracks are
+        shared across tenants, and one user's pin says nothing about
+        another's mapping of the same track.
         """
         if not mapping_rows:
             return mapping_rows
 
         ct_ids_in_batch = [d["connector_track_id"] for d in mapping_rows]
+        user_ids_in_batch = sorted({cast("str", d["user_id"]) for d in mapping_rows})
         result = await self.session.execute(
-            select(DBTrackMapping.connector_track_id).where(
+            select(DBTrackMapping.user_id, DBTrackMapping.connector_track_id).where(
+                DBTrackMapping.user_id.in_(user_ids_in_batch),
                 DBTrackMapping.connector_track_id.in_(ct_ids_in_batch),
                 DBTrackMapping.origin == "manual_override",
                 live_only(DBTrackMapping),
             )
         )
-        manual_override_ct_ids = {row[0] for row in result.fetchall()}
-        if not manual_override_ct_ids:
+        manual_overrides = set(result.tuples().all())
+        if not manual_overrides:
             return mapping_rows
 
         return [
             d
             for d in mapping_rows
-            if d["connector_track_id"] not in manual_override_ct_ids
+            if (d["user_id"], d["connector_track_id"]) not in manual_overrides
         ]
 
     @db_operation("map_track_to_connector")
