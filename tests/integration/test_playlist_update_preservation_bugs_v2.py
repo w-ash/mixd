@@ -18,7 +18,7 @@ from src.application.use_cases.update_canonical_playlist import (
 from src.domain.entities import Artist, Track
 from src.domain.entities.track import TrackList
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_mock_metric_config
+from tests.fixtures import TEST_USER_ID, make_mock_metric_config
 
 _MOCK_METRIC_CONFIG = make_mock_metric_config()
 
@@ -49,9 +49,15 @@ class TestPlaylistUpdateRecordIdentityBugs:
         PROOF: After reordering [A,B,C] → [B,C,A], check that each track keeps its original DB record ID.
         """
         # Step 1: Create playlist [Track A, Track B, Track C]
-        track_a = Track(title="Track A", artists=[Artist(name="Artist A")])
-        track_b = Track(title="Track B", artists=[Artist(name="Artist B")])
-        track_c = Track(title="Track C", artists=[Artist(name="Artist C")])
+        track_a = Track(
+            title="Track A", artists=[Artist(name="Artist A")], user_id=TEST_USER_ID
+        )
+        track_b = Track(
+            title="Track B", artists=[Artist(name="Artist B")], user_id=TEST_USER_ID
+        )
+        track_c = Track(
+            title="Track C", artists=[Artist(name="Artist C")], user_id=TEST_USER_ID
+        )
 
         uow = get_unit_of_work(db_session)
         create_use_case = CreateCanonicalPlaylistUseCase(
@@ -205,9 +211,14 @@ class TestPlaylistUpdateRecordIdentityBugs:
         """
         # Step 1: Create initial playlist [Track A, Track B]
         track_a = Track(
-            title="Track A", artists=[Artist(name="Artist A")], album="Album 1"
+            title="Track A",
+            artists=[Artist(name="Artist A")],
+            album="Album 1",
+            user_id=TEST_USER_ID,
         )
-        track_b = Track(title="Track B", artists=[Artist(name="Artist B")])
+        track_b = Track(
+            title="Track B", artists=[Artist(name="Artist B")], user_id=TEST_USER_ID
+        )
 
         uow = get_unit_of_work(db_session)
         create_use_case = CreateCanonicalPlaylistUseCase(
@@ -343,9 +354,15 @@ class TestPlaylistUpdateRecordIdentityBugs:
         PROOF: Remove middle track, verify remaining tracks keep original record IDs.
         """
         # Create playlist [Track A, Track B, Track C]
-        track_a = Track(title="Track A", artists=[Artist(name="Artist A")])
-        track_b = Track(title="Track B", artists=[Artist(name="Artist B")])
-        track_c = Track(title="Track C", artists=[Artist(name="Artist C")])
+        track_a = Track(
+            title="Track A", artists=[Artist(name="Artist A")], user_id=TEST_USER_ID
+        )
+        track_b = Track(
+            title="Track B", artists=[Artist(name="Artist B")], user_id=TEST_USER_ID
+        )
+        track_c = Track(
+            title="Track C", artists=[Artist(name="Artist C")], user_id=TEST_USER_ID
+        )
 
         uow = get_unit_of_work(db_session)
         create_use_case = CreateCanonicalPlaylistUseCase(

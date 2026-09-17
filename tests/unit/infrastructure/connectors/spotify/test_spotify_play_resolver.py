@@ -24,7 +24,7 @@ from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
     should_include_spotify_play,
 )
-from tests.fixtures import attach_resolution_recorder
+from tests.fixtures import TEST_USER_ID, attach_resolution_recorder
 from tests.fixtures.factories import make_spotify_track, make_track
 
 
@@ -77,6 +77,7 @@ def _make_connector_play(
         import_timestamp=datetime(2024, 7, 1, tzinfo=UTC),
         import_source="spotify_export",
         import_batch_id="test-batch",
+        user_id=TEST_USER_ID,
     )
 
 
@@ -1055,7 +1056,11 @@ class TestIncognitoPreFilter:
             tracks_map or {},
             TrackResolutionMetrics(existing=len(tracks_map or {})),
         )
-        inward.get_resolution_method.return_value = "spotify_connector_play_resolver"
+        # Sync on the real resolver; an AsyncMock attribute would hand back a
+        # coroutine nothing awaits.
+        inward.get_resolution_method = MagicMock(
+            return_value="spotify_connector_play_resolver"
+        )
         inward.isrc_suspect_deferred_ids = set()
         resolver._inward_resolver = inward
         return resolver, inward

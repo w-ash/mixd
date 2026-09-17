@@ -36,7 +36,7 @@ from src.infrastructure.persistence.repositories.track.preferences import (
 )
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 from src.infrastructure.services.track_merge_service import TrackMergeService
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 
 class TestTrackMergeServiceIntegration:
@@ -48,12 +48,16 @@ class TestTrackMergeServiceIntegration:
         """Test that merge_tracks moves all foreign key references and hard-deletes loser."""
         # Create two test tracks
         winner_track_db = DBTrack(
-            title="Test Song", artists={"names": ["Test Artist"]}, album="Test Album"
+            title="Test Song",
+            artists={"names": ["Test Artist"]},
+            album="Test Album",
+            user_id=TEST_USER_ID,
         )
         loser_track_db = DBTrack(
             title="Test Song (Duplicate)",
             artists={"names": ["Test Artist"]},
             album="Test Album",
+            user_id=TEST_USER_ID,
         )
 
         db_session.add(winner_track_db)
@@ -71,8 +75,14 @@ class TestTrackMergeServiceIntegration:
             service="spotify",
             played_at=datetime(2025, 1, 1, tzinfo=UTC),
             ms_played=30000,
+            user_id=TEST_USER_ID,
         )
-        like = DBTrackLike(track_id=loser_track_db.id, service="spotify", is_liked=True)
+        like = DBTrackLike(
+            track_id=loser_track_db.id,
+            service="spotify",
+            is_liked=True,
+            user_id=TEST_USER_ID,
+        )
 
         db_session.add(play)
         db_session.add(like)
@@ -131,8 +141,12 @@ class TestMergeRecomputesPlayAggregates:
     async def test_winner_aggregates_equal_union_of_plays(
         self, db_session: AsyncSession, test_data_tracker
     ):
-        winner = DBTrack(title="Agg Winner", artists={"names": ["A"]})
-        loser = DBTrack(title="Agg Loser", artists={"names": ["A"]})
+        winner = DBTrack(
+            title="Agg Winner", artists={"names": ["A"]}, user_id=TEST_USER_ID
+        )
+        loser = DBTrack(
+            title="Agg Loser", artists={"names": ["A"]}, user_id=TEST_USER_ID
+        )
         db_session.add_all([winner, loser])
         await db_session.flush()
         test_data_tracker.add_track(winner.id)
@@ -143,11 +157,15 @@ class TestMergeRecomputesPlayAggregates:
         # The loser holds both extremes, so the recompute must see the moved
         # plays — the winner's own rows alone would give the wrong bounds.
         db_session.add_all([
-            DBTrackPlay(track_id=winner.id, service="lastfm", played_at=at)
+            DBTrackPlay(
+                track_id=winner.id, service="lastfm", played_at=at, user_id=TEST_USER_ID
+            )
             for at in (earliest + timedelta(days=1), earliest + timedelta(days=2))
         ])
         db_session.add_all([
-            DBTrackPlay(track_id=loser.id, service="lastfm", played_at=at)
+            DBTrackPlay(
+                track_id=loser.id, service="lastfm", played_at=at, user_id=TEST_USER_ID
+            )
             for at in (earliest, latest)
         ])
         await db_session.flush()
@@ -177,8 +195,8 @@ class TestTrackMergePreferences:
 
     @staticmethod
     async def _make_pair(session: AsyncSession, tracker) -> tuple[DBTrack, DBTrack]:
-        winner = DBTrack(title="Winner", artists={"names": ["A"]})
-        loser = DBTrack(title="Loser", artists={"names": ["A"]})
+        winner = DBTrack(title="Winner", artists={"names": ["A"]}, user_id=TEST_USER_ID)
+        loser = DBTrack(title="Loser", artists={"names": ["A"]}, user_id=TEST_USER_ID)
         session.add_all([winner, loser])
         await session.flush()
         tracker.add_track(winner.id)
@@ -384,7 +402,9 @@ class TestMergePreservesMappingHistory:
 
     @staticmethod
     async def _track(db_session: AsyncSession, title: str, tracker) -> DBTrack:
-        row = DBTrack(title=title, artists={"names": ["Merge Artist"]})
+        row = DBTrack(
+            title=title, artists={"names": ["Merge Artist"]}, user_id=TEST_USER_ID
+        )
         db_session.add(row)
         await db_session.flush()
         tracker.add_track(row.id)
@@ -798,8 +818,12 @@ class TestMergePreservesTheLedger:
 
     @staticmethod
     async def _pair(session: AsyncSession, tracker) -> tuple[DBTrack, DBTrack]:
-        winner = DBTrack(title="Ledger Winner", artists={"names": ["A"]})
-        loser = DBTrack(title="Ledger Loser", artists={"names": ["A"]})
+        winner = DBTrack(
+            title="Ledger Winner", artists={"names": ["A"]}, user_id=TEST_USER_ID
+        )
+        loser = DBTrack(
+            title="Ledger Loser", artists={"names": ["A"]}, user_id=TEST_USER_ID
+        )
         session.add_all([winner, loser])
         await session.flush()
         tracker.add_track(winner.id)
@@ -837,6 +861,7 @@ class TestMergePreservesTheLedger:
             service="lastfm",
             played_at=played_at,
             ms_played=None,
+            user_id=TEST_USER_ID,
         )
         session.add(row)
         await session.flush()
@@ -879,7 +904,11 @@ class TestMergePreservesTheLedger:
         observation = await self._observation(db_session, loser.id)
         canonical = await self._canonical(db_session, loser.id)
         db_session.add(
-            DBPlaySource(track_play_id=canonical.id, connector_play_id=observation.id)
+            DBPlaySource(
+                track_play_id=canonical.id,
+                connector_play_id=observation.id,
+                user_id=TEST_USER_ID,
+            )
         )
         await db_session.flush()
 

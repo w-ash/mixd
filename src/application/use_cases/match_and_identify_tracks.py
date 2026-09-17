@@ -432,6 +432,7 @@ class MatchAndIdentifyTracksUseCase:
             reviews.append(
                 MatchReview(
                     track_id=track_id,
+                    user_id=user_id,
                     connector_name=connector,
                     connector_track_id=ct_id,
                     match_method=match.match_method,

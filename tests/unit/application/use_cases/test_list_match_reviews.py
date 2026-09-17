@@ -9,6 +9,7 @@ from src.application.use_cases.list_match_reviews import (
     ListMatchReviewsUseCase,
 )
 from src.domain.entities.match_review import MatchReview
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.mocks import make_mock_uow
 
 
@@ -20,6 +21,7 @@ def _make_review(**overrides) -> MatchReview:
         "match_method": "artist_title",
         "confidence": 72,
         "match_weight": 4.5,
+        "user_id": TEST_USER_ID,
     }
     defaults.update(overrides)
     return MatchReview(**defaults)

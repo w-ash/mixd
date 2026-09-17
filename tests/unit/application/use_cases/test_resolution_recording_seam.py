@@ -28,7 +28,7 @@ from src.config.constants import ReviewStatus
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import Artist, ConnectorTrack, TrackList
 from src.domain.matching.types import ConfidenceEvidence, EvaluationResult, MatchResult
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 from tests.fixtures.mocks import make_mock_uow
 
 _USER = "seam-user"
@@ -183,6 +183,7 @@ class TestReviewResolutionRouting:
             confidence=70,
             match_weight=1.0,
             status=ReviewStatus.PENDING,
+            user_id=TEST_USER_ID,
         )
 
     async def _reject(self, uow, track):
@@ -241,6 +242,7 @@ class TestFailedWritesLeaveNoTrace:
             confidence=70,
             match_weight=1.0,
             status=ReviewStatus.PENDING,
+            user_id=TEST_USER_ID,
         )
         review_repo = uow.get_match_review_repository()
         review_repo.get_review_by_id.return_value = review

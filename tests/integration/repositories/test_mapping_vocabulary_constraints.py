@@ -20,13 +20,16 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackMapping,
 )
+from tests.fixtures import TEST_USER_ID
 
 _USER = "default"
 
 
 async def _make_track(db_session: AsyncSession) -> UUID:
     uid = uuid4().hex[:8]
-    track = DBTrack(title=f"Track {uid}", artists={"names": [f"Artist {uid}"]})
+    track = DBTrack(
+        title=f"Track {uid}", artists={"names": [f"Artist {uid}"]}, user_id=TEST_USER_ID
+    )
     db_session.add(track)
     await db_session.flush()
     return track.id

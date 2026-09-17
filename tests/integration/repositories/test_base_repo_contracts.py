@@ -14,6 +14,7 @@ from src.domain.entities.track import Artist, Track
 from src.infrastructure.persistence.database.db_models import DBTrack
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
+from tests.fixtures import TEST_USER_ID
 
 
 class _PlainMapper(BaseModelMapper[DBTrack, Track]):
@@ -31,11 +32,12 @@ class _PlainMapper(BaseModelMapper[DBTrack, Track]):
             id=db_model.id,
             title=db_model.title,
             artists=[Artist(name="test")],
+            user_id=TEST_USER_ID,
         )
 
     @staticmethod
     def to_db(domain_model: Track) -> DBTrack:
-        return DBTrack(title=domain_model.title)
+        return DBTrack(title=domain_model.title, user_id=TEST_USER_ID)
 
     @staticmethod
     def get_default_relationships() -> list[str]:
@@ -77,6 +79,7 @@ class TestFindByConditionForms:
             title=f"TEST_find_by_dict_{unique}",
             artists={"names": ["test"]},
             duration_ms=200000,
+            user_id=TEST_USER_ID,
         )
         track.mappings = []
         track.metrics = []
@@ -102,6 +105,7 @@ class TestFindByConditionForms:
             title=title,
             artists={"names": ["test"]},
             duration_ms=200000,
+            user_id=TEST_USER_ID,
         )
         track.mappings = []
         track.metrics = []

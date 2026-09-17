@@ -10,13 +10,19 @@ import pytest
 
 from src.domain.entities.track import Artist, Track, TrackList
 from src.domain.transforms.shuffle import weighted_shuffle
+from tests.fixtures import TEST_USER_ID
 
 
 def _make_tracklist(n: int) -> TrackList:
     """Create a tracklist with n uniquely-identified tracks."""
     return TrackList(
         tracks=[
-            Track(id=i, title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
+            Track(
+                id=i,
+                title=f"Track {i}",
+                artists=[Artist(name=f"Artist {i}")],
+                user_id=TEST_USER_ID,
+            )
             for i in range(1, n + 1)
         ]
     )

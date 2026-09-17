@@ -25,6 +25,7 @@ from scripts.find_duplicate_canonicals import (
     pick_survivor,
     same_recording,
 )
+from tests.fixtures import TEST_USER_ID
 
 _EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -40,6 +41,7 @@ def _candidate(
 ) -> _Candidate:
     return _Candidate(
         track_id=uuid4(),
+        owner=TEST_USER_ID,
         title=title,
         artist=artist,
         primary_artist=artist,
@@ -75,6 +77,7 @@ class TestSameRecordingPredicate:
         """
         a = _Candidate(
             track_id=uuid4(),
+            owner=TEST_USER_ID,
             title="All I Need",
             artist="Vegyn",
             primary_artist="Vegyn",
@@ -85,6 +88,7 @@ class TestSameRecordingPredicate:
         )
         b = _Candidate(
             track_id=uuid4(),
+            owner=TEST_USER_ID,
             title="All I Need",
             artist="Vegyn, Air, Beth Hirsch",
             primary_artist="Vegyn",

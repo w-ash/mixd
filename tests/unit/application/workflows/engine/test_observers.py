@@ -22,6 +22,7 @@ from src.domain.entities.workflow import (
     NodeExecutionEvent,
     WorkflowTaskDef,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 @pytest.fixture
@@ -31,7 +32,9 @@ def task_def():
 
 @pytest.fixture
 def sample_result():
-    tracklist = TrackList(tracks=[Track(title="A", artists=[Artist(name="X")])])
+    tracklist = TrackList(
+        tracks=[Track(title="A", artists=[Artist(name="X")], user_id=TEST_USER_ID)]
+    )
     return {"tracklist": tracklist}
 
 

@@ -18,6 +18,7 @@ from src.domain.playlist.execution_strategies import (
     plan_api_operations,
     simulate_position_shifts,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 class TestPositionShiftSimulation:
@@ -27,11 +28,21 @@ class TestPositionShiftSimulation:
     def sample_tracks(self):
         """Create sample tracks for testing."""
         return [
-            Track(title="Track A", artists=[Artist(name="Artist 1")]),
-            Track(title="Track B", artists=[Artist(name="Artist 2")]),
-            Track(title="Track C", artists=[Artist(name="Artist 3")]),
-            Track(title="Track D", artists=[Artist(name="Artist 4")]),
-            Track(title="Track E", artists=[Artist(name="Artist 5")]),
+            Track(
+                title="Track A", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track B", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track C", artists=[Artist(name="Artist 3")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track D", artists=[Artist(name="Artist 4")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track E", artists=[Artist(name="Artist 5")], user_id=TEST_USER_ID
+            ),
         ]
 
     def test_move_operations_reverse_order(self, sample_tracks):
@@ -111,7 +122,7 @@ class TestPositionShiftSimulation:
         """Test complex reordering with many move operations."""
         # Create a scenario with many moves that could cause index conflicts
         current_playlist = Playlist.from_tracklist(
-            name="Test", tracklist=sample_tracks.copy()
+            name="Test", tracklist=sample_tracks.copy(), user_id=TEST_USER_ID
         )
 
         # Completely reverse the playlist
@@ -157,11 +168,18 @@ class TestPositionShiftSimulation:
         """Test efficiency with large number of operations."""
         # Create large playlist with many tracks
         tracks = [
-            Track(id=i, title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
+            Track(
+                id=i,
+                title=f"Track {i}",
+                artists=[Artist(name=f"Artist {i}")],
+                user_id=TEST_USER_ID,
+            )
             for i in range(100)
         ]
 
-        current_playlist = Playlist.from_tracklist(name="Large Test", tracklist=tracks)
+        current_playlist = Playlist.from_tracklist(
+            name="Large Test", tracklist=tracks, user_id=TEST_USER_ID
+        )
         target_tracks = list(reversed(tracks))  # Reverse order - worst case
         target_tracklist = TrackList(tracks=target_tracks)
 

@@ -24,6 +24,7 @@ from src.infrastructure.connectors._shared.matching_provider import (
     _has_isrc,
     _partition_tracks,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 # Test implementation of BaseMatchingProvider
@@ -92,10 +93,16 @@ class TestBaseMatchingProviderTrackPartitioning:
     def test_partition_tracks_with_isrc_only(self):
         """Tracks with ISRC should be partitioned to ISRC group."""
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Song 2", isrc="USRC22222222", artists=[Artist(name="Artist 2")]
+            title="Song 2",
+            isrc="USRC22222222",
+            artists=[Artist(name="Artist 2")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2]
 
@@ -111,8 +118,12 @@ class TestBaseMatchingProviderTrackPartitioning:
 
     def test_partition_tracks_with_artist_title_only(self):
         """Tracks with artist+title but no ISRC should be partitioned to artist/title group."""
-        t1 = Track(title="Song 1", artists=[Artist(name="Artist 1")])
-        t2 = Track(title="Song 2", artists=[Artist(name="Artist 2")])
+        t1 = Track(
+            title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
+        t2 = Track(
+            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )
         tracks = [t1, t2]
 
         isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
@@ -128,7 +139,7 @@ class TestBaseMatchingProviderTrackPartitioning:
     def test_partition_tracks_missing_title(self):
         """Tracks without title should be partitioned to unprocessable group."""
         tracks = [
-            Track(title="", artists=[Artist(name="Artist 1")]),
+            Track(title="", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID),
         ]
 
         isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
@@ -142,14 +153,22 @@ class TestBaseMatchingProviderTrackPartitioning:
     def test_partition_mixed_tracks(self):
         """Mixed tracks should be partitioned to appropriate groups."""
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )  # ISRC
-        t2 = Track(title="Song 2", artists=[Artist(name="Artist 2")])  # Artist/title
+        t2 = Track(
+            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )  # Artist/title
         t3 = Track(
-            title="", artists=[Artist(name="Artist 3")]
+            title="", artists=[Artist(name="Artist 3")], user_id=TEST_USER_ID
         )  # Unprocessable (no title)
         t4 = Track(
-            title="Song 4", isrc="USRC44444444", artists=[Artist(name="Artist 4")]
+            title="Song 4",
+            isrc="USRC44444444",
+            artists=[Artist(name="Artist 4")],
+            user_id=TEST_USER_ID,
         )  # ISRC
         tracks = [t1, t2, t3, t4]
 
@@ -184,6 +203,7 @@ class TestBaseMatchingProviderTrackPartitioning:
                 title="Song 1",
                 isrc="USRC11111111",
                 artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -203,7 +223,10 @@ class TestBaseMatchingProviderTemplateMethod:
         """Template method should call _match_by_isrc for tracks with ISRC."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1]
 
@@ -218,7 +241,9 @@ class TestBaseMatchingProviderTemplateMethod:
     ):
         """Template method should call _match_by_artist_title for tracks without ISRC."""
         provider = ConcreteProvider()
-        t1 = Track(title="Song 1", artists=[Artist(name="Artist 1")])
+        t1 = Track(
+            title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
         tracks = [t1]
 
         await provider.fetch_raw_matches_for_tracks(tracks)
@@ -231,9 +256,14 @@ class TestBaseMatchingProviderTemplateMethod:
         """Tracks matched by ISRC should not be sent to artist/title method."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
-        t2 = Track(title="Song 2", artists=[Artist(name="Artist 2")])
+        t2 = Track(
+            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )
         tracks = [t1, t2]
 
         # Configure track 1 to match via ISRC
@@ -261,9 +291,14 @@ class TestBaseMatchingProviderTemplateMethod:
         """Results from ISRC and artist/title methods should be merged."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
-        t2 = Track(title="Song 2", artists=[Artist(name="Artist 2")])
+        t2 = Track(
+            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )
         tracks = [t1, t2]
 
         # Configure results from both methods
@@ -294,9 +329,14 @@ class TestBaseMatchingProviderTemplateMethod:
         """Failures from ISRC and artist/title methods should be merged."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
-        t2 = Track(title="Song 2", artists=[Artist(name="Artist 2")])
+        t2 = Track(
+            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )
         tracks = [t1, t2]
 
         # Configure failures from both methods
@@ -330,7 +370,9 @@ class TestBaseMatchingProviderTemplateMethod:
     async def test_fetch_raw_matches_creates_failures_for_unprocessable_tracks(self):
         """Tracks without ISRC and without title should generate failures."""
         provider = ConcreteProvider()
-        t1 = Track(title="", artists=[Artist(name="Artist 1")])  # No title
+        t1 = Track(
+            title="", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )  # No title
         tracks = [t1]
 
         result = await provider.fetch_raw_matches_for_tracks(tracks)
@@ -357,7 +399,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """ISRC method should not be called if no tracks have ISRC."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", artists=[Artist(name="Artist 1")]),
+            Track(
+                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            ),
         ]
 
         await provider.fetch_raw_matches_for_tracks(tracks)
@@ -369,7 +413,10 @@ class TestBaseMatchingProviderTemplateMethod:
         """Artist/title method should not be called if all tracks matched by ISRC."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1]
 
@@ -391,7 +438,10 @@ class TestBaseMatchingProviderTemplateMethod:
         """Template method should return ProviderMatchResult."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1]
 
@@ -416,26 +466,33 @@ class TestBaseMatchingProviderValidation:
     def test_has_isrc_returns_true_for_track_with_isrc(self):
         """Track with ISRC should pass ISRC validation."""
         track = Track(
-            title="Song", isrc="USRC11111111", artists=[Artist(name="Artist")]
+            title="Song",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist")],
+            user_id=TEST_USER_ID,
         )
 
         assert _has_isrc(track) is True
 
     def test_has_isrc_returns_false_for_track_without_isrc(self):
         """Track without ISRC should fail ISRC validation."""
-        track = Track(title="Song", artists=[Artist(name="Artist")])
+        track = Track(
+            title="Song", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+        )
 
         assert _has_isrc(track) is False
 
     def test_has_artist_and_title_returns_true_for_valid_track(self):
         """Track with artist and title should pass artist/title validation."""
-        track = Track(title="Song", artists=[Artist(name="Artist")])
+        track = Track(
+            title="Song", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+        )
 
         assert _has_artist_and_title(track) is True
 
     def test_has_artist_and_title_returns_false_without_title(self):
         """Track without title should fail artist/title validation."""
-        track = Track(title="", artists=[Artist(name="Artist")])
+        track = Track(title="", artists=[Artist(name="Artist")], user_id=TEST_USER_ID)
 
         assert _has_artist_and_title(track) is False
 
@@ -454,7 +511,9 @@ class TestIsrcOnlyStrategy:
     async def test_no_isrc_track_fails_instead_of_artist_title(self):
         """A track without ISRC gets a NO_ISRC failure, not a fallback call."""
         provider = IsrcOnlyProvider()
-        t1 = Track(title="Song 1", artists=[Artist(name="Artist 1")])
+        t1 = Track(
+            title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
 
         result = await provider.fetch_raw_matches_for_tracks([t1])
 
@@ -468,7 +527,10 @@ class TestIsrcOnlyStrategy:
         """An ISRC track that misses is NOT retried by artist/title."""
         provider = IsrcOnlyProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         # No isrc_results configured → the track misses.
 
@@ -490,11 +552,16 @@ class TestIsrcOnlyStrategy:
                 title=f"Song {i}",
                 isrc=f"USRC{i:08d}",
                 artists=[Artist(name="Artist")],
+                user_id=TEST_USER_ID,
             )
             for i in range(60)
         ]
         no_isrc_tracks = [
-            Track(title=f"NoCode {i}", artists=[Artist(name="Artist")])
+            Track(
+                title=f"NoCode {i}",
+                artists=[Artist(name="Artist")],
+                user_id=TEST_USER_ID,
+            )
             for i in range(40)
         ]
 
@@ -511,7 +578,12 @@ class TestIsrcOnlyStrategy:
         failure keyed on its id, but it must not vanish either — it gets the
         NO_METADATA-style failure the unprocessable path uses."""
         provider = IsrcOnlyProvider()
-        ghost = Track(id=None, title="Ghost", artists=[Artist(name="Artist")])
+        ghost = Track(
+            id=None,
+            title="Ghost",
+            artists=[Artist(name="Artist")],
+            user_id=TEST_USER_ID,
+        )
 
         result = await provider.fetch_raw_matches_for_tracks([ghost])
 
@@ -526,7 +598,9 @@ class TestIsrcOnlyStrategy:
         NO_METADATA failure the ISRC-only skip path emits — it must not
         vanish just because it cannot be addressed per-track."""
         provider = ConcreteProvider()
-        ghost = Track(id=None, title="", artists=[Artist(name="Artist")])
+        ghost = Track(
+            id=None, title="", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+        )
 
         result = await provider.fetch_raw_matches_for_tracks([ghost])
 
@@ -540,7 +614,10 @@ class TestIsrcOnlyStrategy:
         """The ISRC path itself is untouched by the flag."""
         provider = IsrcOnlyProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         provider.isrc_results = {
             t1.id: RawProviderMatch(
@@ -566,7 +643,10 @@ class TestBaseMatchingProviderProgressCallback:
         provider = ConcreteProvider()
         callback = AsyncMock()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1]
 
@@ -593,7 +673,9 @@ class TestBaseMatchingProviderProgressCallback:
 
         provider = ConcreteProvider()
         callback = AsyncMock()
-        t1 = Track(title="Song 1", artists=[Artist(name="Artist 1")])
+        t1 = Track(
+            title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
         tracks = [t1]
 
         provider.artist_title_results = {
@@ -620,9 +702,14 @@ class TestBaseMatchingProviderProgressCallback:
         provider = ConcreteProvider()
         callback = AsyncMock()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
-        t2 = Track(title="Song 2", artists=[Artist(name="Artist 2")])
+        t2 = Track(
+            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )
         tracks = [t1, t2]
 
         provider.isrc_results = {
@@ -666,6 +753,7 @@ class TestBaseMatchingProviderProgressCallback:
                 title=f"Song {i}",
                 isrc=f"USRC{i:08d}",
                 artists=[Artist(name="Artist")],
+                user_id=TEST_USER_ID,
             )
             for i in range(5)
         ]
@@ -684,7 +772,10 @@ class TestBaseMatchingProviderProgressCallback:
         """No error when progress_callback is None."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            title="Song 1",
+            isrc="USRC11111111",
+            artists=[Artist(name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1]
 

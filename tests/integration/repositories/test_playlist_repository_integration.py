@@ -7,7 +7,7 @@ import pytest
 from src.domain.entities import Playlist
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 
 class TestPlaylistRepositoryIntegration:
@@ -37,6 +37,7 @@ class TestPlaylistRepositoryIntegration:
             name=f"TEST_Playlist_{uuid4()}",
             tracklist=[saved_track1, saved_track2],
             description="Test playlist for integration testing",
+            user_id=TEST_USER_ID,
         )
         spotify_id = f"spotify_{uuid4()}"
         test_playlist = Playlist(
@@ -45,6 +46,7 @@ class TestPlaylistRepositoryIntegration:
             description=test_playlist.description,
             entries=test_playlist.entries,
             connector_playlist_identifiers={"spotify": spotify_id},
+            user_id=TEST_USER_ID,
         )
 
         saved_playlist = await playlist_repo.save_playlist(test_playlist)
@@ -66,12 +68,14 @@ class TestPlaylistRepositoryIntegration:
         test_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Delete_{uuid4()}",
             tracklist=[],
+            user_id=TEST_USER_ID,
         )
         test_playlist = Playlist(
             id=test_playlist.id,
             name=test_playlist.name,
             entries=test_playlist.entries,
             connector_playlist_identifiers={},
+            user_id=TEST_USER_ID,
         )
 
         saved_playlist = await playlist_repo.save_playlist(test_playlist)
@@ -97,6 +101,7 @@ class TestPlaylistRepositoryIntegration:
         test_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Connectors_{uuid4()}",
             tracklist=[],
+            user_id=TEST_USER_ID,
         )
         test_playlist = Playlist(
             id=test_playlist.id,
@@ -106,6 +111,7 @@ class TestPlaylistRepositoryIntegration:
                 "spotify": f"spotify_{uuid4()}",
                 "lastfm": f"lastfm_{uuid4()}",
             },
+            user_id=TEST_USER_ID,
         )
 
         saved_playlist = await playlist_repo.save_playlist(test_playlist)
@@ -157,6 +163,7 @@ class TestPlaylistRepositoryIntegration:
         base = Playlist.from_tracklist(
             name=f"TEST_Playlist_{uuid4()}",
             tracklist=[saved_track1, saved_track2],
+            user_id=TEST_USER_ID,
         )
         connector_ids = {
             "spotify": f"spotify_{uuid4()}",
@@ -167,6 +174,7 @@ class TestPlaylistRepositoryIntegration:
             name=base.name,
             entries=base.entries,
             connector_playlist_identifiers=connector_ids,
+            user_id=TEST_USER_ID,
         )
         saved = await playlist_repo.save_playlist(playlist)
 
@@ -202,13 +210,15 @@ class TestPlaylistRepositoryIntegration:
 
         initial_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Management_{uuid4()}",
-            tracklist=tracks[:2],  # Start with first 2 tracks
+            tracklist=tracks[:2],
+            user_id=TEST_USER_ID,  # Start with first 2 tracks
         )
         initial_playlist = Playlist(
             id=initial_playlist.id,
             name=initial_playlist.name,
             entries=initial_playlist.entries,
             connector_playlist_identifiers={},
+            user_id=TEST_USER_ID,
         )
 
         saved_playlist = await playlist_repo.save_playlist(initial_playlist)
@@ -217,13 +227,15 @@ class TestPlaylistRepositoryIntegration:
 
         temp = Playlist.from_tracklist(
             name=saved_playlist.name,
-            tracklist=tracks,  # All 4 tracks now
+            tracklist=tracks,
+            user_id=TEST_USER_ID,  # All 4 tracks now
         )
         updated_playlist = Playlist(
             id=saved_playlist.id,
             name=temp.name,
             entries=temp.entries,
             connector_playlist_identifiers=saved_playlist.connector_playlist_identifiers,
+            user_id=TEST_USER_ID,
         )
 
         await playlist_repo.save_playlist(updated_playlist)
@@ -252,12 +264,14 @@ class TestPlaylistRepositoryIntegration:
         empty_name_playlist = Playlist.from_tracklist(
             name="",  # Empty name
             tracklist=[],
+            user_id=TEST_USER_ID,
         )
         empty_name_playlist = Playlist(
             id=empty_name_playlist.id,
             name=empty_name_playlist.name,
             entries=empty_name_playlist.entries,
             connector_playlist_identifiers={},
+            user_id=TEST_USER_ID,
         )
 
         with pytest.raises(ValueError, match="must have a name"):
@@ -271,6 +285,7 @@ class TestPlaylistRepositoryIntegration:
         test_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Connectors_{uuid4()}",
             tracklist=[],
+            user_id=TEST_USER_ID,
         )
         test_playlist = Playlist(
             id=test_playlist.id,
@@ -280,6 +295,7 @@ class TestPlaylistRepositoryIntegration:
                 "spotify": f"spotify_{uuid4()}",
                 "lastfm": f"lastfm_{uuid4()}",
             },
+            user_id=TEST_USER_ID,
         )
 
         saved_playlist = await playlist_repo.save_playlist(test_playlist)
@@ -313,13 +329,15 @@ class TestPlaylistRepositoryIntegration:
 
         playlist_with_duplicates = Playlist.from_tracklist(
             name=f"TEST_Playlist_Duplicates_{uuid4()}",
-            tracklist=[saved_track, saved_track, saved_track],  # Same track 3 times
+            tracklist=[saved_track, saved_track, saved_track],
+            user_id=TEST_USER_ID,  # Same track 3 times
         )
         playlist_with_duplicates = Playlist(
             id=playlist_with_duplicates.id,
             name=playlist_with_duplicates.name,
             entries=playlist_with_duplicates.entries,
             connector_playlist_identifiers={},
+            user_id=TEST_USER_ID,
         )
 
         saved_playlist = await playlist_repo.save_playlist(playlist_with_duplicates)
@@ -348,7 +366,9 @@ class TestPlaylistRepositoryIntegration:
         user_id = f"test-user-{uuid4()}"
         playlist_name = f"TEST_NaturalIdentity_{uuid4()}"
 
-        first = Playlist.from_tracklist(name=playlist_name, tracklist=[])
+        first = Playlist.from_tracklist(
+            name=playlist_name, tracklist=[], user_id=TEST_USER_ID
+        )
         first = Playlist(
             id=first.id,
             name=first.name,
@@ -360,7 +380,9 @@ class TestPlaylistRepositoryIntegration:
 
         # Second save with a fresh local UUID but identical connector identity —
         # this is exactly what a workflow source-node re-run produces.
-        second = Playlist.from_tracklist(name=playlist_name, tracklist=[])
+        second = Playlist.from_tracklist(
+            name=playlist_name, tracklist=[], user_id=TEST_USER_ID
+        )
         second = Playlist(
             id=second.id,
             name=f"{playlist_name}_renamed",

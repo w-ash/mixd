@@ -24,6 +24,7 @@ from src.application.use_cases.sync_likes import (
 from src.domain.entities import ConnectorTrack, Track
 from src.domain.entities.track import Artist
 from tests.fixtures import (
+    TEST_USER_ID,
     make_connector_track,
     make_mock_connector_provider,
     make_mock_uow,
@@ -63,6 +64,7 @@ class TestImportLikesIncrementalCommit:
                     connector_track_identifiers={
                         "spotify": t.connector_track_identifier
                     },
+                    user_id=TEST_USER_ID,
                 )
                 for i, t in enumerate(tracks)
             ]
@@ -232,7 +234,10 @@ class TestImportLikesForceMode:
         dup_tracks = dup_page[0]
         existing_map = {
             ("spotify", ct.connector_track_identifier): Track(
-                id=i + 1000, title=ct.title, artists=[Artist(name="A")]
+                id=i + 1000,
+                title=ct.title,
+                artists=[Artist(name="A")],
+                user_id=TEST_USER_ID,
             )
             for i, ct in enumerate(dup_tracks)
         }
@@ -258,6 +263,7 @@ class TestImportLikesForceMode:
                     connector_track_identifiers={
                         "spotify": t.connector_track_identifier
                     },
+                    user_id=TEST_USER_ID,
                 )
                 for i, t in enumerate(tracks)
             ]
@@ -298,7 +304,10 @@ class TestImportLikesForceMode:
         dup_tracks = dup_page[0]
         existing_map = {
             ("spotify", ct.connector_track_identifier): Track(
-                id=i + 1000, title=ct.title, artists=[Artist(name="A")]
+                id=i + 1000,
+                title=ct.title,
+                artists=[Artist(name="A")],
+                user_id=TEST_USER_ID,
             )
             for i, ct in enumerate(dup_tracks)
         }
@@ -369,6 +378,7 @@ class TestImportLikesForceMode:
                     connector_track_identifiers={
                         "spotify": t.connector_track_identifier
                     },
+                    user_id=TEST_USER_ID,
                 )
                 for i, t in enumerate(tracks)
             ]
@@ -415,7 +425,12 @@ class TestExportLovesIncrementalCommit:
 
         # Track lookups
         tracks_map = {
-            i: Track(id=i, title=f"Track {i}", artists=[Artist(name="A")])
+            i: Track(
+                id=i,
+                title=f"Track {i}",
+                artists=[Artist(name="A")],
+                user_id=TEST_USER_ID,
+            )
             for i in range(1, 16)
         }
         track_repo.find_tracks_by_ids = AsyncMock(return_value=tracks_map)
@@ -466,7 +481,12 @@ class TestExportLovesPartialFailure:
         like_repo.get_unsynced_likes = AsyncMock(return_value=unsynced)
         track_repo.find_tracks_by_ids = AsyncMock(
             return_value={
-                i: Track(id=i, title=f"Track {i}", artists=[Artist(name="A")])
+                i: Track(
+                    id=i,
+                    title=f"Track {i}",
+                    artists=[Artist(name="A")],
+                    user_id=TEST_USER_ID,
+                )
                 for i in range(1, 3)
             }
         )
@@ -595,7 +615,12 @@ class TestExportBatching:
         like_repo.save_track_likes_batch = AsyncMock(return_value=[])
         uow.get_track_repository().find_tracks_by_ids = AsyncMock(
             return_value={
-                i: Track(id=i, title=f"Track {i}", artists=[Artist(name="A")])
+                i: Track(
+                    id=i,
+                    title=f"Track {i}",
+                    artists=[Artist(name="A")],
+                    user_id=TEST_USER_ID,
+                )
                 for i in range(1, 4)
             }
         )
@@ -671,7 +696,12 @@ class TestExportCheckpointWatermark:
         like_repo.save_track_likes_batch = AsyncMock(return_value=[])
         uow.get_track_repository().find_tracks_by_ids = AsyncMock(
             side_effect=lambda ids: {
-                i: Track(id=i, title=f"Track {i}", artists=[Artist(name="A")])
+                i: Track(
+                    id=i,
+                    title=f"Track {i}",
+                    artists=[Artist(name="A")],
+                    user_id=TEST_USER_ID,
+                )
                 for i in ids
             }
         )

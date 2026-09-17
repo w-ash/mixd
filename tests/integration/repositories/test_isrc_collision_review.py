@@ -18,6 +18,7 @@ from src.domain.entities import Artist, ConnectorTrack, Track
 from src.domain.repositories.connector import IsrcCollisionSpec
 from src.infrastructure.persistence.database.db_models import DBMatchReview, DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 async def _seed_isrc_owner(uow) -> Track:
@@ -29,6 +30,7 @@ async def _seed_isrc_owner(uow) -> Track:
             album="Debut",
             duration_ms=200_000,
             isrc="USNP12400001",
+            user_id=TEST_USER_ID,
         )
     )
 
@@ -164,6 +166,7 @@ class TestQueueIsrcCollisionReviewsBatch:
                 album="Debut",
                 duration_ms=200_000,
                 isrc="USNP12400002",
+                user_id=TEST_USER_ID,
             )
         )
 

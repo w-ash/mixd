@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from src.domain.entities.operations import ConnectorTrackPlay
 from src.domain.results import ImportResultData, create_import_result
+from tests.fixtures import TEST_USER_ID
 
 
 class TestCreateImportResult:
@@ -21,6 +22,7 @@ class TestCreateImportResult:
                 track_name="Track",
                 played_at=datetime.now(UTC),
                 service="spotify",
+                user_id=TEST_USER_ID,
             ),
         ]
         import_data = ImportResultData(

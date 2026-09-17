@@ -111,8 +111,8 @@ class PlaylistLinkRepository:
         return _to_link(db_mapping, db_mapping.connector_playlist)
 
     @db_operation("create_link")
-    async def create_link(self, link: PlaylistLink) -> PlaylistLink:
-        """Create a new playlist link.
+    async def create_link(self, link: PlaylistLink, *, user_id: str) -> PlaylistLink:
+        """Create a new playlist link owned by ``user_id``.
 
         Expects the DBConnectorPlaylist to already exist (created during validation).
         Looks it up by connector_name + connector_playlist_identifier.
@@ -132,6 +132,7 @@ class PlaylistLinkRepository:
             )
 
         db_mapping = DBPlaylistMapping(
+            user_id=user_id,
             playlist_id=link.playlist_id,
             connector_name=link.connector_name,
             connector_playlist_id=cp.id,

@@ -26,6 +26,7 @@ from src.infrastructure.persistence.database.db_connection import create_session
 from src.infrastructure.persistence.database.db_models import DBTrack
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
+from tests.fixtures import TEST_USER_ID
 
 pytestmark = pytest.mark.slow
 
@@ -37,11 +38,16 @@ class _PlainMapper(BaseModelMapper[DBTrack, Track]):
 
     @staticmethod
     async def to_domain(db_model: DBTrack) -> Track:
-        return Track(id=db_model.id, title=db_model.title, artists=[Artist(name="t")])
+        return Track(
+            id=db_model.id,
+            title=db_model.title,
+            artists=[Artist(name="t")],
+            user_id=TEST_USER_ID,
+        )
 
     @staticmethod
     def to_db(domain_model: Track) -> DBTrack:
-        return DBTrack(title=domain_model.title)
+        return DBTrack(title=domain_model.title, user_id=TEST_USER_ID)
 
     @staticmethod
     def get_default_relationships() -> list[str]:

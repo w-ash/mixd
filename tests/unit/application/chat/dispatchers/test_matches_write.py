@@ -23,7 +23,7 @@ from src.application.use_cases.unreject_mapping_candidate import (
 )
 from src.domain.entities.match_review import MatchReview
 from src.domain.exceptions import NotFoundError, ToolExecutionError
-from tests.fixtures import InMemoryPendingActionStore
+from tests.fixtures import TEST_USER_ID, InMemoryPendingActionStore
 
 _CTX = ToolContext(user_id="default")
 
@@ -253,6 +253,7 @@ class TestExecManageTrackMatches:
             confidence=80,
             match_weight=1.0,
             status="accepted",
+            user_id=TEST_USER_ID,
         )
         monkeypatch.setattr(
             _common,

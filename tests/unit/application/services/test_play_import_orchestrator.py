@@ -31,6 +31,7 @@ from src.domain.repositories.play import (
     PlayResolutionOutcome,
     SpotifyImportParams,
 )
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.mocks import make_mock_uow
 
 _RESOLVED_TRACK_ID = UUID("00000000-0000-7000-8000-00000000000a")
@@ -68,6 +69,7 @@ def _make_resolved_track_play(track_id: int = 1) -> TrackPlay:
         played_at=datetime(2024, 6, 15, 14, 30, tzinfo=UTC),
         ms_played=240000,
         import_source="spotify_export",
+        user_id=TEST_USER_ID,
     )
 
 
@@ -87,6 +89,7 @@ def _make_connector_play(
         import_timestamp=datetime(2024, 7, 1, tzinfo=UTC),
         import_source="spotify_export",
         import_batch_id="test-batch",
+        user_id=TEST_USER_ID,
     )
 
 

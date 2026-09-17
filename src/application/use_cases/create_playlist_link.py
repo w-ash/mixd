@@ -103,7 +103,7 @@ class CreatePlaylistLinkUseCase:
             )
 
             link_repo = uow.get_playlist_link_repository()
-            created_link = await link_repo.create_link(link)
+            created_link = await link_repo.create_link(link, user_id=command.user_id)
 
             await uow.commit()
 

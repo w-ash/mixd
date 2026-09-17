@@ -24,7 +24,11 @@ from src.application.workflows.nodes.source import (
     source_played_tracks,
 )
 from src.domain.entities.track import Artist, Track, TrackList
-from tests.fixtures import make_connector_playlist, make_connector_playlist_item
+from tests.fixtures import (
+    TEST_USER_ID,
+    make_connector_playlist,
+    make_connector_playlist_item,
+)
 
 _PLAYLIST_ID = str(uuid7())
 
@@ -33,8 +37,8 @@ _PLAYLIST_ID = str(uuid7())
 def sample_tracks():
     """Tracks with IDs for source mapping."""
     return [
-        Track(title="Song A", artists=[Artist(name="Artist 1")]),
-        Track(title="Song B", artists=[Artist(name="Artist 2")]),
+        Track(title="Song A", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID),
+        Track(title="Song B", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID),
     ]
 
 
@@ -79,8 +83,8 @@ class TestBuildSourceTracklist:
     def test_all_tracks_have_ids_in_source_map(self):
         """All tracks have UUIDs, so all appear in source map."""
         tracks = [
-            Track(title="Track A", artists=[Artist(name="A1")]),
-            Track(title="Track B", artists=[Artist(name="A2")]),
+            Track(title="Track A", artists=[Artist(name="A1")], user_id=TEST_USER_ID),
+            Track(title="Track B", artists=[Artist(name="A2")], user_id=TEST_USER_ID),
         ]
         result = _build_source_tracklist(tracks, "PL", "canonical", "id-1")
 
@@ -196,8 +200,16 @@ class TestPlaylistSourceConnector:
     def connector_tracks(self):
         """Tracks returned by the canonical playlist after upsert."""
         return [
-            Track(title="Connector Song A", artists=[Artist(name="Art 1")]),
-            Track(title="Connector Song B", artists=[Artist(name="Art 2")]),
+            Track(
+                title="Connector Song A",
+                artists=[Artist(name="Art 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                title="Connector Song B",
+                artists=[Artist(name="Art 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
     @pytest.fixture

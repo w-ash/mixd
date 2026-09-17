@@ -14,6 +14,7 @@ from src.application.use_cases.get_liked_tracks import (
 )
 from src.domain.entities import Track, TrackLike
 from src.domain.entities.track import Artist
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.mocks import make_mock_uow
 
 
@@ -69,12 +70,14 @@ class TestGetLikedTracksUseCase:
                 title="Track 1",
                 artists=[Artist(name="Artist 1")],
                 album="Album 1",
+                user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Track 2",
                 artists=[Artist(name="Artist 2")],
                 album="Album 2",
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -87,12 +90,14 @@ class TestGetLikedTracksUseCase:
                 service="spotify",
                 is_liked=True,
                 liked_at=datetime(2024, 1, 1, tzinfo=UTC),
+                user_id=TEST_USER_ID,
             ),
             TrackLike(
                 track_id=2,
                 service="spotify",
                 is_liked=True,
                 liked_at=datetime(2024, 1, 2, tzinfo=UTC),
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -185,7 +190,12 @@ class TestGetLikedTracksUseCase:
         # Track repository only returns one track
         track_repo = mock_uow.get_track_repository.return_value
         track_repo.find_tracks_by_ids.return_value = {
-            1: Track(id=1, title="Track 1", artists=[Artist(name="Artist 1")])
+            1: Track(
+                id=1,
+                title="Track 1",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            )
         }
 
         command = GetLikedTracksCommand(

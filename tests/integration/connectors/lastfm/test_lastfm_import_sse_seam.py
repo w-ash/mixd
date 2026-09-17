@@ -39,6 +39,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackPlay,
 )
 from src.interface.api.services.progress import OperationBoundEmitter
+from tests.fixtures import TEST_USER_ID
 
 
 class _FakeResolver:
@@ -98,7 +99,11 @@ class TestWebImportPersistsBothPlayKinds:
         # Seed a real track so the resolved TrackPlay's FK is satisfiable.
         from src.domain.entities import Artist, Track
 
-        track = Track(title="Seam Song", artists=[Artist(name="Seam Artist")])
+        track = Track(
+            title="Seam Song",
+            artists=[Artist(name="Seam Artist")],
+            user_id=TEST_USER_ID,
+        )
         seeded = await unit_of_work.get_track_repository().save_track(track)
         await unit_of_work.commit()
         test_data_tracker.add_track(seeded.id)

@@ -9,6 +9,7 @@ from src.domain.transforms.play_history import (
     filter_by_play_history,
     sort_by_play_history,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 class TestFilterByPlayHistory:
@@ -17,8 +18,18 @@ class TestFilterByPlayHistory:
     def test_min_plays_filter(self):
         """Test filtering by minimum play count."""
         tracks = [
-            Track(id=1, title="Popular", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Unpopular", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="Popular",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Unpopular",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         metadata = {"metrics": {"total_plays": {1: 10, 2: 3}}}
@@ -32,9 +43,24 @@ class TestFilterByPlayHistory:
     def test_play_count_range_filter(self):
         """Test filtering by play count range."""
         tracks = [
-            Track(id=1, title="Low", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Medium", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="High", artists=[Artist(name="Artist 3")]),
+            Track(
+                id=1,
+                title="Low",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Medium",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=3,
+                title="High",
+                artists=[Artist(name="Artist 3")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         metadata = {"metrics": {"total_plays": {1: 2, 2: 5, 3: 15}}}
@@ -48,8 +74,18 @@ class TestFilterByPlayHistory:
     def test_relative_time_window_filter(self):
         """Test filtering with relative time window (not_played_in_days/played_within_days)."""
         tracks = [
-            Track(id=1, title="Recent", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Old", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="Recent",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Old",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         # Recent play (15 days ago) and old play (60 days ago)
@@ -73,8 +109,18 @@ class TestFilterByPlayHistory:
     def test_absolute_date_filter(self):
         """Test filtering with absolute date range (start_date/end_date)."""
         tracks = [
-            Track(id=1, title="Winter Track", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Summer Track", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="Winter Track",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Summer Track",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         metadata = {
@@ -103,9 +149,24 @@ class TestFilterByPlayHistory:
         exclusion — include_missing=True must not readmit it.
         """
         tracks = [
-            Track(id=1, title="In Window", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Out of Window", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="Never Played", artists=[Artist(name="Artist 3")]),
+            Track(
+                id=1,
+                title="In Window",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Out of Window",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=3,
+                title="Never Played",
+                artists=[Artist(name="Artist 3")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         metadata = {
@@ -130,7 +191,14 @@ class TestFilterByPlayHistory:
 
     def test_constraint_validation(self):
         """Test that at least one constraint is required."""
-        tracks = [Track(id=1, title="Test", artists=[Artist(name="Artist")])]
+        tracks = [
+            Track(
+                id=1,
+                title="Test",
+                artists=[Artist(name="Artist")],
+                user_id=TEST_USER_ID,
+            )
+        ]
         tracklist = TrackList(tracks=tracks, metadata={})
 
         with pytest.raises(ValueError, match="Must specify at least one constraint"):
@@ -141,7 +209,14 @@ class TestFilterByPlayHistory:
         popular_filter = filter_by_play_history(min_plays=10)
         assert callable(popular_filter)
 
-        tracks = [Track(id=1, title="Popular", artists=[Artist(name="Artist")])]
+        tracks = [
+            Track(
+                id=1,
+                title="Popular",
+                artists=[Artist(name="Artist")],
+                user_id=TEST_USER_ID,
+            )
+        ]
         metadata = {"metrics": {"total_plays": {1: 15}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
@@ -151,9 +226,24 @@ class TestFilterByPlayHistory:
     def test_hidden_gems_pattern(self):
         """Test hidden gems pattern: loved but not played recently."""
         tracks = [
-            Track(id=1, title="Hidden Gem", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Current Favorite", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="Rarely Played", artists=[Artist(name="Artist 3")]),
+            Track(
+                id=1,
+                title="Hidden Gem",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Current Favorite",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=3,
+                title="Rarely Played",
+                artists=[Artist(name="Artist 3")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         # Hidden gem: 5 plays but last played 200 days ago
@@ -182,8 +272,18 @@ class TestFilterByPlayHistory:
     def test_current_obsessions_pattern(self):
         """Test current obsessions pattern: heavy recent rotation."""
         tracks = [
-            Track(id=1, title="Current Obsession", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Old Favorite", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="Current Obsession",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Old Favorite",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         # Current obsession: 10 plays in last 20 days
@@ -219,8 +319,18 @@ class TestFilterByPlayHistoryFirstPlayed:
     def test_recent_discovery_window(self):
         """played_within_days keeps tracks first played within the window."""
         tracks = [
-            Track(id=1, title="New Find", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Old Favorite", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="New Find",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Old Favorite",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         # Track 1 discovered 10 days ago; track 2 discovered 200 days ago.
@@ -250,8 +360,18 @@ class TestFilterByPlayHistoryFirstPlayed:
     def test_combined_with_min_plays(self):
         """first-played window composes with an all-time play-count constraint."""
         tracks = [
-            Track(id=1, title="Repeat Find", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="One-off Find", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="Repeat Find",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="One-off Find",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         recent = (datetime.now(UTC) - timedelta(days=5)).isoformat()
@@ -275,8 +395,18 @@ class TestFilterByPlayHistoryFirstPlayed:
     def test_missing_first_played_excluded_by_default(self):
         """A track with no first_played date is dropped unless include_missing."""
         tracks = [
-            Track(id=1, title="Known", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="No Date", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="Known",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="No Date",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         recent = (datetime.now(UTC) - timedelta(days=5)).isoformat()
@@ -303,7 +433,14 @@ class TestFilterByPlayHistoryFirstPlayed:
 
     def test_accepts_datetime_objects_not_only_iso_strings(self):
         """parse_datetime_safe handles tz-aware datetimes as well as ISO strings."""
-        tracks = [Track(id=1, title="Find", artists=[Artist(name="Artist 1")])]
+        tracks = [
+            Track(
+                id=1,
+                title="Find",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            )
+        ]
         metadata = {
             "metrics": {
                 "first_played_dates": {1: datetime.now(UTC) - timedelta(days=3)},
@@ -326,7 +463,9 @@ class TestGetPlayMetricsDateSource:
         first = {1: "2020-01-01T00:00:00+00:00"}
         last = {1: "2024-01-01T00:00:00+00:00"}
         tracklist = TrackList(
-            tracks=[Track(id=1, title="T", artists=[Artist(name="A")])],
+            tracks=[
+                Track(id=1, title="T", artists=[Artist(name="A")], user_id=TEST_USER_ID)
+            ],
             metadata={
                 "metrics": {
                     "total_plays": {1: 7},
@@ -350,9 +489,24 @@ class TestSortByPlayHistory:
     def test_all_time_sort_descending(self):
         """Test sorting by all-time play count (most played first)."""
         tracks = [
-            Track(id=1, title="Low Plays", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="High Plays", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="Medium Plays", artists=[Artist(name="Artist 3")]),
+            Track(
+                id=1,
+                title="Low Plays",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="High Plays",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=3,
+                title="Medium Plays",
+                artists=[Artist(name="Artist 3")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         metadata = {"metrics": {"total_plays": {1: 5, 2: 20, 3: 12}}}
@@ -369,9 +523,24 @@ class TestSortByPlayHistory:
     def test_all_time_sort_ascending(self):
         """Test sorting by all-time play count (least played first)."""
         tracks = [
-            Track(id=1, title="Low Plays", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="High Plays", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="Medium Plays", artists=[Artist(name="Artist 3")]),
+            Track(
+                id=1,
+                title="Low Plays",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="High Plays",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=3,
+                title="Medium Plays",
+                artists=[Artist(name="Artist 3")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         metadata = {"metrics": {"total_plays": {1: 5, 2: 20, 3: 12}}}
@@ -388,9 +557,24 @@ class TestSortByPlayHistory:
     def test_time_window_sort(self):
         """Test sorting within a time window."""
         tracks = [
-            Track(id=1, title="Recent Track", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Old Track", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="Another Recent", artists=[Artist(name="Artist 3")]),
+            Track(
+                id=1,
+                title="Recent Track",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Old Track",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=3,
+                title="Another Recent",
+                artists=[Artist(name="Artist 3")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         # Recent tracks (within 30 days) and old track (60 days ago)
@@ -425,9 +609,24 @@ class TestSortByPlayHistory:
     def test_absolute_date_sort(self):
         """Test sorting with absolute date range."""
         tracks = [
-            Track(id=1, title="Summer Track", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Winter Track", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="Spring Track", artists=[Artist(name="Artist 3")]),
+            Track(
+                id=1,
+                title="Summer Track",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Winter Track",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=3,
+                title="Spring Track",
+                artists=[Artist(name="Artist 3")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         metadata = {
@@ -462,8 +661,18 @@ class TestSortByPlayHistory:
         assert callable(most_played_sorter)
 
         tracks = [
-            Track(id=1, title="Low", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="High", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="Low",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="High",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
         metadata = {"metrics": {"total_plays": {1: 5, 2: 15}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
@@ -476,9 +685,24 @@ class TestSortByPlayHistory:
     def test_tracks_without_play_data(self):
         """Test sorting handles tracks without play data gracefully."""
         tracks = [
-            Track(id=1, title="With Plays", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="No Data", artists=[Artist(name="Artist 2")]),
-            Track(id=None, title="No ID", artists=[Artist(name="Artist 3")]),
+            Track(
+                id=1,
+                title="With Plays",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="No Data",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=None,
+                title="No ID",
+                artists=[Artist(name="Artist 3")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         metadata = {"metrics": {"total_plays": {1: 10}}}  # Only track 1 has play data

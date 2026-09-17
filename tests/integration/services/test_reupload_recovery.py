@@ -41,7 +41,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackPlay,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 _TRACK_URI = "spotify:track:2374M0fQpWi3dLnB54qaLX"
 _MS = 214_000
@@ -108,6 +108,7 @@ class _FixedTrackResolver:
                     played_at=play.played_at,
                     ms_played=play.ms_played,
                     import_source=play.import_source,
+                    user_id=TEST_USER_ID,
                 )
                 for play in connector_plays
             ],

@@ -4,11 +4,12 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 from src.domain.entities.resolution_event import ResolutionEvent
+from tests.fixtures import TEST_USER_ID
 
 
 class TestResolutionEventConstruction:
     def test_defaults(self):
-        event = ResolutionEvent()
+        event = ResolutionEvent(user_id=TEST_USER_ID)
         assert event.user_id == "default"
         assert event.event_type == "accepted"
         assert event.matcher_version == ""
@@ -69,11 +70,14 @@ class TestResolutionEventConstruction:
         assert event.payload == {"requested_id": "abc", "market": "GB"}
 
     def test_each_event_gets_a_distinct_id(self):
-        assert ResolutionEvent().id != ResolutionEvent().id
+        assert (
+            ResolutionEvent(user_id=TEST_USER_ID).id
+            != ResolutionEvent(user_id=TEST_USER_ID).id
+        )
 
     def test_payload_default_is_not_shared_between_instances(self):
         # attrs `factory=dict` must produce a fresh dict per instance — a bare
         # `= {}` default would alias every event's payload to one object.
-        first = ResolutionEvent()
-        second = ResolutionEvent()
+        first = ResolutionEvent(user_id=TEST_USER_ID)
+        second = ResolutionEvent(user_id=TEST_USER_ID)
         assert first.payload is not second.payload

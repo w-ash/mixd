@@ -10,7 +10,7 @@ from src.domain.entities.playlist import (
     Playlist,
     PlaylistEntry,
 )
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 
 def _mixed_playlist() -> Playlist:
@@ -27,6 +27,7 @@ def _mixed_playlist() -> Playlist:
             ),
             PlaylistEntry(track=b),
         ],
+        user_id=TEST_USER_ID,
     )
 
 
@@ -91,6 +92,7 @@ class TestMembershipKeys:
                     PlaylistEntry(track=None, connector_track_ref=ref),
                     PlaylistEntry(track=b),
                 ],
+                user_id=TEST_USER_ID,
             )
 
         assert build().membership_keys == build().membership_keys
@@ -110,7 +112,9 @@ class TestReconcileEntriesFrom:
         # The headline fix: an overwrite from a playlist carrying an unresolved
         # position must keep that position (was silently dropped before).
         current = Playlist(
-            name="P", entries=[PlaylistEntry(track=make_track(title="A"))]
+            name="P",
+            entries=[PlaylistEntry(track=make_track(title="A"))],
+            user_id=TEST_USER_ID,
         )
         processed = _mixed_playlist()
         reconciled = current.reconcile_entries_from(processed)
@@ -120,7 +124,7 @@ class TestReconcileEntriesFrom:
     def test_existing_track_keeps_its_membership_identity(self):
         a = make_track(title="A")
         kept = PlaylistEntry(track=a)  # the existing membership (id + added_at)
-        current = Playlist(name="P", entries=[kept])
+        current = Playlist(name="P", entries=[kept], user_id=TEST_USER_ID)
         # Processed re-supplies track A as a fresh entry plus a new track B.
         processed = Playlist(
             name="P",
@@ -128,6 +132,7 @@ class TestReconcileEntriesFrom:
                 PlaylistEntry(track=a),
                 PlaylistEntry(track=make_track(title="B")),
             ],
+            user_id=TEST_USER_ID,
         )
         reconciled = current.reconcile_entries_from(processed)
         # Track A reuses the existing entry (same id); B is new.
@@ -137,10 +142,14 @@ class TestReconcileEntriesFrom:
     def test_order_follows_processed(self):
         a, b = make_track(title="A"), make_track(title="B")
         current = Playlist(
-            name="P", entries=[PlaylistEntry(track=a), PlaylistEntry(track=b)]
+            name="P",
+            entries=[PlaylistEntry(track=a), PlaylistEntry(track=b)],
+            user_id=TEST_USER_ID,
         )
         processed = Playlist(
-            name="P", entries=[PlaylistEntry(track=b), PlaylistEntry(track=a)]
+            name="P",
+            entries=[PlaylistEntry(track=b), PlaylistEntry(track=a)],
+            user_id=TEST_USER_ID,
         )
         reconciled = current.reconcile_entries_from(processed)
         assert [e.track.title for e in reconciled] == ["B", "A"]
@@ -148,5 +157,7 @@ class TestReconcileEntriesFrom:
     def test_empty_current_returns_processed_entries(self):
         # The create-like case: nothing to preserve, so use processed as-is.
         processed = _mixed_playlist()
-        reconciled = Playlist(name="P").reconcile_entries_from(processed)
+        reconciled = Playlist(name="P", user_id=TEST_USER_ID).reconcile_entries_from(
+            processed
+        )
         assert reconciled == processed.entries

@@ -23,6 +23,7 @@ from src.domain.entities.track import (
     TrackLike,
     TrackList,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 class TestTrackEntity:
@@ -37,6 +38,7 @@ class TestTrackEntity:
             album="OK Computer",
             duration_ms=383000,
             isrc="GBUM71505078",
+            user_id=TEST_USER_ID,
         )
 
         assert track.title == "Paranoid Android"
@@ -51,11 +53,15 @@ class TestTrackEntity:
     def test_track_requires_at_least_one_artist(self):
         """Test that track creation fails without artists."""
         with pytest.raises(ValueError, match="Track must have at least one artist"):
-            Track(title="Test Song", artists=[])
+            Track(title="Test Song", artists=[], user_id=TEST_USER_ID)
 
     def test_track_with_connector_track_id(self):
         """Test adding connector track ID."""
-        track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
+        track = Track(
+            title="Test Song",
+            artists=[Artist(name="Test Artist")],
+            user_id=TEST_USER_ID,
+        )
 
         updated_track = track.with_connector_track_id(
             "spotify", "4iV5W9uYEdYUVa79Axb7Rh"
@@ -70,7 +76,11 @@ class TestTrackEntity:
 
     def test_track_with_multiple_connector_ids(self):
         """Test adding multiple connector IDs."""
-        track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
+        track = Track(
+            title="Test Song",
+            artists=[Artist(name="Test Artist")],
+            user_id=TEST_USER_ID,
+        )
 
         track = track.with_connector_track_id("spotify", "spotify_id")
         track = track.with_connector_track_id("lastfm", "lastfm_id")
@@ -80,7 +90,11 @@ class TestTrackEntity:
 
     def test_track_connector_metadata_operations(self):
         """Test connector metadata business logic."""
-        track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
+        track = Track(
+            title="Test Song",
+            artists=[Artist(name="Test Artist")],
+            user_id=TEST_USER_ID,
+        )
 
         metadata = {"explicit": True, "genres": ["rock", "alternative"]}
         updated_track = track.with_connector_metadata("spotify", metadata)
@@ -98,7 +112,11 @@ class TestTrackEntity:
 
     def test_track_connector_metadata_merging(self):
         """Test that connector metadata merges correctly."""
-        track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
+        track = Track(
+            title="Test Song",
+            artists=[Artist(name="Test Artist")],
+            user_id=TEST_USER_ID,
+        )
 
         # Add initial metadata
         track = track.with_connector_metadata("spotify", {"explicit": True})
@@ -116,8 +134,12 @@ class TestTrackListEntity:
     def test_track_list_creation(self):
         """Test creating a track list."""
         tracks = [
-            Track(title="Song 1", artists=[Artist(name="Artist 1")]),
-            Track(title="Song 2", artists=[Artist(name="Artist 2")]),
+            Track(
+                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            ),
         ]
 
         track_list = TrackList(tracks=tracks)
@@ -127,8 +149,16 @@ class TestTrackListEntity:
 
     def test_track_list_with_tracks(self):
         """Test creating new track list with different tracks."""
-        original_tracks = [Track(title="Song 1", artists=[Artist(name="Artist 1")])]
-        new_tracks = [Track(title="Song 2", artists=[Artist(name="Artist 2")])]
+        original_tracks = [
+            Track(
+                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            )
+        ]
+        new_tracks = [
+            Track(
+                title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            )
+        ]
 
         track_list = TrackList(tracks=original_tracks)
         updated_list = track_list.with_tracks(new_tracks)
@@ -157,7 +187,11 @@ class TestTrackLikeEntity:
         track_uuid = uuid7()
 
         like = TrackLike(
-            track_id=track_uuid, service="spotify", is_liked=True, liked_at=timestamp
+            track_id=track_uuid,
+            service="spotify",
+            is_liked=True,
+            liked_at=timestamp,
+            user_id=TEST_USER_ID,
         )
 
         assert like.track_id == track_uuid
@@ -170,7 +204,7 @@ class TestTrackLikeEntity:
     def test_track_like_defaults(self):
         """Test track like default values."""
         track_uuid = uuid7()
-        like = TrackLike(track_id=track_uuid, service="spotify")
+        like = TrackLike(track_id=track_uuid, service="spotify", user_id=TEST_USER_ID)
 
         assert like.is_liked is True  # Default to liked
         assert like.liked_at is None
@@ -276,8 +310,8 @@ class TestOperationResultEntity:
     def test_operation_result_per_track_metrics(self):
         """Test OperationResult per-track metric access."""
         artist = Artist(name="Artist")
-        track1 = Track(title="Song 1", artists=[artist])
-        track2 = Track(title="Song 2", artists=[artist])
+        track1 = Track(title="Song 1", artists=[artist], user_id=TEST_USER_ID)
+        track2 = Track(title="Song 2", artists=[artist], user_id=TEST_USER_ID)
         tracks = [track1, track2]
 
         result = OperationResult(

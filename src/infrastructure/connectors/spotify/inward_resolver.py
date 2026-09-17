@@ -38,6 +38,7 @@ payload extraction, and the ``id_mismatch`` detection label.
 from collections import Counter
 from collections.abc import Mapping, Sequence, Set as AbstractSet
 from enum import StrEnum
+from functools import partial
 from typing import Final, override
 
 from attrs import define, evolve
@@ -163,7 +164,7 @@ def _describe_payload(spotify_track: SpotifyTrack) -> RecordingDescription:
     )
 
 
-def _payload_as_candidate(spotify_track: SpotifyTrack) -> Track:
+def _payload_as_candidate(spotify_track: SpotifyTrack, *, user_id: str) -> Track:
     """A Spotify payload seen as the canonical it would become.
 
     Comparison only — never saved, and deliberately not
@@ -175,6 +176,7 @@ def _payload_as_candidate(spotify_track: SpotifyTrack) -> Track:
         title=spotify_track.name,
         artists=[Artist(name=a.name) for a in spotify_track.artists if a.name],
         duration_ms=spotify_track.duration_ms,
+        user_id=user_id,
     )
 
 
@@ -870,7 +872,10 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                 folded.append(fold)
                 continue
 
-            bucket.append((write.requested_id, _payload_as_candidate(payload)))
+            bucket.append((
+                write.requested_id,
+                _payload_as_candidate(payload, user_id=user_id),
+            ))
 
         held_back = {item.write.requested_id for item in folded}
         return [
@@ -967,7 +972,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
         async with phase("api"):
             found = await bounded_fan_out(
                 hinted_ids,
-                self._fallback_search_api,
+                partial(self._fallback_search_api, user_id=user_id),
                 concurrency=settings.api.spotify.concurrency,
             )
         search_results = {
@@ -1011,6 +1016,8 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
     async def _fallback_search_api(
         self,
         dead_id: str,
+        *,
+        user_id: str,
     ) -> _FallbackSearchResult | None:
         """Search Spotify for a dead ID. Pure API + domain evaluation, no DB writes."""
         hint = self._fallback_hints[dead_id]
@@ -1023,6 +1030,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                 title=hint.track_name,
                 artists=[Artist(name=hint.artist_name)],
                 duration_ms=hint.completed_play_ms_estimate,
+                user_id=user_id,
             )
             attempt = await search_and_evaluate_attempt(
                 self._spotify_connector,

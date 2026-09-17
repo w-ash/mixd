@@ -6,6 +6,7 @@ from src.application.use_cases._shared.playlist_results import (
 )
 from src.domain.entities.track import Artist, Track
 from src.domain.playlist import PlaylistOperation, PlaylistOperationType
+from tests.fixtures import TEST_USER_ID
 
 
 class TestCountOperationTypes:
@@ -21,9 +22,15 @@ class TestCountOperationTypes:
 
     def test_count_only_add_operations(self) -> None:
         """Should correctly count only ADD operations."""
-        track1 = Track(title="Track 1", artists=[Artist(name="Artist 1")])
-        track2 = Track(title="Track 2", artists=[Artist(name="Artist 2")])
-        track3 = Track(title="Track 3", artists=[Artist(name="Artist 3")])
+        track1 = Track(
+            title="Track 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
+        track2 = Track(
+            title="Track 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )
+        track3 = Track(
+            title="Track 3", artists=[Artist(name="Artist 3")], user_id=TEST_USER_ID
+        )
 
         operations = [
             PlaylistOperation(
@@ -51,8 +58,12 @@ class TestCountOperationTypes:
 
     def test_count_only_remove_operations(self) -> None:
         """Should correctly count only REMOVE operations."""
-        track1 = Track(title="Track 1", artists=[Artist(name="Artist 1")])
-        track2 = Track(title="Track 2", artists=[Artist(name="Artist 2")])
+        track1 = Track(
+            title="Track 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
+        track2 = Track(
+            title="Track 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )
 
         operations = [
             PlaylistOperation(
@@ -75,7 +86,9 @@ class TestCountOperationTypes:
 
     def test_count_only_move_operations(self) -> None:
         """Should correctly count only MOVE operations."""
-        track1 = Track(title="Track 1", artists=[Artist(name="Artist 1")])
+        track1 = Track(
+            title="Track 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
 
         operations = [
             PlaylistOperation(
@@ -95,7 +108,11 @@ class TestCountOperationTypes:
     def test_count_mixed_operations(self) -> None:
         """Should correctly count mixed operation types."""
         tracks = [
-            Track(title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
+            Track(
+                title=f"Track {i}",
+                artists=[Artist(name=f"Artist {i}")],
+                user_id=TEST_USER_ID,
+            )
             for i in range(7)
         ]
 
@@ -147,7 +164,9 @@ class TestCountOperationTypes:
 
     def test_returns_operation_counts_type(self) -> None:
         """Should return OperationCounts typed object."""
-        track = Track(title="Track 1", artists=[Artist(name="Artist 1")])
+        track = Track(
+            title="Track 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
 
         operations = [
             PlaylistOperation(

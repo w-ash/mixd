@@ -12,7 +12,7 @@ from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistUseCase,
 )
 from src.domain.entities.track import TrackList
-from tests.fixtures import make_mock_metric_config, make_track
+from tests.fixtures import TEST_USER_ID, make_mock_metric_config, make_track
 from tests.fixtures.mocks import make_mock_uow
 
 _MOCK_METRIC_CONFIG = make_mock_metric_config()
@@ -227,6 +227,7 @@ class TestCreateCanonicalPlaylistUnresolved:
                     ),
                 ),
             ],
+            user_id=TEST_USER_ID,
         )
         command = CreateCanonicalPlaylistCommand(
             user_id="test-user",

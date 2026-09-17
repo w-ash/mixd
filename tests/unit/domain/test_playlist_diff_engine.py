@@ -17,6 +17,7 @@ from src.domain.playlist.diff_engine import (
     calculate_playlist_diff,
     calculate_remove_operations,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 class TestLongestIncreasingSubsequence:
@@ -73,11 +74,21 @@ class TestLISReorderOperations:
     def sample_tracks(self):
         """Create sample tracks for testing."""
         return [
-            Track(title="Track A", artists=[Artist(name="Artist 1")]),
-            Track(title="Track B", artists=[Artist(name="Artist 2")]),
-            Track(title="Track C", artists=[Artist(name="Artist 3")]),
-            Track(title="Track D", artists=[Artist(name="Artist 4")]),
-            Track(title="Track E", artists=[Artist(name="Artist 5")]),
+            Track(
+                title="Track A", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track B", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track C", artists=[Artist(name="Artist 3")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track D", artists=[Artist(name="Artist 4")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track E", artists=[Artist(name="Artist 5")], user_id=TEST_USER_ID
+            ),
         ]
 
     def test_identical_order_no_operations(self, sample_tracks):
@@ -122,8 +133,12 @@ class TestLISReorderOperations:
     def test_duplicate_tracks_handling(self):
         """Duplicate tracks should be handled correctly with greedy matching."""
         # Create tracks with duplicates
-        track_a = Track(title="Track A", artists=[Artist(name="Artist 1")])
-        track_b = Track(title="Track B", artists=[Artist(name="Artist 2")])
+        track_a = Track(
+            title="Track A", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+        )
+        track_b = Track(
+            title="Track B", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+        )
 
         current = [track_a, track_b, track_a, track_b]  # [A, B, A, B]
         target = [track_b, track_a, track_b, track_a]  # [B, A, B, A]
@@ -163,12 +178,22 @@ class TestPlaylistDiffIntegration:
     def sample_playlist(self):
         """Create sample playlist for testing."""
         tracks = [
-            Track(title="Track A", artists=[Artist(name="Artist 1")]),
-            Track(title="Track B", artists=[Artist(name="Artist 2")]),
-            Track(title="Track C", artists=[Artist(name="Artist 3")]),
-            Track(title="Track D", artists=[Artist(name="Artist 4")]),
+            Track(
+                title="Track A", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track B", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track C", artists=[Artist(name="Artist 3")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Track D", artists=[Artist(name="Artist 4")], user_id=TEST_USER_ID
+            ),
         ]
-        return Playlist.from_tracklist(name="Test Playlist", tracklist=tracks)
+        return Playlist.from_tracklist(
+            name="Test Playlist", tracklist=tracks, user_id=TEST_USER_ID
+        )
 
     def test_no_changes_idempotent(self, sample_playlist):
         """Unchanged playlist should generate zero operations (idempotent)."""
@@ -182,7 +207,9 @@ class TestPlaylistDiffIntegration:
 
     def test_add_operations_only(self, sample_playlist):
         """Adding tracks should generate only ADD operations."""
-        new_track = Track(title="Track E", artists=[Artist(name="Artist 5")])
+        new_track = Track(
+            title="Track E", artists=[Artist(name="Artist 5")], user_id=TEST_USER_ID
+        )
         target_tracks = [*sample_playlist.tracks, new_track]
         target_tracklist = TrackList(tracks=target_tracks)
 
@@ -265,7 +292,9 @@ class TestPlaylistDiffIntegration:
         track_b = sample_playlist.tracks[1]
         # Remove track B, add new track, reorder remaining
         remaining_tracks = [t for t in sample_playlist.tracks if t.id != track_b.id]
-        new_track = Track(title="Track E", artists=[Artist(name="Artist 5")])
+        new_track = Track(
+            title="Track E", artists=[Artist(name="Artist 5")], user_id=TEST_USER_ID
+        )
         # Reorder: [new_track, track_D, track_A, track_C]
         target_tracks = [
             new_track,
@@ -321,10 +350,16 @@ class TestPlaylistDiffIntegration:
         """Large playlist should process efficiently with LIS optimization."""
         # Create large playlist (100 tracks)
         tracks = [
-            Track(title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
+            Track(
+                title=f"Track {i}",
+                artists=[Artist(name=f"Artist {i}")],
+                user_id=TEST_USER_ID,
+            )
             for i in range(100)
         ]
-        playlist = Playlist.from_tracklist(name="Large Playlist", tracklist=tracks)
+        playlist = Playlist.from_tracklist(
+            name="Large Playlist", tracklist=tracks, user_id=TEST_USER_ID
+        )
 
         # Reverse the order for maximum reordering challenge
         target_tracks = list(reversed(tracks))
@@ -357,9 +392,11 @@ class TestDuplicateSharedInstanceDiff:
 
     def test_remove_collapsed_duplicates_targets_distinct_positions(self):
         """``[X, X] -> [Y]``: both X copies removed at their own positions."""
-        x = Track(title="X", artists=[Artist(name="A")])
-        y = Track(title="Y", artists=[Artist(name="B")])
-        current = Playlist.from_tracklist(name="dup", tracklist=[x, x])
+        x = Track(title="X", artists=[Artist(name="A")], user_id=TEST_USER_ID)
+        y = Track(title="Y", artists=[Artist(name="B")], user_id=TEST_USER_ID)
+        current = Playlist.from_tracklist(
+            name="dup", tracklist=[x, x], user_id=TEST_USER_ID
+        )
         # Sanity: the entries genuinely share one instance.
         assert current.tracks[0] is current.tracks[1]
 
@@ -381,9 +418,11 @@ class TestDuplicateSharedInstanceDiff:
 
     def test_remove_interleaved_duplicate_keeps_distinct_positions(self):
         """``[X, Y, X] -> [Y]``: both X copies removed at positions 0 and 2."""
-        x = Track(title="X", artists=[Artist(name="A")])
-        y = Track(title="Y", artists=[Artist(name="B")])
-        current = Playlist.from_tracklist(name="dup", tracklist=[x, y, x])
+        x = Track(title="X", artists=[Artist(name="A")], user_id=TEST_USER_ID)
+        y = Track(title="Y", artists=[Artist(name="B")], user_id=TEST_USER_ID)
+        current = Playlist.from_tracklist(
+            name="dup", tracklist=[x, y, x], user_id=TEST_USER_ID
+        )
 
         diff = calculate_playlist_diff(current, TrackList(tracks=[y]))
 
@@ -396,9 +435,11 @@ class TestDuplicateSharedInstanceDiff:
 
     def test_add_collapsed_duplicates_targets_distinct_positions(self):
         """``[Y] -> [X, X]``: both X copies added at their own positions."""
-        x = Track(title="X", artists=[Artist(name="A")])
-        y = Track(title="Y", artists=[Artist(name="B")])
-        current = Playlist.from_tracklist(name="dup", tracklist=[y])
+        x = Track(title="X", artists=[Artist(name="A")], user_id=TEST_USER_ID)
+        y = Track(title="Y", artists=[Artist(name="B")], user_id=TEST_USER_ID)
+        current = Playlist.from_tracklist(
+            name="dup", tracklist=[y], user_id=TEST_USER_ID
+        )
 
         diff = calculate_playlist_diff(current, TrackList(tracks=[x, x]))
 
@@ -411,13 +452,13 @@ class TestDuplicateSharedInstanceDiff:
 
     def test_remove_helper_consumes_each_shared_position_once(self):
         """Direct unit check: the remove helper consumes one slot per occurrence."""
-        x = Track(title="X", artists=[Artist(name="A")])
+        x = Track(title="X", artists=[Artist(name="A")], user_id=TEST_USER_ID)
         ops = calculate_remove_operations([x, x], [x, x])
         assert sorted(op.position for op in ops) == [0, 1]
 
     def test_add_helper_consumes_each_shared_position_once(self):
         """Direct unit check: the add helper consumes one slot per occurrence."""
-        x = Track(title="X", artists=[Artist(name="A")])
+        x = Track(title="X", artists=[Artist(name="A")], user_id=TEST_USER_ID)
         ops = calculate_add_operations([x, x], [x, x])
         assert sorted(op.position for op in ops) == [0, 1]
 
@@ -435,7 +476,7 @@ class TestKeyedByCanonicalTrackId:
     """
 
     def test_remove_matches_distinct_instance_with_same_track_id(self):
-        x = Track(title="X", artists=[Artist(name="A")])
+        x = Track(title="X", artists=[Artist(name="A")], user_id=TEST_USER_ID)
         x_copy = evolve(x)  # same track.id, distinct object
         assert x_copy is not x
         assert x_copy.id == x.id
@@ -445,7 +486,7 @@ class TestKeyedByCanonicalTrackId:
         assert [op.position for op in ops] == [0]
 
     def test_add_matches_distinct_instance_with_same_track_id(self):
-        x = Track(title="X", artists=[Artist(name="A")])
+        x = Track(title="X", artists=[Artist(name="A")], user_id=TEST_USER_ID)
         x_copy = evolve(x)  # same track.id, distinct object
         assert x_copy is not x
         assert x_copy.id == x.id

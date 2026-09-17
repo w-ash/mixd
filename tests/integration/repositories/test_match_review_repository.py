@@ -18,6 +18,7 @@ from src.infrastructure.persistence.database.db_models import (
 from src.infrastructure.persistence.repositories.match_review import (
     MatchReviewRepository,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 async def _seed_track_and_connector_track(
@@ -33,6 +34,7 @@ async def _seed_track_and_connector_track(
         spotify_id=f"sp_{uid}",
         isrc=f"ISRC{uid.upper()[:8]}",
         mbid=f"mbid-{uid}",
+        user_id=TEST_USER_ID,
     )
     session.add(track)
     await session.flush()
@@ -65,6 +67,7 @@ class TestCreateReview:
             match_method="artist_title",
             confidence=72,
             match_weight=4.5,
+            user_id=TEST_USER_ID,
         )
         result = await repo.create_review(review)
 
@@ -84,6 +87,7 @@ class TestCreateReview:
             match_method="artist_title",
             confidence=72,
             match_weight=4.5,
+            user_id=TEST_USER_ID,
         )
         first = await repo.create_review(review)
         second = await repo.create_review(review)
@@ -108,6 +112,7 @@ class TestCreateBatch:
                 match_method="artist_title",
                 confidence=72,
                 match_weight=4.5,
+                user_id=TEST_USER_ID,
             ),
             MatchReview(
                 track_id=track_id2,
@@ -116,6 +121,7 @@ class TestCreateBatch:
                 match_method="isrc",
                 confidence=65,
                 match_weight=3.2,
+                user_id=TEST_USER_ID,
             ),
         ]
         written = await repo.create_reviews_batch(reviews)
@@ -138,6 +144,7 @@ class TestListPendingReviews:
                 match_method="artist_title",
                 confidence=72,
                 match_weight=4.5,
+                user_id=TEST_USER_ID,
             )
         )
         accepted = await repo.create_review(
@@ -148,6 +155,7 @@ class TestListPendingReviews:
                 match_method="isrc",
                 confidence=85,
                 match_weight=6.0,
+                user_id=TEST_USER_ID,
             )
         )
         await repo.update_review_status(accepted.id, ReviewStatus.ACCEPTED)
@@ -170,6 +178,7 @@ class TestListPendingReviews:
                     match_method="artist_title",
                     confidence=72,
                     match_weight=4.5,
+                    user_id=TEST_USER_ID,
                 )
             )
 
@@ -199,6 +208,7 @@ class TestListPendingReviews:
                 match_method="artist_title",
                 confidence=72,
                 match_weight=4.5,
+                user_id=TEST_USER_ID,
             )
         )
 
@@ -223,6 +233,7 @@ class TestUpdateReviewStatus:
                 match_method="artist_title",
                 confidence=72,
                 match_weight=4.5,
+                user_id=TEST_USER_ID,
             )
         )
 
@@ -246,6 +257,7 @@ class TestCountPending:
                 match_method="artist_title",
                 confidence=72,
                 match_weight=4.5,
+                user_id=TEST_USER_ID,
             )
         )
 
@@ -274,6 +286,7 @@ class TestResolvedReviewsDoNotResurrect:
             match_method="artist_title",
             confidence=60,
             match_weight=2.0,
+            user_id=TEST_USER_ID,
         )
         await repo.create_reviews_batch([review])
         existing = (await repo.list_pending_reviews(user_id="default"))[0][0]
@@ -301,6 +314,7 @@ class TestResolvedReviewsDoNotResurrect:
             match_method="artist_title",
             confidence=60,
             match_weight=2.0,
+            user_id=TEST_USER_ID,
         )
         await repo.create_reviews_batch([base])
 
@@ -312,6 +326,7 @@ class TestResolvedReviewsDoNotResurrect:
                 match_method="isrc",
                 confidence=81,
                 match_weight=4.0,
+                user_id=TEST_USER_ID,
             )
         ])
 
@@ -345,6 +360,7 @@ class TestOneBadRowDoesNotPoisonTheTransaction:
                 match_method="isrc",
                 confidence=confidence,
                 match_weight=3.0,
+                user_id=TEST_USER_ID,
             )
 
         # The second row's connector track does not exist — the FK fails.
@@ -377,6 +393,7 @@ class TestExistingReviewKeys:
                 match_method="artist_title",
                 confidence=64,
                 match_weight=3.0,
+                user_id=TEST_USER_ID,
             )
         )
 

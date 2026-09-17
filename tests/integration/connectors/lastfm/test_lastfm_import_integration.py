@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from src.domain.entities import ConnectorTrackPlay, PlayRecord
+from tests.fixtures import TEST_USER_ID
 
 
 class TestLastfmPlayImporterIntegration:
@@ -125,6 +126,7 @@ class TestLastfmPlayImporterIntegration:
                 import_timestamp=datetime.now(UTC),
                 import_source="integration_test",
                 import_batch_id="test-batch-123",
+                user_id=TEST_USER_ID,
             )
         ]
 
@@ -174,6 +176,7 @@ class TestLastfmPlayImporterIntegration:
                 import_timestamp=datetime.now(UTC),
                 import_source="error_test",
                 import_batch_id="error-test-batch",
+                user_id=TEST_USER_ID,
             )
         ]
 

@@ -16,6 +16,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
 )
+from tests.fixtures.tenants import TEST_USER_ID
 
 
 def _uid() -> str:
@@ -27,7 +28,7 @@ async def seed_db_track(
     *,
     title: str | None = None,
     artist: str = "Test Artist",
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     **overrides,
 ) -> DBTrack:
     uid = _uid()

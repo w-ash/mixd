@@ -155,7 +155,7 @@ class Playlist:
     """
 
     name: str = field(validator=validators.instance_of(str))
-    user_id: str = "default"
+    user_id: str
     entries: list[PlaylistEntry] = field(factory=list)
     description: str | None = field(default=None)
     # The internal database ID - source of truth for our system
@@ -194,6 +194,8 @@ class Playlist:
         cls,
         name: str,
         tracklist: TrackList | list[Track],
+        *,
+        user_id: str,
         added_at: datetime | None = None,
         description: str | None = None,
         connector_playlist_identifiers: dict[str, str] | None = None,
@@ -203,6 +205,7 @@ class Playlist:
         Args:
             name: Playlist name
             tracklist: TrackList or list[Track] to convert
+            user_id: Tenant the playlist belongs to
             added_at: Timestamp for all entries (defaults to now)
             description: Optional playlist description
             connector_playlist_identifiers: Optional connector IDs (spotify, apple_music, etc)
@@ -219,6 +222,7 @@ class Playlist:
         added_at = added_at or datetime.now(UTC)
         return cls(
             name=name,
+            user_id=user_id,
             entries=[
                 PlaylistEntry(track=t, added_at=added_at) for t in tracklist.tracks
             ],

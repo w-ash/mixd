@@ -17,6 +17,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 async def _insert_track(
@@ -41,6 +42,7 @@ async def _insert_track(
         first_played_at=first_played_at,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
+        user_id=TEST_USER_ID,
     )
     session.add(db_track)
     await session.flush()
@@ -59,6 +61,7 @@ async def _like_track(
         liked_at=datetime.now(UTC),
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
+        user_id=TEST_USER_ID,
     )
     session.add(like)
     await session.flush()
@@ -212,6 +215,7 @@ class TestListTracksFilters:
             is_primary=True,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
+            user_id=TEST_USER_ID,
         )
         session.add(mapping)
         await session.flush()

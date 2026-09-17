@@ -7,7 +7,7 @@ from src.interface.cli.ui import (
     console,
     display_operation_result,
 )
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 
 
 class TestMetricValueFormatting:
@@ -82,7 +82,9 @@ class TestOperationResultDisplay:
 
     def test_result_preserves_tracks_list(self):
         """Test that tracks list remains unchanged."""
-        track = Track(title="Test Track", artists=[Artist(name="Artist")])
+        track = Track(
+            title="Test Track", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+        )
         result = OperationResult(operation_name="Track Operation", tracks=[track])
 
         assert len(result.tracks) == 1

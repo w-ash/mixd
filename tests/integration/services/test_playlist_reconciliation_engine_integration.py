@@ -25,7 +25,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBPlaylistMapping,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_mock_metric_config
+from tests.fixtures import TEST_USER_ID, make_mock_metric_config
 
 _ENGINE_MOD = "src.application.services.playlist_reconciliation_engine"
 _PUSH_MOD = "src.application.services.connector_push"
@@ -34,7 +34,13 @@ _RESOLVER_MOD = "src.application.use_cases._shared.connector_resolver"
 
 async def _make_link(session: AsyncSession, external_id: str) -> PlaylistLink:
     now = datetime.now(UTC)
-    playlist = DBPlaylist(name="Canon", track_count=0, created_at=now, updated_at=now)
+    playlist = DBPlaylist(
+        name="Canon",
+        track_count=0,
+        created_at=now,
+        updated_at=now,
+        user_id=TEST_USER_ID,
+    )
     connector_playlist = DBConnectorPlaylist(
         connector_name="spotify",
         connector_playlist_identifier=external_id,

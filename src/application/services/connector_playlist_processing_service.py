@@ -74,6 +74,7 @@ class ConnectorPlaylistProcessingService:
             logger.warning(f"Empty ConnectorPlaylist from {connector_name}")
             return Playlist(
                 name=connector_playlist.name,
+                user_id=user_id,
                 entries=[],
                 description=connector_playlist.description,
                 metadata={
@@ -127,6 +128,7 @@ class ConnectorPlaylistProcessingService:
         # Return Playlist with PlaylistEntry objects (track + position metadata)
         return Playlist(
             name=connector_playlist.name,
+            user_id=user_id,
             entries=playlist_entries,
             description=connector_playlist.description,
             connector_playlist_identifiers={

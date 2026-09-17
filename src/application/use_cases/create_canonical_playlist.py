@@ -210,11 +210,11 @@ class CreateCanonicalPlaylistUseCase:
             playlist = Playlist.from_tracklist(
                 name=command.name,
                 tracklist=source_data,
+                user_id=command.user_id,
                 added_at=command.timestamp,
                 description=command.description,
                 connector_playlist_identifiers=connector_playlist_identifiers or {},
             )
-            playlist = evolve(playlist, user_id=command.user_id)
             # Add metadata if provided
             if command.metadata:
                 playlist = evolve(playlist, metadata=dict(command.metadata))

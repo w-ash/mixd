@@ -13,6 +13,7 @@ from src.domain.matching.content_digest import (
     service_side,
     track_side,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 def _side(**overrides: object) -> DigestSide:
@@ -93,7 +94,10 @@ class TestExpiry:
 class TestSideBuilders:
     def test_track_side_reads_the_match_relevant_fields(self):
         track = Track(
-            title="Creep", artists=[Artist(name="Radiohead")], duration_ms=238_000
+            title="Creep",
+            artists=[Artist(name="Radiohead")],
+            duration_ms=238_000,
+            user_id=TEST_USER_ID,
         )
         side = track_side(track)
         assert side.title == "Creep"
@@ -155,6 +159,7 @@ class TestBothProducersAgreeOnOnePair:
             title="Creep",
             artists=[Artist(name="Radiohead")],
             duration_ms=238_000,
+            user_id=TEST_USER_ID,
         )
         row = self._persisted("Creep", ["Radiohead", "Albert Hammond"], 238_000)
 
@@ -178,7 +183,9 @@ class TestBothProducersAgreeOnOnePair:
         reuse_view = service_side(
             "sp_42", {"title": "Creep", "artist": "Radiohead", "duration_ms": None}
         )
-        candidate = Track(title="Creep", artists=[Artist(name="Radiohead")])
+        candidate = Track(
+            title="Creep", artists=[Artist(name="Radiohead")], user_id=TEST_USER_ID
+        )
 
         assert content_digest(pipeline_view, track_side(candidate)) != content_digest(
             reuse_view, track_side(candidate)

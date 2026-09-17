@@ -35,6 +35,7 @@ from src.infrastructure.persistence.repositories.track.core import (
     MappingHistoryLossError,
     TrackRepository,
 )
+from tests.fixtures import TEST_USER_ID
 
 _USER = "default"
 
@@ -56,7 +57,11 @@ def track_repo(db_session: AsyncSession) -> TrackRepository:
 
 async def _make_track(db_session: AsyncSession, title: str = "Track") -> UUID:
     uid = str(uuid4())[:8]
-    track = DBTrack(title=f"{title} {uid}", artists={"names": [f"Artist {uid}"]})
+    track = DBTrack(
+        title=f"{title} {uid}",
+        artists={"names": [f"Artist {uid}"]},
+        user_id=TEST_USER_ID,
+    )
     db_session.add(track)
     await db_session.flush()
     return track.id

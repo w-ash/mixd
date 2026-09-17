@@ -29,6 +29,7 @@ from src.domain.exceptions import ConfirmationRequiredError, ConnectorSyncError
 from src.domain.playlist.diff_engine import PlaylistOpsOutcome
 from src.domain.playlist.reconciliation import SyncPlan
 from tests.fixtures import (
+    TEST_USER_ID,
     make_connector_playlist,
     make_connector_playlist_item,
     make_mock_metric_config,
@@ -59,7 +60,11 @@ def _tracks(count: int, start: int = 0):
 
 
 def _canonical(tracks) -> Playlist:
-    return Playlist(name="Canon", entries=[PlaylistEntry(track=t) for t in tracks])
+    return Playlist(
+        name="Canon",
+        entries=[PlaylistEntry(track=t) for t in tracks],
+        user_id=TEST_USER_ID,
+    )
 
 
 def _remote(spotify_ids: list[str], *, snapshot: str = "snap") -> ConnectorPlaylist:
@@ -224,7 +229,9 @@ class TestPushTargetResolvedOnly:
             for i in range(12)
         ]
         canonical = Playlist(
-            name="Canon", entries=[PlaylistEntry(track=resolved), *unresolved]
+            name="Canon",
+            entries=[PlaylistEntry(track=resolved), *unresolved],
+            user_id=TEST_USER_ID,
         )
         remote = _remote(["s0", *(f"x{i}" for i in range(12))])
         resolve_map = {("spotify", "s0"): resolved} | {

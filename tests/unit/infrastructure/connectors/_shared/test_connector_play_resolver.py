@@ -14,6 +14,7 @@ from src.infrastructure.connectors._shared.connector_play_resolver import (
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     TrackResolutionMetrics,
 )
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.factories import make_track
 
 
@@ -24,6 +25,7 @@ def _play(track_name: str = "Song", artist_name: str = "Artist") -> ConnectorTra
         artist_name=artist_name,
         played_at=datetime(2024, 6, 15, 14, 30, tzinfo=UTC),
         ms_played=240000,
+        user_id=TEST_USER_ID,
     )
 
 

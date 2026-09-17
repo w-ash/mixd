@@ -18,6 +18,7 @@ from src.application.use_cases.enrich_tracks import (
 )
 from src.domain.entities.track import Artist, Track, TrackList
 from src.domain.exceptions import EnrichmentFailedError
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.factories import (
     make_track_preference,
     make_track_tag,
@@ -62,8 +63,18 @@ class TestEnrichTracksUseCase:
     def sample_tracklist(self):
         """Create sample tracklist for testing."""
         tracks = [
-            Track(id=1, title="Test Song 1", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Test Song 2", artists=[Artist(name="Artist 2")]),
+            Track(
+                id=1,
+                title="Test Song 1",
+                artists=[Artist(name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Test Song 2",
+                artists=[Artist(name="Artist 2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
         return TrackList(tracks=tracks)
 
@@ -471,7 +482,14 @@ class TestEnrichTracksCommand:
     def test_command_validation_success(self):
         """Test valid command creation."""
         tracklist = TrackList(
-            tracks=[Track(id=1, title="Test", artists=[Artist(name="Artist")])]
+            tracks=[
+                Track(
+                    id=1,
+                    title="Test",
+                    artists=[Artist(name="Artist")],
+                    user_id=TEST_USER_ID,
+                )
+            ]
         )
         config = EnrichmentConfig(
             enrichment_type="play_history", metrics=["total_plays"]

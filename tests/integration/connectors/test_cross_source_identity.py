@@ -18,6 +18,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyTrack,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 
 def _make_spotify_track(
@@ -143,6 +144,7 @@ class TestLastfmThenSpotify:
                 artists=[Artist(name="Radiohead")],
                 isrc="GBAYE9300106",
                 duration_ms=238000,
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(track_a.id)
@@ -161,6 +163,7 @@ class TestLastfmThenSpotify:
                 artists=[Artist(name="Radiohead")],
                 isrc="GBAYE0000289",
                 duration_ms=250000,
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(track_b.id)
@@ -261,6 +264,7 @@ class TestMixedResolutionPaths:
                 id=None,
                 title="Already Mapped",
                 artists=[Artist(name="Band A")],
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(track_a.id)
@@ -279,6 +283,7 @@ class TestMixedResolutionPaths:
                 title="Needs Reuse",
                 artists=[Artist(name="Band B")],
                 duration_ms=200000,
+                user_id=TEST_USER_ID,
             )
         )
         test_data_tracker.add_track(track_b.id)

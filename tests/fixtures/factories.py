@@ -50,6 +50,7 @@ from src.infrastructure.connectors.tidal.oas_models import (
     TidalTrackRelationships,
     TidalTrackResource,
 )
+from tests.fixtures.tenants import TEST_USER_ID
 
 # ---------------------------------------------------------------------------
 # Track factories
@@ -65,7 +66,7 @@ def make_track(
     id: UUID | None = None,
     title: str = "Test Track",
     artist: str = "Test Artist",
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     **kwargs,
 ) -> Track:
     """Build a :class:`Track` with sensible defaults.
@@ -79,7 +80,7 @@ def make_track(
     return Track(id=id, title=title, user_id=user_id, **kwargs)
 
 
-def make_tracks(count: int = 3, user_id: str = "default", **kwargs) -> list[Track]:
+def make_tracks(count: int = 3, user_id: str = TEST_USER_ID, **kwargs) -> list[Track]:
     """Build *count* tracks with unique UUIDs."""
     return [
         make_track(title=f"Track {i}", artist=f"Artist {i}", user_id=user_id, **kwargs)
@@ -101,7 +102,7 @@ def make_persisted_track(**kwargs) -> Track:
 def make_track_like(
     track_id: UUID | None = None,
     service: str = "spotify",
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     **kwargs,
 ) -> TrackLike:
     """Build a :class:`TrackLike` with sensible defaults."""
@@ -349,7 +350,7 @@ def make_playlist(
     id: UUID | None = None,
     name: str = "Test Playlist",
     tracks: list[Track] | None = None,
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     **kwargs,
 ) -> Playlist:
     """Build a :class:`Playlist` via ``from_tracklist``.
@@ -359,15 +360,17 @@ def make_playlist(
     if id is None:
         id = uuid7()
     tracks = tracks if tracks is not None else [make_track(user_id=user_id)]
-    playlist = Playlist.from_tracklist(name=name, tracklist=tracks, **kwargs)
-    return attrs.evolve(playlist, id=id, user_id=user_id)
+    playlist = Playlist.from_tracklist(
+        name=name, tracklist=tracks, user_id=user_id, **kwargs
+    )
+    return attrs.evolve(playlist, id=id)
 
 
 def make_playlist_with_entries(
     id: UUID | None = None,
     track_ids: list[UUID] | None = None,
     name: str = "Test Playlist",
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
 ) -> Playlist:
     """Build a :class:`Playlist` with explicit :class:`PlaylistEntry` objects."""
     if id is None:
@@ -427,7 +430,7 @@ def make_workflow_def(
 def make_workflow(
     id: UUID | None = None,
     definition: WorkflowDef | None = None,
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     **kwargs,
 ) -> Workflow:
     """Build a :class:`Workflow` with sensible defaults."""
@@ -470,7 +473,7 @@ def make_track_preference(
     track_id: UUID | None = None,
     state: str = "yah",
     source: str = "manual",
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     preferred_at: datetime | None = None,
     **kwargs,
 ) -> TrackPreference:
@@ -490,7 +493,7 @@ def make_preference_event(
     old_state: str | None = None,
     new_state: str = "yah",
     source: str = "manual",
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     preferred_at: datetime | None = None,
     **kwargs,
 ) -> PreferenceEvent:
@@ -515,7 +518,7 @@ def make_track_tag(
     tag: str = "mood:chill",
     track_id: UUID | None = None,
     source: str = "manual",
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     tagged_at: datetime | None = None,
     **kwargs,
 ) -> TrackTag:
@@ -535,7 +538,7 @@ def make_tag_event(
     action: str = "add",
     track_id: UUID | None = None,
     source: str = "manual",
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     tagged_at: datetime | None = None,
     **kwargs,
 ) -> TagEvent:
@@ -557,7 +560,7 @@ def make_tag_event(
 
 
 def make_operation_run(
-    user_id: str = "default",
+    user_id: str = TEST_USER_ID,
     operation_type: str = "import_spotify_playlists",
     status: str = "running",
     started_at: datetime | None = None,

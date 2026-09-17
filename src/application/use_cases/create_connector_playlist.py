@@ -8,7 +8,6 @@ database. Manages transaction boundaries and provides detailed operation results
 from datetime import UTC, datetime
 from typing import TypedDict
 
-import attrs
 from attrs import define, field
 
 from src.application.use_cases._shared import (
@@ -160,6 +159,7 @@ class CreateConnectorPlaylistUseCase:
         result_playlist = internal_playlist or Playlist.from_tracklist(
             name=command.playlist_name,
             tracklist=command.tracklist,
+            user_id=command.user_id,
             added_at=datetime.now(UTC),
             description=command.playlist_description,
             connector_playlist_identifiers={command.connector: external_playlist_id},
@@ -317,14 +317,14 @@ class CreateConnectorPlaylistUseCase:
         """Builds, saves, and commits the internal playlist plus connector entry."""
         # Step 1: Create internal playlist with connector mapping
         tracklist = TrackList(tracks=list(command.tracklist.tracks))
-        playlist_base = Playlist.from_tracklist(
+        playlist = Playlist.from_tracklist(
             name=command.playlist_name,
             tracklist=tracklist,
+            user_id=command.user_id,
             added_at=datetime.now(UTC),
             description=command.playlist_description,
             connector_playlist_identifiers={command.connector: external_playlist_id},
         )
-        playlist = attrs.evolve(playlist_base, user_id=command.user_id)
 
         # Save internal playlist
         playlist_repo = uow.get_playlist_repository()

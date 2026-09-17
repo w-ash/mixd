@@ -5,6 +5,7 @@ which is critical for deduplication, merging, and cross-service track linking.
 """
 
 from src.domain.entities import Artist, Track
+from tests.fixtures import TEST_USER_ID
 
 
 class TestTrackIdentityResolution:
@@ -23,12 +24,14 @@ class TestTrackIdentityResolution:
             artists=[Artist(name="Radiohead")],
             album="OK Computer",
             isrc="GBUM71505078",
+            user_id=TEST_USER_ID,
         )
         remaster_release = Track(
             title="Paranoid Android - Remastered",
             artists=[Artist(name="Radiohead")],
             album="OK Computer (2017 Remaster)",
-            isrc="GBUM71505078",  # Same ISRC - same song!
+            isrc="GBUM71505078",
+            user_id=TEST_USER_ID,  # Same ISRC - same song!
         )
 
         # Should be considered identical despite different title/album
@@ -45,6 +48,7 @@ class TestTrackIdentityResolution:
                 "spotify": "63OQupATfueTdZMWTxzEle",
                 "musicbrainz": "8b2b6471-7903-4f84-8b3f-d1d2e7c4b9a8",
             },
+            user_id=TEST_USER_ID,
         )
         lastfm_track = Track(
             title="Karma Police",  # Same title
@@ -53,6 +57,7 @@ class TestTrackIdentityResolution:
                 "lastfm": "track_123456",
                 "musicbrainz": "8b2b6471-7903-4f84-8b3f-d1d2e7c4b9a8",  # Same MusicBrainz ID
             },
+            user_id=TEST_USER_ID,
         )
 
         # Should match via shared MusicBrainz ID
@@ -65,14 +70,14 @@ class TestTrackIdentityResolution:
             artists=[Artist(name="Radiohead")],
             isrc="GBUM71505078",
             connector_track_identifiers={"spotify": "63OQupATfueTdZMWTxzEle"},
+            user_id=TEST_USER_ID,
         )
         track2 = Track(
             title="Yesterday",  # Different song entirely
             artists=[Artist(name="The Beatles")],
             isrc="USRC17607839",  # Different ISRC
-            connector_track_identifiers={
-                "spotify": "3BxWKCI06eQ5Od8TY2JBeA"
-            },  # Different Spotify ID
+            connector_track_identifiers={"spotify": "3BxWKCI06eQ5Od8TY2JBeA"},
+            user_id=TEST_USER_ID,  # Different Spotify ID
         )
 
         assert not track1.has_same_identity_as(track2)
@@ -90,6 +95,7 @@ class TestTrackIdentityResolution:
                 "apple_music": "am_345678",
                 "youtube": "yt_901234",
             },
+            user_id=TEST_USER_ID,
         )
         track_with_one_matching_id = Track(
             title="Creep (Radio Edit)",  # Different title variation
@@ -98,6 +104,7 @@ class TestTrackIdentityResolution:
                 "spotify": "70LcF31zb1H0PyJoS1Sx1r",  # Same Spotify ID - enough for match!
                 "tidal": "tidal_567890",  # Different other service
             },
+            user_id=TEST_USER_ID,
         )
 
         # Should match because of shared Spotify ID
@@ -108,12 +115,14 @@ class TestTrackIdentityResolution:
         track_with_empty_isrc = Track(
             title="Test Song",
             artists=[Artist(name="Test Artist")],
-            isrc="",  # Empty string
+            isrc="",
+            user_id=TEST_USER_ID,  # Empty string
         )
         track_with_none_isrc = Track(
             title="Test Song",
             artists=[Artist(name="Test Artist")],
-            isrc=None,  # None
+            isrc=None,
+            user_id=TEST_USER_ID,  # None
         )
 
         # Empty string and None should not be considered matching ISRCs
@@ -125,13 +134,13 @@ class TestTrackIdentityResolution:
             title="Test Song",
             artists=[Artist(name="Test Artist")],
             connector_track_identifiers={"spotify": "4iV5W9uYEdYUVa79Axb7Rh"},
+            user_id=TEST_USER_ID,
         )
         track2 = Track(
             title="Test Song",
             artists=[Artist(name="Test Artist")],
-            connector_track_identifiers={
-                "spotify": "4iv5w9uyedyuva79axb7rh"
-            },  # Different case
+            connector_track_identifiers={"spotify": "4iv5w9uyedyuva79axb7rh"},
+            user_id=TEST_USER_ID,  # Different case
         )
 
         # Case differences should prevent matching (Spotify IDs are case-sensitive)
@@ -145,14 +154,14 @@ class TestTrackIdentityResolution:
             artists=[Artist(name="Test Artist")],
             isrc="USUM71703861",  # Same ISRC
             connector_track_identifiers={"spotify": "different_id_1"},
+            user_id=TEST_USER_ID,
         )
         track2 = Track(
             title="Test Song",
             artists=[Artist(name="Test Artist")],
             isrc="USUM71703861",  # Same ISRC - this should win
-            connector_track_identifiers={
-                "spotify": "different_id_2"
-            },  # Different Spotify ID
+            connector_track_identifiers={"spotify": "different_id_2"},
+            user_id=TEST_USER_ID,  # Different Spotify ID
         )
 
         # ISRC match should override connector ID mismatch
@@ -160,7 +169,11 @@ class TestTrackIdentityResolution:
 
     def test_type_safety_with_invalid_objects(self):
         """Test robust handling of invalid comparison objects."""
-        track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
+        track = Track(
+            title="Test Song",
+            artists=[Artist(name="Test Artist")],
+            user_id=TEST_USER_ID,
+        )
 
         # Should handle various invalid types gracefully
         assert not track.has_same_identity_as("not a track")
@@ -175,11 +188,13 @@ class TestTrackIdentityResolution:
         track1 = Track(
             title="Unknown Song",
             artists=[Artist(name="Unknown Artist")],
+            user_id=TEST_USER_ID,
             # No ISRC, no connector IDs
         )
         track2 = Track(
             title="Unknown Song",  # Same title/artist
             artists=[Artist(name="Unknown Artist")],
+            user_id=TEST_USER_ID,
             # No ISRC, no connector IDs
         )
 
@@ -195,6 +210,7 @@ class TestTrackIdentityResolution:
             album="OK Computer",
             duration_ms=228000,
             connector_track_identifiers={"spotify": "2p7phZwlioOIWR1Ztqe5Sy"},
+            user_id=TEST_USER_ID,
         )
 
         # Same song scrobbled from Last.fm (slightly different metadata)
@@ -203,9 +219,8 @@ class TestTrackIdentityResolution:
             artists=[Artist(name="Radiohead")],
             album="OK Computer (Collector's Edition)",  # Different album version
             duration_ms=None,  # Last.fm doesn't always have duration
-            connector_track_identifiers={
-                "spotify": "2p7phZwlioOIWR1Ztqe5Sy"
-            },  # Same Spotify ID from scrobble
+            connector_track_identifiers={"spotify": "2p7phZwlioOIWR1Ztqe5Sy"},
+            user_id=TEST_USER_ID,  # Same Spotify ID from scrobble
         )
 
         # Should match via shared Spotify ID despite metadata differences

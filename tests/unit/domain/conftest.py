@@ -10,6 +10,7 @@ import pytest
 
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Artist, Track, TrackList
+from tests.fixtures import TEST_USER_ID
 
 
 @pytest.fixture
@@ -26,6 +27,7 @@ def track():
         title="Test Track",
         artists=[Artist(name="Test Artist")],
         duration_ms=200000,
+        user_id=TEST_USER_ID,
     )
 
 
@@ -38,6 +40,7 @@ def tracks():
             title=f"Track {i}",
             artists=[Artist(name="Test Artist")],
             duration_ms=200000,
+            user_id=TEST_USER_ID,
         )
         for i in range(1, 4)
     ]
@@ -53,6 +56,7 @@ def tracks_with_metadata():
             artists=[Artist(name="Test Artist")],
             duration_ms=200000,
             release_date=datetime(2020, 1, 1, tzinfo=UTC),
+            user_id=TEST_USER_ID,
         ),
         Track(
             id=2,
@@ -60,6 +64,7 @@ def tracks_with_metadata():
             artists=[Artist(name="Test Artist")],
             duration_ms=180000,
             release_date=datetime(2023, 6, 15, tzinfo=UTC),
+            user_id=TEST_USER_ID,
         ),
         Track(
             id=3,
@@ -67,6 +72,7 @@ def tracks_with_metadata():
             artists=[Artist(name="Classic Artist")],
             duration_ms=250000,
             release_date=datetime(1995, 3, 10, tzinfo=UTC),
+            user_id=TEST_USER_ID,
         ),
     ]
 
@@ -102,6 +108,7 @@ def playlist(tracks):
         name="Test Playlist",
         description="Test playlist description",
         tracks=tracks,
+        user_id=TEST_USER_ID,
     )
 
 
@@ -113,6 +120,7 @@ def empty_playlist():
         name="Empty Playlist",
         description="Empty for testing",
         tracks=[],
+        user_id=TEST_USER_ID,
     )
 
 

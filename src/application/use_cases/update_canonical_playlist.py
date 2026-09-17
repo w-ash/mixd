@@ -300,6 +300,7 @@ class UpdateCanonicalPlaylistUseCase:
         return Playlist.from_tracklist(
             name=current_playlist.name,  # Use existing name
             tracklist=source_data,
+            user_id=command.user_id,
             added_at=datetime.now(UTC),  # Timestamp for new tracks
         )
 

@@ -1163,6 +1163,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return Playlist(
             id=db_playlist.id,
             name=db_playlist.name,
+            user_id=db_playlist.user_id,
             description=db_playlist.description,
             connector_playlist_identifiers=connector_ids,
             updated_at=db_playlist.updated_at,

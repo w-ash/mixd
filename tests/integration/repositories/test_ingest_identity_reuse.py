@@ -23,6 +23,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from tests.fixtures import TEST_USER_ID
 
 ORIGINAL_ISRC = "GBEXH1900012"
 REMASTER_ISRC = "USA2B2056087"
@@ -68,6 +69,7 @@ async def _seed_original(
                 artists=[Artist(name=artist)],
                 duration_ms=duration_ms,
                 isrc=isrc,
+                user_id=TEST_USER_ID,
             )
         )
     tracks = await uow.get_connector_repository().ingest_external_tracks_bulk(

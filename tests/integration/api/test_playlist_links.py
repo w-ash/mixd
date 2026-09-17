@@ -15,6 +15,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
     DBPlaylistMapping,
 )
+from tests.fixtures import TEST_USER_ID
 from tests.fixtures.factories import nonexistent_id
 
 
@@ -59,6 +60,7 @@ async def _seed_link(client: httpx2.AsyncClient) -> tuple[str, str]:
             last_sync_completed_at=datetime.now(UTC),
             last_sync_tracks_added=5,
             last_sync_tracks_removed=1,
+            user_id=TEST_USER_ID,
         )
         session.add(db_mapping)
         await session.flush()

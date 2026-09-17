@@ -12,6 +12,7 @@ from src.application.use_cases.enrich_tracks import (
     EnrichTracksUseCase,
 )
 from src.domain.entities.track import Artist, Track, TrackList
+from tests.fixtures import TEST_USER_ID
 
 
 class TestEnrichmentMetricsMerge:
@@ -21,8 +22,18 @@ class TestEnrichmentMetricsMerge:
         """Second enricher should merge metrics with first enricher's results."""
         # Arrange: tracklist already has lastfm metrics from a previous enricher
         tracks = [
-            Track(id=1, title="Song A", artists=[Artist(name="Artist")]),
-            Track(id=2, title="Song B", artists=[Artist(name="Artist")]),
+            Track(
+                id=1,
+                title="Song A",
+                artists=[Artist(name="Artist")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                id=2,
+                title="Song B",
+                artists=[Artist(name="Artist")],
+                user_id=TEST_USER_ID,
+            ),
         ]
         tracklist = (
             TrackList(tracks=tracks)
@@ -85,7 +96,12 @@ class TestEnrichmentMetricsMerge:
     async def test_play_history_already_merges_correctly(self):
         """Play history enrichment already merges — verify it still works."""
         tracks = [
-            Track(id=1, title="Song", artists=[Artist(name="Artist")]),
+            Track(
+                id=1,
+                title="Song",
+                artists=[Artist(name="Artist")],
+                user_id=TEST_USER_ID,
+            ),
         ]
         tracklist = TrackList(tracks=tracks).with_metadata(
             "metrics",

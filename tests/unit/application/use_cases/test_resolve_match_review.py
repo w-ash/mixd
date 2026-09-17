@@ -16,7 +16,7 @@ from src.application.use_cases.resolve_match_review import (
 from src.config.constants import ReviewStatus
 from src.domain.entities.match_review import MatchReview
 from src.domain.exceptions import NotFoundError
-from tests.fixtures import make_track
+from tests.fixtures import TEST_USER_ID, make_track
 from tests.fixtures.mocks import make_mock_uow
 
 
@@ -29,6 +29,7 @@ def _make_pending_review(**overrides) -> MatchReview:
         "match_method": "artist_title",
         "confidence": 72,
         "match_weight": 4.5,
+        "user_id": TEST_USER_ID,
         "status": ReviewStatus.PENDING,
     }
     defaults.update(overrides)

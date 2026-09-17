@@ -238,6 +238,7 @@ class _Candidate:
     """One canonical track, on either side of either population."""
 
     track_id: UUID
+    owner: str
     title: str
     artist: str
     primary_artist: str
@@ -267,6 +268,7 @@ class _Candidate:
             duration_ms=self.duration_ms,
             isrc=self.isrc,
             id=self.track_id,
+            user_id=self.owner,
         )
 
     def describe(self) -> str:
@@ -459,7 +461,7 @@ async def load_groups(session: AsyncSession, user_id: str) -> list[_Group]:
     for row in result.mappings().all():
         values: dict[str, object] = dict(row)
         key = (str(values["artist_normalized"]), str(values["title_normalized"]))
-        buckets.setdefault(key, []).append(_candidate(values, prefix=""))
+        buckets.setdefault(key, []).append(_candidate(values, prefix="", owner=user_id))
     return [_Group(members=members) for members in buckets.values()]
 
 
@@ -471,12 +473,13 @@ async def load_cross_tenant_pairs(
     pairs: list[_CrossTenantPair] = []
     for row in result.mappings().all():
         values: dict[str, object] = dict(row)
-        owned = _candidate(values, prefix="owned_")
+        owned = _candidate(values, prefix="owned_", owner=user_id)
+        foreign_owner = str(values["foreign_owner"])
         pairs.append(
             _CrossTenantPair(
                 owned=owned,
-                foreign=_candidate(values, prefix="foreign_"),
-                foreign_owner=str(values["foreign_owner"]),
+                foreign=_candidate(values, prefix="foreign_", owner=foreign_owner),
+                foreign_owner=foreign_owner,
                 dep_track_plays=_as_int_or_none(values["dep_track_plays"]) or 0,
                 dep_connector_plays=_as_int_or_none(values["dep_connector_plays"]) or 0,
                 collisions=collisions_for(values, owned.track_id),
@@ -486,13 +489,14 @@ async def load_cross_tenant_pairs(
     return pairs
 
 
-def _candidate(values: dict[str, object], *, prefix: str) -> _Candidate:
+def _candidate(values: dict[str, object], *, prefix: str, owner: str) -> _Candidate:
     """One track's columns out of a row, under the alias prefix they carry."""
     artists_text = _as_str_or_none(values[f"{prefix}artists_text"])
     primary = _as_str_or_none(values[f"{prefix}primary_artist"])
     normalized = _as_str_or_none(values.get(f"{prefix}artist_normalized"))
     return _Candidate(
         track_id=_as_uuid(values[f"{prefix}id"]),
+        owner=owner,
         title=str(values[f"{prefix}title"]),
         artist=artists_text or primary or normalized or "unknown artist",
         primary_artist=primary or "",

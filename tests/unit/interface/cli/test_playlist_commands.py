@@ -29,7 +29,7 @@ from src.application.use_cases.refresh_connector_playlists import (
 )
 from src.domain.entities.playlist_link import SyncDirection
 from src.interface.cli.app import app
-from tests.fixtures import plain
+from tests.fixtures import TEST_USER_ID, plain
 
 runner = CliRunner()
 
@@ -683,7 +683,11 @@ class TestRemoveTracksPartialMatch:
         absent_track = make_track(title="Absent Song")
         # Loaded playlist contains only the first track; the second resolves fine
         # but isn't a member, so it should be reported as skipped.
-        loaded = Playlist(name="My Playlist", entries=[PlaylistEntry(track=in_track)])
+        loaded = Playlist(
+            name="My Playlist",
+            entries=[PlaylistEntry(track=in_track)],
+            user_id=TEST_USER_ID,
+        )
 
         def _fake_run_async(coro):
             return asyncio.run(coro)

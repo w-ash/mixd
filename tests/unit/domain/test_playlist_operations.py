@@ -14,6 +14,7 @@ from src.domain.entities.playlist import (
     PlaylistEntry,
 )
 from src.domain.entities.track import Artist, Track
+from tests.fixtures import TEST_USER_ID
 
 
 class TestPlaylistEntity:
@@ -22,12 +23,19 @@ class TestPlaylistEntity:
     def test_playlist_creation_with_valid_data(self):
         """Test creating a playlist with valid data."""
         tracks = [
-            Track(title="Song 1", artists=[Artist(name="Artist 1")]),
-            Track(title="Song 2", artists=[Artist(name="Artist 2")]),
+            Track(
+                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            ),
+            Track(
+                title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            ),
         ]
 
         playlist = Playlist.from_tracklist(
-            name="My Playlist", tracklist=tracks, description="A great playlist"
+            name="My Playlist",
+            tracklist=tracks,
+            description="A great playlist",
+            user_id=TEST_USER_ID,
         )
 
         assert playlist.name == "My Playlist"
@@ -38,7 +46,9 @@ class TestPlaylistEntity:
 
     def test_playlist_creation_with_minimal_data(self):
         """Test creating a playlist with only required fields."""
-        playlist = Playlist.from_tracklist(name="Minimal Playlist", tracklist=[])
+        playlist = Playlist.from_tracklist(
+            name="Minimal Playlist", tracklist=[], user_id=TEST_USER_ID
+        )
 
         assert playlist.name == "Minimal Playlist"
         assert playlist.tracks == []
@@ -48,7 +58,11 @@ class TestPlaylistEntity:
 
     def test_from_tracklist_with_connector_identifiers(self):
         """Test creating playlist with connector identifiers in one step."""
-        tracks = [Track(title="Song 1", artists=[Artist(name="Artist 1")])]
+        tracks = [
+            Track(
+                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            )
+        ]
 
         playlist = Playlist.from_tracklist(
             name="Test Playlist",
@@ -58,6 +72,7 @@ class TestPlaylistEntity:
                 "spotify": "spotify_123",
                 "apple_music": "am_456",
             },
+            user_id=TEST_USER_ID,
         )
 
         assert playlist.name == "Test Playlist"
@@ -74,11 +89,19 @@ class TestPlaylistEntity:
 
         from src.domain.entities.playlist import PlaylistEntry
 
-        original_tracks = [Track(title="Song 1", artists=[Artist(name="Artist 1")])]
-        new_tracks = [Track(title="Song 2", artists=[Artist(name="Artist 2")])]
+        original_tracks = [
+            Track(
+                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            )
+        ]
+        new_tracks = [
+            Track(
+                title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            )
+        ]
 
         playlist = Playlist.from_tracklist(
-            name="Test Playlist", tracklist=original_tracks
+            name="Test Playlist", tracklist=original_tracks, user_id=TEST_USER_ID
         )
         new_entries = [
             PlaylistEntry(track=t, added_at=datetime.now(UTC)) for t in new_tracks
@@ -204,7 +227,9 @@ class TestPlaylistEntryEntity:
 
     def test_playlist_entry_creation(self):
         """Test creating a playlist entry."""
-        test_track = Track(title="Test", artists=[Artist(name="Test Artist")])
+        test_track = Track(
+            title="Test", artists=[Artist(name="Test Artist")], user_id=TEST_USER_ID
+        )
         entry = PlaylistEntry(
             track=test_track, added_at=datetime.now(UTC), added_by="user123"
         )
@@ -215,7 +240,9 @@ class TestPlaylistEntryEntity:
 
     def test_playlist_entry_defaults(self):
         """Test playlist entry default values."""
-        test_track = Track(title="Test", artists=[Artist(name="Test Artist")])
+        test_track = Track(
+            title="Test", artists=[Artist(name="Test Artist")], user_id=TEST_USER_ID
+        )
         entry = PlaylistEntry(track=test_track)
 
         assert entry.added_at is None
