@@ -90,7 +90,7 @@ from src.infrastructure.connectors.spotify.recently_played_importer import (
     SpotifyRecentlyPlayedImporter,
 )
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import DBConnectorPlay
+from src.infrastructure.persistence.database.models import DBConnectorPlay
 from src.infrastructure.persistence.database.user_context import user_context
 
 logger = get_logger(__name__)

@@ -26,14 +26,14 @@ from src.domain.repositories.resolution import (
 from src.domain.services.resolution_retry import (
     DEATH_DEBOUNCE_MIN_SPAN_SECONDS,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
+from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBResolutionEvent,
     DBResolutionNegative,
     DBTrack,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
 from src.infrastructure.persistence.repositories.resolution import (
     ResolutionEventRepository,
     ResolutionNegativeRepository,

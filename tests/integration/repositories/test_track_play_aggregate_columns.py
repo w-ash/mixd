@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.application.services.play_projection_service import PlayProjectionService
 from src.domain.entities import ConnectorTrackPlay, Track
 from src.domain.entities.operations import TrackPlay
-from src.infrastructure.persistence.database.db_models import DBTrack, DBTrackPlay
+from src.infrastructure.persistence.database.models import DBTrack, DBTrackPlay
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
 from src.infrastructure.persistence.repositories.track.plays import TrackPlayRepository

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.workflow import WorkflowVersion, parse_workflow_def
 from src.domain.exceptions import NotFoundError
-from src.infrastructure.persistence.database.db_models import DBWorkflowVersion
+from src.infrastructure.persistence.database.models import DBWorkflowVersion
 
 
 class WorkflowVersionRepository:

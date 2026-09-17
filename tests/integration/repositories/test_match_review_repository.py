@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.constants import ReviewStatus
 from src.domain.entities.match_review import MatchReview
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
 )

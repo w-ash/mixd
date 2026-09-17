@@ -17,7 +17,7 @@ from src.domain.entities.preference import (
     TrackPreference,
 )
 from src.domain.entities.sourced_metadata import MetadataSource
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBTrackPreference,
     DBTrackPreferenceEvent,
 )

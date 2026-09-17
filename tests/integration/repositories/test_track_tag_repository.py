@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.tag import TagEvent
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBTrackTag,
     DBTrackTagEvent,
 )

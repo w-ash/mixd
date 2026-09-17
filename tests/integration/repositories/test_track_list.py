@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.repositories.track import PlayFilters
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBTrack,
     DBTrackLike,
     DBTrackMapping,
@@ -183,7 +183,7 @@ class TestListTracksFilters:
         assert page["tracks"][0].title == "Not Liked"
 
     async def test_filter_by_connector(self, db_session: AsyncSession) -> None:
-        from src.infrastructure.persistence.database.db_models import (
+        from src.infrastructure.persistence.database.models import (
             DBConnectorTrack,
         )
 

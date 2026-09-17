@@ -70,7 +70,7 @@ from src.domain.entities import ConnectorTrackPlay
 from src.domain.entities.operations import PLAY_EXCLUSION_REASONS
 from src.domain.entities.progress import NullProgressEmitter
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBPlaySource,
 )

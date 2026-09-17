@@ -129,7 +129,7 @@ class TestSpotifyAddedAtPreservation:
         # Step 4: Verify DBPlaylistTrack.added_at matches Spotify's timestamps
         from sqlalchemy import select
 
-        from src.infrastructure.persistence.database.db_models import DBPlaylistTrack
+        from src.infrastructure.persistence.database.models import DBPlaylistTrack
 
         async with uow:
             stmt = (

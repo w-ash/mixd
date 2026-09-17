@@ -85,7 +85,7 @@ _PRESERVED_TABLES: frozenset[str] = frozenset({
 
 
 def _build_truncate_all() -> str:
-    from src.infrastructure.persistence.database.db_models import metadata
+    from src.infrastructure.persistence.database.models import metadata
 
     targets = [
         t.name for t in metadata.tables.values() if t.name not in _PRESERVED_TABLES

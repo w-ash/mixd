@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.chat_feedback import ChatFeedback
-from src.infrastructure.persistence.database.db_models import DBChatFeedback
+from src.infrastructure.persistence.database.models import DBChatFeedback
 from src.infrastructure.persistence.repositories.chat_feedback import (
     ChatFeedbackRepository,
 )

@@ -113,7 +113,8 @@ import typer
 from src.config import get_logger, setup_script_logger
 from src.config.constants import BusinessLimits
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBMatchReview,
     DBPlaylistAssignmentMember,
@@ -128,7 +129,6 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackPreference,
     DBTrackTag,
 )
-from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
 from src.infrastructure.persistence.database.user_context import (
     statement_timeout_context,
     user_context,

@@ -42,17 +42,17 @@ from src.domain.repositories.track import (
     TrackListingPage,
     TrackSortBy,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.live_rows import (
+    INCLUDE_SUPERSEDED,
+    expire_mapping_identity,
+    live_only,
+)
+from src.infrastructure.persistence.database.models import (
     DBTrack,
     DBTrackLike,
     DBTrackMapping,
     DBTrackPreference,
     DBTrackTag,
-)
-from src.infrastructure.persistence.database.live_rows import (
-    INCLUDE_SUPERSEDED,
-    expire_mapping_identity,
-    live_only,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     DENORMALIZED_ID_COLUMNS,

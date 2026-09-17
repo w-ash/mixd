@@ -48,7 +48,7 @@ class TestBulkApplyAssignmentsRoute:
                 # the test client's auth shim.
                 from sqlalchemy import select
 
-                from src.infrastructure.persistence.database.db_models import (
+                from src.infrastructure.persistence.database.models import (
                     DBOperationRun,
                 )
 

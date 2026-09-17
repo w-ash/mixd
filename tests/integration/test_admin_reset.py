@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.use_cases.reset_database import PRESERVED_TABLES
 from src.domain.entities.preference import PreferenceEvent, TrackPreference
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBOAuthToken,
     DBTrack,
     DBTrackLike,

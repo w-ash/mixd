@@ -45,7 +45,7 @@ pytestmark = pytest.mark.slow
 @pytest.fixture
 def migration_db(monkeypatch: pytest.MonkeyPatch):
     """A throwaway Postgres whose schema is owned by Alembic, not ``create_all``."""
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.community.postgres import PostgresContainer
 
     with PostgresContainer("postgres:17-alpine") as pg:
         url = pg.get_connection_url().replace("psycopg2://", "psycopg://")

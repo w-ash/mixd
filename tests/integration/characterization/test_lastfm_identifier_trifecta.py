@@ -26,7 +26,7 @@ from src.infrastructure.connectors.lastfm.models import LastFMTrackData
 from src.infrastructure.connectors.spotify.cross_discovery import (
     SpotifyCrossDiscoveryProvider,
 )
-from src.infrastructure.persistence.database.db_models import DBConnectorTrack
+from src.infrastructure.persistence.database.models import DBConnectorTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID, discover_one
 

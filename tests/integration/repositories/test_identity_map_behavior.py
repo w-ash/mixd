@@ -11,7 +11,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_track
 
@@ -152,7 +152,7 @@ class TestIdentityMapBehavior:
 
             # Query with nested selectinload
             # Track -> mappings -> connector_track (3-level relationship)
-            from src.infrastructure.persistence.database.db_models import (
+            from src.infrastructure.persistence.database.models import (
                 DBTrackMapping,
             )
 

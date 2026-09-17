@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.preference import PreferenceState
 from src.domain.repositories.stats import DashboardAggregates
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.live_rows import live_only
+from src.infrastructure.persistence.database.models import (
     DBPlaylist,
     DBPlaylistMapping,
     DBTrack,
@@ -26,7 +27,6 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackPlay,
     DBTrackPreference,
 )
-from src.infrastructure.persistence.database.live_rows import live_only
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 

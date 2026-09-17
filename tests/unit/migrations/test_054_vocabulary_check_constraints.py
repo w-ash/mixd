@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import CheckConstraint
 
 from src.domain.entities.track_mapping import MAPPING_ORIGINS, MATCH_METHODS
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBMatchReview,
     DBTrackMapping,
 )

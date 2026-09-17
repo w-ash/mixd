@@ -13,7 +13,7 @@ from src.domain.entities.workflow import (
     WorkflowRunNode,
     parse_workflow_def,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBWorkflowRun,
     DBWorkflowRunNode,
 )

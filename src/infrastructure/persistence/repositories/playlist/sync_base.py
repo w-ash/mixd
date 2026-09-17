@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities.playlist_sync_base import PlaylistSyncBase
-from src.infrastructure.persistence.database.db_models import DBPlaylistSyncBase
+from src.infrastructure.persistence.database.models import DBPlaylistSyncBase
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)

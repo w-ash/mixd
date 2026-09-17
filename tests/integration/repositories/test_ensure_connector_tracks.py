@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.match_review import MatchReview
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories.match_review import (
     MatchReviewRepository,
 )

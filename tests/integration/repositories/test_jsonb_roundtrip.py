@@ -35,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.infrastructure.persistence.database.db_models import DBUserSettings
+from src.infrastructure.persistence.database.models import DBUserSettings
 
 
 async def _persist_and_reload(

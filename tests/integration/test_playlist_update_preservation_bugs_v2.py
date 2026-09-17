@@ -79,7 +79,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
         # Step 2: Get original DBPlaylistTrack records
         from sqlalchemy import select
 
-        from src.infrastructure.persistence.database.db_models import DBPlaylistTrack
+        from src.infrastructure.persistence.database.models import DBPlaylistTrack
 
         async with uow:
             stmt = (
@@ -240,7 +240,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
         # Get initial records
         from sqlalchemy import select
 
-        from src.infrastructure.persistence.database.db_models import DBPlaylistTrack
+        from src.infrastructure.persistence.database.models import DBPlaylistTrack
 
         async with uow:
             stmt = (
@@ -384,7 +384,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
         # Get original records
         from sqlalchemy import select
 
-        from src.infrastructure.persistence.database.db_models import DBPlaylistTrack
+        from src.infrastructure.persistence.database.models import DBPlaylistTrack
 
         async with uow:
             stmt = (

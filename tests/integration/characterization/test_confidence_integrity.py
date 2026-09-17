@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack, Track
-from src.infrastructure.persistence.database.db_models import DBTrackMapping
+from src.infrastructure.persistence.database.models import DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID
 

@@ -22,7 +22,7 @@ from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
 from src.infrastructure.connectors.spotify.models import SpotifyExternalIds
-from src.infrastructure.persistence.database.db_models import DBMatchReview, DBTrack
+from src.infrastructure.persistence.database.models import DBMatchReview, DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID, make_spotify_track
 

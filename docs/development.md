@@ -64,7 +64,7 @@ async def custom_sort_node(tracklist: TrackList, config: dict) -> TrackList:
 See `.claude/skills/new-connector/` for the full step-by-step guide, or run `/new-connector` to invoke it.
 
 ### Database Changes
-1. Update `src/infrastructure/persistence/database/db_models.py`
+1. Update the aggregate's module under `src/infrastructure/persistence/database/models/` (import models from the package, never a submodule)
 2. Generate: `uv run alembic revision --autogenerate`
 3. Apply: `uv run alembic upgrade head`
 

@@ -28,7 +28,7 @@ from src.domain.exceptions import (
     ScheduleAlreadyExistsError,
     ScheduleInvariantError,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBWorkflow,
     DBWorkflowRun,
 )

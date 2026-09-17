@@ -19,7 +19,7 @@ from sqlalchemy.orm import selectinload
 from src.config import get_logger
 from src.config.constants import ReviewStatus
 from src.domain.entities.match_review import MatchReview
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBMatchReview,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository

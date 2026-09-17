@@ -26,7 +26,7 @@ from src.domain.repositories.play import (
     PlayAggregationResult,
     PlaySortBy,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBPlaySource,
     DBTrack,
     DBTrackPlay,

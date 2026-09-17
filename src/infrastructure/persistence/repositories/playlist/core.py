@@ -21,7 +21,7 @@ from src.domain.entities import (
     PlaylistEntry,
     Track,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
     DBConnectorTrack,
     DBPlaylist,
@@ -380,10 +380,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         if not connector_ids:
             return
 
-        from src.infrastructure.persistence.database.db_models import (
-            DBPlaylistMapping,
-        )
-
         now = datetime.now(UTC)
 
         # Ensure connector playlists exist and get their database IDs
@@ -433,10 +429,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         """
         if not connector_ids:
             return
-
-        from src.infrastructure.persistence.database.db_models import (
-            DBPlaylistMapping,
-        )
 
         now = datetime.now(UTC)
 

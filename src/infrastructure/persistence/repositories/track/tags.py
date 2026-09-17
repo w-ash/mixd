@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.domain.entities.sourced_metadata import MetadataSource
 from src.domain.entities.tag import TagEvent, TrackTag, normalize_tag, parse_tag
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBTrackTag,
     DBTrackTagEvent,
 )

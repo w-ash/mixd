@@ -17,7 +17,7 @@ from src.infrastructure.connectors.spotify.inward_resolver import (
     SpotifyInwardResolver,
 )
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
-from src.infrastructure.persistence.database.db_models import DBTrack, DBTrackMapping
+from src.infrastructure.persistence.database.models import DBTrack, DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures.factories import make_spotify_track
 

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack, Track
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBMatchReview,
     DBTrack,
     DBTrackMapping,

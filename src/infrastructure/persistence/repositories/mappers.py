@@ -14,7 +14,7 @@ from typing import Protocol, cast, override
 from attrs import define
 from sqlalchemy.orm.interfaces import ORMOption
 
-from src.infrastructure.persistence.database.db_models import DatabaseModel
+from src.infrastructure.persistence.database.models import DatabaseModel
 
 
 class ModelMapper[TDBModel: DatabaseModel, TDomainModel](Protocol):

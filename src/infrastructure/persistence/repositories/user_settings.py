@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities.shared import JsonDict
-from src.infrastructure.persistence.database.db_models import DBUserSettings
+from src.infrastructure.persistence.database.models import DBUserSettings
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)

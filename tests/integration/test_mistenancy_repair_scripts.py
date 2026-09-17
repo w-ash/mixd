@@ -42,7 +42,8 @@ from scripts.reown_cross_tenant_tracks import (
     merge_pair,
     reown,
 )
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBConnectorTrack,
     DBMatchReview,
@@ -53,7 +54,6 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMetric,
     DBTrackPlay,
 )
-from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 _OWNER = "default"

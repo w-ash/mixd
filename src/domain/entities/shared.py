@@ -29,7 +29,7 @@ type JsonValue = (
 # Concrete JSON object shape. Use as the mutable/owned form of JSON-shaped data.
 # Pair with Mapping[str, JsonValue] for covariant read-only parameters.
 # Registered in SQLAlchemy's type_annotation_map so Mapped[JsonDict] resolves
-# to postgresql.JSONB automatically — see infrastructure/persistence/database/db_models.py.
+# to postgresql.JSONB automatically — see infrastructure/persistence/database/models/base.py.
 type JsonDict = dict[str, JsonValue]
 
 

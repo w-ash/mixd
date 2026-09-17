@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy import delete
 
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import DBUserSettings
+from src.infrastructure.persistence.database.models import DBUserSettings
 
 _URL = "/api/v1/settings"
 

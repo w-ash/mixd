@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.pending_action import PendingAction
 from src.domain.entities.shared import JsonDict
-from src.infrastructure.persistence.database.db_models import DBPendingAction
+from src.infrastructure.persistence.database.models import DBPendingAction
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 

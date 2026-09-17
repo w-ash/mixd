@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from alembic import command
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBWorkflow,
     DBWorkflowRun,
     DBWorkflowVersion,
@@ -77,7 +77,7 @@ def migration_db(monkeypatch: pytest.MonkeyPatch):
 
     ``DATABASE_URL`` is what ``alembic/env.py`` reads to bind its engine.
     """
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.community.postgres import PostgresContainer
 
     with PostgresContainer("postgres:17-alpine") as pg:
         url = pg.get_connection_url().replace("psycopg2://", "psycopg://")

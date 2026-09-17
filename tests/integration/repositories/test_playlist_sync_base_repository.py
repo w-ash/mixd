@@ -11,7 +11,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.playlist_sync_base import PlaylistSyncBase
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
     DBPlaylist,
     DBPlaylistMapping,

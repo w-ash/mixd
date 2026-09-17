@@ -13,7 +13,7 @@ import pytest
 import sqlalchemy as sa
 
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.models import DBTrack
 from tests.fixtures import make_track
 
 

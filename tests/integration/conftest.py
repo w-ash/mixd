@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities import Artist, Track, TrackList
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
-from src.infrastructure.persistence.database.db_models import DBPlaylist, DBTrack
+from src.infrastructure.persistence.database.models import DBPlaylist, DBTrack
 from tests.fixtures import TEST_USER_ID
 
 

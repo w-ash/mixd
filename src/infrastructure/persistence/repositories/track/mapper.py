@@ -4,6 +4,7 @@ from typing import override
 import warnings
 
 from attrs import define
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
@@ -11,7 +12,7 @@ from src.domain.entities import Artist, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.shared import JsonDict
 from src.domain.entities.track_mapping import STALE_ID_FOR
-from src.infrastructure.persistence.database.db_models import (
+from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
     DBTrackLike,
@@ -181,13 +182,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
     @staticmethod
     def get_default_relationships() -> list[ORMOption]:
         """Get default relationships using SQLAlchemy 2.1 best practices."""
-        from sqlalchemy.orm import selectinload
-
-        from src.infrastructure.persistence.database.db_models import (
-            DBTrack,
-            DBTrackMapping,
-        )
-
         return [
             selectinload(DBTrack.mappings),  # Simple relationship
             selectinload(DBTrack.mappings).selectinload(

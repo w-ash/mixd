@@ -558,7 +558,7 @@ ignore_imports = [
     # `exchange_code` (PKCE public client) exactly as Spotify's does.
     "src.interface.api.routes.auth -> src.infrastructure.connectors.tidal.auth",
     "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_connection",
-    "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_models",
+    "src.interface.api.routes.auth -> src.infrastructure.persistence.database.models",
     # Same carve-out: state creation opens its session as the initiating user
     # (`user_context`), and state validation declares itself cross-tenant
     # (`system_context`) — the token is the credential, the row's user unknown
