@@ -12,7 +12,6 @@ from uuid import uuid4
 from attrs.exceptions import FrozenInstanceError
 import pytest
 
-from src.domain.matching.types import ISRC_MATCH_CONFIDENCE
 from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
     record_substitutions,
@@ -189,7 +188,7 @@ class TestStaleIdMappingSpec:
             connector="tidal",
             requested_id="old",
             primary_method="isrc_match",
-            confidence=ISRC_MATCH_CONFIDENCE,
+            confidence=95,
         )
 
         assert spec.match_method == "isrc_match_stale_id"

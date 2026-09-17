@@ -22,19 +22,6 @@ from src.domain.entities.track_mapping import MappingOrigin, MatchMethod
 
 
 @define(frozen=True, slots=True)
-class IsrcCollisionSpec:
-    """An incoming connector track whose ISRC is already claimed elsewhere.
-
-    ``owner`` is the canonical currently holding the ISRC. The incoming track
-    is scored against it and routed to review rather than merged into it.
-    """
-
-    owner: Track
-    connector_id: str
-    service_data: Mapping[str, JsonValue]
-
-
-@define(frozen=True, slots=True)
 class ConnectorMappingSpec:
     """A single track→connector mapping request for batch mapping.
 
@@ -450,62 +437,6 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             ConnectorTrack domain entity if found, None otherwise.
-        """
-        ...
-
-    def queue_isrc_collision_review(
-        self,
-        existing_track: Track,
-        connector: str,
-        connector_id: str,
-        service_data: Mapping[str, JsonValue],
-        *,
-        user_id: str,
-    ) -> Awaitable[bool]:
-        """Queue a review for a suspect ISRC collision instead of merging.
-
-        Evaluates the incoming connector track against the ISRC-owning
-        canonical (the engine's duration-based suspect check runs with real
-        durations) and inserts a pending ``isrc_suspect`` match review.
-
-        Skips insertion when a review for this (track, connector, connector
-        track) pair exists in ANY status — playlist re-syncs must not
-        resurrect rejected reviews.
-
-        Args:
-            existing_track: The canonical that owns the contested ISRC.
-            connector: Service name (e.g., "spotify").
-            connector_id: External id of the incoming track.
-            service_data: Incoming track metadata (title/artist/duration_ms…).
-            user_id: Owner's user ID.
-
-        Returns:
-            True if a review was queued, False if one already existed.
-        """
-        ...
-
-    def queue_isrc_collision_reviews(
-        self,
-        collisions: Sequence[IsrcCollisionSpec],
-        connector: str,
-        *,
-        user_id: str,
-    ) -> Awaitable[int]:
-        """Batch form of ``queue_isrc_collision_review``, same semantics.
-
-        Import chunks can carry several collisions, and the per-item form costs
-        ~7 round trips each; this one shares the connector-track ensure, the
-        any-status dedupe probe and the insert across the batch.
-
-        Args:
-            collisions: Contested ISRCs, each pairing the owning canonical with
-                the incoming track's id and metadata.
-            connector: Service name (e.g., "spotify").
-            user_id: Owner's user ID.
-
-        Returns:
-            Number of reviews queued; collisions already reviewed in any
-            status are excluded.
         """
         ...
 

@@ -1,30 +1,37 @@
 """Tests for InwardTrackResolver base class.
 
 Validates the shared 'resolve inward' pattern: mapping lookup for existing,
-canonical reuse for unresolved, and batch creation for the rest — plus the
-planned-write persist pipeline (``WritePlanningResolver``): ISRC planning
-arms, ordered write path, claim dedupe, and write-failure accounting.
+canonical reuse for unresolved (the domain planner under names-alone rules,
+refusals recorded), and batch creation for the rest — plus the planned-write
+pipeline (``WritePlanningResolver``): the probes-and-planner adapter, the
+ordered write path, in-chunk folding, claim dedupe, and write-failure
+accounting.
 """
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.config import create_matching_config
 from src.domain.entities import Track
-from src.domain.matching.types import DIRECT_IMPORT_CONFIDENCE, ISRC_MATCH_CONFIDENCE
+from src.domain.matching.canonical_resolution import TrackResolutionRules
+from src.domain.matching.recording_identity import RecordingDescription
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
-    IsrcCollisionReview,
     PlannedWrite,
+    ProviderAnswer,
     ReuseMetadata,
     TrackResolutionMetrics,
     WritePlanningResolver,
-    plan_isrc_write,
 )
 from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
 )
-from tests.fixtures import attach_resolution_recorder, make_track
+from tests.fixtures import (
+    attach_match_review_repo,
+    attach_resolution_recorder,
+    make_track,
+)
 
 
 class FakeInwardResolver(InwardTrackResolver):
@@ -667,11 +674,20 @@ class TestCanonicalReuseHook:
 
 
 class PipelineResolver(WritePlanningResolver[str]):
-    """Minimal planned-write pipeline implementor; payload is a bare string."""
+    """Minimal planned-write pipeline implementor; payload is a bare string.
 
-    def __init__(self, writes: list[PlannedWrite[str]] | None = None):
+    ``answers`` go through the real ``_plan_writes`` when set; ``writes``
+    bypass planning and exercise the persist path alone.
+    """
+
+    def __init__(
+        self,
+        writes: list[PlannedWrite[str]] | None = None,
+        answers: list[ProviderAnswer[str]] | None = None,
+    ):
         super().__init__()
         self.writes = writes or []
+        self.answers = answers or []
         self.persisted_batches: list[list[str]] = []
 
     @property
@@ -691,13 +707,17 @@ class PipelineResolver(WritePlanningResolver[str]):
         *,
         user_id: str,
     ) -> dict[str, Track]:
+        writes = self.writes + await self._plan_writes(
+            self.answers, uow, user_id=user_id
+        )
         result, _failed = await self._persist_planned_writes(
-            self.writes, uow, user_id=user_id
+            writes, uow, user_id=user_id
         )
         return result
 
     def _canonical_payload(self, write: PlannedWrite[str], *, user_id: str) -> Track:
-        return make_track(1, title=write.payload)
+        # Every payload claims an ISRC; the base withholds a deferred one.
+        return make_track(1, title=write.payload, isrc="USUM72309818")
 
     def _mapping_metadata(self, write: PlannedWrite[str]) -> dict[str, object]:
         return {"payload": write.payload}
@@ -722,9 +742,11 @@ def _pipeline_uow():
     """UoW mock with track/connector repos and a permissive recorder wired."""
     uow = MagicMock()
     recorder = attach_resolution_recorder(uow)
+    review_repo = attach_match_review_repo(uow)
 
     track_repo = AsyncMock()
     track_repo.find_tracks_by_isrcs.return_value = {}
+    track_repo.find_tracks_by_title_artist.return_value = {}
     track_repo.save_track.return_value = make_track(1)
 
     async def _save_tracks(tracks):
@@ -736,7 +758,12 @@ def _pipeline_uow():
     connector_repo = AsyncMock()
     connector_repo.find_tracks_by_connectors.return_value = {}
     uow.get_connector_repository.return_value = connector_repo
-    return uow, track_repo, connector_repo, recorder
+    return uow, track_repo, connector_repo, recorder, review_repo
+
+
+_CREATION = TrackResolutionRules(create_matching_config()).creation(
+    RecordingDescription("T", "A", 200_000)
+)
 
 
 def _create_write(
@@ -747,76 +774,142 @@ def _create_write(
         current_id=current_id or requested_id,
         payload=f"payload:{requested_id}",
         match_method="direct_import",
-        confidence=DIRECT_IMPORT_CONFIDENCE,
+        evidence=_CREATION,
     )
 
 
-class TestPlanIsrcWrite:
-    """The shared three-outcome ISRC arm: reuse / suspect review / create."""
+def _answer(
+    requested_id: str,
+    *,
+    current_id: str | None = None,
+    title: str = "T",
+    artist: str = "A",
+    duration_ms: int | None = 200_000,
+    isrc: str | None = None,
+    names_decide: bool = True,
+) -> ProviderAnswer[str]:
+    return ProviderAnswer(
+        requested_id=requested_id,
+        current_id=current_id or requested_id,
+        payload=f"payload:{requested_id}",
+        description=RecordingDescription(title, artist, duration_ms),
+        isrc=isrc,
+        names_decide=names_decide,
+    )
 
-    @staticmethod
-    def _plan(existing_by_isrc, duration_ms=200_000):
-        return plan_isrc_write(
-            connector="fake",
-            requested_id="id-1",
-            current_id="id-1",
-            payload="payload",
-            duration_ms=duration_ms,
-            isrc="USUM72309818",
-            existing_by_isrc=existing_by_isrc,
-            service_data={"title": "T", "isrc": "USUM72309818"},
+
+class TestPlanWrites:
+    """The shared adapter: probes, planner, one write per answer."""
+
+    async def test_unclaimed_isrc_plans_a_plain_creation(self):
+        resolver = PipelineResolver()
+        uow, _, _, _, _ = _pipeline_uow()
+
+        (write,) = await resolver._plan_writes(
+            [_answer("id-1", isrc="USUM72309818")], uow, user_id="u"
         )
-
-    def test_unclaimed_isrc_plans_a_plain_creation(self):
-        write = self._plan({})
 
         assert write.creates_canonical
         assert write.review is None
         assert write.match_method == "direct_import"
-        assert write.confidence == DIRECT_IMPORT_CONFIDENCE
+        assert write.evidence.method == "direct"
+        assert write.confidence == write.evidence.confidence
         assert write.primary is True
 
-    def test_claimed_isrc_with_agreeing_duration_plans_a_reuse(self):
-        owner = make_track(7, duration_ms=200_000)
-        write = self._plan({"USUM72309818": owner})
+    async def test_claimed_isrc_with_agreeing_duration_plans_a_reuse(self):
+        owner = make_track(7, title="T", artist="A", duration_ms=200_000)
+        resolver = PipelineResolver()
+        uow, track_repo, _, _, _ = _pipeline_uow()
+        track_repo.find_tracks_by_isrcs.return_value = {"USUM72309818": owner}
+
+        (write,) = await resolver._plan_writes(
+            [_answer("id-1", isrc="USUM72309818")], uow, user_id="u"
+        )
 
         assert write.reuse_track is owner
         assert write.review is None
         assert write.match_method == "isrc_match"
-        assert write.confidence == ISRC_MATCH_CONFIDENCE
+        assert write.evidence.zone == "accept"
 
-    def test_suspect_duration_plans_a_review_creation(self):
-        owner = make_track(7, duration_ms=200_000)
-        write = self._plan({"USUM72309818": owner}, duration_ms=260_000)
+    async def test_suspect_duration_plans_a_review_creation(self):
+        owner = make_track(7, title="T", artist="A", duration_ms=200_000)
+        resolver = PipelineResolver()
+        uow, track_repo, _, _, _ = _pipeline_uow()
+        track_repo.find_tracks_by_isrcs.return_value = {"USUM72309818": owner}
+
+        (write,) = await resolver._plan_writes(
+            [_answer("id-1", isrc="USUM72309818", duration_ms=260_000)],
+            uow,
+            user_id="u",
+        )
 
         assert write.creates_canonical
         assert write.review is not None
         assert write.review.owner is owner
-        assert write.review.service_data["isrc"] == "USUM72309818"
+        assert write.review.review.method == "isrc_suspect"
         assert write.match_method == "direct_import"
-        assert write.confidence == DIRECT_IMPORT_CONFIDENCE
+
+    async def test_two_ids_sharing_one_isrc_fold_onto_a_leader(self):
+        """Neither is persisted, so the second reuses the first's canonical."""
+        resolver = PipelineResolver()
+        uow, _, _, _, _ = _pipeline_uow()
+
+        first, second = await resolver._plan_writes(
+            [
+                _answer("id-1", isrc="USUM72309818"),
+                _answer("id-2", title="T (Remaster)", isrc="USUM72309818"),
+            ],
+            uow,
+            user_id="u",
+        )
+
+        assert first.creates_canonical
+        assert second.leader == "id-1"
+        assert second.match_method == "isrc_match"
+
+    async def test_names_never_decide_where_the_answer_says_so(self):
+        owner = make_track(7, title="T", artist="A", duration_ms=200_000)
+        resolver = PipelineResolver()
+        uow, track_repo, _, _, _ = _pipeline_uow()
+        track_repo.find_tracks_by_title_artist.return_value = {("t", "a"): owner}
+
+        (write,) = await resolver._plan_writes(
+            [_answer("id-1", names_decide=False)], uow, user_id="u"
+        )
+
+        assert write.creates_canonical
+        track_repo.find_tracks_by_title_artist.assert_not_awaited()
+
+    async def test_two_requested_ids_answered_by_one_current_id_are_one_answer(
+        self,
+    ):
+        resolver = PipelineResolver()
+        uow, _, _, _, _ = _pipeline_uow()
+
+        writes = await resolver._plan_writes(
+            [
+                _answer("old1", current_id="new", isrc="USUM72309818"),
+                _answer("old2", current_id="new", isrc="USUM72309818"),
+            ],
+            uow,
+            user_id="u",
+        )
+
+        assert all(write.creates_canonical for write in writes)
 
 
 class TestPlannedWritePipeline:
     """The shared ordered write path and its claim dedupe."""
 
-    async def test_write_path_order_reviews_saves_mappings_events(self):
+    async def test_write_path_order_saves_mappings_reviews_events(self):
         order: list[str] = []
-        review_write = PlannedWrite(
-            requested_id="sus",
-            current_id="sus",
-            payload="payload:sus",
-            match_method="direct_import",
-            confidence=DIRECT_IMPORT_CONFIDENCE,
-            review=IsrcCollisionReview(owner=make_track(7), service_data={"isrc": "X"}),
+        owner = make_track(7, title="T", artist="A", duration_ms=200_000)
+        resolver = PipelineResolver(
+            [_create_write("old", "new")],
+            [_answer("sus", isrc="USUM72309818", duration_ms=260_000)],
         )
-        substituting_write = _create_write("old", "new")
-        resolver = PipelineResolver([review_write, substituting_write])
-        uow, track_repo, connector_repo, recorder = _pipeline_uow()
-
-        connector_repo.queue_isrc_collision_reviews.side_effect = lambda *a, **k: (
-            order.append("reviews")
-        )
+        uow, track_repo, connector_repo, recorder, review_repo = _pipeline_uow()
+        track_repo.find_tracks_by_isrcs.return_value = {"USUM72309818": owner}
 
         async def _save_tracks(tracks):
             order.append("save_tracks")
@@ -826,29 +919,41 @@ class TestPlannedWritePipeline:
         connector_repo.map_tracks_to_connectors.side_effect = lambda *a, **k: (
             order.append("mappings")
         )
+        review_repo.create_reviews_batch.side_effect = lambda reviews: (
+            order.append("reviews"),
+            reviews,
+        )[1]
         recorder.record.side_effect = lambda *a, **k: order.append("events")
 
-        result, _ = await resolver._persist_planned_writes(
-            resolver.writes, uow, user_id="test-user"
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            ["old", "sus"], uow, user_id="test-user"
         )
 
-        assert order == ["reviews", "save_tracks", "mappings", "events"]
+        # The review names the connector-track row the mapping upsert writes,
+        # so it follows the mappings.
+        assert order == ["save_tracks", "mappings", "reviews", "events"]
         assert set(result) == {"sus", "old"}
-        # The collision review names the current id.
-        collisions, service = (
-            connector_repo.queue_isrc_collision_reviews.await_args.args[:2]
-        )
-        assert service == "fake"
-        assert [c.connector_id for c in collisions] == ["sus"]
+        # The collision review names the owner and the current id's row.
+        (review,) = review_repo.create_reviews_batch.await_args.args[0]
+        assert review.track_id == owner.id
+        assert review.connector_name == "fake"
+        assert review.match_method == "isrc_suspect"
+        # The deferred creation withheld the contested ISRC; the plain one kept its own.
+        saved = {
+            track.title: track.isrc
+            for call in track_repo.save_tracks.await_args_list
+            for track in call.args[0]
+        }
+        assert saved == {"payload:old": "USUM72309818", "payload:sus": None}
         # Post-savepoint bookkeeping saw the whole chunk, once.
-        assert resolver.persisted_batches == [["sus", "old"]]
+        assert resolver.persisted_batches == [["old", "sus"]]
 
     async def test_two_writes_sharing_a_successor_fan_in_to_one_canonical(self):
         resolver = PipelineResolver([
             _create_write("old1", "new"),
             _create_write("old2", "new"),
         ])
-        uow, track_repo, connector_repo, _ = _pipeline_uow()
+        uow, track_repo, connector_repo, _, _ = _pipeline_uow()
 
         result, failed = await resolver._persist_planned_writes(
             resolver.writes, uow, user_id="test-user"
@@ -876,11 +981,11 @@ class TestPlannedWritePipeline:
             current_id="id-1",
             payload="payload:id-1",
             match_method="isrc_match",
-            confidence=ISRC_MATCH_CONFIDENCE,
+            evidence=_CREATION,
             reuse_track=held,
         )
         resolver = PipelineResolver([reuse_write])
-        uow, track_repo, connector_repo, recorder = _pipeline_uow()
+        uow, track_repo, connector_repo, recorder, _ = _pipeline_uow()
 
         result, _ = await resolver._persist_planned_writes(
             resolver.writes, uow, user_id="test-user"
@@ -892,7 +997,135 @@ class TestPlannedWritePipeline:
         [specs] = connector_repo.map_tracks_to_connectors.await_args.args
         assert [s.connector_id for s in specs] == ["id-1"]
         assert specs[0].primary is True
+        assert specs[0].confidence == _CREATION.confidence
+        assert specs[0].confidence_evidence == _CREATION.evidence
         recorder.record.assert_not_awaited()
+
+    async def test_one_chunk_two_ids_one_isrc_is_one_canonical_two_mappings(self):
+        """The in-batch twin folds onto its leader before ``save_tracks``
+        can refuse the second claim on the same identity key."""
+        resolver = PipelineResolver(
+            answers=[
+                _answer("id-1", isrc="USUM72309818"),
+                _answer("id-2", title="T (Remaster)", isrc="USUM72309818"),
+            ]
+        )
+        uow, track_repo, connector_repo, _, _ = _pipeline_uow()
+        saved = make_track(9, title="T", artist="A", isrc="USUM72309818")
+        track_repo.save_track.return_value = saved
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id-1", "id-2"], uow, user_id="test-user"
+        )
+
+        assert result["id-1"] is saved
+        assert result["id-2"] is saved
+        assert metrics.created == 2
+        assert metrics.failed == 0
+        track_repo.save_track.assert_awaited_once()
+        [specs] = connector_repo.map_tracks_to_connectors.await_args.args
+        assert {s.connector_id: s.match_method for s in specs} == {
+            "id-1": "direct_import",
+            "id-2": "isrc_match",
+        }
+        assert all(s.track is saved for s in specs)
+
+    async def test_a_suspect_in_batch_collision_is_reviewed_against_its_leader(
+        self,
+    ):
+        """Neither is persisted when planned, so the review waits for the
+        leader's row: the twin creates without the ISRC and asks a person."""
+        resolver = PipelineResolver(
+            answers=[
+                _answer("leader", isrc="USUM72309818", duration_ms=200_000),
+                _answer("twin", isrc="USUM72309818", duration_ms=260_000),
+            ]
+        )
+        uow, track_repo, _, _, review_repo = _pipeline_uow()
+        leader_track = make_track(1, title="T", isrc="USUM72309818")
+        twin_track = make_track(2, title="T")
+        track_repo.save_track.side_effect = [leader_track, twin_track]
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["leader", "twin"], uow, user_id="test-user"
+        )
+
+        assert result["leader"] is leader_track
+        assert result["twin"] is twin_track
+        assert metrics.created == 2
+        saved = [call.args[0] for call in track_repo.save_track.await_args_list]
+        assert [track.isrc for track in saved] == ["USUM72309818", None]
+        (review,) = review_repo.create_reviews_batch.await_args.args[0]
+        assert review.track_id == leader_track.id
+        assert review.match_method == "isrc_suspect"
+
+    async def test_a_follower_fails_when_its_leader_is_rolled_back(self):
+        """Creating one for it instead would write the duplicate the fold prevents."""
+        resolver = PipelineResolver(
+            answers=[
+                _answer("leader", isrc="USUM72309818"),
+                _answer("follower", isrc="USUM72309818"),
+            ]
+        )
+        uow, _, connector_repo, _, _ = _pipeline_uow()
+
+        async def _refuse_the_creation(specs, **_kwargs):
+            if any(spec.match_method == "direct_import" for spec in specs):
+                raise RuntimeError("deadlock detected")
+            return [spec.track for spec in specs]
+
+        connector_repo.map_tracks_to_connectors.side_effect = _refuse_the_creation
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["leader", "follower"], uow, user_id="test-user"
+        )
+
+        assert result == {}
+        assert metrics.created == 0
+        assert metrics.failed == 2
+        assert metrics.write_failed == 2
+
+
+class TestReuseRefusalEvents:
+    """A priced-but-refused reuse candidate leaves a ``rejected`` event."""
+
+    async def test_a_candidate_under_the_title_floor_is_recorded(self):
+        candidate = make_track(42, title="My Song (Live at Wembley)", artist="Artist")
+        uow = _make_reuse_uow({("my song", "artist"): candidate})
+
+        resolver = ReuseHintResolver({"id_a": ("Artist", "My Song")})
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user"
+        )
+
+        assert metrics.reused == 0
+        assert "id_a" in result
+        (call,) = uow.get_resolution_recorder().record.await_args_list
+        (event,) = call.args[0]
+        assert event.event_type == "rejected"
+        assert event.connector_name == "fake"
+        assert event.track_id == candidate.id
+        assert event.confidence == 100
+        assert event.score == 100
+        assert event.zone == "reject"
+        assert event.payload == {
+            "connector_id": "id_a",
+            "title_similarity": 0.6,
+            "title_threshold": 0.9,
+        }
+
+    async def test_an_accepted_reuse_leaves_no_event(self):
+        candidate = make_track(42, title="My Songs", artist="Artist")
+        uow = _make_reuse_uow({("my song", "artist"): candidate})
+
+        resolver = ReuseHintResolver({"id_a": ("Artist", "My Song")})
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user"
+        )
+
+        assert result["id_a"] is candidate
+        assert metrics.reused == 1
+        uow.get_resolution_recorder().record.assert_not_awaited()
 
 
 class TestWriteFailedAccounting:
@@ -900,7 +1133,7 @@ class TestWriteFailedAccounting:
 
     async def test_persist_failure_fills_write_failed_from_the_base(self):
         resolver = PipelineResolver([_create_write("id-1")])
-        uow, _, connector_repo, _ = _pipeline_uow()
+        uow, _, connector_repo, _, _ = _pipeline_uow()
         connector_repo.map_tracks_to_connectors.side_effect = RuntimeError("boom")
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
@@ -914,7 +1147,7 @@ class TestWriteFailedAccounting:
 
     async def test_write_failed_stays_zero_on_success(self):
         resolver = PipelineResolver([_create_write("id-1")])
-        uow, _, _, _ = _pipeline_uow()
+        uow, _, _, _, _ = _pipeline_uow()
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["id-1"], uow, user_id="test-user"

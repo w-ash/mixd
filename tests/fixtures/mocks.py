@@ -17,6 +17,7 @@ from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid7
 
 from src.application.connector_protocols import PlaylistConnector
 from src.domain.entities import SyncCheckpoint
@@ -91,6 +92,13 @@ def make_mock_track_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`TrackRepositoryProtocol`."""
     repo = AsyncMock()
     repo.find_tracks_by_ids.return_value = overrides.pop("find_tracks_by_ids", {})
+    repo.find_tracks_by_isrcs.return_value = overrides.pop("find_tracks_by_isrcs", {})
+    repo.find_tracks_by_spotify_ids.return_value = overrides.pop(
+        "find_tracks_by_spotify_ids", {}
+    )
+    repo.find_tracks_by_title_artist.return_value = overrides.pop(
+        "find_tracks_by_title_artist", {}
+    )
     repo.save_track.side_effect = overrides.pop("save_track", None)
     repo.save_tracks.return_value = overrides.pop("save_tracks", [])
     repo.find_duplicate_tracks_by_fingerprint.return_value = overrides.pop(
@@ -273,7 +281,6 @@ def make_mock_match_review_repo(**overrides) -> AsyncMock:
         "list_pending_reviews", ([], 0)
     )
     repo.get_review_by_id.return_value = overrides.pop("get_review_by_id", None)
-    repo.create_review.side_effect = overrides.pop("create_review", lambda r: r)
     # Echoes its input: the real repository returns the rows it actually wrote,
     # and "all of them" is the right default. A test that needs the guard to
     # skip a row overrides this with a narrower list.
@@ -460,10 +467,13 @@ def make_mock_resolution_recorder() -> AsyncMock:
     recorder.remember_no_match.return_value = 0
     recorder.clear_negatives.return_value = 0
     recorder.backoff_suppressed.return_value = frozenset()
-    # A real (empty) mapping: the substitution seam calls .get() on the
-    # result, and an unconfigured AsyncMock child there sheds an unawaited
-    # coroutine per event.
-    recorder.connector_track_ids.return_value = {}
+    # A real mapping that knows every id asked about: the substitution seam
+    # calls .get() on the result, and the collision-review step needs a row
+    # id per deferred creation. An unconfigured AsyncMock child there sheds
+    # an unawaited coroutine per event.
+    recorder.connector_track_ids.side_effect = lambda identifiers, *, connector_name: {
+        identifier: uuid7() for identifier in identifiers
+    }
     return recorder
 
 
@@ -477,6 +487,17 @@ def attach_resolution_recorder(uow: MagicMock) -> AsyncMock:
     recorder = make_mock_resolution_recorder()
     uow.get_resolution_recorder.return_value = recorder
     return recorder
+
+
+def attach_match_review_repo(uow: MagicMock) -> AsyncMock:
+    """Wire a match-review repository onto a hand-rolled UoW mock.
+
+    The inward resolvers queue a suspect ISRC collision's review through
+    ``create_reviews_batch``; a bare MagicMock there cannot be awaited.
+    """
+    repo = make_mock_match_review_repo()
+    uow.get_match_review_repository.return_value = repo
+    return repo
 
 
 def make_mock_uow(**repo_overrides) -> MagicMock:

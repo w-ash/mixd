@@ -15,9 +15,10 @@ batch-shaped I/O:
   API — the shared ConnectorRateLimiter paces request starts).
 - **Decide** — the sequential half: one ``find_tracks_by_isrcs`` prefetch
   for every candidate ISRC in the batch, then a per-request decision loop
-  over the prefetched state. The only write is queuing a suspect
-  ISRC-collision review; every uow touchpoint runs under its own savepoint
-  so a swallowed SQL failure rolls back alone.
+  over the prefetched state. An ISRC collision is put to the domain
+  planner's strong-id arm; the only write is queuing the review a suspect
+  collision defers to, and every uow touchpoint runs under its own
+  savepoint so a swallowed SQL failure rolls back alone.
 """
 
 from collections.abc import Mapping, Sequence
@@ -26,7 +27,12 @@ from attrs import define, evolve
 
 from src.config import create_evaluation_service, get_logger, settings
 from src.domain.entities import Track
-from src.domain.entities.shared import JsonValue
+from src.domain.matching.canonical_resolution import (
+    DeferToReview,
+    Described,
+    plan_canonical_resolution,
+    review_for,
+)
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.protocols import (
     DiscoveryOutcome,
@@ -35,10 +41,10 @@ from src.domain.matching.protocols import (
     Nothing,
     ReuseExisting,
 )
+from src.domain.matching.recording_identity import RecordingDescription
 from src.domain.matching.types import MatchResult
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
-from src.infrastructure.connectors._shared.inward_track_resolver import plan_isrc_write
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.listenbrainz.lookup import ListenBrainzLookup
 from src.infrastructure.connectors.spotify import SpotifyConnector
@@ -427,60 +433,51 @@ class SpotifyCrossDiscoveryProvider:
     ) -> DiscoveryOutcome:
         """Handle an ISRC that already belongs to another canonical.
 
-        :func:`plan_isrc_write` owns the reuse-vs-review policy; this method
-        translates its planned write into discovery's outcomes:
+        The domain planner's strong-id arm owns the reuse-vs-review policy;
+        this method translates its outcome into discovery's:
 
         - Reuse (durations agree) → :class:`ReuseExisting` with the owner
           plus the Spotify mapping to create on it.
-        - Review (durations diverge past the threshold) → queue the review
+        - Defer (durations diverge past the threshold) → queue the review
           and return :class:`NewMapping` with the contested ISRC stripped,
           so the caller's new canonical never claims it.
         """
-        primary_artist = best.artists[0].name if best.artists else ""
-        service_data: dict[str, JsonValue] = {
-            "title": best.name,
-            "artist": primary_artist,
-            "artists": [a.name for a in best.artists],
-            "duration_ms": best.duration_ms,
-            "isrc": spotify_isrc,
-        }
-        write = plan_isrc_write(
-            connector=self._spotify_connector.connector_name,
-            requested_id=spotify_id,
-            current_id=spotify_id,
-            payload=best,
-            duration_ms=best.duration_ms,
-            isrc=spotify_isrc,
-            existing_by_isrc={spotify_isrc: isrc_track},
-            service_data=service_data,
-        )
+        (outcome,) = plan_canonical_resolution(
+            [
+                Described(
+                    key=spotify_id,
+                    description=RecordingDescription(
+                        title=best.name,
+                        artist=best.artists[0].name if best.artists else "",
+                        duration_ms=best.duration_ms,
+                    ),
+                    strong_id=spotify_isrc,
+                )
+            ],
+            isrc_owners={spotify_isrc: isrc_track},
+            name_owners={},
+            config=self._match_evaluation_service.config,
+        ).values()
 
-        if write.reuse_track is not None:
+        if outcome.kind == "reuse" and outcome.canonical is not None:
             logger.info(
                 f"ISRC collision: reusing canonical {isrc_track.id} for "
                 f"spotify:{spotify_id} instead of a new canonical "
                 f"(ISRC={spotify_isrc})"
             )
             return ReuseExisting(
-                track=write.reuse_track,
+                track=outcome.canonical,
                 spotify_id=spotify_id,
-                confidence=write.confidence,
-                match_method=write.match_method,
+                confidence=outcome.evidence.confidence,
+                match_method=outcome.evidence.method,
                 metadata=best_dict,
+                confidence_evidence=outcome.evidence.evidence,
             )
 
-        if write.review is not None:
-            # The decision's only write, under its own savepoint: a SQL
-            # failure rolls back the review alone and degrades just this
-            # request, never the chunk.
-            async with uow.savepoint():
-                _ = await uow.get_connector_repository().queue_isrc_collision_review(
-                    write.review.owner,
-                    self._spotify_connector.connector_name,
-                    spotify_id,
-                    write.review.service_data,
-                    user_id=user_id,
-                )
+        if outcome.kind == "defer_to_review":
+            await self._queue_collision_review(
+                outcome, best, spotify_id, spotify_isrc, uow, user_id=user_id
+            )
         return NewMapping(
             spotify_id=spotify_id,
             confidence=match_result.confidence,
@@ -490,4 +487,60 @@ class SpotifyCrossDiscoveryProvider:
             album=best.album.name if best.album else None,
             duration_ms=best.duration_ms,
             isrc=None,  # contested ISRC stripped — the new canonical won't claim it
+        )
+
+    async def _queue_collision_review(
+        self,
+        deferral: DeferToReview[str, Track],
+        best: SpotifyTrack,
+        spotify_id: str,
+        spotify_isrc: str,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> None:
+        """Queue the ``isrc_suspect`` review a deferred collision asks for.
+
+        The decision's only write, under its own savepoint: a SQL failure
+        rolls back the review alone and degrades just this request, never
+        the chunk. The connector-track row the review names is ensured
+        first — the Spotify mapping that would write it lands later, on the
+        caller's new canonical.
+        """
+        connector = self._spotify_connector.connector_name
+        async with uow.savepoint():
+            connector_tracks = (
+                await uow.get_connector_repository().ensure_connector_tracks(
+                    connector,
+                    [
+                        {
+                            "connector_id": spotify_id,
+                            "title": best.name,
+                            "artists": [a.name for a in best.artists],
+                            "duration_ms": best.duration_ms,
+                            "isrc": spotify_isrc,
+                        }
+                    ],
+                )
+            )
+            connector_track_id = connector_tracks.get((connector, spotify_id))
+            if connector_track_id is None:
+                logger.warning(
+                    f"No connector track for {connector}:{spotify_id} — its ISRC "
+                    f"collision review was not queued"
+                )
+                return
+            review = review_for(
+                deferral,
+                connector=connector,
+                connector_track_id=connector_track_id,
+                user_id=user_id,
+            )
+            _ = await uow.get_match_review_repository().create_reviews_batch([review])
+        logger.warning(
+            "isrc_collision_deferred",
+            track_id=deferral.owner.id,
+            connector=connector,
+            connector_id=spotify_id,
+            confidence=deferral.review.confidence,
         )

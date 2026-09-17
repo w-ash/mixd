@@ -38,6 +38,7 @@ from tests.fixtures.factories import (
     nonexistent_id,
 )
 from tests.fixtures.mocks import (
+    attach_match_review_repo,
     attach_resolution_recorder,
     fake_run_async,
     make_mock_checkpoint_repo,
@@ -68,6 +69,7 @@ from tests.fixtures.tenants import TEST_USER_ID
 __all__ = [
     "TEST_USER_ID",
     "InMemoryPendingActionStore",
+    "attach_match_review_repo",
     "attach_resolution_recorder",
     "discover_one",
     "fake_run_async",

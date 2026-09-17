@@ -26,28 +26,26 @@ Unlike Spotify there is no artist/title search fallback of any kind: an id
 Apple cannot account for stays unresolved (``resolved_track_id = NULL`` in
 the plays ledger) until a later import or the re-resolution drain retries it.
 
-Persistence runs through the shared planned-write pipeline
-(``WritePlanningResolver``); this module owns payload extraction and the
-``playparams_catalog_id`` detection label only.
+Planning and persistence run through the shared planned-write pipeline
+(``WritePlanningResolver``): the domain planner decides each answered id
+under its ISRC-only contract (names never decide), and this module owns
+payload extraction and the ``playparams_catalog_id`` detection label only.
 """
 
-from collections.abc import Mapping
 from typing import override
-
-from attrs import evolve
 
 from src.config import get_logger
 from src.config.telemetry import phase
 from src.domain.entities import Track
-from src.domain.entities.shared import JsonValue
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.recording_identity import RecordingDescription
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     PlannedWrite,
+    ProviderAnswer,
     ReuseMetadata,
     WritePlanningResolver,
-    plan_isrc_write,
 )
 from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
@@ -154,16 +152,11 @@ class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
             if (isrc := normalized_apple_isrc(songs_by_id[aid])) is not None
         }
 
-        existing_by_isrc: dict[str, Track] = {}
-        if with_isrc:
-            existing_by_isrc = await uow.get_track_repository().find_tracks_by_isrcs(
-                list(dict.fromkeys(with_isrc.values())), user_id=user_id
-            )
-
-        writes = [
-            self._plan_write(aid, songs_by_id[aid], with_isrc[aid], existing_by_isrc)
-            for aid in with_isrc
-        ]
+        writes = await self._plan_writes(
+            [self._answer(aid, songs_by_id[aid], with_isrc[aid]) for aid in with_isrc],
+            uow,
+            user_id=user_id,
+        )
         result, failed_ids = await self._persist_planned_writes(
             writes, uow, user_id=user_id
         )
@@ -216,46 +209,37 @@ class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
             duration_ms=song.attributes.duration_in_millis or None,
         )
 
-    def _plan_write(
-        self,
-        apple_id: str,
-        song: AppleMusicSong,
-        isrc: str,
-        existing_by_isrc: Mapping[str, Track],
-    ) -> PlannedWrite[AppleMusicSong]:
-        """One answered, ISRC-carrying id's persist — the shared ISRC arms."""
-        service_data: dict[str, JsonValue] = {
-            "title": song.attributes.name,
-            "artist": song.attributes.artist_name,
-            "duration_ms": song.attributes.duration_in_millis or None,
-            "isrc": isrc,
-        }
-        return plan_isrc_write(
-            connector=self.connector_name,
+    @staticmethod
+    def _answer(
+        apple_id: str, song: AppleMusicSong, isrc: str
+    ) -> ProviderAnswer[AppleMusicSong]:
+        """One answered, ISRC-carrying id as the planner sees it.
+
+        ISRC-or-nothing: names never decide an Apple id, so the planner's
+        arms are the strong id's — reuse the owner, defer a suspect
+        collision, or create.
+        """
+        return ProviderAnswer(
             requested_id=apple_id,
             current_id=_current_id(song),
             payload=song,
-            duration_ms=song.attributes.duration_in_millis,
+            description=RecordingDescription(
+                title=song.attributes.name,
+                artist=song.attributes.artist_name,
+                duration_ms=song.attributes.duration_in_millis or None,
+            ),
             isrc=isrc,
-            existing_by_isrc=existing_by_isrc,
-            service_data=service_data,
+            names_decide=False,
         )
 
     @override
     def _canonical_payload(
         self, write: PlannedWrite[AppleMusicSong], *, user_id: str
     ) -> Track:
-        """The canonical this write creates, keyed on the *current* id.
-
-        A suspect ISRC is stripped — the owner keeps it, and the queued
-        review decides later whether the two are one recording.
-        """
-        track = create_track_from_apple_song(
+        """The canonical this write creates, keyed on the *current* id."""
+        return create_track_from_apple_song(
             write.current_id, write.payload, user_id=user_id
         )
-        if write.review is not None and track.isrc:
-            track = evolve(track, isrc=None)
-        return track
 
     @override
     def _mapping_metadata(

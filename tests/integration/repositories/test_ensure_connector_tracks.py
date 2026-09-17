@@ -120,7 +120,7 @@ class TestEnsureConnectorTracks:
             match_weight=2.5,
             user_id=TEST_USER_ID,
         )
-        created = await review_repo.create_review(review)
+        (created,) = await review_repo.create_reviews_batch([review])
 
         assert created.connector_track_id == ct_id
         assert created.status == "pending"

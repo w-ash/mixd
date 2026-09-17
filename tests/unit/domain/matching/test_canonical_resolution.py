@@ -8,7 +8,7 @@ pricing, not a stub of it.
 
 from collections.abc import Hashable
 
-from attrs import define
+from attrs import define, evolve
 import pytest
 
 from src.config import create_matching_config
@@ -312,6 +312,49 @@ class TestNameLeaders:
         assert isinstance(plan["a"], Create)
         assert isinstance(plan["b"], Create)
 
+    def test_a_bucket_holds_one_leader_per_recording(self):
+        """A longer master leads for its own twins, not the first creation."""
+        plan = _plan(
+            _described("short", duration_ms=257_213),
+            _described("long", duration_ms=285_506),
+            _described("long_twin", duration_ms=285_900),
+            _described("short_twin", duration_ms=257_500),
+        )
+
+        assert isinstance(plan["long"], Create)
+        assert isinstance(plan["long_twin"], Reuse)
+        assert plan["long_twin"].leader == "long"
+        assert isinstance(plan["short_twin"], Reuse)
+        assert plan["short_twin"].leader == "short"
+
+
+class TestNamesMayNotDecide:
+    def test_a_strong_id_still_decides_and_names_never_do(self):
+        original = _canonical(isrc=ISRC)
+        relink = Described(
+            key="relinked",
+            description=RecordingDescription("Ibrik", "Bonobo", 245_733),
+            strong_id="USA2B2056087",
+            names_decide=False,
+        )
+
+        plan = _plan(_described("leader", isrc="USA2B2056087"), relink)
+
+        # Folds onto the batch leader by strong id.
+        assert isinstance(plan["relinked"], Reuse)
+        assert plan["relinked"].leader == "leader"
+        assert plan["relinked"].evidence.method == "isrc_match"
+
+        # With no strong-id leader it creates past the name owner...
+        unclaimed = evolve(relink, strong_id=None)
+        (alone,) = _plan(unclaimed, name_owners=_by_name(original)).values()
+        assert isinstance(alone, Create)
+        assert alone.refused is None
+
+        # ...and never leads the bucket for a twin that follows it.
+        plan = _plan(unclaimed, _described("twin"))
+        assert isinstance(plan["twin"], Create)
+
     def test_the_first_creation_leads_the_bucket_for_every_later_twin(self):
         plan = _plan(_described("a"), _described("b"), _described("c"))
 
@@ -400,16 +443,20 @@ class TestRefusals:
         assert isinstance(outcome, Create)
         assert outcome.refused is None
 
-    def test_names_alone_refuses_a_low_title_similarity_outright(self):
+    def test_names_alone_prices_a_low_title_similarity_as_a_refusal(self):
+        """The model saturates on the artist alone, so the candidate is
+        priced high and refused — recorded, not dropped."""
         rules = TrackResolutionRules(CONFIG, names_alone=True)
 
-        assert (
-            rules.same(
-                RecordingDescription("Ibrik", "Bonobo"),
-                RecordingDescription("Kerala", "Bonobo"),
-            )
-            is None
+        evidence = rules.same(
+            RecordingDescription("Ibrik", "Bonobo"),
+            RecordingDescription("Kerala", "Bonobo"),
         )
+
+        assert evidence is not None
+        assert evidence.zone == "reject"
+        assert evidence.evidence is not None
+        assert evidence.evidence["title_similarity"] < CONFIG.high_similarity_threshold
 
     def test_names_alone_prices_on_names_when_no_duration_is_known(self):
         """The recording gate would refuse an unknown length; the identifier

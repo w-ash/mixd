@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid7
 
 from src.config import settings
 from src.config.constants import SpotifyConstants
@@ -34,6 +35,13 @@ def _make_uow() -> MagicMock:
     uow = make_mock_uow()
     track_repo = uow.get_track_repository()
     track_repo.find_tracks_by_isrcs.return_value = {}
+    # The review a suspect collision queues names the incoming id's
+    # connector-track row, which the provider ensures first.
+    uow.get_connector_repository().ensure_connector_tracks.side_effect = (
+        lambda connector, rows: {
+            (connector, row["connector_id"]): uuid7() for row in rows
+        }
+    )
     return uow
 
 
@@ -242,7 +250,7 @@ class TestISRCCollision:
         assert outcome.spotify_id == "spotify123"
         assert outcome.match_method == "isrc_match"
         # No review queued for a non-suspect (clean) collision.
-        uow.get_connector_repository().queue_isrc_collision_review.assert_not_called()
+        uow.get_match_review_repository().create_reviews_batch.assert_not_called()
 
     async def test_suspect_isrc_collision_queues_review_and_strips_isrc(self):
         """When the ISRC owner's duration diverges past the threshold, the
@@ -285,11 +293,12 @@ class TestISRCCollision:
         assert outcome.spotify_id == "sp_remaster"
         assert outcome.isrc is None
         # ...and a review was queued against the ISRC owner.
-        connector_repo = uow.get_connector_repository()
-        connector_repo.queue_isrc_collision_review.assert_called_once()
-        review_call = connector_repo.queue_isrc_collision_review.call_args
-        assert review_call.args[0].id == 99  # existing owner
-        assert review_call.kwargs["user_id"] == "test-user"
+        review_repo = uow.get_match_review_repository()
+        review_repo.create_reviews_batch.assert_called_once()
+        (review,) = review_repo.create_reviews_batch.call_args.args[0]
+        assert review.track_id == 99  # existing owner
+        assert review.match_method == "isrc_suspect"
+        assert review.user_id == "test-user"
 
     async def test_no_isrc_collision_proceeds_normally(self):
         """When the ISRC is not in the DB, a normal NewMapping is returned."""
@@ -862,12 +871,11 @@ class TestSavepointPlacement:
 
         queue_depths: list[int] = []
 
-        async def _queue(*args: object, **kwargs: object) -> MagicMock:
+        async def _queue(reviews: list[object]) -> list[object]:
             queue_depths.append(depth)
-            return MagicMock()
+            return reviews
 
-        connector_repo = uow.get_connector_repository()
-        connector_repo.queue_isrc_collision_review.side_effect = _queue
+        uow.get_match_review_repository().create_reviews_batch.side_effect = _queue
 
         outcome = await discover_one(
             provider,
