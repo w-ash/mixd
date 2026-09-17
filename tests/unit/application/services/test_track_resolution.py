@@ -8,6 +8,8 @@ with what — against ``make_mock_uow``.
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
+from attrs import evolve
+
 from src.application.services.track_resolution import TrackResolutionService
 from src.config import create_matching_config
 from src.domain.entities import Artist, ConnectorTrack, Track
@@ -25,12 +27,14 @@ def _payload(
     artist: str = "Bonobo",
     duration_ms: int | None = 245_733,
     isrc: str | None = None,
+    album: str | None = None,
 ) -> ConnectorTrack:
     return ConnectorTrack(
         connector_name=CONNECTOR,
         connector_track_identifier=identifier,
         title=title,
         artists=[Artist(name=artist)],
+        album=album,
         duration_ms=duration_ms,
         isrc=isrc,
         raw_metadata={"popularity": 40},
@@ -70,6 +74,9 @@ def _uow(
             )
             for t in tracks
         ]
+    )
+    track_repo.save_track = AsyncMock(
+        side_effect=lambda t: evolve(t, version=t.version + 1)
     )
     connector_repo.upsert_connector_tracks = AsyncMock(
         side_effect=lambda _connector, tracks: {
@@ -287,6 +294,151 @@ class TestDeferral:
         )
 
         uow.get_match_review_repository().create_reviews_batch.assert_not_awaited()
+
+    async def test_a_suspect_in_batch_collision_is_reviewed_against_the_leader(
+        self,
+    ):
+        """The leader is persisted before the reviews are built, so the
+        contest has a row to point at — the same review a persisted owner
+        would get."""
+        uow = _uow()
+
+        result = await _service().ingest(
+            CONNECTOR,
+            [
+                _payload("sp_a", isrc=ISRC, duration_ms=200_000),
+                _payload("sp_b", isrc=ISRC, duration_ms=215_000),
+            ],
+            uow,
+            user_id=TEST_USER_ID,
+        )
+
+        leader, contested = result
+        assert contested.id != leader.id
+        assert leader.isrc == ISRC
+        assert contested.isrc is None
+        (reviews,) = (
+            uow.get_match_review_repository().create_reviews_batch.await_args.args
+        )
+        (review,) = reviews
+        assert review.track_id == leader.id
+        assert review.match_method == "isrc_suspect"
+        assert review.user_id == TEST_USER_ID
+        leader_spec, contested_spec = _specs(uow)
+        assert leader_spec.primary is True
+        assert contested_spec.primary is True
+        assert contested_spec.track.id == contested.id
+
+
+class TestIsrcReuseBackfill:
+    """An ISRC owner's blank metadata is filled from the payload; nothing set is touched."""
+
+    async def test_blank_columns_are_filled_from_the_payload(self):
+        owner = make_track(
+            title="Ibrik",
+            artist="Bonobo",
+            duration_ms=None,
+            album=None,
+            isrc=ISRC,
+            version=1,
+        )
+        uow = _uow(isrc_owners={ISRC: owner})
+
+        result = await _service().ingest(
+            CONNECTOR,
+            [_payload("sp_1", isrc=ISRC, album="Mixed")],
+            uow,
+            user_id=TEST_USER_ID,
+        )
+
+        (saved,) = uow.get_track_repository().save_track.await_args.args
+        assert saved.id == owner.id
+        assert saved.duration_ms == 245_733
+        assert saved.album == "Mixed"
+        assert saved.isrc == ISRC
+        assert result[0].version == 2
+        (spec,) = _specs(uow)
+        assert spec.track.duration_ms == 245_733
+
+    async def test_metadata_the_owner_already_holds_is_never_overwritten(self):
+        owner = make_track(
+            title="Ibrik",
+            artist="Bonobo",
+            duration_ms=None,
+            album="Original",
+            isrc=ISRC,
+            version=1,
+        )
+        uow = _uow(isrc_owners={ISRC: owner})
+
+        _ = await _service().ingest(
+            CONNECTOR,
+            [_payload("sp_1", isrc=ISRC, album="Mixed")],
+            uow,
+            user_id=TEST_USER_ID,
+        )
+
+        (saved,) = uow.get_track_repository().save_track.await_args.args
+        assert saved.album == "Original"
+        assert saved.duration_ms == 245_733
+
+    async def test_a_complete_owner_is_not_written(self):
+        owner = make_track(
+            title="Ibrik", artist="Bonobo", duration_ms=245_733, isrc=ISRC, version=1
+        )
+        uow = _uow(isrc_owners={ISRC: owner})
+
+        _ = await _service().ingest(
+            CONNECTOR, [_payload("sp_1", isrc=ISRC)], uow, user_id=TEST_USER_ID
+        )
+
+        uow.get_track_repository().save_track.assert_not_awaited()
+
+    async def test_a_name_reuse_never_backfills(self):
+        """A name reuse was accepted on the owner's own duration; the ISRC is
+        the only evidence that licenses editing the owner."""
+        owner = make_track(
+            title="Ibrik", artist="Bonobo", duration_ms=245_733, version=1
+        )
+        uow = _uow(name_owners={("ibrik", "bonobo"): owner})
+
+        result = await _service().ingest(
+            CONNECTOR, [_payload("sp_1", album="Mixed")], uow, user_id=TEST_USER_ID
+        )
+
+        assert result[0].id == owner.id
+        uow.get_track_repository().save_track.assert_not_awaited()
+
+    async def test_two_payloads_on_one_owner_update_the_fresh_version(self):
+        """The second backfill starts from the row the first one returned,
+        not from the stale probe answer — or it would trip optimistic locking."""
+        owner = make_track(
+            title="Ibrik",
+            artist="Bonobo",
+            duration_ms=None,
+            album=None,
+            isrc=ISRC,
+            version=1,
+        )
+        uow = _uow(isrc_owners={ISRC: owner})
+
+        _ = await _service().ingest(
+            CONNECTOR,
+            [
+                _payload("sp_1", isrc=ISRC, album=None),
+                _payload("sp_2", isrc=ISRC, album="Mixed"),
+            ],
+            uow,
+            user_id=TEST_USER_ID,
+        )
+
+        first, second = (
+            call.args[0]
+            for call in uow.get_track_repository().save_track.await_args_list
+        )
+        assert first.version == 1
+        assert second.version == 2
+        assert second.album == "Mixed"
 
 
 class TestEmptyInput:

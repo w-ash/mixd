@@ -91,23 +91,38 @@ class Reuse[TKey, TEntity]:
 
 
 @define(frozen=True, slots=True)
-class Create[TEntity]:
+class Create[TKey, TEntity]:
     """Mint a new entity, claiming ``strong_id`` when it is not contested.
 
-    ``refused``/``refusal`` record the best same-entity candidate the planner
-    priced and turned down, so the creation can be explained (and the
-    refusal recorded as a negative) without re-running the comparison.
+    ``refused``/``refusal`` carry the best same-entity candidate the planner
+    priced and turned down, priced once here so a consumer that records
+    refusals (the inward resolvers' refusal events) can explain the creation
+    without re-running the comparison. The ingest service does not record
+    them.
+
+    ``contested_leader``/``contest`` name an earlier creation in the same
+    batch whose strong id this description collided with as a suspect: the
+    creation withholds the id, and the caller — which persists the leader
+    before it acts on this outcome — queues the review against it.
     """
 
     strong_id: str | None
     evidence: ResolutionEvidence
     refused: TEntity | None = None
     refusal: ResolutionEvidence | None = None
+    contested_leader: TKey | None = None
+    contest: ResolutionEvidence | None = None
     kind: Literal["create"] = field(default="create", init=False)
+
+    def __attrs_post_init__(self) -> None:
+        if (self.contested_leader is None) != (self.contest is None):
+            raise ValueError("a contested creation names both its leader and the price")
+        if self.contested_leader is not None and self.strong_id is not None:
+            raise ValueError("a contested creation must withhold the contested id")
 
 
 @define(frozen=True, slots=True)
-class DeferToReview[TEntity]:
+class DeferToReview[TKey, TEntity]:
     """A suspect strong-id collision: create without the id and ask a person.
 
     ``owner`` holds the contested strong id; ``review`` is the price of the
@@ -117,7 +132,7 @@ class DeferToReview[TEntity]:
 
     owner: TEntity
     review: ResolutionEvidence
-    create: Create[TEntity]
+    create: Create[TKey, TEntity]
     kind: Literal["defer_to_review"] = field(default="defer_to_review", init=False)
 
     def __attrs_post_init__(self) -> None:
@@ -126,7 +141,7 @@ class DeferToReview[TEntity]:
 
 
 type Outcome[TKey, TEntity] = (
-    Reuse[TKey, TEntity] | Create[TEntity] | DeferToReview[TEntity]
+    Reuse[TKey, TEntity] | Create[TKey, TEntity] | DeferToReview[TKey, TEntity]
 )
 
 
@@ -176,12 +191,12 @@ def plan_resolution[TKey, TDesc, TEntity](
     Per description: a strong id with a persisted owner is decided by the
     strong match alone — reuse, or defer when suspect. A strong id an earlier
     creation in this batch claimed folds onto that leader unless suspect, in
-    which case it is created without the id and no review is queued (the
-    owner is not persisted yet, so there is nothing to review against). Only
-    then do names count: the bucket's persisted owners and its leader are
-    priced in that order, and the first accepted one is reused. Anything
-    else is a creation, which registers as the bucket leader for the rest of
-    the batch.
+    which case it is created without the id, naming the leader as
+    ``contested_leader`` so the caller can queue the review once the leader
+    is persisted. Only then do names count: the bucket's persisted owners
+    and its leader are priced in that order, and the first accepted one is
+    reused. Anything else is a creation, which registers as the bucket
+    leader for the rest of the batch.
 
     ``name_owners`` is keyed by what each *owner* normalizes to — the probe
     that proposed it may have answered on a looser form, and a candidate
@@ -237,7 +252,12 @@ def _plan_one[TKey, TDesc, TEntity](
             evidence, suspect = rules.strong_match(description, leader_description)
             if not suspect:
                 return Reuse(evidence=evidence, leader=leader_key)
-            return Create(strong_id=None, evidence=rules.creation(description))
+            return Create(
+                strong_id=None,
+                evidence=rules.creation(description),
+                contested_leader=leader_key,
+                contest=evidence,
+            )
 
     key = rules.name_key(description)
     if key is None:
@@ -396,23 +416,65 @@ def plan_canonical_resolution[TKey](
     )
 
 
-def review_for(
-    deferral: DeferToReview[Track],
+def review_for[TKey](
+    deferral: DeferToReview[TKey, Track],
     *,
     connector: str,
     connector_track_id: UUID,
     user_id: str,
 ) -> MatchReview:
     """The review a deferred ISRC collision queues against the owner."""
+    return _suspect_review(
+        deferral.owner,
+        deferral.review,
+        connector=connector,
+        connector_track_id=connector_track_id,
+        user_id=user_id,
+    )
+
+
+def contest_review_for[TKey](
+    create: Create[TKey, Track],
+    leader: Track,
+    *,
+    connector: str,
+    connector_track_id: UUID,
+    user_id: str,
+) -> MatchReview:
+    """The review a suspect in-batch ISRC collision queues against its leader.
+
+    ``leader`` is the persisted entity ``create.contested_leader`` named —
+    the caller resolves the key, since only it knows what the key persisted
+    as.
+    """
+    if create.contest is None:
+        raise ValueError("only a contested creation has a review to queue")
+    return _suspect_review(
+        leader,
+        create.contest,
+        connector=connector,
+        connector_track_id=connector_track_id,
+        user_id=user_id,
+    )
+
+
+def _suspect_review(
+    owner: Track,
+    priced: ResolutionEvidence,
+    *,
+    connector: str,
+    connector_track_id: UUID,
+    user_id: str,
+) -> MatchReview:
     return MatchReview(
         user_id=user_id,
-        track_id=deferral.owner.id,
+        track_id=owner.id,
         connector_name=connector,
         connector_track_id=connector_track_id,
         match_method="isrc_suspect",
-        confidence=deferral.review.confidence,
-        match_weight=deferral.review.match_weight,
-        confidence_evidence=deferral.review.evidence,
+        confidence=priced.confidence,
+        match_weight=priced.match_weight,
+        confidence_evidence=priced.evidence,
     )
 
 
@@ -425,6 +487,7 @@ __all__ = [
     "ResolutionRules",
     "Reuse",
     "TrackResolutionRules",
+    "contest_review_for",
     "plan_canonical_resolution",
     "plan_resolution",
     "review_for",

@@ -11,7 +11,7 @@ seam that only persists what it is handed.
 from collections.abc import Hashable, Sequence
 from uuid import UUID
 
-from attrs import Factory, define
+from attrs import Factory, define, evolve
 
 from src.config import create_matching_config, get_logger
 from src.domain.entities import Artist, ConnectorTrack, Track
@@ -20,6 +20,7 @@ from src.domain.matching.canonical_resolution import (
     Create,
     Described,
     Outcome,
+    contest_review_for,
     plan_canonical_resolution,
     review_for,
 )
@@ -130,16 +131,26 @@ class TrackResolutionService:
 
         specs: list[ConnectorMappingSpec] = []
         reviews: list[MatchReview] = []
+        # Owners this batch has already backfilled, at their bumped version,
+        # so a second payload reusing the same owner updates the fresh row.
+        backfilled: dict[UUID, Track] = {}
         for identifier in pending:
             outcome = plan[identifier]
             payload = payloads[identifier]
             metadata: dict[str, object] | None = dict(payload.raw_metadata) or None
             if outcome.kind == "reuse":
-                canonical = (
-                    outcome.canonical
-                    if outcome.canonical is not None
-                    else created[_leader_of(outcome.leader)]
-                )
+                if outcome.canonical is None:
+                    canonical = created[_leader_of(outcome.leader)]
+                else:
+                    canonical = backfilled.get(outcome.canonical.id, outcome.canonical)
+                    # An ISRC owner vouches for the recording, so its blank
+                    # metadata may take the payload's; a name reuse was
+                    # accepted *on* the owner's metadata and never edits it.
+                    if outcome.evidence.method == "isrc_match" and (
+                        filled := _backfill(canonical, payload)
+                    ):
+                        canonical = await track_repo.save_track(filled)
+                        backfilled[canonical.id] = canonical
                 logger.info(
                     f"Identity reuse: {connector}:{identifier} describes the "
                     f"recording canonical {canonical.id} already holds",
@@ -181,6 +192,27 @@ class TrackResolutionService:
                     connector_id=identifier,
                     isrc=payload.isrc,
                     confidence=outcome.review.confidence,
+                )
+            elif create.contested_leader is not None and create.contest is not None:
+                # The leader was persisted just above, so the suspect
+                # in-batch collision has a row to be reviewed against.
+                leader = created[create.contested_leader]
+                reviews.append(
+                    contest_review_for(
+                        create,
+                        leader,
+                        connector=connector,
+                        connector_track_id=stored[identifier].id,
+                        user_id=user_id,
+                    )
+                )
+                logger.warning(
+                    "isrc_collision_deferred",
+                    track_id=leader.id,
+                    connector=connector,
+                    connector_id=identifier,
+                    isrc=payload.isrc,
+                    confidence=create.contest.confidence,
                 )
             specs.append(
                 ConnectorMappingSpec(
@@ -273,7 +305,11 @@ class TrackResolutionService:
 
     @staticmethod
     def _canonical(
-        payload: ConnectorTrack, create: Create[Track], connector: str, *, user_id: str
+        payload: ConnectorTrack,
+        create: Create[str, Track],
+        connector: str,
+        *,
+        user_id: str,
     ) -> Track:
         """The canonical row a creation persists, keyed on the payload's id."""
         return Track(
@@ -287,13 +323,33 @@ class TrackResolutionService:
         ).with_connector_track_id(connector, payload.connector_track_identifier)
 
 
-def _creation_of(outcome: Outcome[str, Track]) -> Create[Track] | None:
+def _creation_of(outcome: Outcome[str, Track]) -> Create[str, Track] | None:
     """The creation an outcome persists, if it persists one."""
     if outcome.kind == "create":
         return outcome
     if outcome.kind == "defer_to_review":
         return outcome.create
     return None
+
+
+def _backfill(owner: Track, payload: ConnectorTrack) -> Track | None:
+    """The owner with its blank metadata columns taken from the payload.
+
+    Only ``duration_ms``, ``album`` and ``release_date`` — descriptive
+    columns, never an identity key — and only where the owner has none: a
+    value it already holds is never overwritten. An owner left without a
+    duration can never again be reused on names alone, so a sparse row the
+    ISRC vouched for would otherwise accrue twins. ``None`` when the payload
+    supplies nothing the owner lacks.
+    """
+    changes: dict[str, object] = {}
+    if owner.duration_ms is None and payload.duration_ms is not None:
+        changes["duration_ms"] = payload.duration_ms
+    if owner.album is None and payload.album is not None:
+        changes["album"] = payload.album
+    if owner.release_date is None and payload.release_date is not None:
+        changes["release_date"] = payload.release_date
+    return evolve(owner, **changes) if changes else None
 
 
 def _leader_of(leader: str | None) -> str:

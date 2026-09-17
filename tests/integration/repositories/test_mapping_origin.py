@@ -206,6 +206,70 @@ class TestMapTracksSkipsManualOverride:
         assert row.confidence == 80
         assert row.origin == "manual_override"
 
+    async def test_another_users_override_on_a_shared_connector_track_is_not_a_guard(
+        self, db_session: AsyncSession
+    ):
+        """Connector tracks are shared across tenants; user B pinning one
+        must not stop user A's automatic mapping of it from being asserted."""
+        track_id, _ = await _create_track_with_mapping(
+            db_session, connector_id="sp_shared_001"
+        )
+        # User B: own canonical, own mapping of the same connector track, pinned.
+        uow_b = get_unit_of_work(db_session)
+        (track_b,) = await TrackResolutionService().ingest(
+            "spotify",
+            [
+                ConnectorTrack(
+                    connector_name="spotify",
+                    connector_track_identifier="sp_shared_001",
+                    title="Test Track",
+                    artists=[Artist(name="Test Artist")],
+                    raw_metadata={},
+                    last_updated=datetime.now(UTC),
+                )
+            ],
+            uow_b,
+            user_id="alice",
+        )
+        await db_session.execute(
+            update(DBTrackMapping)
+            .where(DBTrackMapping.track_id == track_b.id)
+            .values(origin="manual_override")
+        )
+        await db_session.flush()
+
+        uow = get_unit_of_work(db_session)
+        track = await uow.get_track_repository().get_by_id(track_id)
+        await uow.get_connector_repository().map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id="sp_shared_001",
+                match_method="search_fallback",
+                confidence=95,
+            )
+        ])
+
+        live_a = (
+            await db_session.execute(
+                select(DBTrackMapping.confidence, DBTrackMapping.match_method).where(
+                    DBTrackMapping.track_id == track_id,
+                    DBTrackMapping.superseded_at.is_(None),
+                )
+            )
+        ).one()
+        assert live_a.confidence == 95
+        assert live_a.match_method == "search_fallback"
+        live_b = (
+            await db_session.execute(
+                select(DBTrackMapping.origin).where(
+                    DBTrackMapping.track_id == track_b.id,
+                    DBTrackMapping.superseded_at.is_(None),
+                )
+            )
+        ).scalar_one()
+        assert live_b == "manual_override"
+
 
 class TestMergeSetsManualOverride:
     """merge_mappings_to_track should set origin='manual_override' on moved mappings."""
