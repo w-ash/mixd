@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.track_resolution import TrackResolutionService
 from src.application.use_cases.resolve_match_review import (
     ResolveMatchReviewCommand,
     ResolveMatchReviewUseCase,
@@ -267,8 +268,8 @@ class TestIngestSuspectIsrcRouting:
         uow = get_unit_of_work(db_session)
         owner = await _seed_isrc_owner(uow)
 
-        imported = await uow.get_connector_repository().ingest_external_tracks_bulk(
-            "spotify", [_remaster_connector_track()], user_id="default"
+        imported = await TrackResolutionService().ingest(
+            "spotify", [_remaster_connector_track()], uow, user_id="default"
         )
 
         # A distinct canonical without the contested ISRC — owner untouched.
@@ -298,8 +299,8 @@ class TestIngestSuspectIsrcRouting:
         connector_repo = uow.get_connector_repository()
         owner = await _seed_isrc_owner(uow)
 
-        _ = await connector_repo.ingest_external_tracks_bulk(
-            "spotify", [_remaster_connector_track()], user_id="default"
+        _ = await TrackResolutionService().ingest(
+            "spotify", [_remaster_connector_track()], uow, user_id="default"
         )
         await db_session.execute(
             update(DBMatchReview)
@@ -309,8 +310,8 @@ class TestIngestSuspectIsrcRouting:
         await db_session.flush()
 
         # Weekly re-sync: the mapping fast path resolves the track; no new review.
-        _ = await connector_repo.ingest_external_tracks_bulk(
-            "spotify", [_remaster_connector_track()], user_id="default"
+        _ = await TrackResolutionService().ingest(
+            "spotify", [_remaster_connector_track()], uow, user_id="default"
         )
         statuses = (
             (
@@ -333,8 +334,8 @@ class TestReviewAcceptMergesDeferredCanonical:
         uow = get_unit_of_work(db_session)
         owner = await _seed_isrc_owner(uow)
 
-        imported = await uow.get_connector_repository().ingest_external_tracks_bulk(
-            "spotify", [_remaster_connector_track()], user_id="default"
+        imported = await TrackResolutionService().ingest(
+            "spotify", [_remaster_connector_track()], uow, user_id="default"
         )
         deferred = imported[0]
         review_id = (

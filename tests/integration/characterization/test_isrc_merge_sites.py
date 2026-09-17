@@ -15,7 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entities import Artist, Track
+from src.application.services.track_resolution import TrackResolutionService
+from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.cross_discovery import (
     SpotifyCrossDiscoveryProvider,
@@ -30,13 +31,15 @@ from tests.fixtures import TEST_USER_ID
 
 
 class TestSaveTrackIsrcGuard:
-    """FLIPPED characterization (FM2a, fixed by ISRC guard at merge sites):
-    the original pin recorded save_track's ISRC-keyed upsert silently
-    replacing the owner's title/album/duration on a suspect (15s-off)
-    collision. Now a suspect collision never claims the contested ISRC —
-    the incoming track becomes a distinct canonical with isrc NULL and the
-    owner is untouched. Non-suspect (same-duration) merges retain the
-    pre-v0.8.18 replace behavior.
+    """FLIPPED characterization (FM2a, fixed by ISRC guard at merge sites),
+    retargeted at the resolution service (v0.12.0.2): the original pin
+    recorded save_track's ISRC-keyed upsert silently replacing the owner's
+    title/album/duration on a suspect (15s-off) collision. The upsert ladder
+    is gone — ``save_track`` only persists — and the ISRC decision lives in
+    ``TrackResolutionService`` via the domain planner: a suspect collision
+    never claims the contested ISRC (the incoming track becomes a distinct
+    canonical with isrc NULL, the owner untouched), and a non-suspect
+    collision reuses the owner as-is rather than overwriting it.
     """
 
     async def test_suspect_isrc_collision_defers_instead_of_clobbering(
@@ -58,16 +61,21 @@ class TestSaveTrackIsrcGuard:
         )
 
         # 15s longer than the original: above the 10s suspect threshold.
-        returned = await track_repo.save_track(
-            Track(
-                id=None,
-                title="Gold Rush (2024 Remaster)",
-                artists=[Artist(name="Neon Priest")],
-                album="Remaster Compilation",
-                duration_ms=215_000,
-                isrc="USNP12400001",
-                user_id=TEST_USER_ID,
-            )
+        (returned,) = await TrackResolutionService().ingest(
+            "spotify",
+            [
+                ConnectorTrack(
+                    connector_name="spotify",
+                    connector_track_identifier="sp_gold_rush_remaster",
+                    title="Gold Rush (2024 Remaster)",
+                    artists=[Artist(name="Neon Priest")],
+                    album="Remaster Compilation",
+                    duration_ms=215_000,
+                    isrc="USNP12400001",
+                )
+            ],
+            uow,
+            user_id=TEST_USER_ID,
         )
 
         # A distinct canonical was created — no merge, no clobber...
@@ -86,10 +94,11 @@ class TestSaveTrackIsrcGuard:
         assert row.album == "Debut"
         assert row.duration_ms == 200_000
 
-    async def test_non_suspect_isrc_collision_still_merges(
+    async def test_non_suspect_isrc_collision_reuses_the_owner(
         self, db_session: AsyncSession
     ):
-        """Retained behavior: same-duration ISRC collision merges/updates."""
+        """Same-duration ISRC collision: the owner is reused, and — unlike the
+        old upsert — its metadata is left as it was."""
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
@@ -103,20 +112,38 @@ class TestSaveTrackIsrcGuard:
                 user_id=TEST_USER_ID,
             )
         )
-        returned = await track_repo.save_track(
-            Track(
-                id=None,
-                title="Gold Rush",
-                artists=[Artist(name="Neon Priest")],
-                album="Debut (Deluxe)",
-                duration_ms=200_500,  # within tolerance
-                isrc="USNP12400001",
-                user_id=TEST_USER_ID,
-            )
+        (returned,) = await TrackResolutionService().ingest(
+            "spotify",
+            [
+                ConnectorTrack(
+                    connector_name="spotify",
+                    connector_track_identifier="sp_gold_rush_deluxe",
+                    title="Gold Rush",
+                    artists=[Artist(name="Neon Priest")],
+                    album="Debut (Deluxe)",
+                    duration_ms=200_500,  # within tolerance
+                    isrc="USNP12400001",
+                )
+            ],
+            uow,
+            user_id=TEST_USER_ID,
         )
 
         assert returned.id == original.id
-        assert returned.album == "Debut (Deluxe)"
+        owner_album = (
+            await db_session.execute(
+                select(DBTrack.album).where(DBTrack.id == original.id)
+            )
+        ).scalar_one()
+        assert owner_album is None
+        method = (
+            await db_session.execute(
+                select(DBTrackMapping.match_method).where(
+                    DBTrackMapping.track_id == original.id
+                )
+            )
+        ).scalar_one()
+        assert method == "isrc_match"
 
 
 class TestEnrichmentResaveCreatesSingleCanonical:

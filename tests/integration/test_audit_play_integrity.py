@@ -17,6 +17,7 @@ from scripts.audit_play_integrity import (
     check_short_track_blind_spot,
     check_spotify_api_lastfm_delta,
 )
+from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack, ConnectorTrackPlay
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID
@@ -76,7 +77,7 @@ async def _seed_canonical_track(
     exercise neither query's join.
     """
     uow = get_unit_of_work(db_session)
-    tracks = await uow.get_connector_repository().ingest_external_tracks_bulk(
+    tracks = await TrackResolutionService().ingest(
         "spotify",
         [
             ConnectorTrack(
@@ -89,6 +90,7 @@ async def _seed_canonical_track(
                 last_updated=datetime.now(UTC),
             )
         ],
+        uow,
         user_id="default",
     )
     await db_session.flush()

@@ -121,9 +121,10 @@ def make_mock_connector_repo(**overrides) -> AsyncMock:
     repo.find_tracks_by_connectors.return_value = overrides.pop(
         "find_tracks_by_connectors", {}
     )
-    repo.ingest_external_tracks_bulk.return_value = overrides.pop(
-        "ingest_external_tracks_bulk", []
+    repo.upsert_connector_tracks.return_value = overrides.pop(
+        "upsert_connector_tracks", {}
     )
+    repo.touch_last_seen.return_value = overrides.pop("touch_last_seen", None)
     repo.map_track_to_connector.return_value = overrides.pop(
         "map_track_to_connector", None
     )

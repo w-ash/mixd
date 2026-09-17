@@ -10,12 +10,14 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
     DBTrackMapping,
 )
+from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
 )
@@ -166,7 +168,7 @@ class TestPrimaryMappingQueries:
     async def test_ingest_bulk_sets_primary_per_track(
         self, db_session: AsyncSession, test_data_tracker
     ):
-        """ingest_external_tracks_bulk sets exactly one primary mapping per track."""
+        """TrackResolutionService.ingest sets exactly one primary mapping per track."""
         tracks = [
             ConnectorTrack(
                 connector_name="spotify",
@@ -178,9 +180,8 @@ class TestPrimaryMappingQueries:
             for i in range(3)
         ]
 
-        repo = TrackConnectorRepository(db_session)
-        domain_tracks = await repo.ingest_external_tracks_bulk(
-            "spotify", tracks, user_id="default"
+        domain_tracks = await TrackResolutionService().ingest(
+            "spotify", tracks, get_unit_of_work(db_session), user_id="default"
         )
         await db_session.commit()
 

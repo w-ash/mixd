@@ -10,6 +10,7 @@ Critical for verifying the selectinload optimization doesn't break DDD patterns.
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from attrs import evolve
 import pytest
 
 from src.domain.exceptions import NotFoundError
@@ -150,7 +151,12 @@ class TestBulkUoWPatterns:
             await uow.commit()
 
     async def test_bulk_upsert_with_existing_data(self, db_session):
-        """Verify bulk_upsert handles mix of new and existing entities in UoW."""
+        """Verify a UoW mixes an update of a persisted entity with a new insert.
+
+        The update rides the optimistic-locking arm (``evolve`` keeps the
+        version); a version-0 row re-naming a claimed spotify id would be
+        refused, not upserted.
+        """
         uow = get_unit_of_work(db_session)
 
         async with uow:
@@ -166,11 +172,9 @@ class TestBulkUoWPatterns:
         async with uow:
             track_repo = uow.get_track_repository()
 
-            updated_track = make_track(
-                id=saved_initial.id,
+            updated_track = evolve(
+                saved_initial,
                 title=f"TEST_Updated_{uuid4()}",  # Different title
-                artists=saved_initial.artists,
-                connector_track_identifiers=saved_initial.connector_track_identifiers,
             )
             saved_updated = await track_repo.save_track(updated_track)
 

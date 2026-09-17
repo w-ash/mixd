@@ -1,9 +1,12 @@
-"""The one place the ``connector_tracks`` row shape is built.
+"""The one place the ``connector_tracks`` and canonical ``tracks`` row shapes are built.
 
-Three writers used to spell the same ten columns out by hand — the bulk-upsert
-path in ``track/connector.py`` (twice, once per entry point) and the
-rejected-candidate stub the resolution recorder materializes — so a column
-added to the table meant finding all three. They agree here instead.
+Three writers used to spell the same ten ``connector_tracks`` columns out by
+hand — the bulk-upsert path in ``track/connector.py`` (twice, once per entry
+point) and the rejected-candidate stub the resolution recorder materializes —
+so a column added to the table meant finding all three. They agree here
+instead. ``build_canonical_track_row`` does the same for ``tracks``: the ORM
+mapper and the multi-row INSERT in ``save_tracks`` both write it, so the
+``{"names": [...]}`` JSON and the normalized search columns have one author.
 
 It lives in ``_shared`` rather than under ``track/`` because the recorder is
 one of the writers: importing anything under ``track/`` runs
@@ -19,6 +22,11 @@ from datetime import datetime
 from typing import Final
 
 from src.domain.entities.shared import JsonDict
+from src.domain.entities.track import Track
+from src.domain.matching.text_normalization import (
+    normalize_for_comparison,
+    strip_parentheticals,
+)
 
 # Connector name → the fast-path id column on ``tracks`` that mirrors the
 # connector's primary mapping. Persistence knowledge (column names), so it
@@ -40,6 +48,57 @@ def extract_db_artist_names(artists: JsonDict) -> list[str]:
     if isinstance(names_value, list):
         return [n for n in names_value if isinstance(n, str)]
     return []
+
+
+def artist_names_column(names: Iterable[str]) -> JsonDict:
+    """The JSONB ``artists`` column both track tables store: ``{"names": [...]}``.
+
+    ``extract_db_artist_names`` is its inverse; every writer of the column
+    goes through here so the shape can never drift between them.
+    """
+    return {"names": list(names)}
+
+
+def normalized_text_columns(track: Track) -> dict[str, str | None]:
+    """Pre-computed text columns that back the pg_trgm fuzzy-search indexes.
+
+    Every ``tracks`` writer MUST include these — a row written without them
+    is invisible to library search and to the title+artist reuse probe.
+    """
+    first_artist = track.artists[0].name if track.artists else None
+    return {
+        "title_normalized": normalize_for_comparison(track.title),
+        "artist_normalized": (
+            normalize_for_comparison(first_artist) if first_artist else None
+        ),
+        "title_stripped": normalize_for_comparison(strip_parentheticals(track.title)),
+        "artists_text": track.artists_display or None,
+    }
+
+
+def build_canonical_track_row(track: Track) -> dict[str, object]:
+    """The ``tracks`` columns one domain Track writes.
+
+    Identity, version and timestamps are insert plumbing the caller adds:
+    the ORM path leaves them to the column defaults, the multi-row INSERT in
+    ``save_tracks`` stamps them explicitly so every row compiles alike.
+    """
+    if not track.title or not track.artists:
+        raise ValueError("Track must have title and artists")
+    return {
+        "user_id": track.user_id,
+        "title": track.title,
+        "artists": artist_names_column(artist.name for artist in track.artists),
+        "album": track.album,
+        "duration_ms": track.duration_ms,
+        "release_date": track.release_date,
+        "isrc": track.isrc,
+        **{
+            column: track.connector_track_identifiers.get(connector)
+            for connector, column in DENORMALIZED_ID_COLUMNS.items()
+        },
+        **normalized_text_columns(track),
+    }
 
 
 def build_connector_track_row(
@@ -69,7 +128,7 @@ def build_connector_track_row(
         "connector_name": connector_name,
         "connector_track_identifier": identifier,
         "title": title,
-        "artists": {"names": list(artist_names)},
+        "artists": artist_names_column(artist_names),
         "album": album,
         "duration_ms": duration_ms,
         "release_date": release_date,
@@ -79,4 +138,10 @@ def build_connector_track_row(
     }
 
 
-__all__ = ["build_connector_track_row", "extract_db_artist_names"]
+__all__ = [
+    "artist_names_column",
+    "build_canonical_track_row",
+    "build_connector_track_row",
+    "extract_db_artist_names",
+    "normalized_text_columns",
+]

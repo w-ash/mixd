@@ -17,7 +17,6 @@ from sqlalchemy.orm import selectinload
 from src.config import get_logger
 from src.config.constants import ConnectorPriority
 from src.domain.entities import (
-    ConnectorTrack,
     Playlist,
     PlaylistEntry,
     Track,
@@ -32,9 +31,6 @@ from src.infrastructure.persistence.database.db_models import (
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.playlist.mapper import PlaylistMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
-from src.infrastructure.persistence.repositories.track.connector import (
-    TrackConnectorRepository,
-)
 from src.infrastructure.persistence.repositories.track.core import (
     TrackRepository as CoreTrackRepository,
 )
@@ -51,7 +47,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     """
 
     track_repository: CoreTrackRepository
-    connector_repository: TrackConnectorRepository
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session and dependent repositories.
@@ -64,9 +59,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             model_class=DBPlaylist,
             mapper=PlaylistMapper(),
         )
-        # Initialize track repositories for managing playlist contents
+        # Initialize track repository for managing playlist contents
         self.track_repository = CoreTrackRepository(session)
-        self.connector_repository = TrackConnectorRepository(session)
 
     # -------------------------------------------------------------------------
     # ENHANCED QUERY METHODS
@@ -116,112 +110,38 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     # -------------------------------------------------------------------------
 
     async def _save_new_tracks(
-        self,
-        tracks: list[Track],
-        connector: str | None = None,
-        *,
-        user_id: str,
+        self, tracks: list[Track], connector: str | None = None
     ) -> list[Track]:
-        """Persist tracks without IDs and return updated tracks with IDs.
+        """Persist the unpersisted tracks of a playlist, in input order.
 
-        Uses connector-specific ingestion for tracks with external metadata,
-        falls back to direct save for local tracks.
-
-        Args:
-            tracks: List of track entities to save.
-            connector: Preferred external service for metadata lookup.
-
-        Returns:
-            List of tracks with assigned database IDs.
+        A persisted track (``version > 0``) passes through. A new local track
+        is inserted. A new track that names an id on ``connector`` is refused:
+        resolving a connector payload to a canonical is the resolution
+        service's decision, made by the use case before the playlist reaches
+        this repository — a repository only persists.
 
         Raises:
-            ValueError: If track save operation fails.
+            ValueError: A new track carries a connector id, or a save fails.
         """
         if not tracks:
             return []
 
-        # Separate tracks by processing type for batch operations
-        connector_tracks_to_save: list[ConnectorTrack] = []
-        direct_tracks_to_save: list[Track] = []
-        # Track original positions for result ordering: idx -> (type, index_or_track)
-        existing_track_positions: dict[int, Track] = {}
-        connector_track_positions: dict[int, int] = {}
-        direct_track_positions: dict[int, int] = {}
-
-        for idx, track in enumerate(tracks):
+        saved: list[Track] = []
+        for track in tracks:
             if track.version > 0:
-                # Track already persisted (version > 0), no processing needed
-                existing_track_positions[idx] = track
-            elif connector and connector in track.connector_track_identifiers:
-                # Track needs connector ingestion
-                connector_track = ConnectorTrack(
-                    connector_name=connector,
-                    connector_track_identifier=track.connector_track_identifiers[
-                        connector
-                    ],
-                    title=track.title,
-                    artists=track.artists,
-                    album=track.album,
-                    duration_ms=track.duration_ms,
-                    release_date=track.release_date,
-                    isrc=track.isrc,
-                    raw_metadata=(
-                        track.connector_metadata.get(connector, {})
-                        if hasattr(track, "connector_metadata")
-                        else {}
-                    ),
+                saved.append(track)
+                continue
+            if connector and connector in track.connector_track_identifiers:
+                raise ValueError(
+                    f"Track {track.connector_track_identifiers[connector]!r} on "
+                    f"{connector} is not persisted: ingest connector tracks through "
+                    f"TrackResolutionService before saving the playlist"
                 )
-                connector_tracks_to_save.append(connector_track)
-                connector_track_positions[idx] = len(connector_tracks_to_save) - 1
-            else:
-                # Track needs direct saving
-                direct_tracks_to_save.append(track)
-                direct_track_positions[idx] = len(direct_tracks_to_save) - 1
-
-        # Batch process connector tracks
-        saved_connector_tracks: list[Track] = []
-        if connector_tracks_to_save and connector:
             try:
-                saved_connector_tracks = (
-                    await self.connector_repository.ingest_external_tracks_bulk(
-                        connector, connector_tracks_to_save, user_id=user_id
-                    )
-                )
-            except Exception as e:
-                raise ValueError(f"Failed to save connector tracks: {e}") from e
-
-        # Process direct tracks individually (they may have different external IDs)
-        saved_direct_tracks: list[Track] = []
-        for track in direct_tracks_to_save:
-            try:
-                saved_track = await self.track_repository.save_track(track)
-                saved_direct_tracks.append(saved_track)
+                saved.append(await self.track_repository.save_track(track))
             except Exception as e:
                 raise ValueError(f"Failed to save track: {e}") from e
-
-        # Reconstruct results in original order
-        updated_tracks: list[Track] = []
-        for idx in range(len(tracks)):
-            if idx in existing_track_positions:
-                updated_tracks.append(existing_track_positions[idx])
-            elif idx in connector_track_positions:
-                position = connector_track_positions[idx]
-                if position < len(saved_connector_tracks):
-                    updated_tracks.append(saved_connector_tracks[position])
-                else:
-                    raise ValueError(
-                        f"Connector track at position {position} failed to save"
-                    )
-            elif idx in direct_track_positions:
-                position = direct_track_positions[idx]
-                if position < len(saved_direct_tracks):
-                    updated_tracks.append(saved_direct_tracks[position])
-                else:
-                    raise ValueError(
-                        f"Direct track at position {position} failed to save"
-                    )
-
-        return updated_tracks
+        return saved
 
     async def _create_playlist_tracks(
         self,
@@ -964,9 +884,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             if (track := playlist.entries[i].track) is not None
         ]
         updated_tracks = await self._save_new_tracks(
-            tracks_to_save,
-            connector=source_connector,
-            user_id=playlist.user_id,
+            tracks_to_save, connector=source_connector
         )
         position_to_saved_track = {
             pos: updated_tracks[j] for j, pos in enumerate(resolved_positions)

@@ -5,16 +5,15 @@ canonical track becomes a first-class UNRESOLVED entry instead of being
 silently dropped — so the imported playlist keeps its full count and order.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.application.services.connector_playlist_processing_service import (
     ConnectorPlaylistProcessingService,
 )
-from src.domain.entities.track import Artist, ConnectorTrack
+from src.domain.entities.track import Artist, ConnectorTrack, Track
 from tests.fixtures import (
     make_connector_playlist,
     make_connector_playlist_item,
-    make_mock_connector_repo,
     make_mock_uow,
     make_track,
 )
@@ -23,6 +22,13 @@ _PROCESS = (
     "src.application.use_cases._shared.connector_resolver"
     ".resolve_track_conversion_connector"
 )
+
+
+def _service(ingested: list[Track]) -> ConnectorPlaylistProcessingService:
+    """The processing service over a resolution service that answers ``ingested``."""
+    resolution = MagicMock()
+    resolution.ingest = AsyncMock(return_value=ingested)
+    return ConnectorPlaylistProcessingService(resolution=resolution)
 
 
 def _fake_connector() -> MagicMock:
@@ -66,23 +72,15 @@ class TestUnresolvedEmission:
         )
         # Ingest resolves only a and b; c is left unmatched (e.g. a local file
         # that produced no canonical track).
-        connector_repo = make_mock_connector_repo(
-            ingest_external_tracks_bulk=[
-                make_track(
-                    title="Track A", connector_track_identifiers={"spotify": "a"}
-                ),
-                make_track(
-                    title="Track B", connector_track_identifiers={"spotify": "b"}
-                ),
-            ]
-        )
-        uow = make_mock_uow(connector_repo=connector_repo)
+        service = _service([
+            make_track(title="Track A", connector_track_identifiers={"spotify": "a"}),
+            make_track(title="Track B", connector_track_identifiers={"spotify": "b"}),
+        ])
+        uow = make_mock_uow()
 
         with patch(_PROCESS, return_value=_fake_connector()):
-            result = (
-                await ConnectorPlaylistProcessingService().process_connector_playlist(
-                    cp, uow, user_id="default"
-                )
+            result = await service.process_connector_playlist(
+                cp, uow, user_id="default"
             )
 
         # Every source position is preserved, in order — never dropped.
@@ -103,20 +101,14 @@ class TestUnresolvedEmission:
 
     async def test_all_resolved_has_no_unresolved(self):
         cp = make_connector_playlist(items=[_item("a", 0, "Track A", "Artist A")])
-        connector_repo = make_mock_connector_repo(
-            ingest_external_tracks_bulk=[
-                make_track(
-                    title="Track A", connector_track_identifiers={"spotify": "a"}
-                )
-            ]
-        )
-        uow = make_mock_uow(connector_repo=connector_repo)
+        service = _service([
+            make_track(title="Track A", connector_track_identifiers={"spotify": "a"})
+        ])
+        uow = make_mock_uow()
 
         with patch(_PROCESS, return_value=_fake_connector()):
-            result = (
-                await ConnectorPlaylistProcessingService().process_connector_playlist(
-                    cp, uow, user_id="default"
-                )
+            result = await service.process_connector_playlist(
+                cp, uow, user_id="default"
             )
 
         assert len(result.entries) == 1

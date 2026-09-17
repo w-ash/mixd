@@ -11,7 +11,6 @@ from src.domain.entities import Artist, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.shared import JsonDict
 from src.domain.entities.track_mapping import STALE_ID_FOR
-from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
@@ -19,6 +18,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
+    build_canonical_track_row,
     extract_db_artist_names,
 )
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
@@ -175,37 +175,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
     @staticmethod
     def to_db(domain_model: Track) -> DBTrack:
         """Convert domain track to database model."""
-        return DBTrack(
-            user_id=domain_model.user_id,
-            title=domain_model.title,
-            artists={"names": [a.name for a in domain_model.artists]},
-            album=domain_model.album,
-            duration_ms=domain_model.duration_ms,
-            release_date=domain_model.release_date,
-            isrc=domain_model.isrc,
-            spotify_id=domain_model.connector_track_identifiers.get("spotify"),
-            mbid=domain_model.connector_track_identifiers.get("musicbrainz"),
-            **TrackMapper.normalized_columns(domain_model),
-        )
-
-    @staticmethod
-    def normalized_columns(track: Track) -> dict[str, str | None]:
-        """Pre-computed text columns that back the pg_trgm fuzzy-search indexes.
-
-        Both ``save_track`` and ``to_db`` MUST go through this helper — bypassing
-        it leaves the row invisible to library search.
-        """
-        first_artist = track.artists[0].name if track.artists else None
-        return {
-            "title_normalized": normalize_for_comparison(track.title),
-            "artist_normalized": (
-                normalize_for_comparison(first_artist) if first_artist else None
-            ),
-            "title_stripped": normalize_for_comparison(
-                strip_parentheticals(track.title)
-            ),
-            "artists_text": track.artists_display or None,
-        }
+        return DBTrack(**build_canonical_track_row(domain_model))
 
     @override
     @staticmethod

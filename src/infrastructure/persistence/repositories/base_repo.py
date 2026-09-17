@@ -78,47 +78,6 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     # RELATIONSHIP UTILITIES
     # -------------------------------------------------------------------------
 
-    def _extract_relationship_names(
-        self, rel_items: Sequence[str | object]
-    ) -> list[str]:
-        """Extract string names from relationship list (handles strings and selectinload objects).
-
-        This utility handles the common pattern of extracting relationship attribute names
-        from a list that may contain either string names or selectinload() objects.
-
-        Args:
-            rel_items: List of relationship specifications (strings or selectinload objects)
-
-        Returns:
-            List of relationship attribute names as strings
-        """
-        rel_names: list[str] = []
-        for rel_item in rel_items:
-            if isinstance(rel_item, str):
-                rel_names.append(rel_item)
-                continue
-            # For selectinload objects, extract the attribute name. SQLAlchemy
-            # strategy_option internals are not exposed in stubs — narrow via
-            # the public .path attribute and isinstance string checks.
-            path = cast(object, getattr(rel_item, "path", None))
-            if path is None:
-                continue
-            try:
-                path_element = cast(object, path[0])  # pyright: ignore[reportIndexIssue]  # opaque PathRegistry
-            except IndexError, TypeError:
-                continue
-            key = cast(object, getattr(path_element, "key", None))
-            if isinstance(key, str):
-                rel_names.append(key)
-                continue
-            prop = cast(object, getattr(path_element, "property", None))
-            if prop is None:
-                continue
-            prop_key = cast(object, getattr(prop, "key", None))
-            if isinstance(prop_key, str):
-                rel_names.append(prop_key)
-        return rel_names
-
     def _build_relationship_options(
         self,
         rel_items: Sequence[str | ORMOption],

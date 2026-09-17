@@ -31,10 +31,7 @@ from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.exceptions import DomainError, OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
-from src.domain.matching.isrc_validation import (
-    assess_isrc_match_reliability,
-    compute_duration_diff_ms,
-)
+from src.domain.repositories.errors import IdentityKeyClaimedError
 from src.domain.repositories.resolution import SupersessionEdge
 from src.domain.repositories.track import (
     DEFAULT_TRACK_SORT,
@@ -59,6 +56,7 @@ from src.infrastructure.persistence.database.live_rows import (
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     DENORMALIZED_ID_COLUMNS,
+    build_canonical_track_row,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
@@ -74,9 +72,8 @@ logger = get_logger(__name__)
 _CONFLATION: SupersessionReason = "conflation"
 
 
-# The user-scoped unique keys a canonical is deduplicated on, in the
-# precedence ``save_track`` applies them: the ISRC first, then the MusicBrainz
-# id, then the denormalized Spotify id. Each is backed by a unique constraint
+# The user-scoped unique keys a canonical carries: the ISRC, the MusicBrainz
+# id and the denormalized Spotify id. Each is backed by a unique constraint
 # (``uq_tracks_user_isrc`` and siblings), so a batch insert has to know which
 # of them are already claimed before it can call its rows new.
 _IDENTITY_COLUMNS: Final[tuple[str, ...]] = ("isrc", "mbid", "spotify_id")
@@ -459,132 +456,77 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         # Map results by ID for easier lookup
         return {track.id: track for track in tracks}
 
+    @db_operation("acquire_ingest_lock")
+    async def acquire_ingest_lock(self, user_id: str) -> None:
+        """Take the user's canonical-track ingest lock for this transaction.
+
+        ``save_tracks`` takes it itself before its identity probe; an
+        orchestrator that probes *before* saving (the resolution service)
+        takes it here first, so its probe answers are durable until it writes.
+        """
+        await acquire_user_track_ingest_lock(self.session, user_id)
+
     @db_operation("save_track")
     async def save_track(self, track: Track) -> Track:
-        """Save track using native SQLAlchemy 2.0 features with optimistic locking.
+        """Persist one track: an optimistic-locked UPDATE, or the batch insert of one.
 
         Update path (version > 0) uses WHERE version = :expected to detect
-        concurrent modifications. Insert/upsert path (version == 0) is unaffected.
+        concurrent modifications. A new track (version == 0) is the one-row
+        case of ``save_tracks`` — no upsert ladder: which canonical an
+        incoming row belongs to is decided upstream by the resolution
+        planner, and a row whose identity key is already claimed raises
+        ``IdentityKeyClaimedError`` rather than merging into the owner.
         """
-        values = self._track_column_values(track)
+        if track.version == 0:
+            return (await self.save_tracks([track]))[0]
 
-        # --- Update path: optimistic locking via version check ---
-        if track.version > 0:
-            values["version"] = track.version + 1
-            values["updated_at"] = datetime.now(UTC)
+        values = build_canonical_track_row(track)
+        # An update never clears a denormalized id it was not handed: the
+        # column mirrors the primary mapping, which this statement does not
+        # touch.
+        for column in DENORMALIZED_ID_COLUMNS.values():
+            if values[column] is None:
+                del values[column]
+        values["version"] = track.version + 1
+        values["updated_at"] = datetime.now(UTC)
 
-            stmt = (
-                update(DBTrack)
-                .where(DBTrack.id == track.id, DBTrack.version == track.version)
-                .values(**values)
-                .returning(DBTrack)
-            )
-            result = await self.session.execute(stmt)
-            updated = result.scalar_one_or_none()
+        stmt = (
+            update(DBTrack)
+            .where(DBTrack.id == track.id, DBTrack.version == track.version)
+            .values(**values)
+            .returning(DBTrack)
+        )
+        result = await self.session.execute(stmt)
+        updated = result.scalar_one_or_none()
 
-            if not updated:
-                raise OptimisticLockError(track.id, track.version)
+        if not updated:
+            raise OptimisticLockError(track.id, track.version)
 
-            await self._load_relationships_via_identity_map([updated])
-            return await TrackMapper.to_domain(updated)
-
-        # --- Insert/upsert path (version == 0, no locking needed) ---
-        # Handle lookups by ISRC, MBID, or Spotify ID
-        uid = track.user_id
-        if track.isrc:
-            if await self._isrc_collision_is_suspect(uid, track):
-                # ISRC reuse across versions (remaster, re-release): don't
-                # claim the contested ISRC and don't clobber the owner's
-                # metadata — fall through the remaining keys (v0.8.18 FM2a).
-                #
-                # Every suspect defer is recorded by the warning log in
-                # _isrc_collision_is_suspect. Callers WITH connector context
-                # (Spotify import, cross-discovery, batch ingest) additionally
-                # queue an isrc_suspect review and keep the ISRC on
-                # connector_tracks.isrc. The direct-save path (local/manual
-                # playlist via playlist/core.py, source_connector=None) has no
-                # connector track to hold the ISRC or anchor a review, so its new
-                # canonical is created without the ISRC and the warning log is
-                # the only trail — acceptable, since a >10s-different recording
-                # is a genuinely distinct track, not a merge to force.
-                _ = values.pop("isrc", None)
-            else:
-                return await self.upsert({"user_id": uid, "isrc": track.isrc}, values)
-        if "musicbrainz" in track.connector_track_identifiers:
-            return await self.upsert(
-                {
-                    "user_id": uid,
-                    "mbid": track.connector_track_identifiers["musicbrainz"],
-                },
-                values,
-            )
-        if "spotify" in track.connector_track_identifiers:
-            return await self.upsert(
-                {
-                    "user_id": uid,
-                    "spotify_id": track.connector_track_identifiers["spotify"],
-                },
-                values,
-            )
-
-        # Create new track with explicit eager loading for relationships
-        db_track = DBTrack(**values)
-        self.session.add(db_track)
-        await self.session.flush()
-        return await self._refresh_and_map(db_track)
-
-    @staticmethod
-    def _track_column_values(track: Track) -> dict[str, object]:
-        """The ``tracks`` columns one domain Track writes.
-
-        The single payload builder behind ``save_track`` and ``save_tracks`` —
-        a second copy is how the batch path and the per-row path start
-        disagreeing about what a saved canonical contains.
-        """
-        if not track.title or not track.artists:
-            raise ValueError("Track must have title and artists")
-
-        values: dict[str, object] = {
-            "title": track.title,
-            "artists": {"names": [artist.name for artist in track.artists]},
-            "album": track.album,
-            "duration_ms": track.duration_ms,
-            "release_date": track.release_date,
-            "isrc": track.isrc,
-            "user_id": track.user_id,
-            **TrackMapper.normalized_columns(track),
-        }
-
-        # Add denormalized connector IDs (fast-path lookup columns)
-        for connector, column in DENORMALIZED_ID_COLUMNS.items():
-            if connector in track.connector_track_identifiers:
-                values[column] = track.connector_track_identifiers[connector]
-        return values
+        await self._load_relationships_via_identity_map([updated])
+        return await TrackMapper.to_domain(updated)
 
     @db_operation("save_tracks")
     async def save_tracks(self, tracks: Sequence[Track]) -> list[Track]:
         """Insert a batch of new canonical tracks in one statement.
 
-        The batch form of ``save_track``'s insert arm: one probe for every
-        identity key the batch carries, then one multi-row INSERT, in place of
-        the four statements ``save_track`` spends per row. It exists because
-        the Spotify inward resolver creates a whole 50-id chunk of canonicals
-        at once, and at a 26ms round trip the per-row form was the bulk of
-        import wall time.
+        One probe for every identity key the batch carries, then one
+        multi-row INSERT — the Spotify inward resolver creates a whole 50-id
+        chunk of canonicals at once, and at a 26ms round trip a per-row form
+        was the bulk of import wall time.
 
-        A row whose identity key is **already claimed** — by an existing
-        canonical, or by an earlier row of this same batch — is not new, so it
-        is handed to ``save_track``, which owns the upsert-or-defer decision
-        (including the suspect-ISRC guard). On the paths this method exists
-        for — the Spotify and Last.fm inward resolvers' chunk persists, its
-        only two callers — that set is expected to be ≈0: creation is only
-        reached for ids their mapping-lookup and canonical-reuse passes both
-        missed. A non-trivial count of NEW rows landing there means the caller
-        is colliding with rows those passes cannot see (the v0.10.2 mistenancy
-        bug routed ~40 rows/chunk this way, at ~8 round trips each), so it is
-        logged as a WARNING naming the caller bug rather than silently
-        absorbed. The delegation itself stays: it is the drift case, not the
-        hot one, and not a second implementation of the guard.
+        A row whose identity key (ISRC, MBID or Spotify id) is **already
+        claimed** — by an existing canonical, or by an earlier row of this
+        same batch — is not new, and this repository does not decide what
+        it is instead: it raises ``IdentityKeyClaimedError`` naming the
+        keys. Every caller plans against the table before it writes (the
+        resolution planner folds in-batch twins onto a leader and reuses
+        persisted owners), so a claimed key here means the caller's lookup
+        passes did not see the row it collides with — the v0.10.2
+        mistenancy bug routed ~40 rows/chunk this way — and a loud failure
+        the caller's per-item savepoint isolates beats a silent upsert.
+
+        A track with ``version > 0`` takes the optimistic-locking UPDATE:
+        that statement has no batch form, so it runs row-at-a-time.
 
         Returns one Track per input, in input order.
         """
@@ -600,30 +542,20 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             await acquire_user_track_ingest_lock(self.session, user_id)
 
         values_by_index = {
-            index: self._track_column_values(track)
+            index: build_canonical_track_row(track)
             for index, track in enumerate(tracks)
+            if track.version == 0
         }
-        # The optimistic-locking arm is a different statement shape entirely
-        # (UPDATE … WHERE version = :expected); it has no batch form and no
-        # caller here, so it goes back to the row-at-a-time path.
-        claimed = await self._claimed_identity_keys([
-            values
-            for index, values in values_by_index.items()
-            if tracks[index].version == 0
-        ])
+        claimed = await self._claimed_identity_keys(list(values_by_index.values()))
 
         rows: list[dict[str, object]] = []
         row_indexes: list[int] = []
-        deferred: list[int] = []
         now = datetime.now(UTC)
         for index, values in values_by_index.items():
             keys = _identity_keys(values)
-            if tracks[index].version > 0 or keys & claimed:
-                deferred.append(index)
-                continue
-            # An earlier row of this batch now owns these keys — a later row
-            # naming any of them would violate the unique constraint and take
-            # the whole INSERT down with it.
+            if conflict := keys & claimed:
+                raise IdentityKeyClaimedError(conflict)
+            # This row now owns its keys for the rest of the batch.
             claimed |= keys
             rows.append({
                 **values,
@@ -636,27 +568,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 "updated_at": now,
             })
             row_indexes.append(index)
-
-        # Only NEW rows are a caller bug: the optimistic-locking arm
-        # (version > 0) is deferred by design — UPDATE … WHERE version has no
-        # batch form — so it must not trip the alarm for the insert path.
-        deferred_new = [index for index in deferred if tracks[index].version == 0]
-        if deferred_new:
-            sample_identity_keys = [
-                key
-                for index in deferred_new[:3]
-                for key in sorted(_identity_keys(values_by_index[index]))
-            ][:3]
-            logger.warning(
-                f"save_tracks deferred {len(deferred_new)} of {len(tracks)} new "
-                f"rows to per-item save_track (~8 round trips each): their "
-                f"identity keys are already claimed, so the caller's "
-                f"mapping-lookup/reuse passes are not seeing the rows this "
-                f"batch collides with",
-                deferred_count=len(deferred_new),
-                batch_size=len(tracks),
-                sample_identity_keys=sample_identity_keys,
-            )
 
         saved: dict[int, Track] = {}
         if rows:
@@ -672,8 +583,9 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                     inserted[cast("UUID", row["id"])]
                 )
 
-        for index in deferred:
-            saved[index] = await self.save_track(tracks[index])
+        for index, track in enumerate(tracks):
+            if track.version > 0:
+                saved[index] = await self.save_track(track)
 
         return [saved[index] for index in range(len(tracks))]
 
@@ -682,11 +594,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     ) -> set[tuple[str, str, str]]:
         """Which (column, user, value) identity keys the table already holds.
 
-        One statement for a whole batch, replacing ``save_track``'s per-row
-        lookup: an OR across the three user-scoped unique keys. Existence is
-        the only question asked — a claimed key sends its row to
-        ``save_track``, which re-reads what it needs to decide between
-        upserting into the owner and deferring a suspect ISRC collision.
+        One statement for a whole batch: an OR across the three user-scoped
+        unique keys. Existence is the only question asked.
         """
         wanted: dict[str, set[str]] = {name: set() for name in _IDENTITY_COLUMNS}
         users: set[str] = set()
@@ -720,61 +629,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             )
             if value is not None and value in wanted[name]
         }
-
-    async def _isrc_collision_is_suspect(self, user_id: str, track: Track) -> bool:
-        """Check whether merging into the ISRC owner would be a suspect merge.
-
-        Reuses the engine's duration-based suspect check
-        (``assess_isrc_match_reliability``) — no new heuristic. Not suspect
-        when no owner exists or either duration is unknown (the pre-v0.8.18
-        merge behavior is retained for those).
-        """
-        owner = (
-            (
-                await self.session.execute(
-                    select(DBTrack.id, DBTrack.duration_ms).where(
-                        DBTrack.user_id == user_id,
-                        DBTrack.isrc == track.isrc,
-                    )
-                )
-            )
-            .tuples()
-            .first()
-        )
-        if owner is None:
-            return False
-        owner_id, owner_duration_ms = owner
-
-        duration_diff_ms = compute_duration_diff_ms(
-            track.duration_ms, owner_duration_ms
-        )
-        suspect = assess_isrc_match_reliability(duration_diff_ms).suspect
-        if suspect:
-            logger.warning(
-                "isrc_collision_deferred",
-                isrc=track.isrc,
-                owner_track_id=owner_id,
-                owner_duration_ms=owner_duration_ms,
-                incoming_duration_ms=track.duration_ms,
-                incoming_title=track.title,
-            )
-        return suspect
-
-    async def _refresh_and_map(self, db_track: DBTrack) -> Track:
-        """Refresh relationships on a freshly inserted row and map to domain."""
-
-        # Refresh with explicit eager loading of relationships to avoid lazy loading
-        default_rels = self.mapper.get_default_relationships()
-        if default_rels:
-            rel_names = self._extract_relationship_names(default_rels)
-            if rel_names:
-                await self.session.refresh(db_track, attribute_names=rel_names)
-            else:
-                await self.session.refresh(db_track)
-        else:
-            await self.session.refresh(db_track)
-
-        return await TrackMapper.to_domain(db_track)
 
     # -------------------------------------------------------------------------
     # LIBRARY LISTING

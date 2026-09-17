@@ -1,7 +1,7 @@
 """The shared "are these the same recording?" predicate.
 
 Both canonical-reuse gates — the Spotify inward resolver and
-``ingest_external_tracks_bulk`` — ask this one question, so its two
+the resolution planner (``TrackResolutionRules``) — ask this one question, so its two
 strictnesses are tested here rather than twice at the call sites: normalized
 *equality* (never similarity) and an unknown duration refusing reuse.
 """

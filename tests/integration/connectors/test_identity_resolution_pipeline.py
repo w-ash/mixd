@@ -8,7 +8,10 @@ ISRC collision) correctly resolves tracks in realistic scenarios.
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from src.domain.entities import Artist, Track
+from src.domain.repositories.errors import IdentityKeyClaimedError
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
@@ -257,12 +260,16 @@ class TestCrossDiscoveryISRCCollision:
 
 
 class TestMBIDUpsertMerge:
-    """MBID-based upsert should merge tracks with the same MusicBrainz ID."""
+    """A claimed MBID is refused, never silently merged (v0.12.0.2).
 
-    async def test_same_mbid_upserts_not_duplicates(
+    ``save_track`` used to upsert by MBID; which canonical a row belongs to
+    is now decided upstream by the resolution planner, so a second row
+    naming a claimed MBID is a caller bug the repository surfaces.
+    """
+
+    async def test_same_mbid_is_refused_not_duplicated(
         self, db_session, test_data_tracker
     ):
-        """Saving two tracks with the same MBID should upsert to one row."""
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
@@ -279,20 +286,19 @@ class TestMBIDUpsertMerge:
         )
         test_data_tracker.add_track(track1.id)
 
-        # Second save with same MBID but enriched metadata
-        track2 = await track_repo.save_track(
-            Track(
-                id=None,
-                title="Creep",
-                artists=[Artist(name="Radiohead")],
-                album="Pablo Honey",
-                duration_ms=238000,
-                connector_track_identifiers={"musicbrainz": mbid},
-                user_id=TEST_USER_ID,
+        with pytest.raises(IdentityKeyClaimedError) as raised:
+            _ = await track_repo.save_track(
+                Track(
+                    id=None,
+                    title="Creep",
+                    artists=[Artist(name="Radiohead")],
+                    album="Pablo Honey",
+                    duration_ms=238000,
+                    connector_track_identifiers={"musicbrainz": mbid},
+                    user_id=TEST_USER_ID,
+                )
             )
-        )
 
-        # Should be the same track (upserted)
-        assert track1.id == track2.id
-        assert track2.album == "Pablo Honey"
-        assert track2.duration_ms == 238000
+        assert raised.value.keys == {("mbid", TEST_USER_ID, mbid)}
+        found = await track_repo.find_tracks_by_mbids([mbid], user_id=TEST_USER_ID)
+        assert found[mbid].id == track1.id

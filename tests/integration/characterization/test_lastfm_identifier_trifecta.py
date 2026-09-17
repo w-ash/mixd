@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, Track
 from src.domain.matching.protocols import ReuseExisting
 from src.infrastructure.connectors.lastfm.conversions import (
@@ -80,9 +81,7 @@ class TestAllMintSchemesConvergeOnOneRow:
             })
         )
         assert ct.connector_track_identifier == _COMPOSITE
-        await uow.get_connector_repository().ingest_external_tracks_bulk(
-            "lastfm", [ct], user_id="default"
-        )
+        await TrackResolutionService().ingest("lastfm", [ct], uow, user_id="default")
 
         # Path (c) — cross-discovery's ListenBrainz reuse. Post-epic-3 this
         # returns a ReuseExisting *decision* and mints NO Last.fm row of its own

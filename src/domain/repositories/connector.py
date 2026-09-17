@@ -177,7 +177,10 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def map_tracks_to_connectors(
-        self, mappings: list[ConnectorMappingSpec]
+        self,
+        mappings: list[ConnectorMappingSpec],
+        *,
+        connector_track_ids: Mapping[tuple[str, str], UUID] | None = None,
     ) -> Awaitable[list[Track]]:
         """Batch-map multiple tracks to connectors in a single operation.
 
@@ -186,9 +189,15 @@ class ConnectorRepositoryProtocol(Protocol):
                 external id, match method, confidence, optional
                 metadata/confidence evidence, and whether it takes primacy
                 (``ConnectorMappingSpec.primary``).
+            connector_track_ids: ``(connector, external id) -> id`` for
+                connector-track rows the caller already upserted from the
+                service payload. When given, the payload rows are left
+                untouched — a reuse must not overwrite what the service said
+                with the canonical's own metadata.
 
         Returns:
-            List of Track objects updated with external service connections.
+            List of Track objects updated with external service connections,
+            one per spec in spec order.
         """
         ...
 
@@ -254,24 +263,22 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def ingest_external_tracks_bulk(
-        self,
-        connector: str,
-        tracks: list[ConnectorTrack],
-        *,
-        user_id: str,
-    ) -> Awaitable[list[Track]]:
-        """Bulk ingest multiple tracks from external connector.
+    def upsert_connector_tracks(
+        self, connector: str, tracks: Sequence[ConnectorTrack]
+    ) -> Awaitable[dict[str, ConnectorTrack]]:
+        """Store one ``connector_tracks`` row per external id (last occurrence wins).
 
-        This is the primary method for track ingestion, optimized for bulk operations.
-        Single-track operations are implemented as a special case of this method.
+        Returns the stored rows keyed by external identifier, each carrying
+        the database id that mappings and reviews reference.
+        """
+        ...
 
-        Args:
-            connector: Connector name (e.g., "spotify")
-            tracks: List of connector tracks to ingest
+    def touch_last_seen(
+        self, connector: str, connector_track_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[None]:
+        """Stamp ``last_seen_at`` on the live mappings of re-encountered payloads.
 
-        Returns:
-            List of successfully ingested Track objects
+        Freshness only — confidence and origin are never touched.
         """
         ...
 

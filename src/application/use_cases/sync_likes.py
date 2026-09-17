@@ -11,9 +11,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from attrs import define
+from attrs import Factory, define
 
 from src.application.connector_protocols import LoveTrackConnector
+from src.application.services.track_resolution import TrackResolutionService
 from src.application.use_cases._shared.batch_commit import commit_batch
 from src.application.use_cases._shared.connector_resolver import (
     resolve_liked_track_connector,
@@ -132,6 +133,8 @@ CHECKPOINT_COMBINATIONS: tuple[tuple[str, Literal["likes", "plays"]], ...] = (
 @define(slots=True)
 class ImportLikesUseCase:
     """Imports a connector's liked tracks into the local database."""
+
+    resolution: TrackResolutionService = Factory(TrackResolutionService)
 
     async def execute(
         self,
@@ -292,13 +295,13 @@ class ImportLikesUseCase:
                     else:
                         needs_likes.append(track_id)
 
-            # 4. Bulk-ingest new tracks (1 query via ingest_external_tracks_bulk)
+            # 4. Bulk-ingest new tracks through the resolution service
             new_in_batch = 0
             ingested: list[Track] = []
             if new_tracks:
                 try:
-                    ingested = await repo.ingest_external_tracks_bulk(
-                        service, new_tracks, user_id=command.user_id
+                    ingested = await self.resolution.ingest(
+                        service, new_tracks, uow, user_id=command.user_id
                     )
                     for track in ingested:
                         if track.id:

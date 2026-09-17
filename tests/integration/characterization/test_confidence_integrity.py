@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.persistence.database.db_models import DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
@@ -45,8 +46,8 @@ class TestReingestRecordsFreshnessNotConfidence:
         connector_repo = uow.get_connector_repository()
 
         ct = _connector_track("sp_bump_001")
-        tracks = await connector_repo.ingest_external_tracks_bulk(
-            "spotify", [ct], user_id="default"
+        tracks = await TrackResolutionService().ingest(
+            "spotify", [ct], uow, user_id="default"
         )
         track_id = tracks[0].id
 
@@ -64,9 +65,7 @@ class TestReingestRecordsFreshnessNotConfidence:
         await db_session.flush()
 
         # Re-encounter the same connector track.
-        await connector_repo.ingest_external_tracks_bulk(
-            "spotify", [ct], user_id="default"
-        )
+        await TrackResolutionService().ingest("spotify", [ct], uow, user_id="default")
 
         row = (
             await db_session.execute(
