@@ -22,22 +22,12 @@ from src.infrastructure.persistence.database.models.base import (
     PgJsonb,
     PgUuidCol,
     UuidType,
+    vocabulary_check,
 )
 from src.infrastructure.persistence.database.models.track import (
     DBConnectorTrack,
     DBTrack,
 )
-
-
-def _vocabulary_check(column_name: str, vocabulary: frozenset[str]) -> str:
-    """Render an ``IN`` predicate over a domain vocabulary.
-
-    Sorted so the DDL text is deterministic: the migration that created the
-    constraint inlines the same sorted list, and a constraint whose text drifts
-    between the two is a schema the tests never run against.
-    """
-    members = ", ".join(f"'{value}'" for value in sorted(vocabulary))
-    return f"{column_name} IN ({members})"
 
 
 class DBTrackMapping(BaseEntity):
@@ -155,11 +145,11 @@ class DBTrackMapping(BaseEntity):
         # recreates the constraint — the Literal alias alone does not migrate
         # the database.
         CheckConstraint(
-            _vocabulary_check("match_method", MATCH_METHODS),
+            vocabulary_check("match_method", MATCH_METHODS),
             name="match_method_vocabulary",
         ),
         CheckConstraint(
-            _vocabulary_check("origin", MAPPING_ORIGINS),
+            vocabulary_check("origin", MAPPING_ORIGINS),
             name="origin_vocabulary",
         ),
         # Performance indexes for common lookup patterns
@@ -229,7 +219,7 @@ class DBMatchReview(BaseEntity):
         # mapping carrying this method. Growing the vocabulary means a new
         # migration (054).
         CheckConstraint(
-            _vocabulary_check("match_method", MATCH_METHODS),
+            vocabulary_check("match_method", MATCH_METHODS),
             name="match_method_vocabulary",
         ),
         Index("ix_match_reviews_status", "status"),

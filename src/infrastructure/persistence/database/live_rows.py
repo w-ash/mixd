@@ -39,7 +39,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 from sqlalchemy.orm.util import identity_key
 
-from src.infrastructure.persistence.database.models import DBTrack, DBTrackMapping
+from src.infrastructure.persistence.database.models import (
+    DatabaseModel,
+    DBTrack,
+    DBTrackMapping,
+)
 
 # Execution option that turns the filter off for one statement.
 INCLUDE_SUPERSEDED = "include_superseded"
@@ -107,6 +111,7 @@ def expire_mapping_identity(
     *,
     mapping_ids: Iterable[UUID] = (),
     track_ids: Iterable[UUID] = (),
+    model: type[DatabaseModel] = DBTrackMapping,
 ) -> None:
     """Drop stale in-session copies after a Core-level mapping mutation.
 
@@ -118,12 +123,14 @@ def expire_mapping_identity(
 
     Targeted on purpose: expiring exactly the touched objects, rather than
     forcing ``populate_existing`` on every hot track read, keeps the cost
-    proportional to what actually changed.
+    proportional to what actually changed. ``model`` is the mapping table
+    the ids belong to — ``track_mappings`` unless the generic mapping
+    repository names another.
     """
     sync_session = session.sync_session
     identities = sync_session.identity_map
     for mapping_id in mapping_ids:
-        instance = identities.get(identity_key(DBTrackMapping, mapping_id))
+        instance = identities.get(identity_key(model, mapping_id))
         if instance is not None:
             sync_session.expire(instance)
     for track_id in track_ids:

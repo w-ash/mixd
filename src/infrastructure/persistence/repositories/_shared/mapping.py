@@ -45,7 +45,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.util import identity_key
 from sqlalchemy.sql.elements import KeyedColumnElement
 
 from src.config import get_logger
@@ -65,6 +64,9 @@ from src.domain.repositories.resolution import (
     ResolutionDecision,
     ResolutionRecorderProtocol,
     SupersessionEdge,
+)
+from src.infrastructure.persistence.database.live_rows import (
+    expire_mapping_identity,
 )
 from src.infrastructure.persistence.database.models import DatabaseModel
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
@@ -133,21 +135,6 @@ class MappingShape:
     connector_id_col: str
     live_key: tuple[str, ...]
     supersession: bool
-
-    def __attrs_post_init__(self) -> None:
-        """Reject a live key the incumbent read cannot reconstruct.
-
-        ``_live_incumbents`` keys what it reads by ``user_id``, the connector
-        id column and ``connector_name``; a live key spelled over any other
-        column would silently never match an incumbent.
-        """
-        allowed = {"user_id", self.connector_id_col, "connector_name"}
-        unknown = sorted(set(self.live_key) - allowed)
-        if unknown:
-            raise ValueError(
-                f"MappingShape({self.entity_kind!r}): live_key names column(s) "
-                f"{unknown} outside {sorted(allowed)}"
-            )
 
     @property
     def required_keys(self) -> tuple[str, ...]:
@@ -396,17 +383,10 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
 
     # ── hooks ────────────────────────────────────────────────────────
 
-    async def _after_promotion(
-        self,
-        promoted: Sequence[PrimaryCandidate],
-        *,
-        external_ids: Mapping[UUID, str] | None,
-    ) -> None:
+    async def _after_promotion(self, promoted: Sequence[PrimaryCandidate]) -> None:
         """Run after a promotion landed, with exactly the pairs that moved.
 
         The track instantiation syncs ``tracks.spotify_id``/``mbid`` here.
-        ``external_ids`` is the connector-row-id → external-identifier map a
-        caller already holds, so the hook need not look it up again.
         """
 
     def _expire_owner_identity(self, owner_ids: Sequence[UUID]) -> None:
@@ -419,20 +399,13 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
 
     # ── live scoping ─────────────────────────────────────────────────
 
-    def live_only(self) -> ColumnElement[bool]:
-        """The live-rows predicate for a Core statement on this table."""
-        return self.columns.live
-
     def _expire_identity(
         self, *, mapping_ids: Sequence[UUID], owner_ids: Sequence[UUID]
     ) -> None:
         """Drop stale in-session copies after a Core-level mapping mutation."""
-        sync_session = self.session.sync_session
-        identities = sync_session.identity_map
-        for mapping_id in mapping_ids:
-            instance = identities.get(identity_key(self.model_class, mapping_id))
-            if instance is not None:
-                sync_session.expire(instance)
+        expire_mapping_identity(
+            self.session, mapping_ids=mapping_ids, model=self.model_class
+        )
         self._expire_owner_identity(owner_ids)
 
     # ── assert ───────────────────────────────────────────────────────
@@ -480,7 +453,9 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
                 # Savepoint per attempt: a unique violation poisons the
                 # transaction, so a retry needs a clean point to resume from.
                 async with self.session.begin_nested():
-                    return await self._assert_once(prepared, reason)
+                    if self.shape.supersession:
+                        return await self._assert_superseding(prepared, reason)
+                    return await self._assert_in_place(prepared, reason)
             except IntegrityError as error:
                 if remaining <= 0 or not _is_unique_violation(error):
                     raise
@@ -527,78 +502,65 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
             confidence_evidence=cast("JsonDict | None", row["confidence_evidence"]),
         )
 
+    def _key_predicate(
+        self, prepared: Sequence[Mapping[str, object]]
+    ) -> ColumnElement[bool]:
+        """Rows on any of this batch's live keys."""
+        return tuple_(*self.columns.live_key).in_([
+            self._key_of(row) for row in prepared
+        ])
+
+    async def _live_primary_keys(
+        self, prepared: Sequence[Mapping[str, object]]
+    ) -> set[tuple[object, ...]]:
+        """This batch's live keys whose row currently holds primacy.
+
+        All a superseding assert needs of its incumbents. Read *before* the
+        upsert because the upsert destroys the answer: a retired row's
+        ``is_primary`` is cleared in the same statement, and ``RETURNING``
+        reports post-update values.
+        """
+        cols = self.columns
+        result = await self.session.execute(
+            select(*cols.live_key).where(
+                self._key_predicate(prepared), cols.is_primary.is_(True), cols.live
+            )
+        )
+        keys = cast("Sequence[Sequence[object]]", result.all())
+        return {tuple(key) for key in keys}
+
     async def _live_incumbents(
         self, prepared: Sequence[Mapping[str, object]]
     ) -> dict[tuple[object, ...], _Incumbent]:
         """What each of this batch's live keys currently holds, by key.
 
-        Read *before* the upsert because the upsert destroys the answer: a
-        retired or rewritten row's ``is_primary`` is cleared in the same
-        statement, and ``RETURNING`` reports post-update values.
+        The in-place assert needs the whole decision to tell a touch from a
+        rewrite; read before the upsert for the same reason as
+        :meth:`_live_primary_keys`.
         """
         cols = self.columns
         result = await self.session.execute(
             select(
                 cols.id,
-                cols.user_id,
-                cols.connector_id,
-                cols.connector_name,
                 cols.owner_id,
                 cols.confidence,
                 cols.match_method,
                 cols.origin,
                 cols.is_primary,
-            ).where(
-                tuple_(*cols.live_key).in_([self._key_of(row) for row in prepared]),
-                cols.live,
-            )
+                *cols.live_key,
+            ).where(self._key_predicate(prepared), cols.live)
         )
-        incumbents: dict[tuple[object, ...], _Incumbent] = {}
-        for (
-            mapping_id,
-            user_id,
-            connector_id,
-            connector_name,
-            owner_id,
-            confidence,
-            match_method,
-            origin,
-            is_primary,
-        ) in result.tuples():
-            named: dict[str, object] = {
-                "user_id": user_id,
-                self.shape.connector_id_col: connector_id,
-                "connector_name": connector_name,
-            }
-            incumbents[self._key_of(named)] = _Incumbent(
-                id=mapping_id,
-                owner_id=owner_id,
-                confidence=confidence,
-                match_method=match_method,
-                origin=origin,
-                is_primary=is_primary,
-            )
-        return incumbents
-
-    async def _assert_once(
-        self, prepared: list[dict[str, object]], reason: SupersessionReason
-    ) -> MappingAssertion:
-        """One attempt: upsert-or-supersede (or rewrite), then the successors."""
-        incumbents = await self._live_incumbents(prepared)
-        if self.shape.supersession:
-            return await self._assert_superseding(prepared, reason, incumbents)
-        return await self._assert_in_place(prepared, reason, incumbents)
+        # (*decision columns, *live_key) — the key's width is the shape's.
+        rows = cast("Sequence[Sequence[object]]", result.all())
+        return {tuple(row[6:]): _Incumbent._make(row[:6]) for row in rows}
 
     async def _assert_superseding(
-        self,
-        prepared: list[dict[str, object]],
-        reason: SupersessionReason,
-        incumbents: Mapping[tuple[object, ...], _Incumbent],
+        self, prepared: list[dict[str, object]], reason: SupersessionReason
     ) -> MappingAssertion:
         """The append-only write: touch, or retire the incumbent and insert a successor."""
         cols = self.columns
         successor_pointer = cols.successor_pointer
-        primary_keys = {key for key, row in incumbents.items() if row.is_primary}
+        primary_keys = await self._live_primary_keys(prepared)
 
         insert_stmt = pg_insert(self.model_class).values(prepared)
         excluded = MappingColumns.of(insert_stmt.excluded, self.shape)
@@ -711,10 +673,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         )
 
     async def _assert_in_place(
-        self,
-        prepared: list[dict[str, object]],
-        reason: SupersessionReason,
-        incumbents: Mapping[tuple[object, ...], _Incumbent],
+        self, prepared: list[dict[str, object]], reason: SupersessionReason
     ) -> MappingAssertion:
         """The plain write for a table without supersession: touch or rewrite.
 
@@ -735,6 +694,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         knowing, and its prior owner, which nobody read, cannot be reported
         as vacated.
         """
+        incumbents = await self._live_incumbents(prepared)
         cols = self.columns
         insert_stmt = pg_insert(self.model_class).values(prepared)
         excluded = MappingColumns.of(insert_stmt.excluded, self.shape)
@@ -859,12 +819,8 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
 
     @db_operation("ensure_primaries")
     async def ensure_primaries(
-        self,
-        candidates: Sequence[PrimaryCandidate],
-        *,
-        mode: ElectionMode,
-        external_ids: Mapping[UUID, str] | None = None,
-    ) -> int:
+        self, candidates: Sequence[PrimaryCandidate], *, mode: ElectionMode
+    ) -> list[PrimaryCandidate]:
         """Elect the named mapping primary for each (owner, connector) pair.
 
         The one election. ``fill`` promotes into a vacancy only: the ``NOT
@@ -886,8 +842,8 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         for one pair in one batch would therefore both pass the guard and
         collide.
 
-        Returns the number of mappings promoted; a ``fill`` over an occupied
-        pair promotes nothing and is not an error. A ``reset`` that promotes
+        Returns the candidates promoted; a ``fill`` over an occupied pair
+        promotes nothing and is not an error. A ``reset`` that promotes
         fewer pairs than it was asked to *is*: the deposition already ran, so
         releasing the savepoint would leave those pairs with no primary and a
         denormalized column pointing at the deposed row. The ``ValueError``
@@ -895,7 +851,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         a stale-id cache entry, or was retired under the caller's feet.
         """
         if not candidates:
-            return 0
+            return []
         deduped: dict[tuple[UUID, str], PrimaryCandidate] = {}
         for candidate in candidates:
             _ = deduped.setdefault(
@@ -905,12 +861,10 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         async with self.session.begin_nested():
             if mode == "reset":
                 await self._reset_primaries(elect)
-            promoted = await self._promote_into_vacancies(
-                elect, external_ids=external_ids
-            )
-            if mode == "reset" and promoted < len(elect):
+            promoted = await self._promote_into_vacancies(elect)
+            if mode == "reset" and len(promoted) < len(elect):
                 raise ValueError(
-                    f"reset election promoted {promoted} of {len(elect)} "
+                    f"reset election promoted {len(promoted)} of {len(elect)} "
                     f"{self.shape.entity_kind} mapping(s): a named mapping is "
                     "not live or is a stale-id row and cannot be primary"
                 )
@@ -940,12 +894,26 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
                 .values(is_primary=False)
             )
 
+    def _no_live_primary(self) -> ColumnElement[bool]:
+        """No live primary on the row's (user, owner, connector) pair — the vacancy guard."""
+        cols = self.columns
+        peer = MappingColumns.of(self.table.alias("peer").c, self.shape)
+        return (
+            ~select(peer.id)
+            .where(
+                peer.user_id == cols.user_id,
+                peer.owner_id == cols.owner_id,
+                peer.connector_name == cols.connector_name,
+                peer.is_primary.is_(True),
+                peer.live,
+            )
+            .correlate(self.table)
+            .exists()
+        )
+
     async def _promote_into_vacancies(
-        self,
-        candidates: Sequence[PrimaryCandidate],
-        *,
-        external_ids: Mapping[UUID, str] | None,
-    ) -> int:
+        self, candidates: Sequence[PrimaryCandidate]
+    ) -> list[PrimaryCandidate]:
         """Fill a vacant primary slot for each pair, in one statement.
 
         ``candidates`` is one per (owner, connector) — :meth:`ensure_primaries`
@@ -963,7 +931,6 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
             name="promotion_values",
         ).data([(c.owner_id, c.connector_id) for c in candidates])
 
-        peer = MappingColumns.of(self.table.alias("peer").c, self.shape)
         result = await self.session.execute(
             update(self.model_class)
             .where(
@@ -971,16 +938,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
                 cols.connector_id == promotion_values.c.connector_id,
                 cols.live,
                 cols.electable,
-                ~select(peer.id)
-                .where(
-                    peer.user_id == cols.user_id,
-                    peer.owner_id == cols.owner_id,
-                    peer.connector_name == cols.connector_name,
-                    peer.is_primary.is_(True),
-                    peer.live,
-                )
-                .correlate(self.table)
-                .exists(),
+                self._no_live_primary(),
             )
             .values(is_primary=True)
             .returning(cols.owner_id, cols.connector_name, cols.connector_id)
@@ -988,8 +946,8 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         )
         promoted = list(starmap(PrimaryCandidate, result.tuples().all()))
         if promoted:
-            await self._after_promotion(promoted, external_ids=external_ids)
-        return len(promoted)
+            await self._after_promotion(promoted)
+        return promoted
 
     @db_operation("repair_missing_primaries")
     async def repair_missing_primaries(
@@ -1011,7 +969,6 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         identity and is not a vacancy.
         """
         cols = self.columns
-        peer = MappingColumns.of(self.table.alias("peer").c, self.shape)
         vacancies = (
             select(
                 cols.id,
@@ -1024,16 +981,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
                 cols.user_id == user_id,
                 cols.live,
                 cols.electable,
-                ~select(peer.id)
-                .where(
-                    peer.user_id == cols.user_id,
-                    peer.owner_id == cols.owner_id,
-                    peer.connector_name == cols.connector_name,
-                    peer.is_primary.is_(True),
-                    peer.live,
-                )
-                .correlate(self.table)
-                .exists(),
+                self._no_live_primary(),
             )
             .distinct(cols.owner_id, cols.connector_name)
             .order_by(
@@ -1064,12 +1012,12 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
             ],
             mode="fill",
         )
-        if promoted != len(elected):
+        if len(promoted) != len(elected):
             logger.warning(
                 "Primary repair promoted fewer pairs than it elected",
                 user_id=user_id,
                 elected=len(elected),
-                promoted=promoted,
+                promoted=len(promoted),
             )
         return elected
 

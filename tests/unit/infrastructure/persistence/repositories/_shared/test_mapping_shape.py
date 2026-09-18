@@ -2,11 +2,11 @@
 
 A ``MappingShape`` is the only thing that tells ``MappingRepository`` how to
 address a table, and the two can disagree in ways the type system cannot see:
-a ``live_key`` spelled over a column the incumbent read never selects, or a
-``supersession=True`` shape on a table missing one of the three supersession
-columns (``supersession_reason`` in particular is only ever a string key in
-the assert's ``set_``, so nothing else would notice). Both must fail at
-construction, naming the shape and the table — not on the first assert.
+a shape column the table lacks, or a ``supersession=True`` shape on a table
+missing one of the three supersession columns (``supersession_reason`` in
+particular is only ever a string key in the assert's ``set_``, so nothing
+else would notice). Both must fail at construction, naming the shape and the
+table — not on the first assert.
 
 No database: the probe models are declared on their own ``DeclarativeBase``
 and never created.
@@ -74,16 +74,13 @@ class _Mapper(BaseModelMapper[DBPlainProbe, DBPlainProbe]):
 
 
 def _shape(
-    *,
-    owner_id_col: str = "album_id",
-    live_key: tuple[str, ...] = ("user_id", "connector_album_id"),
-    supersession: bool = False,
+    *, owner_id_col: str = "album_id", supersession: bool = False
 ) -> MappingShape:
     return MappingShape(
         entity_kind="album",
         owner_id_col=owner_id_col,
         connector_id_col="connector_album_id",
-        live_key=live_key,
+        live_key=("user_id", "connector_album_id"),
         supersession=supersession,
     )
 
@@ -97,18 +94,6 @@ def _repo[DBM: _ProbeBase](
         mapper=BaseModelMapper[DBM, DBM](),
         shape=shape,
     )
-
-
-class TestLiveKeyValidation:
-    def test_a_live_key_over_the_incumbent_read_columns_is_accepted(self):
-        shape = _shape(live_key=("user_id", "connector_album_id", "connector_name"))
-        assert shape.live_key == ("user_id", "connector_album_id", "connector_name")
-
-    def test_a_live_key_naming_another_column_is_rejected_by_name(self):
-        with pytest.raises(
-            ValueError, match=r"MappingShape\('album'\).*\['album_id'\]"
-        ):
-            _ = _shape(live_key=("user_id", "album_id"))
 
 
 class TestTableColumnValidation:

@@ -219,7 +219,6 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
                 "user_id": user_id,
                 "track_id": track_id,
                 "service": service,
-                "updated_at": now,
                 "liked_at": liked_at or now,
             }
             for track_id, service, liked_at in likes

@@ -53,6 +53,17 @@ convention = {
 metadata = MetaData(naming_convention=convention)
 
 
+def vocabulary_check(column_name: str, vocabulary: frozenset[str]) -> str:
+    """Render an ``IN`` predicate over a domain vocabulary.
+
+    Sorted so the DDL text is deterministic: the migration that created the
+    constraint inlines the same sorted list, and a constraint whose text drifts
+    between the two is a schema the tests never run against.
+    """
+    members = ", ".join(f"'{value}'" for value in sorted(vocabulary))
+    return f"{column_name} IN ({members})"
+
+
 class DatabaseModel(AsyncAttrs, DeclarativeBase):
     """Foundation model for all database entities.
 

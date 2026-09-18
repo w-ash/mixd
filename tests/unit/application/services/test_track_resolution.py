@@ -7,6 +7,7 @@ with what — against ``make_mock_uow``.
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 from attrs import evolve
 
@@ -75,15 +76,26 @@ def _uow(
             for t in tracks
         ]
     )
-    track_repo.save_track = AsyncMock(
-        side_effect=lambda t: evolve(t, version=t.version + 1)
+    track_repo.fill_blank_metadata = AsyncMock(
+        side_effect=lambda fills: [evolve(t, version=t.version + 1) for t in fills]
     )
-    connector_repo.upsert_connector_tracks = AsyncMock(
-        side_effect=lambda _connector, tracks: {
-            t.connector_track_identifier: t for t in tracks
+    # ``existing`` is keyed by external id as the test reads it; the seam
+    # answers by the row ids the upsert handed out.
+    stored_rows: dict[UUID, str] = {}
+
+    def _upsert(_connector, tracks):
+        stored_rows.update({t.id: t.connector_track_identifier for t in tracks})
+        return {t.connector_track_identifier: t for t in tracks}
+
+    def _mapped(row_ids, *, user_id):
+        return {
+            row_id: track
+            for row_id in row_ids
+            if (track := (existing or {}).get((CONNECTOR, stored_rows.get(row_id))))
         }
-    )
-    connector_repo.find_tracks_by_connectors = AsyncMock(return_value=existing or {})
+
+    connector_repo.upsert_connector_tracks = AsyncMock(side_effect=_upsert)
+    connector_repo.find_tracks_by_connector_track_ids = AsyncMock(side_effect=_mapped)
     connector_repo.touch_last_seen = AsyncMock(return_value=None)
     connector_repo.map_tracks_to_connectors = AsyncMock(
         side_effect=lambda specs, **_: [
@@ -351,7 +363,7 @@ class TestIsrcReuseBackfill:
             user_id=TEST_USER_ID,
         )
 
-        (saved,) = uow.get_track_repository().save_track.await_args.args
+        ((saved,),) = uow.get_track_repository().fill_blank_metadata.await_args.args
         assert saved.id == owner.id
         assert saved.duration_ms == 245_733
         assert saved.album == "Mixed"
@@ -378,7 +390,7 @@ class TestIsrcReuseBackfill:
             user_id=TEST_USER_ID,
         )
 
-        (saved,) = uow.get_track_repository().save_track.await_args.args
+        ((saved,),) = uow.get_track_repository().fill_blank_metadata.await_args.args
         assert saved.album == "Original"
         assert saved.duration_ms == 245_733
 
@@ -392,7 +404,7 @@ class TestIsrcReuseBackfill:
             CONNECTOR, [_payload("sp_1", isrc=ISRC)], uow, user_id=TEST_USER_ID
         )
 
-        uow.get_track_repository().save_track.assert_not_awaited()
+        uow.get_track_repository().fill_blank_metadata.assert_not_awaited()
 
     async def test_a_name_reuse_never_backfills(self):
         """A name reuse was accepted on the owner's own duration; the ISRC is
@@ -407,11 +419,11 @@ class TestIsrcReuseBackfill:
         )
 
         assert result[0].id == owner.id
-        uow.get_track_repository().save_track.assert_not_awaited()
+        uow.get_track_repository().fill_blank_metadata.assert_not_awaited()
 
     async def test_two_payloads_on_one_owner_update_the_fresh_version(self):
-        """The second backfill starts from the row the first one returned,
-        not from the stale probe answer — or it would trip optimistic locking."""
+        """Both payloads fold into one write of the owner: the second fills
+        from the first's result, and every spec maps the bumped row."""
         owner = make_track(
             title="Ibrik",
             artist="Bonobo",
@@ -432,13 +444,12 @@ class TestIsrcReuseBackfill:
             user_id=TEST_USER_ID,
         )
 
-        first, second = (
-            call.args[0]
-            for call in uow.get_track_repository().save_track.await_args_list
-        )
-        assert first.version == 1
-        assert second.version == 2
-        assert second.album == "Mixed"
+        (fills,) = uow.get_track_repository().fill_blank_metadata.await_args.args
+        (filled,) = fills
+        assert filled.version == 1
+        assert filled.duration_ms == 245_733
+        assert filled.album == "Mixed"
+        assert [spec.track.version for spec in _specs(uow)] == [2, 2]
 
 
 class TestEmptyInput:

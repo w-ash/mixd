@@ -6,21 +6,30 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar, Final, Literal, NamedTuple, cast
 from uuid import UUID, uuid7
 
+from attrs import evolve
 from sqlalchemy import (
     ColumnElement,
+    DateTime,
+    Integer,
     Select,
     String,
     and_,
     bindparam,
     cast as sa_cast,
+    column as sa_column,
     delete,
     func,
     or_,
     select,
     text,
     update,
+    values as sa_values,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
+from sqlalchemy.dialects.postgresql import (
+    ARRAY,
+    UUID as PGUUID,
+    insert as pg_insert,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -589,6 +598,63 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
         return [saved[index] for index in range(len(tracks))]
 
+    @db_operation("fill_blank_metadata")
+    async def fill_blank_metadata(self, fills: Sequence[Track]) -> list[Track]:
+        """Fill blank descriptive columns on a batch of persisted tracks.
+
+        One ``UPDATE … FROM (VALUES …)``: each column takes the row's own
+        value where it has one and the fill otherwise, so a value another
+        writer set since the caller read the row survives. Versioned like
+        ``save_track`` — a row whose version moved is not written and raises
+        ``OptimisticLockError``. Nothing else on the row changes, so the
+        returned tracks are the inputs at their bumped version.
+        """
+        if not fills:
+            return []
+        fill_values = sa_values(
+            sa_column("id", PGUUID(as_uuid=True)),
+            sa_column("user_id", String()),
+            sa_column("version", Integer()),
+            sa_column("duration_ms", Integer()),
+            sa_column("album", String()),
+            sa_column("release_date", DateTime(timezone=True)),
+            name="fill_values",
+        ).data([
+            (t.id, t.user_id, t.version, t.duration_ms, t.album, t.release_date)
+            for t in fills
+        ])
+        result = await self.session.execute(
+            update(DBTrack)
+            .where(
+                DBTrack.id == fill_values.c.id,
+                DBTrack.user_id == fill_values.c.user_id,
+                DBTrack.version == fill_values.c.version,
+            )
+            # A NULL fill renders as an untyped literal; the casts keep each
+            # COALESCE over one type.
+            .values(
+                duration_ms=func.coalesce(
+                    DBTrack.duration_ms, sa_cast(fill_values.c.duration_ms, Integer)
+                ),
+                album=func.coalesce(
+                    DBTrack.album, sa_cast(fill_values.c.album, String)
+                ),
+                release_date=func.coalesce(
+                    DBTrack.release_date,
+                    sa_cast(fill_values.c.release_date, DateTime(timezone=True)),
+                ),
+                version=DBTrack.version + 1,
+                updated_at=datetime.now(UTC),
+            )
+            .returning(DBTrack.id)
+            .execution_options(synchronize_session=False)
+        )
+        written = set(result.scalars().all())
+        for track in fills:
+            if track.id not in written:
+                raise OptimisticLockError(track.id, track.version)
+        return [evolve(track, version=track.version + 1) for track in fills]
+
     async def _claimed_identity_keys(
         self, rows: Sequence[Mapping[str, object]]
     ) -> set[tuple[str, str, str]]:
@@ -604,30 +670,29 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             for name, _user, value in _identity_keys(row):
                 wanted[name].add(value)
 
-        predicates: list[ColumnElement[bool]] = []
-        if wanted["isrc"]:
-            predicates.append(DBTrack.isrc.in_(sorted(wanted["isrc"])))
-        if wanted["mbid"]:
-            predicates.append(DBTrack.mbid.in_(sorted(wanted["mbid"])))
-        if wanted["spotify_id"]:
-            predicates.append(DBTrack.spotify_id.in_(sorted(wanted["spotify_id"])))
+        columns: dict[str, InstrumentedAttribute[str | None]] = {
+            name: getattr(DBTrack, name) for name in _IDENTITY_COLUMNS
+        }
+        predicates = [
+            columns[name].in_(sorted(values))
+            for name, values in wanted.items()
+            if values
+        ]
         if not predicates:
             return set()
 
         result = await self.session.execute(
-            select(
-                DBTrack.user_id, DBTrack.isrc, DBTrack.mbid, DBTrack.spotify_id
-            ).where(DBTrack.user_id.in_(sorted(users)), or_(*predicates))
-        )
-        return {
-            (name, user_id, value)
-            for user_id, isrc, mbid, spotify_id in result.tuples()
-            for name, value in (
-                ("isrc", isrc),
-                ("mbid", mbid),
-                ("spotify_id", spotify_id),
+            select(DBTrack.user_id, *columns.values()).where(
+                DBTrack.user_id.in_(sorted(users)), or_(*predicates)
             )
-            if value is not None and value in wanted[name]
+        )
+        # (user_id, *identity columns) — the row's width is ``_IDENTITY_COLUMNS``'.
+        held = cast("Sequence[Sequence[object]]", result.all())
+        return {
+            (name, cast("str", user_id), value)
+            for user_id, *values in held
+            for name, value in zip(columns, values, strict=True)
+            if isinstance(value, str) and value in wanted[name]
         }
 
     # -------------------------------------------------------------------------

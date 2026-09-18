@@ -112,7 +112,7 @@ type ImportKind = Literal["file", "api"]
 # Play events page newest-first on ``(played_at, id)``; the cursor codec and
 # the repository seek read this one declaration.
 PLAY_EVENT_SORT: Final = KeysetSort(
-    "played_at_desc", "played_at", "desc", is_datetime=True
+    "played_at", "desc", is_datetime=True, key="played_at_desc"
 )
 
 type PlaySortBy = Literal[

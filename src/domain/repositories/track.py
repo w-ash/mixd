@@ -18,7 +18,7 @@ from src.domain.matching.types import (
     ProgressCallback,
     RawProviderMatch,
 )
-from src.domain.repositories.keyset import KeysetSort
+from src.domain.repositories.keyset import KeysetSort, sorts
 from src.domain.repositories.resolution import SupersessionEdge
 
 if TYPE_CHECKING:
@@ -99,24 +99,24 @@ DEFAULT_TRACK_SORT: Final[TrackSortBy] = "last_played_desc"
 
 # The one sort registry: the repository orders and seeks by it, the cursor
 # codec encodes by it. Keys are typed by the alias so a typo fails the type
-# checker; the unit suite checks each entry's ``key`` equals its mapping key
-# and that columns and flags agree with the ORM model.
-TRACK_SORTS: Final[Mapping[TrackSortBy, KeysetSort]] = {
-    "title_asc": KeysetSort("title_asc", "title", "asc"),
-    "title_desc": KeysetSort("title_desc", "title", "desc"),
-    "added_desc": KeysetSort("added_desc", "created_at", "desc", is_datetime=True),
-    "added_asc": KeysetSort("added_asc", "created_at", "asc", is_datetime=True),
-    "duration_asc": KeysetSort("duration_asc", "duration_ms", "asc", nullable=True),
-    "duration_desc": KeysetSort("duration_desc", "duration_ms", "desc", nullable=True),
-    "plays_desc": KeysetSort("plays_desc", "play_count", "desc"),
-    "plays_asc": KeysetSort("plays_asc", "play_count", "asc"),
+# checker; ``sorts`` stamps each entry's wire key from its mapping key, and
+# the unit suite checks that columns and flags agree with the ORM model.
+TRACK_SORTS: Final[Mapping[TrackSortBy, KeysetSort]] = sorts({
+    "title_asc": KeysetSort("title", "asc"),
+    "title_desc": KeysetSort("title", "desc"),
+    "added_desc": KeysetSort("created_at", "desc", is_datetime=True),
+    "added_asc": KeysetSort("created_at", "asc", is_datetime=True),
+    "duration_asc": KeysetSort("duration_ms", "asc", nullable=True),
+    "duration_desc": KeysetSort("duration_ms", "desc", nullable=True),
+    "plays_desc": KeysetSort("play_count", "desc"),
+    "plays_asc": KeysetSort("play_count", "asc"),
     "last_played_desc": KeysetSort(
-        "last_played_desc", "last_played_at", "desc", nullable=True, is_datetime=True
+        "last_played_at", "desc", nullable=True, is_datetime=True
     ),
     "last_played_asc": KeysetSort(
-        "last_played_asc", "last_played_at", "asc", nullable=True, is_datetime=True
+        "last_played_at", "asc", nullable=True, is_datetime=True
     ),
-}
+})
 
 
 def is_track_sort(value: str) -> TypeIs[TrackSortBy]:
@@ -153,6 +153,17 @@ class TrackRepositoryProtocol(Protocol):
 
     def save_track(self, track: Track) -> Awaitable[Track]:
         """Persist one track: optimistic-locked update, or the one-row insert."""
+        ...
+
+    def fill_blank_metadata(self, fills: Sequence[Track]) -> Awaitable[list[Track]]:
+        """Fill blank descriptive columns on persisted tracks, one statement per batch.
+
+        Only ``duration_ms``, ``album`` and ``release_date``, and only where
+        the row holds NULL: a value the row already has is never overwritten.
+        Optimistic-locked like ``save_track`` — a track whose version moved
+        raises ``OptimisticLockError``. Returns the tracks at their bumped
+        version, in input order.
+        """
         ...
 
     def save_tracks(self, tracks: Sequence[Track]) -> Awaitable[list[Track]]:

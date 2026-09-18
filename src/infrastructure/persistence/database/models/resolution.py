@@ -21,6 +21,7 @@ from src.infrastructure.persistence.database.models.base import (
     PgJsonb,
     PgUuidCol,
     UuidType,
+    vocabulary_check,
 )
 
 
@@ -93,9 +94,7 @@ class DBResolutionEvent(DatabaseModel):
         # 058). Growing it means a new migration that recreates the
         # constraint — the Literal alone does not migrate the database.
         CheckConstraint(
-            "entity_kind IN ({})".format(
-                ", ".join(f"'{kind}'" for kind in sorted(ENTITY_KINDS))
-            ),
+            vocabulary_check("entity_kind", ENTITY_KINDS),
             name="entity_kind_vocabulary",
         ),
         # Btree, not BRIN: tenant-scoped small-result queries, and uuid7
