@@ -284,14 +284,12 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             after_id=after_id,
         )
         rows = list((await self.session.execute(stmt)).scalars().all())
-        if len(rows) <= limit:
-            return rows, None
-        rows = rows[:limit]
-        if not rows:
-            return rows, None
-        last = rows[-1]
+        page = rows[:limit]
+        if len(rows) <= limit or not page:
+            return page, None
+        last = page[-1]
         next_value = cast("object", getattr(last, sort.column))
-        return rows, (next_value, last.id)
+        return page, (next_value, last.id)
 
     def count(
         self,

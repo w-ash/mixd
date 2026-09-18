@@ -114,6 +114,11 @@ def _not_stale_id(model: type[DBTrackMapping]) -> ColumnElement[bool]:
     return model.match_method.notin_(STALE_ID_METHODS)
 
 
+def _connector_id_map(stored: Sequence[ConnectorTrack]) -> dict[tuple[str, str], UUID]:
+    """Stored connector tracks keyed ``(connector, external id) -> row id``."""
+    return {(ct.connector_name, ct.connector_track_identifier): ct.id for ct in stored}
+
+
 def _vocabulary_match_method(value: str, *, row: UUID) -> MatchMethod:
     """Narrow a persisted ``match_method`` to the domain vocabulary.
 
@@ -312,12 +317,7 @@ class TrackMappingRepository(MappingRepository[DBTrackMapping, TrackMapping]):
         expire_mapping_identity(self.session, track_ids=owner_ids)
 
     @override
-    async def _after_promotion(
-        self,
-        promoted: Sequence[PrimaryCandidate],
-        *,
-        external_ids: Mapping[UUID, str] | None,
-    ) -> None:
+    async def _after_promotion(self, promoted: Sequence[PrimaryCandidate]) -> None:
         """Sync the fast-path column for pairs whose promotion actually landed.
 
         FM4d rule — the denormalized id must move ONLY when the promotion
@@ -328,30 +328,31 @@ class TrackMappingRepository(MappingRepository[DBTrackMapping, TrackMapping]):
         disagreement migration 044's pre-pass had to repair on 366 rows.
 
         The external identifier *string* is what the column stores, while
-        ``promoted`` only carries the connector track's UUID. Callers that came
-        in by external id already hold the mapping and pass it; the rest pay a
-        lookup, scoped to the promoted subset rather than every candidate.
+        ``promoted`` only carries the connector track's UUID; the lookup is
+        scoped to the promoted pairs on a connector that has a column at all
+        — most have none, and nothing to sync is not a failure.
 
         Written back one statement per denormalized *column* rather than one
         per row: the column name cannot be parameterised, so rows are grouped
-        by it and each group joins its own VALUES list. A connector with no
-        fast-path column is dropped by the ``COLUMN_MAP`` lookup — most of
-        them have none, and nothing to sync is not a failure.
+        by it and each group joins its own VALUES list.
         """
-        if external_ids is None:
-            ct_ids = [candidate.connector_id for candidate in promoted]
-            result = await self.session.execute(
-                select(
-                    DBConnectorTrack.id, DBConnectorTrack.connector_track_identifier
-                ).where(DBConnectorTrack.id.in_(ct_ids))
-            )
-            external_ids = dict(result.tuples().all())
+        denormalized = [
+            (track_id, column_name, ct_id)
+            for track_id, connector_name, ct_id in promoted
+            if (column_name := DENORMALIZED_ID_COLUMNS.get(connector_name))
+        ]
+        if not denormalized:
+            return
+        result = await self.session.execute(
+            select(
+                DBConnectorTrack.id, DBConnectorTrack.connector_track_identifier
+            ).where(DBConnectorTrack.id.in_([ct_id for _, _, ct_id in denormalized]))
+        )
+        external_ids = dict(result.tuples().all())
 
         by_column: dict[str, list[tuple[UUID, str]]] = defaultdict(list)
-        for track_id, connector_name, ct_id in promoted:
-            column_name = DENORMALIZED_ID_COLUMNS.get(connector_name)
-            external_id = external_ids.get(ct_id)
-            if column_name and external_id:
+        for track_id, column_name, ct_id in denormalized:
+            if external_id := external_ids.get(ct_id):
                 by_column[column_name].append((track_id, external_id))
 
         for column_name, pairs in by_column.items():
@@ -421,16 +422,7 @@ class TrackConnectorRepository:
             for td in tracks_data
         ]
 
-        connector_tracks = await self.connector_repo.bulk_upsert(
-            upsert_data,
-            lookup_keys=["connector_name", "connector_track_identifier"],
-            return_models=True,
-        )
-
-        return {
-            (ct.connector_name, ct.connector_track_identifier): ct.id
-            for ct in connector_tracks
-        }
+        return _connector_id_map(await self._upsert_connector_tracks(upsert_data))
 
     @db_operation("get_full_mappings_for_track")
     async def get_full_mappings_for_track(
@@ -526,29 +518,43 @@ class TrackConnectorRepository:
             }
             ct_ids = [ct.id for ct in connector_tracks]
 
-            mappings = await self.mapping_repo.find_by([
-                self.mapping_repo.model_class.connector_track_id.in_(ct_ids),
-                self.mapping_repo.model_class.user_id == user_id,
-            ])
-
-            # Create mapping from connector_track_id to track_id
-            track_ids = [m.track_id for m in mappings]
-
-            # Get unique track IDs and fetch tracks
-            if track_ids:
-                tracks_dict = await self.track_repo.find_tracks_by_ids(track_ids)
-
-                # Build the result mapping with O(1) lookups
-                for mapping in mappings:
-                    ct_id = mapping.connector_track_id
-                    track_id = mapping.track_id
-
-                    # Use dictionary lookups for efficient access
-                    if ct_id in ct_id_to_external_id and track_id in tracks_dict:
-                        conn_id = ct_id_to_external_id[ct_id]
-                        results[connector, conn_id] = tracks_dict[track_id]
+            by_ct_id = await self.find_tracks_by_connector_track_ids(
+                ct_ids, user_id=user_id
+            )
+            for ct_id, track in by_ct_id.items():
+                results[connector, ct_id_to_external_id[ct_id]] = track
 
         return results
+
+    @db_operation("find_tracks_by_connector_track_ids")
+    async def find_tracks_by_connector_track_ids(
+        self, connector_track_ids: Sequence[UUID], *, user_id: str
+    ) -> dict[UUID, Track]:
+        """The canonical each of these ``connector_tracks`` rows is live-mapped to.
+
+        Mappings alone answer it: only ``track_id``/``connector_track_id``
+        are read off the mapping rows (no relationship loads), and the
+        tracks are hydrated by id.
+        """
+        if not connector_track_ids:
+            return {}
+        mappings = await self.mapping_repo.find_by(
+            [
+                self.mapping_repo.model_class.connector_track_id.in_(
+                    list(connector_track_ids)
+                ),
+                self.mapping_repo.model_class.user_id == user_id,
+            ],
+            load_relationships=[],
+        )
+        tracks = await self.track_repo.find_tracks_by_ids([
+            m.track_id for m in mappings
+        ])
+        return {
+            m.connector_track_id: tracks[m.track_id]
+            for m in mappings
+            if m.track_id in tracks
+        }
 
     @db_operation("map_tracks_to_connectors")
     async def map_tracks_to_connectors(
@@ -595,8 +601,10 @@ class TrackConnectorRepository:
         connector_id_map = (
             dict(connector_track_ids)
             if connector_track_ids is not None
-            else await self._upsert_connector_tracks(
-                self._build_connector_track_rows(mappings)
+            else _connector_id_map(
+                await self._upsert_connector_tracks(
+                    self._build_connector_track_rows(mappings)
+                )
             )
         )
         mapping_rows = await self.mapping_repo.filter_manual_overrides(
@@ -617,9 +625,6 @@ class TrackConnectorRepository:
         # stale-id spec is never electable — a ``reset`` that cannot promote
         # what it deposed raises, so neither may reach it. Their pairs fall
         # through to the vacancy fill below instead.
-        external_by_ct_id = {
-            ct_id: external for (_, external), ct_id in connector_id_map.items()
-        }
         asserted = {
             (row["track_id"], row["connector_track_id"]) for row in mapping_rows
         }
@@ -634,16 +639,12 @@ class TrackConnectorRepository:
         ]
         if promote_to_primary:
             _ = await self.mapping_repo.ensure_primaries(
-                promote_to_primary, mode="reset", external_ids=external_by_ct_id
+                promote_to_primary, mode="reset"
             )
 
         if mapping_rows:
             await self._fill_primary_vacancies(
-                mappings,
-                asserted,
-                connector_id_map,
-                promote_to_primary,
-                external_by_ct_id=external_by_ct_id,
+                mappings, asserted, connector_id_map, promote_to_primary
             )
 
         # Note: metrics extraction lives in the application layer
@@ -700,17 +701,14 @@ class TrackConnectorRepository:
 
     async def _upsert_connector_tracks(
         self, rows: list[dict[str, object]]
-    ) -> dict[tuple[str, str], UUID]:
-        """Bulk upsert connector-track rows, returning an (name, external_id) -> id map."""
-        connector_tracks = await self.connector_repo.bulk_upsert(
-            rows,
-            lookup_keys=["connector_name", "connector_track_identifier"],
-            return_models=True,
+    ) -> list[ConnectorTrack]:
+        """The one ``connector_tracks`` write: bulk upsert on the external id.
+
+        Intra-batch duplicates are last-wins inside ``bulk_upsert``.
+        """
+        return await self.connector_repo.bulk_upsert(
+            rows, lookup_keys=["connector_name", "connector_track_identifier"]
         )
-        return {
-            (ct.connector_name, ct.connector_track_identifier): ct.id
-            for ct in connector_tracks
-        }
 
     async def _restore_superseded_primaries(
         self,
@@ -756,8 +754,6 @@ class TrackConnectorRepository:
         asserted: set[tuple[object, object]],
         connector_id_map: dict[tuple[str, str], UUID],
         promote_to_primary: list[PrimaryCandidate],
-        *,
-        external_by_ct_id: Mapping[UUID, str],
     ) -> None:
         """Elect a primary for every asserted pair that still lacks one.
 
@@ -786,9 +782,7 @@ class TrackConnectorRepository:
             and (spec.track.id, ct_id) in asserted
         ]
         if fill_vacancies:
-            _ = await self.mapping_repo.ensure_primaries(
-                fill_vacancies, mode="fill", external_ids=external_by_ct_id
-            )
+            _ = await self.mapping_repo.ensure_primaries(fill_vacancies, mode="fill")
 
     @staticmethod
     def _build_mapping_rows(
@@ -871,11 +865,10 @@ class TrackConnectorRepository:
         if not tracks:
             return {}
         now = datetime.now(UTC)
-        by_identifier = {track.connector_track_identifier: track for track in tracks}
         rows: list[dict[str, object]] = [
             build_connector_track_row(
                 connector,
-                identifier,
+                track.connector_track_identifier,
                 title=track.title,
                 artist_names=[a.name for a in track.artists],
                 album=track.album,
@@ -885,11 +878,9 @@ class TrackConnectorRepository:
                 raw_metadata=track.raw_metadata,
                 last_updated=now,
             )
-            for identifier, track in by_identifier.items()
+            for track in tracks
         ]
-        stored = await self.connector_repo.bulk_upsert(
-            rows, lookup_keys=["connector_name", "connector_track_identifier"]
-        )
+        stored = await self._upsert_connector_tracks(rows)
         return {ct.connector_track_identifier: ct for ct in stored}
 
     @db_operation("touch_last_seen")
@@ -1338,7 +1329,7 @@ class TrackConnectorRepository:
 
     async def ensure_primaries(
         self, candidates: Sequence[PrimaryCandidate], *, mode: ElectionMode
-    ) -> int:
+    ) -> list[PrimaryCandidate]:
         """Elect the named mapping primary for each pair — see the generic.
 
         The protocol-facing spelling of

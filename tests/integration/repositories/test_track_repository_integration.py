@@ -249,6 +249,60 @@ class TestTrackOptimisticLocking:
         assert saved.version == 1
 
 
+class TestFillBlankMetadata:
+    """One statement fills only the columns a row holds NULL in, under the version."""
+
+    async def test_only_blank_columns_take_the_fill_and_the_version_bumps(
+        self, db_session
+    ):
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        sparse, kept = await track_repo.save_tracks([
+            make_track(title=f"TEST_Fill_{uuid4()}", duration_ms=None, album=None),
+            make_track(title=f"TEST_Kept_{uuid4()}", duration_ms=100_000, album="Held"),
+        ])
+
+        filled = await track_repo.fill_blank_metadata([
+            evolve(sparse, duration_ms=245_733, album="Mixed"),
+            evolve(kept, duration_ms=245_733, album="Mixed"),
+        ])
+
+        assert [t.version for t in filled] == [2, 2]
+        assert (filled[0].duration_ms, filled[0].album) == (245_733, "Mixed")
+        rows = {
+            row.id: row
+            for row in (
+                await db_session.execute(
+                    select(
+                        DBTrack.id, DBTrack.duration_ms, DBTrack.album, DBTrack.version
+                    ).where(DBTrack.id.in_([sparse.id, kept.id]))
+                )
+            ).all()
+        }
+        assert (rows[sparse.id].duration_ms, rows[sparse.id].album) == (
+            245_733,
+            "Mixed",
+        )
+        assert (rows[kept.id].duration_ms, rows[kept.id].album) == (100_000, "Held")
+        assert {row.version for row in rows.values()} == {2}
+
+    async def test_a_stale_version_writes_nothing_and_raises(self, db_session):
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        saved = await track_repo.save_track(
+            make_track(title=f"TEST_Stale_Fill_{uuid4()}", duration_ms=None)
+        )
+        _ = await track_repo.save_track(evolve(saved, title="Moved on"))
+
+        with pytest.raises(OptimisticLockError) as exc_info:
+            _ = await track_repo.fill_blank_metadata([
+                evolve(saved, duration_ms=245_733)
+            ])
+
+        assert exc_info.value.expected_version == 1
+        reloaded = await track_repo.get_by_id(saved.id)
+        assert reloaded.duration_ms is None
+        assert reloaded.version == 2
+
+
 class TestFindTracksByTitleArtist:
     """Integration tests for find_tracks_by_title_artist batch lookup."""
 

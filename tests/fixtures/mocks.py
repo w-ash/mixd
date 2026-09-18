@@ -101,6 +101,7 @@ def make_mock_track_repo(**overrides) -> AsyncMock:
     )
     repo.save_track.side_effect = overrides.pop("save_track", None)
     repo.save_tracks.return_value = overrides.pop("save_tracks", [])
+    repo.fill_blank_metadata.side_effect = overrides.pop("fill_blank_metadata", list)
     repo.find_duplicate_tracks_by_fingerprint.return_value = overrides.pop(
         "find_duplicate_tracks_by_fingerprint", []
     )
@@ -128,6 +129,9 @@ def make_mock_connector_repo(**overrides) -> AsyncMock:
     repo = AsyncMock()
     repo.find_tracks_by_connectors.return_value = overrides.pop(
         "find_tracks_by_connectors", {}
+    )
+    repo.find_tracks_by_connector_track_ids.return_value = overrides.pop(
+        "find_tracks_by_connector_track_ids", {}
     )
     repo.upsert_connector_tracks.return_value = overrides.pop(
         "upsert_connector_tracks", {}

@@ -8,7 +8,7 @@ reviews — and nothing else: every decision is the planner's
 seam that only persists what it is handed.
 """
 
-from collections.abc import Hashable, Sequence
+from collections.abc import Hashable, Mapping, Sequence
 from uuid import UUID
 
 from attrs import Factory, define, evolve
@@ -92,13 +92,15 @@ class TrackResolutionService:
         )
 
         # Already mapped: resolved by the mapping alone, and the re-encounter
-        # is freshness, not a decision.
-        existing = await connector_repo.find_tracks_by_connectors(
-            [(connector, identifier) for identifier in payloads], user_id=user_id
+        # is freshness, not a decision. Keyed by the rows just stored, so the
+        # lookup is the mappings and the tracks, never the rows again.
+        existing = await connector_repo.find_tracks_by_connector_track_ids(
+            [stored[identifier].id for identifier in payloads], user_id=user_id
         )
         resolved: dict[str, Track] = {
             identifier: track.with_connector_track_id(connector, identifier)
-            for (_, identifier), track in existing.items()
+            for identifier in payloads
+            if (track := existing.get(stored[identifier].id)) is not None
         }
         if resolved:
             await connector_repo.touch_last_seen(
@@ -131,9 +133,13 @@ class TrackResolutionService:
 
         specs: list[ConnectorMappingSpec] = []
         reviews: list[MatchReview] = []
-        # Owners this batch has already backfilled, at their bumped version,
-        # so a second payload reusing the same owner updates the fresh row.
+        # ISRC owners with blank metadata filled from their payloads, written
+        # once for the batch and mapped at their bumped version.
         backfilled: dict[UUID, Track] = {}
+        if fills := _backfills(pending, plan, payloads):
+            backfilled = {
+                track.id: track for track in await track_repo.fill_blank_metadata(fills)
+            }
         for identifier in pending:
             outcome = plan[identifier]
             payload = payloads[identifier]
@@ -143,14 +149,6 @@ class TrackResolutionService:
                     canonical = created[_leader_of(outcome.leader)]
                 else:
                     canonical = backfilled.get(outcome.canonical.id, outcome.canonical)
-                    # An ISRC owner vouches for the recording, so its blank
-                    # metadata may take the payload's; a name reuse was
-                    # accepted *on* the owner's metadata and never edits it.
-                    if outcome.evidence.method == "isrc_match" and (
-                        filled := _backfill(canonical, payload)
-                    ):
-                        canonical = await track_repo.save_track(filled)
-                        backfilled[canonical.id] = canonical
                 logger.info(
                     f"Identity reuse: {connector}:{identifier} describes the "
                     f"recording canonical {canonical.id} already holds",
@@ -350,6 +348,31 @@ def _backfill(owner: Track, payload: ConnectorTrack) -> Track | None:
     if owner.release_date is None and payload.release_date is not None:
         changes["release_date"] = payload.release_date
     return evolve(owner, **changes) if changes else None
+
+
+def _backfills(
+    pending: Sequence[str],
+    plan: Mapping[str, Outcome[str, Track]],
+    payloads: Mapping[str, ConnectorTrack],
+) -> list[Track]:
+    """Every ISRC owner this batch reuses, with its blank metadata filled.
+
+    An ISRC owner vouches for the recording, so its blank metadata may take
+    the payload's; a name reuse was accepted *on* the owner's metadata and
+    never edits it. One entry per owner: a second payload on the same owner
+    fills from the first's result, so the batch writes each row once.
+    """
+    fills: dict[UUID, Track] = {}
+    for identifier in pending:
+        outcome = plan[identifier]
+        if outcome.kind != "reuse" or outcome.canonical is None:
+            continue
+        if outcome.evidence.method != "isrc_match":
+            continue
+        owner = fills.get(outcome.canonical.id, outcome.canonical)
+        if filled := _backfill(owner, payloads[identifier]):
+            fills[owner.id] = filled
+    return list(fills.values())
 
 
 def _leader_of(leader: str | None) -> str:

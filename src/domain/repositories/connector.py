@@ -240,6 +240,17 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    def find_tracks_by_connector_track_ids(
+        self, connector_track_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[dict[UUID, Track]]:
+        """The canonical each ``connector_tracks`` row id is live-mapped to.
+
+        Keyed by connector track id; a row with no live mapping for this
+        user is absent. The form for a caller that already holds the rows —
+        ``find_tracks_by_connectors`` is the same lookup from external ids.
+        """
+        ...
+
     def upsert_connector_tracks(
         self, connector: str, tracks: Sequence[ConnectorTrack]
     ) -> Awaitable[dict[str, ConnectorTrack]]:
@@ -283,7 +294,7 @@ class ConnectorRepositoryProtocol(Protocol):
 
     def ensure_primaries(
         self, candidates: Sequence[PrimaryCandidate], *, mode: ElectionMode
-    ) -> Awaitable[int]:
+    ) -> Awaitable[list[PrimaryCandidate]]:
         """Elect the named mapping primary for each (track, connector) pair.
 
         The one election every writer and repair goes through. ``fill``
@@ -301,7 +312,7 @@ class ConnectorRepositoryProtocol(Protocol):
             mode: See :data:`~src.domain.repositories.mapping.ElectionMode`.
 
         Returns:
-            Number of mappings promoted. A ``fill`` over an occupied pair
+            The candidates promoted. A ``fill`` over an occupied pair
             promotes nothing and is not an error.
         """
         ...

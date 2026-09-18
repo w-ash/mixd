@@ -297,7 +297,7 @@ class TestElection:
         promoted = await repo.ensure_primaries(
             [PrimaryCandidate(artist, "spotify", ca_a)], mode="fill"
         )
-        assert promoted == 1
+        assert promoted == [PrimaryCandidate(artist, "spotify", ca_a)]
         assert (await _rows(db_session, ca_a))[0].is_primary is True
 
         # Occupied: the higher-confidence sibling is not a mandate.
@@ -305,7 +305,7 @@ class TestElection:
             await repo.ensure_primaries(
                 [PrimaryCandidate(artist, "spotify", ca_b)], mode="fill"
             )
-            == 0
+            == []
         )
         assert (await _rows(db_session, ca_b))[0].is_primary is False
 
@@ -322,7 +322,7 @@ class TestElection:
             [PrimaryCandidate(artist, "spotify", ca_b)], mode="reset"
         )
 
-        assert promoted == 1
+        assert promoted == [PrimaryCandidate(artist, "spotify", ca_b)]
         assert (await _rows(db_session, ca_a))[0].is_primary is False
         assert (await _rows(db_session, ca_b))[0].is_primary is True
 

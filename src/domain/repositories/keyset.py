@@ -5,9 +5,10 @@ Application (cursor codec) and infrastructure (ORDER BY + seek) both read the
 same value, so a sort cannot be declared twice and drift.
 """
 
+from collections.abc import Mapping
 from typing import Literal
 
-from attrs import define
+from attrs import define, evolve, field
 
 type SortDirection = Literal["asc", "desc"]
 
@@ -18,18 +19,24 @@ class KeysetSort:
 
     ``key`` names the sort on the wire: it is what the cursor's ``"c"`` field
     carries, so a cursor minted under one sort is refused under another that
-    shares its column but not its direction. ``column`` is the model attribute
-    the repository orders by. ``nullable`` columns order NULLS LAST and need
-    the keyset's NULL arms; ``is_datetime`` columns travel through the cursor
-    as ISO strings.
+    shares its column but not its direction. A registry entry gets its key
+    from :func:`sorts`; a standalone sort names it explicitly. ``column`` is
+    the model attribute the repository orders by. ``nullable`` columns order
+    NULLS LAST and need the keyset's NULL arms; ``is_datetime`` columns travel
+    through the cursor as ISO strings.
     """
 
-    key: str
     column: str
     direction: SortDirection
     nullable: bool = False
     is_datetime: bool = False
+    key: str = field(default="", kw_only=True)
 
     @property
     def desc(self) -> bool:
         return self.direction == "desc"
+
+
+def sorts[K: str](entries: Mapping[K, KeysetSort]) -> Mapping[K, KeysetSort]:
+    """A sort registry whose every entry carries the name it is declared under."""
+    return {name: evolve(sort, key=name) for name, sort in entries.items()}

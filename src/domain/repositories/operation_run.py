@@ -15,7 +15,7 @@ from src.domain.repositories.keyset import KeysetSort
 # Runs page newest-first on ``(started_at, id)``; the cursor codec and the
 # repository seek read this one declaration.
 OPERATION_RUN_SORT: Final = KeysetSort(
-    "started_at_desc", "started_at", "desc", is_datetime=True
+    "started_at", "desc", is_datetime=True, key="started_at_desc"
 )
 
 
