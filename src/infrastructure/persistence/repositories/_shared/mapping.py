@@ -55,6 +55,7 @@ from src.domain.entities.track_mapping import (
     MatchMethod,
     SupersessionReason,
 )
+from src.domain.matching.types import final_score_of
 from src.domain.repositories.mapping import (
     ElectionMode,
     PrimaryCandidate,
@@ -100,14 +101,6 @@ _ASSERT_DEFAULTS: Final[Mapping[str, object]] = {
 # predicate; a pair whose only live rows are stale-id ones has no live identity
 # and is neither elected nor reported as a vacancy.
 STALE_ID_METHODS: Final[frozenset[MatchMethod]] = frozenset(STALE_ID_FOR.values())
-
-
-def evidence_score(evidence: JsonDict | None) -> float | None:
-    """The matcher's raw final score out of stored evidence, when it recorded one."""
-    if not evidence:
-        return None
-    score = evidence.get("final_score")
-    return float(score) if isinstance(score, (int, float)) else None
 
 
 @define(frozen=True, slots=True)
@@ -1060,7 +1053,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
                     track_id=row.owner_id,
                     resulting_mapping_id=row.id,
                     confidence=row.confidence,
-                    score=evidence_score(row.confidence_evidence),
+                    score=final_score_of(row.confidence_evidence),
                     zone="accept",
                 )
             )
@@ -1116,5 +1109,4 @@ __all__ = [
     "MappingColumns",
     "MappingRepository",
     "MappingShape",
-    "evidence_score",
 ]
