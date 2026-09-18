@@ -9,7 +9,6 @@ pricing, not a stub of it.
 from collections.abc import Hashable
 
 from attrs import define, evolve
-import pytest
 
 from src.config import create_matching_config
 from src.domain.entities import Artist, Track
@@ -19,13 +18,15 @@ from src.domain.matching.canonical_resolution import (
     DeferToReview,
     Described,
     Outcome,
+    Refusal,
     ResolutionEvidence,
     Reuse,
     TrackResolutionRules,
-    contest_review_for,
     plan_canonical_resolution,
     plan_resolution,
-    review_for,
+    price_reuse,
+    suspect_review,
+    track_name_key,
 )
 from src.domain.matching.recording_identity import (
     RecordingDescription,
@@ -47,10 +48,12 @@ def _described(
     duration_ms: int | None = 245_733,
     isrc: str | None = None,
 ) -> Described[str, RecordingDescription]:
+    description = RecordingDescription(title, artist, duration_ms)
     return Described(
         key=key,
-        description=RecordingDescription(title, artist, duration_ms),
+        description=description,
         strong_id=isrc,
+        name_key=track_name_key(description),
     )
 
 
@@ -152,8 +155,12 @@ class TestStrongIdOwners:
         ).values()
         assert isinstance(outcome, DeferToReview)
 
-        review = review_for(
-            outcome, connector="spotify", connector_track_id=owner.id, user_id="u"
+        review = suspect_review(
+            outcome.owner,
+            outcome.review,
+            connector="spotify",
+            connector_track_id=owner.id,
+            user_id="u",
         )
 
         assert review.track_id == owner.id
@@ -186,17 +193,17 @@ class TestStrongIdsInsideOneBatch:
 
         assert isinstance(plan["b"], Create)
         assert plan["b"].strong_id is None
-        assert plan["b"].contested_leader == "a"
         assert plan["b"].contest is not None
-        assert plan["b"].contest.method == "isrc_suspect"
-        assert plan["b"].contest.zone == "review"
+        assert plan["b"].contest.leader == "a"
+        assert plan["b"].contest.evidence.method == "isrc_suspect"
+        assert plan["b"].contest.evidence.zone == "review"
 
     def test_an_uncontested_creation_names_no_leader(self):
         (outcome,) = _plan(_described("a", isrc=ISRC)).values()
 
         assert isinstance(outcome, Create)
-        assert outcome.contested_leader is None
         assert outcome.contest is None
+        assert outcome.depends_on is None
 
     def test_the_contest_review_names_the_leader_and_the_connector_track(self):
         plan = _plan(
@@ -205,11 +212,13 @@ class TestStrongIdsInsideOneBatch:
         )
         contested = plan["b"]
         assert isinstance(contested, Create)
+        assert contested.contest is not None
+        assert contested.depends_on == "a"
         leader = _canonical(isrc=ISRC, duration_ms=200_000)
 
-        review = contest_review_for(
-            contested,
+        review = suspect_review(
             leader,
+            contested.contest.evidence,
             connector="spotify",
             connector_track_id=leader.id,
             user_id="u",
@@ -217,22 +226,8 @@ class TestStrongIdsInsideOneBatch:
 
         assert review.track_id == leader.id
         assert review.match_method == "isrc_suspect"
-        assert contested.contest is not None
-        assert review.confidence == contested.contest.confidence
+        assert review.confidence == contested.contest.evidence.confidence
         assert review.user_id == "u"
-
-    def test_an_uncontested_creation_has_no_contest_review(self):
-        (outcome,) = _plan(_described("a", isrc=ISRC)).values()
-        assert isinstance(outcome, Create)
-
-        with pytest.raises(ValueError, match="contested"):
-            _ = contest_review_for(
-                outcome,
-                _canonical(isrc=ISRC),
-                connector="spotify",
-                connector_track_id=_canonical().id,
-                user_id="u",
-            )
 
     def test_a_deferred_creation_is_not_a_leader(self):
         owner = _canonical(isrc=ISRC, duration_ms=200_000)
@@ -268,7 +263,7 @@ class TestNameOwners:
         ).values()
 
         assert isinstance(outcome, Create)
-        assert outcome.refused is None
+        assert outcome.refusal is None
 
     def test_an_unknown_length_is_never_reused_on_names_alone(self):
         original = _canonical(duration_ms=None)
@@ -335,7 +330,7 @@ class TestNamesMayNotDecide:
             key="relinked",
             description=RecordingDescription("Ibrik", "Bonobo", 245_733),
             strong_id="USA2B2056087",
-            names_decide=False,
+            name_key=None,
         )
 
         plan = _plan(_described("leader", isrc="USA2B2056087"), relink)
@@ -349,7 +344,7 @@ class TestNamesMayNotDecide:
         unclaimed = evolve(relink, strong_id=None)
         (alone,) = _plan(unclaimed, name_owners=_by_name(original)).values()
         assert isinstance(alone, Create)
-        assert alone.refused is None
+        assert alone.refusal is None
 
         # ...and never leads the bucket for a twin that follows it.
         plan = _plan(unclaimed, _described("twin"))
@@ -379,9 +374,6 @@ class _NameRules:
     def describe(self, entity: str) -> str:
         return entity
 
-    def name_key(self, description: str) -> Hashable | None:
-        return description.lower() or None
-
     def strong_match(
         self, description: str, owner: str
     ) -> tuple[ResolutionEvidence, bool]:
@@ -405,7 +397,7 @@ class _NameRules:
 class TestRefusals:
     def test_a_priced_but_unaccepted_candidate_is_recorded_on_the_creation(self):
         outcomes = plan_resolution(
-            [Described(key="k", description="Ibrik")],
+            [Described(key="k", description="Ibrik", name_key="ibrik")],
             strong_owners={},
             name_owners={"ibrik": ["IBRIK", "Ibrik"]},
             rules=_NameRules(prices={"IBRIK": 60, "Ibrik": 70}),
@@ -414,14 +406,14 @@ class TestRefusals:
         outcome = outcomes["k"]
         assert isinstance(outcome, Create)
         # The first refusal is kept, not the best or the last.
-        assert outcome.refused == "IBRIK"
         assert outcome.refusal is not None
-        assert outcome.refusal.confidence == 60
-        assert outcome.refusal.zone == "review"
+        assert outcome.refusal.candidate == "IBRIK"
+        assert outcome.refusal.evidence.confidence == 60
+        assert outcome.refusal.evidence.zone == "review"
 
     def test_the_first_accepted_candidate_wins_over_a_later_one(self):
         outcomes = plan_resolution(
-            [Described(key="k", description="Ibrik")],
+            [Described(key="k", description="Ibrik", name_key="ibrik")],
             strong_owners={},
             name_owners={"ibrik": ["IBRIK", "Ibrik"]},
             rules=_NameRules(prices={"IBRIK": 60, "Ibrik": 90}),
@@ -431,13 +423,15 @@ class TestRefusals:
         assert isinstance(outcome, Reuse)
         assert outcome.canonical == "Ibrik"
 
-    def test_a_fold_onto_a_batch_leader_keeps_its_refusal(self):
-        """Two descriptions, one persisted near-miss: the second folds onto
-        the first and still carries the candidate it refused first."""
+    def test_a_fold_onto_a_batch_leader_carries_no_refusal(self):
+        """Two descriptions, one persisted near-miss: the first creates and
+        records the refusal; the second folds onto the first. A consumer
+        that wants one refusal per description prices each with
+        ``price_reuse`` instead."""
         outcomes = plan_resolution(
             [
-                Described(key="a", description="Ibrik"),
-                Described(key="b", description="Ibrik"),
+                Described(key="a", description="Ibrik", name_key="ibrik"),
+                Described(key="b", description="Ibrik", name_key="ibrik"),
             ],
             strong_owners={},
             name_owners={"ibrik": ["IBRIK"]},
@@ -446,16 +440,35 @@ class TestRefusals:
 
         first, second = outcomes["a"], outcomes["b"]
         assert isinstance(first, Create)
-        assert first.refused == "IBRIK"
+        assert first.refusal is not None
+        assert first.refusal.candidate == "IBRIK"
         assert isinstance(second, Reuse)
         assert second.leader == "a"
-        assert second.refused == "IBRIK"
-        assert second.refusal is not None
-        assert second.refusal.confidence == 60
+        assert second.depends_on == "a"
+
+    def test_price_reuse_records_a_refusal_per_description(self):
+        """Priced independently, each description sees the same near-miss."""
+        rules = _NameRules(prices={"IBRIK": 60, "Ibrik": 90})
+
+        priced = [price_reuse("Ibrik", ["IBRIK"], rules) for _ in ("a", "b")]
+
+        assert all(isinstance(item, Refusal) for item in priced)
+        assert [item.candidate for item in priced if isinstance(item, Refusal)] == [
+            "IBRIK",
+            "IBRIK",
+        ]
+
+    def test_price_reuse_accepts_the_first_accepted_candidate(self):
+        rules = _NameRules(prices={"IBRIK": 60, "Ibrik": 90})
+
+        priced = price_reuse("Ibrik", ["IBRIK", "Ibrik"], rules)
+
+        assert isinstance(priced, Reuse)
+        assert priced.canonical == "Ibrik"
 
     def test_a_gated_out_candidate_leaves_no_refusal(self):
         outcomes = plan_resolution(
-            [Described(key="k", description="Ibrik")],
+            [Described(key="k", description="Ibrik", name_key="ibrik")],
             strong_owners={},
             name_owners={"ibrik": ["IBRIK"]},
             rules=_NameRules(prices={}),
@@ -463,7 +476,8 @@ class TestRefusals:
 
         outcome = outcomes["k"]
         assert isinstance(outcome, Create)
-        assert outcome.refused is None
+        assert outcome.refusal is None
+        assert price_reuse("Ibrik", ["IBRIK"], _NameRules(prices={})) is None
 
     def test_names_alone_prices_a_low_title_similarity_as_a_refusal(self):
         """The model saturates on the artist alone, so the candidate is
@@ -506,18 +520,6 @@ class TestOutcomeInvariants:
             pass
         else:
             raise AssertionError("a Reuse with neither canonical nor leader")
-
-    def test_a_reuse_of_a_persisted_canonical_carries_no_refusal(self):
-        """The accepted candidate answers the question a refusal would explain."""
-        rules = TrackResolutionRules(CONFIG)
-        evidence = rules.creation(RecordingDescription("Ibrik", "Bonobo"))
-        with pytest.raises(ValueError, match="no refusal"):
-            _ = Reuse(
-                evidence=evidence,
-                canonical=_canonical(),
-                refused=_canonical(title="Kerala"),
-                refusal=evidence,
-            )
 
     def test_a_deferred_creation_must_withhold_the_id(self):
         rules = TrackResolutionRules(CONFIG)

@@ -301,8 +301,8 @@ class ImportLikesUseCase:
             ingest_failures = 0
             ingested: list[Track] = []
             if new_tracks:
-                ingested, ingest_failures = await self._ingest_new_likes(
-                    service, new_tracks, uow, user_id=command.user_id
+                ingested, ingest_failures = await self.resolution.ingest_isolating(
+                    service, new_tracks, uow, user_id=command.user_id, describe="likes"
                 )
                 failed_ingests += ingest_failures
                 for track in ingested:
@@ -439,73 +439,6 @@ class ImportLikesUseCase:
             )
 
         return result
-
-    async def _ingest_new_likes(
-        self,
-        service: str,
-        new_tracks: list[ConnectorTrack],
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> tuple[list[Track], int]:
-        """Ingest the page's new tracks; isolate a bad row rather than lose the page.
-
-        The bulk attempt runs under a savepoint; when it throws for one row's
-        sake — an identity key the planner's probes did not see, a bad
-        value — every payload is retried alone under its own savepoint, so
-        the page keeps every like it can and the failure count says what it
-        could not. Transient contention is not about the rows and fails the
-        run before the checkpoint advances past this page, as the like write
-        in ``_import_inner`` does. Returns the ingested tracks and how many
-        payloads failed.
-        """
-        try:
-            async with uow.savepoint():
-                return (
-                    await self.resolution.ingest(
-                        service, new_tracks, uow, user_id=user_id
-                    ),
-                    0,
-                )
-        except Exception as bulk_error:
-            if is_transient_contention(bulk_error):
-                raise
-            logger.error(
-                f"Bulk ingest of {len(new_tracks)} {service} likes failed — "
-                f"retrying them one at a time",
-                connector=service,
-                track_count=len(new_tracks),
-                exc_info=bulk_error,
-            )
-
-        ingested: list[Track] = []
-        failed = 0
-        for ct in new_tracks:
-            try:
-                async with uow.savepoint():
-                    ingested.extend(
-                        await self.resolution.ingest(
-                            service, [ct], uow, user_id=user_id
-                        )
-                    )
-            except Exception as individual_error:
-                if is_transient_contention(individual_error):
-                    raise
-                failed += 1
-                logger.warning(
-                    f"Failed to ingest {service} like {ct.connector_track_identifier}",
-                    error=str(individual_error),
-                    connector=service,
-                    connector_id=ct.connector_track_identifier,
-                )
-        if failed:
-            logger.error(
-                f"{failed} of {len(new_tracks)} {service} likes could not be "
-                f"ingested individually either; their likes are not recorded",
-                connector=service,
-                failed=failed,
-            )
-        return ingested, failed
 
 
 def _parse_liked_at(ct: ConnectorTrack | None) -> datetime | None:

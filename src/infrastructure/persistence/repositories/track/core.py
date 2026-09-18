@@ -1495,14 +1495,22 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             DBTrack.mbid, mbids, user_id=user_id
         )
 
-    @db_operation("find_tracks_by_spotify_ids")
-    async def find_tracks_by_spotify_ids(
+    @db_operation("find_track_ids_by_spotify_ids")
+    async def find_track_ids_by_spotify_ids(
         self, spotify_ids: list[str], *, user_id: str
-    ) -> dict[str, Track]:
-        """Batch lookup tracks by the denormalized ``spotify_id`` column."""
-        return await self._find_tracks_by_unique_column(
-            DBTrack.spotify_id, spotify_ids, user_id=user_id
+    ) -> dict[str, UUID]:
+        """Which track holds each denormalized ``spotify_id`` column value."""
+        if not spotify_ids:
+            return {}
+        stmt = select(DBTrack.spotify_id, DBTrack.id).where(
+            DBTrack.user_id == user_id, DBTrack.spotify_id.in_(spotify_ids)
         )
+        result = await self.session.execute(stmt)
+        return {
+            spotify_id: track_id
+            for spotify_id, track_id in result.tuples()
+            if spotify_id
+        }
 
     # ── Integrity check queries ──────────────────────────────────────
 

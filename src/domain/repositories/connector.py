@@ -4,7 +4,7 @@ Split from the former monolithic ``interfaces.py``.
 """
 
 from collections.abc import Awaitable, Mapping, Sequence
-from typing import Protocol, TypedDict, overload
+from typing import Protocol, Self, TypedDict, overload
 from uuid import UUID
 
 from attrs import define
@@ -19,6 +19,7 @@ from src.domain.entities.connector import ConnectorDescriptor
 from src.domain.entities.playlist import ConnectorPlaylistSummary
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.track_mapping import MappingOrigin, MatchMethod
+from src.domain.matching.canonical_resolution import ResolutionEvidence
 from src.domain.repositories.mapping import (
     ElectionMode,
     PrimaryCandidate,
@@ -56,6 +57,29 @@ class ConnectorMappingSpec:
     # every mapping wants it — a relinked Spotify track's stale-id mapping is
     # written precisely so it will *not* hold primacy — hence the default.
     primary: bool = False
+
+    @classmethod
+    def priced(
+        cls,
+        track: Track,
+        connector: str,
+        connector_id: str,
+        evidence: ResolutionEvidence,
+        *,
+        metadata: dict[str, object] | None,
+        primary: bool,
+    ) -> Self:
+        """A mapping asserting a planner decision, priced as the planner priced it."""
+        return cls(
+            track=track,
+            connector=connector,
+            connector_id=connector_id,
+            match_method=evidence.method,
+            confidence=evidence.confidence,
+            metadata=metadata,
+            confidence_evidence=evidence.evidence,
+            primary=primary,
+        )
 
 
 @define(frozen=True, slots=True)

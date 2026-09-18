@@ -14,6 +14,8 @@ second, subtly-different copy of "are these the same recording?" is how the
 two paths drift apart, and drift here is measured in duplicate canonicals.
 """
 
+from collections.abc import Sequence
+
 from attrs import define
 
 from src.domain.entities.track import Track
@@ -36,6 +38,21 @@ class RecordingDescription:
     title: str
     artist: str
     duration_ms: int | None = None
+
+
+def describe_recording(
+    title: str, artist_names: Sequence[str], duration_ms: int | None
+) -> RecordingDescription:
+    """A source payload, as the same-recording question sees it.
+
+    The primary artist only, or a blank name when the payload credits none —
+    which the predicate refuses rather than compares.
+    """
+    return RecordingDescription(
+        title=title,
+        artist=artist_names[0] if artist_names else "",
+        duration_ms=duration_ms,
+    )
 
 
 def describe_track(track: Track) -> RecordingDescription:

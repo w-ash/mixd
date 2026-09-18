@@ -8,7 +8,7 @@ reviews — and nothing else: every decision is the planner's
 seam that only persists what it is handed.
 """
 
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from uuid import UUID
 
 from attrs import Factory, define, evolve
@@ -17,20 +17,23 @@ from src.config import create_matching_config, get_logger
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.domain.entities.match_review import MatchReview
 from src.domain.matching.canonical_resolution import (
-    Create,
     Described,
     Outcome,
-    contest_review_for,
+    ResolutionEvidence,
+    creation_of,
+    owners_by_identity,
     plan_canonical_resolution,
-    review_for,
+    suspect_review,
+    track_name_key,
+    undecided_name_pairs,
 )
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.recording_identity import (
     RecordingDescription,
-    describe_track,
-    identity_key,
+    describe_recording,
 )
 from src.domain.repositories.connector import ConnectorMappingSpec
+from src.domain.repositories.errors import is_transient_contention, postgres_sqlstate
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -38,10 +41,37 @@ logger = get_logger(__name__)
 
 def describe_connector_track(track: ConnectorTrack) -> RecordingDescription:
     """A connector payload as the same-recording question sees it."""
-    return RecordingDescription(
-        title=track.title,
-        artist=track.artists[0].name if track.artists else "",
-        duration_ms=track.duration_ms,
+    return describe_recording(
+        track.title, [a.name for a in track.artists], track.duration_ms
+    )
+
+
+def canonical_from_connector_track(
+    ct: ConnectorTrack,
+    *,
+    user_id: str,
+    isrc: str | None = None,
+    unknown_artist: str | None = None,
+) -> Track:
+    """The canonical row a connector payload becomes.
+
+    ``isrc`` is the strong id the row claims — the caller decides, since a
+    contested or deliberately withheld ISRC stays on the connector track.
+    ``unknown_artist`` stands in when the payload credits nobody; ``None``
+    leaves the credit list as the payload gave it. The caller attaches the
+    connector id where the row should carry it.
+    """
+    artists = [Artist(name=a.name) for a in ct.artists]
+    if not artists and unknown_artist is not None:
+        artists = [Artist(name=unknown_artist)]
+    return Track(
+        title=ct.title,
+        artists=artists,
+        album=ct.album,
+        duration_ms=ct.duration_ms,
+        release_date=ct.release_date,
+        isrc=isrc,
+        user_id=user_id,
     )
 
 
@@ -119,14 +149,14 @@ class TrackResolutionService:
         creations = {
             identifier: create
             for identifier in pending
-            if (create := _creation_of(plan[identifier])) is not None
+            if (create := creation_of(plan[identifier])) is not None
         }
         created: dict[str, Track] = {}
         if creations:
             saved = await track_repo.save_tracks([
-                self._canonical(
-                    payloads[identifier], create, connector, user_id=user_id
-                )
+                canonical_from_connector_track(
+                    payloads[identifier], user_id=user_id, isrc=create.strong_id
+                ).with_connector_track_id(connector, identifier)
                 for identifier, create in creations.items()
             ])
             created = dict(zip(creations, saved, strict=True))
@@ -159,25 +189,34 @@ class TrackResolutionService:
                     confidence=outcome.evidence.confidence,
                 )
                 specs.append(
-                    ConnectorMappingSpec(
-                        track=canonical,
-                        connector=connector,
-                        connector_id=identifier,
-                        match_method=outcome.evidence.method,
-                        confidence=outcome.evidence.confidence,
+                    ConnectorMappingSpec.priced(
+                        canonical,
+                        connector,
+                        identifier,
+                        outcome.evidence,
                         metadata=metadata,
-                        confidence_evidence=outcome.evidence.evidence,
                         # An alias: the id the canonical already describes
                         # itself by keeps primacy; a vacancy is filled.
                         primary=False,
                     )
                 )
                 continue
-            create = outcome if outcome.kind == "create" else outcome.create
+            create = creation_of(outcome)
+            if create is None:
+                raise ValueError("an outcome that is not a reuse creates")
+            # A suspect collision — with a persisted owner, or with a leader
+            # persisted just above — has a row to be reviewed against.
+            collision: tuple[Track, ResolutionEvidence] | None = None
             if outcome.kind == "defer_to_review":
+                collision = (outcome.owner, outcome.review)
+            elif create.contest is not None:
+                collision = (created[create.contest.leader], create.contest.evidence)
+            if collision is not None:
+                owner, priced = collision
                 reviews.append(
-                    review_for(
-                        outcome,
+                    suspect_review(
+                        owner,
+                        priced,
                         connector=connector,
                         connector_track_id=stored[identifier].id,
                         user_id=user_id,
@@ -185,42 +224,19 @@ class TrackResolutionService:
                 )
                 logger.warning(
                     "isrc_collision_deferred",
-                    track_id=outcome.owner.id,
+                    track_id=owner.id,
                     connector=connector,
                     connector_id=identifier,
                     isrc=payload.isrc,
-                    confidence=outcome.review.confidence,
-                )
-            elif create.contested_leader is not None and create.contest is not None:
-                # The leader was persisted just above, so the suspect
-                # in-batch collision has a row to be reviewed against.
-                leader = created[create.contested_leader]
-                reviews.append(
-                    contest_review_for(
-                        create,
-                        leader,
-                        connector=connector,
-                        connector_track_id=stored[identifier].id,
-                        user_id=user_id,
-                    )
-                )
-                logger.warning(
-                    "isrc_collision_deferred",
-                    track_id=leader.id,
-                    connector=connector,
-                    connector_id=identifier,
-                    isrc=payload.isrc,
-                    confidence=create.contest.confidence,
+                    confidence=priced.confidence,
                 )
             specs.append(
-                ConnectorMappingSpec(
-                    track=created[identifier],
-                    connector=connector,
-                    connector_id=identifier,
-                    match_method=create.evidence.method,
-                    confidence=create.evidence.confidence,
+                ConnectorMappingSpec.priced(
+                    created[identifier],
+                    connector,
+                    identifier,
+                    create.evidence,
                     metadata=metadata,
-                    confidence_evidence=create.evidence.evidence,
                     primary=True,
                 )
             )
@@ -237,6 +253,89 @@ class TrackResolutionService:
             _ = await uow.get_match_review_repository().create_reviews_batch(reviews)
 
         return [resolved[t.connector_track_identifier] for t in tracks]
+
+    async def ingest_isolating(
+        self,
+        connector: str,
+        tracks: Sequence[ConnectorTrack],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+        describe: str = "tracks",
+    ) -> tuple[list[Track], int]:
+        """``ingest`` the batch; isolate a bad row rather than lose the batch.
+
+        The bulk attempt runs under a savepoint; when it throws for one row's
+        sake — an identity key the planner's probes did not see, a bad
+        value — every payload is retried alone under its own savepoint, so
+        the batch keeps every track it can and the failure count says what
+        it could not. The savepoints are what make "continue" meaningful:
+        without one a failed statement leaves the transaction aborted and
+        every later retry fails for a reason that has nothing to do with the
+        row it names.
+
+        Transient contention (lock timeout, deadlock, serialization loss) is
+        not about the rows and is re-raised from either pass: the two
+        writers racing on the ``tracks`` identity keys are serialized by the
+        per-user ingest lock, so contention surviving to here means a holder
+        outlived ``lock_timeout`` — worth a visible failure, where splitting
+        the batch would queue each retry on the same held key in turn and
+        still resolve nothing. Returns the ingested tracks and how many
+        payloads failed.
+        """
+        try:
+            async with uow.savepoint():
+                return (
+                    await self.ingest(connector, tracks, uow, user_id=user_id),
+                    0,
+                )
+        except Exception as bulk_error:
+            if is_transient_contention(bulk_error):
+                logger.error(
+                    f"Bulk ingest of {len(tracks)} {connector} {describe} failed "
+                    f"under transient database contention (SQLSTATE "
+                    f"{postgres_sqlstate(bulk_error)}) despite the per-user "
+                    f"ingest lock — failing the run",
+                    connector=connector,
+                    track_count=len(tracks),
+                    sqlstate=postgres_sqlstate(bulk_error),
+                    exc_info=True,
+                )
+                raise
+            logger.error(
+                f"Bulk ingest of {len(tracks)} {connector} {describe} failed — "
+                f"retrying them one at a time",
+                connector=connector,
+                track_count=len(tracks),
+                exc_info=bulk_error,
+            )
+
+        ingested: list[Track] = []
+        failed = 0
+        for ct in tracks:
+            try:
+                async with uow.savepoint():
+                    ingested.extend(
+                        await self.ingest(connector, [ct], uow, user_id=user_id)
+                    )
+            except Exception as individual_error:
+                if is_transient_contention(individual_error):
+                    raise
+                failed += 1
+                logger.warning(
+                    f"Failed to ingest {connector}:{ct.connector_track_identifier}",
+                    error=str(individual_error),
+                    connector=connector,
+                    connector_id=ct.connector_track_identifier,
+                )
+        if failed:
+            logger.error(
+                f"{failed} of {len(tracks)} {connector} {describe} could not be "
+                f"ingested individually either",
+                connector=connector,
+                failed=failed,
+            )
+        return ingested, failed
 
     async def _plan(
         self,
@@ -258,76 +357,30 @@ class TrackResolutionService:
             else {}
         )
 
-        # The name probe, only for what the ISRC step leaves undecided: a
-        # payload whose ISRC has an owner is settled either way by that owner.
-        described = [
-            Described(
-                key=identifier,
-                description=describe_connector_track(payloads[identifier]),
-                strong_id=payloads[identifier].isrc or None,
+        described: list[Described[str, RecordingDescription]] = []
+        for identifier in pending:
+            description = describe_connector_track(payloads[identifier])
+            described.append(
+                Described(
+                    key=identifier,
+                    description=description,
+                    strong_id=payloads[identifier].isrc or None,
+                    name_key=track_name_key(description),
+                )
             )
-            for identifier in pending
-        ]
-        pairs = [
-            (item.description.title, item.description.artist)
-            for item in described
-            if item.description.title
-            and item.description.artist
-            and not (item.strong_id and item.strong_id in isrc_owners)
-        ]
+        pairs = undecided_name_pairs(described, isrc_owners)
         found = (
             await track_repo.find_tracks_by_title_artist(pairs, user_id=user_id)
             if pairs
             else {}
         )
-        # Keyed by what the *found canonical* normalizes to, not by the probe
-        # pair that surfaced it: the probe also answers on a
-        # parenthetical-stripped form, and a candidate reached that way keys
-        # differently from the payload — the pairing the recording gate refuses.
-        name_owners: dict[Hashable, list[Track]] = {}
-        seen: set[UUID] = set()
-        for owner in found.values():
-            if owner.id in seen:
-                continue
-            seen.add(owner.id)
-            name_owners.setdefault(identity_key(describe_track(owner)), []).append(
-                owner
-            )
 
         return plan_canonical_resolution(
             described,
             isrc_owners=isrc_owners,
-            name_owners=name_owners,
+            name_owners=owners_by_identity(found.values()),
             config=self.evaluator_config,
         )
-
-    @staticmethod
-    def _canonical(
-        payload: ConnectorTrack,
-        create: Create[str, Track],
-        connector: str,
-        *,
-        user_id: str,
-    ) -> Track:
-        """The canonical row a creation persists, keyed on the payload's id."""
-        return Track(
-            title=payload.title,
-            artists=[Artist(name=a.name) for a in payload.artists],
-            album=payload.album,
-            duration_ms=payload.duration_ms,
-            release_date=payload.release_date,
-            isrc=create.strong_id,
-            user_id=user_id,
-        ).with_connector_track_id(connector, payload.connector_track_identifier)
-
-
-def _creation_of(outcome: Outcome[str, Track]) -> Create[str, Track] | None:
-    """The creation an outcome persists, if it persists one."""
-    if outcome.kind == "create":
-        return outcome
-    if outcome.kind == "defer_to_review":
-        return outcome.create
-    return None
 
 
 def _backfill(owner: Track, payload: ConnectorTrack) -> Track | None:

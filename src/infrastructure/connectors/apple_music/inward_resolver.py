@@ -39,7 +39,7 @@ from src.config.telemetry import phase
 from src.domain.entities import Track
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.recording_identity import RecordingDescription
+from src.domain.matching.recording_identity import describe_recording
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     PlannedWrite,
@@ -223,10 +223,10 @@ class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
             requested_id=apple_id,
             current_id=_current_id(song),
             payload=song,
-            description=RecordingDescription(
-                title=song.attributes.name,
-                artist=song.attributes.artist_name,
-                duration_ms=song.attributes.duration_in_millis or None,
+            description=describe_recording(
+                song.attributes.name,
+                [song.attributes.artist_name],
+                song.attributes.duration_in_millis or None,
             ),
             isrc=isrc,
             names_decide=False,

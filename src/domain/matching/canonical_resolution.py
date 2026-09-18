@@ -11,13 +11,13 @@ comes out.
 
 Entity-generic by construction. ``plan_resolution`` knows nothing about
 tracks: it is parameterised by a ``ResolutionRules`` object that describes an
-entity, keys a description, prices a strong-id match, prices a same-entity
-match and prices a creation. ``TrackResolutionRules`` is the track
-instantiation; an artist or album planner is another set of rules, not a
-second copy of the walk.
+entity, prices a strong-id match, prices a same-entity match and prices a
+creation; the caller keys each description (``Described.name_key``).
+``TrackResolutionRules`` is the track instantiation; an artist or album
+planner is another set of rules, not a second copy of the walk.
 """
 
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from typing import Literal, Protocol
 from uuid import UUID
 
@@ -65,16 +65,40 @@ class ResolutionEvidence:
 class Described[TKey, TDesc]:
     """One incoming item: its batch key, its description and its strong id.
 
-    ``names_decide`` is False when names may not settle this item — a
-    relink the provider itself asserted, or a connector whose contract is
-    strong-id-or-nothing. The strong id still decides it, and it neither
-    folds onto a name leader nor leads a name bucket.
+    ``name_key`` is the bucket a name match requires — the key the caller
+    files ``name_owners`` under, so it owns both sides of that contract —
+    or ``None`` when names may not settle this item: a description with
+    nothing to compare, a relink the provider itself asserted, a connector
+    whose contract is strong-id-or-nothing. The strong id still decides it,
+    and it neither folds onto a name leader nor leads a name bucket.
     """
 
     key: TKey
     description: TDesc
     strong_id: str | None = None
-    names_decide: bool = True
+    name_key: Hashable | None = None
+
+
+@define(frozen=True, slots=True)
+class Refusal[TEntity]:
+    """The best same-entity candidate the planner priced and turned down.
+
+    Carried on the creation it explains, so a consumer that records
+    refusals (the inward resolvers' refusal events) never re-runs the
+    comparison.
+    """
+
+    candidate: TEntity
+    evidence: ResolutionEvidence
+
+
+@define(frozen=True, slots=True)
+class Contest[TKey]:
+    """An earlier creation in the batch whose strong id this one collided
+    with as a suspect, and the price of that collision."""
+
+    leader: TKey
+    evidence: ResolutionEvidence
 
 
 @define(frozen=True, slots=True)
@@ -85,60 +109,48 @@ class Reuse[TKey, TEntity]:
     of an earlier ``Create`` in the same batch) is set. Leaders are why a
     batch carrying an original and its remaster, neither yet known, mints
     one canonical and not two.
-
-    ``refused``/``refusal`` carry the best persisted candidate the planner
-    priced and turned down before the description folded onto a leader —
-    the same record a ``Create`` carries, so a consumer that records
-    refusals sees one per description whether or not a leader absorbed it.
-    A reuse of a persisted canonical never carries one: the accepted
-    candidate is the answer to the question the refusal would explain.
     """
 
     evidence: ResolutionEvidence
     canonical: TEntity | None = None
     leader: TKey | None = None
-    refused: TEntity | None = None
-    refusal: ResolutionEvidence | None = None
     kind: Literal["reuse"] = field(default="reuse", init=False)
 
     def __attrs_post_init__(self) -> None:
         if (self.canonical is None) == (self.leader is None):
             raise ValueError("Reuse names exactly one of canonical or leader")
-        if (self.refused is None) != (self.refusal is None):
-            raise ValueError("a refusal names both the candidate and the price")
-        if self.canonical is not None and self.refused is not None:
-            raise ValueError("a reuse of a persisted canonical carries no refusal")
+
+    @property
+    def depends_on(self) -> TKey | None:
+        """The batch key whose creation must persist before this outcome can."""
+        return self.leader
 
 
 @define(frozen=True, slots=True)
 class Create[TKey, TEntity]:
     """Mint a new entity, claiming ``strong_id`` when it is not contested.
 
-    ``refused``/``refusal`` carry the best same-entity candidate the planner
-    priced and turned down, priced once here so a consumer that records
-    refusals (the inward resolvers' refusal events) can explain the creation
-    without re-running the comparison. A ``Reuse`` of a batch leader carries
-    the same pair. The ingest service does not record them.
-
-    ``contested_leader``/``contest`` name an earlier creation in the same
-    batch whose strong id this description collided with as a suspect: the
+    ``refusal`` is the best same-entity candidate the planner priced and
+    turned down. ``contest`` names an earlier creation in the same batch
+    whose strong id this description collided with as a suspect: the
     creation withholds the id, and the caller — which persists the leader
     before it acts on this outcome — queues the review against it.
     """
 
     strong_id: str | None
     evidence: ResolutionEvidence
-    refused: TEntity | None = None
-    refusal: ResolutionEvidence | None = None
-    contested_leader: TKey | None = None
-    contest: ResolutionEvidence | None = None
+    refusal: Refusal[TEntity] | None = None
+    contest: Contest[TKey] | None = None
     kind: Literal["create"] = field(default="create", init=False)
 
     def __attrs_post_init__(self) -> None:
-        if (self.contested_leader is None) != (self.contest is None):
-            raise ValueError("a contested creation names both its leader and the price")
-        if self.contested_leader is not None and self.strong_id is not None:
+        if self.contest is not None and self.strong_id is not None:
             raise ValueError("a contested creation must withhold the contested id")
+
+    @property
+    def depends_on(self) -> TKey | None:
+        """The batch key whose creation must persist before this outcome can."""
+        return None if self.contest is None else self.contest.leader
 
 
 @define(frozen=True, slots=True)
@@ -159,10 +171,26 @@ class DeferToReview[TKey, TEntity]:
         if self.create.strong_id is not None:
             raise ValueError("a deferred creation must withhold the contested id")
 
+    @property
+    def depends_on(self) -> TKey | None:
+        """The owner is persisted already: a deferral waits on nothing."""
+        return None
+
 
 type Outcome[TKey, TEntity] = (
     Reuse[TKey, TEntity] | Create[TKey, TEntity] | DeferToReview[TKey, TEntity]
 )
+
+
+def creation_of[TKey, TEntity](
+    outcome: Outcome[TKey, TEntity],
+) -> Create[TKey, TEntity] | None:
+    """The creation an outcome persists, if it persists one."""
+    if outcome.kind == "create":
+        return outcome
+    if outcome.kind == "defer_to_review":
+        return outcome.create
+    return None
 
 
 class ResolutionRules[TDesc, TEntity](Protocol):
@@ -170,10 +198,6 @@ class ResolutionRules[TDesc, TEntity](Protocol):
 
     def describe(self, entity: TEntity) -> TDesc:
         """An existing entity, as the same-entity question sees it."""
-        ...
-
-    def name_key(self, description: TDesc) -> Hashable | None:
-        """The bucket key a name match requires, or None when uncomparable."""
         ...
 
     def strong_match(
@@ -220,20 +244,18 @@ def plan_resolution[TKey, TDesc, TEntity](
     Per description: a strong id with a persisted owner is decided by the
     strong match alone — reuse, or defer when suspect. A strong id an earlier
     creation in this batch claimed folds onto that leader unless suspect, in
-    which case it is created without the id, naming the leader as
-    ``contested_leader`` so the caller can queue the review once the leader
-    is persisted. Only then do names count: the bucket's persisted owners
+    which case it is created without the id, naming the leader in a
+    ``Contest`` so the caller can queue the review once the leader is
+    persisted. Only then do names count: the bucket's persisted owners
     and its leaders are priced in that order, and the first accepted one is
     reused. Anything else is a creation, which joins the bucket's leaders
     for the rest of the batch.
 
-    ``name_owners`` is keyed by whatever ``rules.name_key`` answers for the
-    descriptions: under a recording gate, by what each *owner* normalizes
-    to — a candidate the probe reached on a looser form then keys
-    differently from the description, which is exactly the pairing that
-    gate refuses; under a names-alone gate, by the description that
-    proposed it, so every proposed candidate is priced and a refusal is
-    recorded.
+    ``name_owners`` is keyed by the descriptions' ``name_key``: under the
+    recording gate, by what each *owner* normalizes to
+    (``owners_by_identity``) — a candidate the probe reached on a looser
+    form then keys differently from the description, which is exactly the
+    pairing that gate refuses.
     """
     outcomes: dict[TKey, Outcome[TKey, TEntity]] = {}
     leaders = _Leaders[TKey, TDesc]()
@@ -252,10 +274,37 @@ def plan_resolution[TKey, TDesc, TEntity](
             continue
         if outcome.strong_id is not None:
             leaders.by_strong_id[outcome.strong_id] = (item.key, item.description)
-        key = rules.name_key(item.description) if item.names_decide else None
-        if key is not None:
-            leaders.by_name.setdefault(key, []).append((item.key, item.description))
+        if item.name_key is not None:
+            leaders.by_name.setdefault(item.name_key, []).append((
+                item.key,
+                item.description,
+            ))
     return outcomes
+
+
+def price_reuse[TKey, TDesc, TEntity](
+    description: TDesc,
+    candidates: Iterable[TEntity],
+    rules: ResolutionRules[TDesc, TEntity],
+) -> Reuse[TKey, TEntity] | Refusal[TEntity] | None:
+    """Price persisted candidates in order: the first accepted one is reused.
+
+    Otherwise the first candidate priced and turned down is the refusal —
+    the record that explains the creation that follows — and ``None``
+    means nothing was comparable. The inward resolvers' reuse step calls
+    this directly, one description at a time, with no leaders and no
+    strong owners in play.
+    """
+    refusal: Refusal[TEntity] | None = None
+    for candidate in candidates:
+        evidence = rules.same(description, rules.describe(candidate))
+        if evidence is None:
+            continue
+        if evidence.zone == "accept":
+            return Reuse(evidence=evidence, canonical=candidate)
+        if refusal is None:
+            refusal = Refusal(candidate, evidence)
+    return refusal
 
 
 def _plan_one[TKey, TDesc, TEntity](
@@ -287,38 +336,26 @@ def _plan_one[TKey, TDesc, TEntity](
             return Create(
                 strong_id=None,
                 evidence=rules.creation(description),
-                contested_leader=leader_key,
-                contest=evidence,
+                contest=Contest(leader_key, evidence),
             )
 
-    key = rules.name_key(description) if item.names_decide else None
+    key = item.name_key
     if key is None:
         return Create(strong_id=item.strong_id, evidence=rules.creation(description))
 
-    refused: TEntity | None = None
-    refusal: ResolutionEvidence | None = None
-    for candidate in name_owners.get(key, ()):
-        evidence = rules.same(description, rules.describe(candidate))
-        if evidence is None:
-            continue
-        if evidence.zone == "accept":
-            return Reuse(evidence=evidence, canonical=candidate)
-        if refusal is None:
-            refused, refusal = candidate, evidence
+    priced: Reuse[TKey, TEntity] | Refusal[TEntity] | None = price_reuse(
+        description, name_owners.get(key, ()), rules
+    )
+    if isinstance(priced, Reuse):
+        return priced
     for leader_key, leader_description in leaders.by_name.get(key, ()):
         evidence = rules.same(description, leader_description)
         if evidence is not None and evidence.zone == "accept":
-            return Reuse(
-                evidence=evidence,
-                leader=leader_key,
-                refused=refused,
-                refusal=refusal,
-            )
+            return Reuse(evidence=evidence, leader=leader_key)
     return Create(
         strong_id=item.strong_id,
         evidence=rules.creation(description),
-        refused=refused,
-        refusal=refusal,
+        refusal=priced,
     )
 
 
@@ -372,11 +409,6 @@ class TrackResolutionRules:
     def describe(self, entity: Track) -> RecordingDescription:
         return describe_track(entity)
 
-    def name_key(self, description: RecordingDescription) -> Hashable | None:
-        if not (description.title and description.artist):
-            return None
-        return identity_key(description)
-
     def strong_match(
         self, description: RecordingDescription, owner: RecordingDescription
     ) -> tuple[ResolutionEvidence, bool]:
@@ -397,15 +429,20 @@ class TrackResolutionRules:
     def same(
         self, description: RecordingDescription, candidate: RecordingDescription
     ) -> ResolutionEvidence | None:
+        # The recording gate first: a pair it refuses is never priced.
+        if not self.names_alone and not describes_same_recording(
+            candidate, description
+        ):
+            return None
         confidence, evidence = calculate_confidence(
             _internal(candidate), _service(description), "canonical_reuse", self.config
         )
         zone = self._zone(confidence)
-        if self.names_alone:
-            if evidence.title_similarity < self.config.high_similarity_threshold:
-                zone = "reject"
-        elif not describes_same_recording(candidate, description):
-            return None
+        if (
+            self.names_alone
+            and evidence.title_similarity < self.config.high_similarity_threshold
+        ):
+            zone = "reject"
         return self._priced("canonical_reuse", confidence, zone, evidence)
 
     def creation(self, description: RecordingDescription) -> ResolutionEvidence:
@@ -453,49 +490,7 @@ def plan_canonical_resolution[TKey](
     )
 
 
-def review_for[TKey](
-    deferral: DeferToReview[TKey, Track],
-    *,
-    connector: str,
-    connector_track_id: UUID,
-    user_id: str,
-) -> MatchReview:
-    """The review a deferred ISRC collision queues against the owner."""
-    return _suspect_review(
-        deferral.owner,
-        deferral.review,
-        connector=connector,
-        connector_track_id=connector_track_id,
-        user_id=user_id,
-    )
-
-
-def contest_review_for[TKey](
-    create: Create[TKey, Track],
-    leader: Track,
-    *,
-    connector: str,
-    connector_track_id: UUID,
-    user_id: str,
-) -> MatchReview:
-    """The review a suspect in-batch ISRC collision queues against its leader.
-
-    ``leader`` is the persisted entity ``create.contested_leader`` named —
-    the caller resolves the key, since only it knows what the key persisted
-    as.
-    """
-    if create.contest is None:
-        raise ValueError("only a contested creation has a review to queue")
-    return _suspect_review(
-        leader,
-        create.contest,
-        connector=connector,
-        connector_track_id=connector_track_id,
-        user_id=user_id,
-    )
-
-
-def _suspect_review(
+def suspect_review(
     owner: Track,
     priced: ResolutionEvidence,
     *,
@@ -503,6 +498,12 @@ def _suspect_review(
     connector_track_id: UUID,
     user_id: str,
 ) -> MatchReview:
+    """The ``isrc_suspect`` review a collision queues against its owner.
+
+    ``owner`` holds the contested ISRC — a deferral's ``owner`` or the
+    persisted leader a ``Contest`` named; ``priced`` is the collision's
+    price (``deferral.review`` or ``contest.evidence``).
+    """
     return MatchReview(
         user_id=user_id,
         track_id=owner.id,
@@ -515,17 +516,67 @@ def _suspect_review(
     )
 
 
+def track_name_key(description: RecordingDescription) -> Hashable | None:
+    """The bucket a track description's name match requires, or None when
+    it has no title or artist to compare."""
+    if not (description.title and description.artist):
+        return None
+    return identity_key(description)
+
+
+def undecided_name_pairs[TKey](
+    described: Sequence[Described[TKey, RecordingDescription]],
+    strong_owners: Mapping[str, object],
+) -> list[tuple[str, str]]:
+    """The (title, artist) pairs the name probe should ask about.
+
+    Only what the ISRC step leaves undecided: an item whose strong id has
+    a persisted owner is settled either way by that owner, and an item
+    names may not decide has nothing to ask.
+    """
+    return [
+        (item.description.title, item.description.artist)
+        for item in described
+        if item.name_key is not None
+        and not (item.strong_id and item.strong_id in strong_owners)
+    ]
+
+
+def owners_by_identity(tracks: Iterable[Track]) -> dict[Hashable, list[Track]]:
+    """Name-probe hits bucketed by what each *found canonical* normalizes to.
+
+    Not by the probe pair that surfaced it: the probe also answers on a
+    parenthetical-stripped form, and a candidate reached that way keys
+    differently from the description — the pairing the recording gate
+    refuses. One entry per canonical, however many pairs reached it.
+    """
+    owners: dict[Hashable, list[Track]] = {}
+    seen: set[UUID] = set()
+    for owner in tracks:
+        if owner.id in seen:
+            continue
+        seen.add(owner.id)
+        owners.setdefault(identity_key(describe_track(owner)), []).append(owner)
+    return owners
+
+
 __all__ = [
+    "Contest",
     "Create",
     "DeferToReview",
     "Described",
     "Outcome",
+    "Refusal",
     "ResolutionEvidence",
     "ResolutionRules",
     "Reuse",
     "TrackResolutionRules",
-    "contest_review_for",
+    "creation_of",
+    "owners_by_identity",
     "plan_canonical_resolution",
     "plan_resolution",
-    "review_for",
+    "price_reuse",
+    "suspect_review",
+    "track_name_key",
+    "undecided_name_pairs",
 ]

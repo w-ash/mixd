@@ -192,10 +192,7 @@ class LastfmInwardResolver(InwardTrackResolver):
         artist_name, track_name = parse_lastfm_identifier(identifier)
         connector_id = make_lastfm_identifier(artist_name, track_name)
         return ReuseMetadata(
-            artist=artist_name,
-            title=track_name,
-            connector_id=connector_id,
-            lookup_pair=(track_name.strip().lower(), artist_name.strip().lower()),
+            artist=artist_name, title=track_name, connector_id=connector_id
         )
 
     @override

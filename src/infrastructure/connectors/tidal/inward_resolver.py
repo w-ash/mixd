@@ -51,7 +51,7 @@ from src.domain.entities import Track
 from src.domain.exceptions import TidalAuthRequiredError
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.recording_identity import RecordingDescription
+from src.domain.matching.recording_identity import describe_recording
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.inward_track_resolver import (
@@ -315,10 +315,10 @@ class TidalInwardResolver(WritePlanningResolver[TidalTrackDetail]):
             requested_id=target.requested_id,
             current_id=target.current_id,
             payload=detail,
-            description=RecordingDescription(
-                title=detail.track.title,
-                artist=detail.artist_names[0] if detail.artist_names else "",
-                duration_ms=tidal_duration_ms(detail.track),
+            description=describe_recording(
+                detail.track.title,
+                detail.artist_names,
+                tidal_duration_ms(detail.track),
             ),
             isrc=target.isrc,
             names_decide=False,

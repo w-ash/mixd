@@ -121,6 +121,17 @@ class ConfidenceEvidence:
         return result
 
 
+def evidence_number(evidence: Mapping[str, object] | None, key: str) -> float | None:
+    """A number out of stored ``as_dict`` evidence, or None when it holds none."""
+    value = evidence.get(key) if evidence else None
+    return float(value) if isinstance(value, int | float) else None
+
+
+def final_score_of(evidence: Mapping[str, object] | None) -> float | None:
+    """The matcher's raw final score out of stored evidence, when it recorded one."""
+    return evidence_number(evidence, "final_score")
+
+
 @define(frozen=True, slots=True)
 class MatchResult:
     """Result of track identity resolution with clean separation of concerns.

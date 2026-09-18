@@ -46,7 +46,7 @@ def _make_uow_with_repos():
     track_repo = AsyncMock()
     track_repo.save_track.return_value = make_track(1)
     track_repo.find_tracks_by_title_artist.return_value = {}
-    track_repo.find_tracks_by_spotify_ids.return_value = {}
+    track_repo.find_track_ids_by_spotify_ids.return_value = {}
     track_repo.find_tracks_by_isrcs.return_value = {}
 
     # The chunk-bulk persist saves a whole chunk of canonicals in one call.
@@ -2689,7 +2689,8 @@ class TestIdentityKeysDecidedBeforeSaving:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
         holder = make_track(42, title="Angel", artist="Massive Attack")
-        track_repo.find_tracks_by_spotify_ids.return_value = {spotify_id: holder}
+        track_repo.find_track_ids_by_spotify_ids.return_value = {spotify_id: holder.id}
+        track_repo.find_tracks_by_ids.return_value = {holder.id: holder}
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [spotify_id], uow, user_id="test-user"
@@ -2703,6 +2704,7 @@ class TestIdentityKeysDecidedBeforeSaving:
         assert spec.connector_id == spotify_id
         assert spec.match_method == "direct_import"
         assert spec.primary is True
-        track_repo.find_tracks_by_spotify_ids.assert_awaited_once_with(
+        track_repo.find_track_ids_by_spotify_ids.assert_awaited_once_with(
             [spotify_id], user_id="test-user"
         )
+        track_repo.find_tracks_by_ids.assert_awaited_once_with([holder.id])

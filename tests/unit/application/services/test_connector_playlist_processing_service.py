@@ -27,7 +27,7 @@ _PROCESS = (
 def _service(ingested: list[Track]) -> ConnectorPlaylistProcessingService:
     """The processing service over a resolution service that answers ``ingested``."""
     resolution = MagicMock()
-    resolution.ingest = AsyncMock(return_value=ingested)
+    resolution.ingest_isolating = AsyncMock(return_value=(ingested, 0))
     return ConnectorPlaylistProcessingService(resolution=resolution)
 
 

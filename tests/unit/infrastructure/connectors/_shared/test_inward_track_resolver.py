@@ -14,7 +14,12 @@ import pytest
 
 from src.config import create_matching_config
 from src.domain.entities import Track
-from src.domain.matching.canonical_resolution import TrackResolutionRules
+from src.domain.matching.canonical_resolution import (
+    Create,
+    DeferToReview,
+    Reuse,
+    TrackResolutionRules,
+)
 from src.domain.matching.recording_identity import RecordingDescription
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
@@ -107,12 +112,7 @@ class ReuseHintResolver(InwardTrackResolver):
         if not hint:
             return None
         artist, title = hint
-        return ReuseMetadata(
-            artist=artist,
-            title=title,
-            connector_id=identifier,
-            lookup_pair=(title.lower(), artist.lower()),
-        )
+        return ReuseMetadata(artist=artist, title=title, connector_id=identifier)
 
     async def _create_tracks_batch(
         self,
@@ -774,7 +774,7 @@ def _create_write(
         current_id=current_id or requested_id,
         payload=f"payload:{requested_id}",
         match_method="direct_import",
-        evidence=_CREATION,
+        outcome=Create(strong_id=None, evidence=_CREATION),
     )
 
 
@@ -810,7 +810,7 @@ class TestPlanWrites:
         )
 
         assert write.creates_canonical
-        assert write.review is None
+        assert not write.defers_to_review
         assert write.match_method == "direct_import"
         assert write.evidence.method == "direct"
         assert write.confidence == write.evidence.confidence
@@ -826,8 +826,9 @@ class TestPlanWrites:
             [_answer("id-1", isrc="USUM72309818")], uow, user_id="u"
         )
 
-        assert write.reuse_track is owner
-        assert write.review is None
+        assert isinstance(write.outcome, Reuse)
+        assert write.outcome.canonical is owner
+        assert not write.defers_to_review
         assert write.match_method == "isrc_match"
         assert write.evidence.zone == "accept"
 
@@ -844,9 +845,9 @@ class TestPlanWrites:
         )
 
         assert write.creates_canonical
-        assert write.review is not None
-        assert write.review.owner is owner
-        assert write.review.review.method == "isrc_suspect"
+        assert isinstance(write.outcome, DeferToReview)
+        assert write.outcome.owner is owner
+        assert write.outcome.review.method == "isrc_suspect"
         assert write.match_method == "direct_import"
 
     async def test_two_ids_sharing_one_isrc_fold_onto_a_leader(self):
@@ -864,7 +865,7 @@ class TestPlanWrites:
         )
 
         assert first.creates_canonical
-        assert second.leader == "id-1"
+        assert second.outcome.depends_on == "id-1"
         assert second.match_method == "isrc_match"
 
     async def test_names_never_decide_where_the_answer_says_so(self):
@@ -981,8 +982,7 @@ class TestPlannedWritePipeline:
             current_id="id-1",
             payload="payload:id-1",
             match_method="isrc_match",
-            evidence=_CREATION,
-            reuse_track=held,
+            outcome=Reuse(evidence=_CREATION, canonical=held),
         )
         resolver = PipelineResolver([reuse_write])
         uow, track_repo, connector_repo, recorder, _ = _pipeline_uow()

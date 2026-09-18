@@ -31,7 +31,7 @@ from src.domain.matching.canonical_resolution import (
     DeferToReview,
     Described,
     plan_canonical_resolution,
-    review_for,
+    suspect_review,
 )
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.protocols import (
@@ -41,7 +41,7 @@ from src.domain.matching.protocols import (
     Nothing,
     ReuseExisting,
 )
-from src.domain.matching.recording_identity import RecordingDescription
+from src.domain.matching.recording_identity import describe_recording
 from src.domain.matching.types import MatchResult
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
@@ -446,10 +446,8 @@ class SpotifyCrossDiscoveryProvider:
             [
                 Described(
                     key=spotify_id,
-                    description=RecordingDescription(
-                        title=best.name,
-                        artist=best.artists[0].name if best.artists else "",
-                        duration_ms=best.duration_ms,
+                    description=describe_recording(
+                        best.name, [a.name for a in best.artists], best.duration_ms
                     ),
                     strong_id=spotify_isrc,
                 )
@@ -530,8 +528,9 @@ class SpotifyCrossDiscoveryProvider:
                     f"collision review was not queued"
                 )
                 return
-            review = review_for(
-                deferral,
+            review = suspect_review(
+                deferral.owner,
+                deferral.review,
                 connector=connector,
                 connector_track_id=connector_track_id,
                 user_id=user_id,

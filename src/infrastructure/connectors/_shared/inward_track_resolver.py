@@ -21,8 +21,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Generator, Hashable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import NamedTuple
-from uuid import UUID
 
 from attrs import define, evolve, field
 
@@ -31,22 +29,23 @@ from src.domain.entities import Track
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.canonical_resolution import (
-    Create,
-    DeferToReview,
     Described,
     Outcome,
+    Refusal,
     ResolutionEvidence,
+    Reuse,
     TrackResolutionRules,
-    contest_review_for,
+    creation_of,
+    owners_by_identity,
     plan_resolution,
-    review_for,
+    price_reuse,
+    suspect_review,
+    track_name_key,
+    undecided_name_pairs,
 )
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.recording_identity import (
-    RecordingDescription,
-    describe_track,
-    identity_key,
-)
+from src.domain.matching.recording_identity import RecordingDescription, identity_key
+from src.domain.matching.types import evidence_number, final_score_of
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.domain.repositories.errors import (
     is_transient_contention,
@@ -240,27 +239,31 @@ class TrackResolutionMetrics:
         )
 
 
-class ReuseMetadata(NamedTuple):
+@define(frozen=True, slots=True)
+class ReuseMetadata:
     """Metadata extracted from a connector identifier for canonical reuse matching."""
 
     artist: str
     title: str
     connector_id: str
-    lookup_pair: tuple[str, str]  # (title_lower, artist_lower) for DB search
+
+    @property
+    def lookup_pair(self) -> tuple[str, str]:
+        """The (title, artist) pair the title+artist probe is keyed by."""
+        return (self.title.strip().lower(), self.artist.strip().lower())
 
 
 @define(frozen=True, slots=True)
 class _AcceptedReuse:
     """One planned-and-accepted reuse, decided before anything is written.
 
-    ``candidate`` is the pre-mapping canonical the caller resolves to —
+    ``spec.track`` is the pre-mapping canonical the caller resolves to —
     deliberately not the track ``map_tracks_to_connectors`` hands back, which
     carries the new connector id folded in; resolution semantics predate the
     mapping write and must not change with it.
     """
 
     identifier: str
-    candidate: Track
     spec: ConnectorMappingSpec
 
 
@@ -355,11 +358,11 @@ class InwardTrackResolver[THint = object](ABC):
 
         For each unresolved ID, extracts artist+title metadata via the
         _extract_reuse_metadata hook, batch-searches for existing canonicals
-        by title+artist, hands the candidates to the planner under the
-        names-alone rules, and creates connector mappings for what it reuses.
-        A planned fold onto another unresolved id is not a reuse here — the
-        leader has no canonical yet — so both fall through to creation,
-        each still recording the candidate it refused.
+        by title+artist, prices the candidates under the names-alone rules
+        (``price_reuse``, one description at a time — no leaders: an
+        unresolved twin has no canonical to fold onto yet) and creates
+        connector mappings for what it reuses, recording the candidate each
+        refusal turned down.
         """
         # Extract metadata from identifiers via subclass hook
         pairs: list[tuple[str, str]] = []
@@ -383,66 +386,57 @@ class InwardTrackResolver[THint = object](ABC):
         # Keyed by the description that proposed each candidate: the gate is
         # a similarity floor, so a candidate the probe reached on a looser
         # form is still priced — and its refusal recorded.
-        described: list[Described[str, RecordingDescription]] = []
+        descriptions: dict[str, RecordingDescription] = {}
         name_owners: dict[Hashable, list[Track]] = {}
         for identifier, meta in id_to_meta.items():
             description = RecordingDescription(title=meta.title, artist=meta.artist)
-            described.append(Described(key=identifier, description=description))
+            descriptions[identifier] = description
             candidate = candidates.get(meta.lookup_pair)
             if candidate is not None:
                 bucket = name_owners.setdefault(identity_key(description), [])
                 if all(owner.id != candidate.id for owner in bucket):
                     bucket.append(candidate)
-        plan = plan_resolution(
-            described,
-            strong_owners={},
-            name_owners=name_owners,
-            rules=self._reuse_rules,
-        )
 
         # Accepted mappings accumulate into one batch persisted below.
         accepted: list[_AcceptedReuse] = []
         refusal_events: list[ResolutionDecision] = []
         for identifier, meta in id_to_meta.items():
-            outcome = plan[identifier]
-            if outcome.kind == "reuse" and outcome.canonical is not None:
-                accepted.append(
-                    _AcceptedReuse(
-                        identifier=identifier,
-                        candidate=outcome.canonical,
-                        # ``primary=True`` is the single-mapping call's
-                        # ``auto_set_primary`` default this batch replaces —
-                        # ``map_track_to_connector`` is a one-spec call to
-                        # ``map_tracks_to_connectors`` with exactly this flag.
-                        spec=ConnectorMappingSpec(
-                            track=outcome.canonical,
-                            connector=self.connector_name,
-                            connector_id=meta.connector_id,
-                            match_method=outcome.evidence.method,
-                            confidence=outcome.evidence.confidence,
-                            metadata={
-                                "artist_name": meta.artist,
-                                "track_name": meta.title,
-                            },
-                            confidence_evidence=outcome.evidence.evidence,
-                            primary=True,
-                        ),
+            description = descriptions[identifier]
+            key = track_name_key(description)
+            priced: Reuse[str, Track] | Refusal[Track] | None = (
+                price_reuse(description, name_owners.get(key, ()), self._reuse_rules)
+                if key is not None
+                else None
+            )
+            if priced is None:
+                continue
+            if isinstance(priced, Reuse):
+                if priced.canonical is not None:
+                    accepted.append(
+                        _AcceptedReuse(
+                            identifier=identifier,
+                            # ``primary=True`` is the single-mapping call's
+                            # ``auto_set_primary`` default this batch replaces —
+                            # ``map_track_to_connector`` is a one-spec call to
+                            # ``map_tracks_to_connectors`` with exactly this flag.
+                            spec=ConnectorMappingSpec.priced(
+                                priced.canonical,
+                                self.connector_name,
+                                meta.connector_id,
+                                priced.evidence,
+                                metadata={
+                                    "artist_name": meta.artist,
+                                    "track_name": meta.title,
+                                },
+                                primary=True,
+                            ),
+                        )
                     )
-                )
                 continue
-            # A creation and a fold onto an in-chunk leader both carry the
-            # candidate they refused: one event per identifier either way.
-            if (
-                outcome.kind == "defer_to_review"
-                or outcome.refused is None
-                or outcome.refusal is None
-            ):
-                continue
-            refusal = outcome.refusal
-            evidence = refusal.evidence or {}
-            title_similarity = evidence.get("title_similarity")
+            refusal = priced.evidence
+            title_similarity = evidence_number(refusal.evidence, "title_similarity")
             logger.debug(
-                f"Canonical reuse rejected candidate {outcome.refused.id} for "
+                f"Canonical reuse rejected candidate {priced.candidate.id} for "
                 f"{identifier} (confidence: {refusal.confidence}, "
                 f"title_sim: {title_similarity})"
             )
@@ -450,9 +444,9 @@ class InwardTrackResolver[THint = object](ABC):
                 ResolutionDecision(
                     event_type="rejected",
                     connector_name=self.connector_name,
-                    track_id=outcome.refused.id,
+                    track_id=priced.candidate.id,
                     confidence=refusal.confidence,
-                    score=_as_float(evidence.get("final_score")),
+                    score=final_score_of(refusal.evidence),
                     zone=refusal.zone,
                     payload={
                         "connector_id": meta.connector_id,
@@ -460,7 +454,7 @@ class InwardTrackResolver[THint = object](ABC):
                         # accept threshold, so record which of the two
                         # refused — otherwise a "rejected" event with a
                         # high confidence looks like a contradiction.
-                        "title_similarity": _as_float(title_similarity),
+                        "title_similarity": title_similarity,
                         "title_threshold": self._reuse_rules.config.high_similarity_threshold,
                     },
                 )
@@ -472,7 +466,7 @@ class InwardTrackResolver[THint = object](ABC):
             _ = await uow.get_connector_repository().map_tracks_to_connectors([
                 item.spec for item in chunk
             ])
-            return {item.identifier: item.candidate for item in chunk}
+            return {item.identifier: item.spec.track for item in chunk}
 
         def _log_failed_reuse(item: _AcceptedReuse, e: Exception) -> None:
             # The matcher just said an existing canonical holds this
@@ -496,7 +490,7 @@ class InwardTrackResolver[THint = object](ABC):
         for item in accepted:
             if item.identifier in result:
                 logger.info(
-                    f"Reused canonical track {item.candidate.id} for "
+                    f"Reused canonical track {item.spec.track.id} for "
                     f"{self.connector_name}:{item.spec.connector_id} "
                     f"(confidence: {item.spec.confidence})"
                 )
@@ -697,9 +691,11 @@ class InwardTrackResolver[THint = object](ABC):
         return result, metrics
 
 
-def _as_float(value: object) -> float | None:
-    """A number out of an evidence dict, or None when it holds none."""
-    return float(value) if isinstance(value, int | float) else None
+def _leader_of(reuse: Reuse[str, Track]) -> str:
+    """A reuse without a canonical names a leader — the planner guarantees it."""
+    if reuse.leader is None:
+        raise ValueError("Reuse names neither a canonical nor a leader")
+    return reuse.leader
 
 
 class LeaderNotPersistedError(LookupError):
@@ -741,35 +737,33 @@ class ProviderAnswer[TPayload]:
 class PlannedWrite[TPayload]:
     """One requested id's persist, decided before anything is written.
 
-    A thin carrier over the planner's outcome: the persist step writes
-    *this* and builds no payload of its own — once for the whole chunk, or
-    one savepoint at a time over the same code when the chunk has to be
-    isolated. ``match_method`` is the connector's label for the main
-    mapping; ``evidence`` is the planner's price of the decision, which is
-    where the mapping's confidence and evidence come from.
+    A thin carrier over the planner's ``outcome``, keyed by *current* id —
+    a ``Reuse`` of a persisted canonical or of an earlier write in this
+    chunk (its leader), a ``Create``, contested or not, or a
+    ``DeferToReview``. The persist step writes *this* and builds no payload
+    of its own — once for the whole chunk, or one savepoint at a time over
+    the same code when the chunk has to be isolated. ``match_method`` is
+    the connector's label for the main mapping; the planner's price of the
+    decision is where the mapping's confidence and evidence come from.
     """
 
     requested_id: str
     current_id: str
     payload: TPayload
     match_method: MatchMethod
-    evidence: ResolutionEvidence
-    # An existing canonical already holds this recording — map onto it,
-    # create nothing.
-    reuse_track: Track | None = None
-    # The current id of an earlier write in this chunk whose canonical this
-    # one reuses — the identity key the persist step dedupes creations on.
-    leader: str | None = None
-    # Suspect collision: the ISRC is claimed by an owner whose duration
-    # disagrees, so a review is queued and the contested ISRC withheld.
-    review: DeferToReview[str, Track] | None = None
-    # Suspect collision with an earlier creation in this chunk: the ISRC is
-    # withheld and the review is queued against the leader once it has a row.
-    contested: Create[str, Track] | None = None
+    outcome: Outcome[str, Track]
     # Does the main mapping this write asserts hold primacy? A creation and
     # an ISRC reuse do; a mapping that only aliases a stale id onto an
     # already-mapped canonical does not.
     primary: bool = True
+
+    @property
+    def evidence(self) -> ResolutionEvidence:
+        """The price of the decision the main mapping asserts."""
+        outcome = self.outcome
+        if outcome.kind == "defer_to_review":
+            return outcome.create.evidence
+        return outcome.evidence
 
     @property
     def confidence(self) -> int:
@@ -781,50 +775,29 @@ class PlannedWrite[TPayload]:
 
     @property
     def creates_canonical(self) -> bool:
-        return self.reuse_track is None and self.leader is None
+        return self.outcome.kind != "reuse"
 
     @property
     def defers_to_review(self) -> bool:
-        return self.review is not None or self.contested is not None
-
-    @property
-    def required_leader(self) -> str | None:
-        """The current id of the earlier write this one cannot persist without.
-
-        A follower's leader, whose canonical it maps onto; a contested
-        creation's leader, whose canonical its review is queued against.
-        """
-        if self.contested is not None:
-            return self.contested.contested_leader
-        return self.leader
+        """A suspect ISRC collision, with a persisted owner or an in-chunk leader."""
+        create = creation_of(self.outcome)
+        return self.outcome.kind == "defer_to_review" or (
+            create is not None and create.contest is not None
+        )
 
 
 def planned_write[TPayload](
-    outcome: Outcome[str, Track],
-    answer: ProviderAnswer[TPayload],
-    *,
-    creation_method: MatchMethod,
+    outcome: Outcome[str, Track], answer: ProviderAnswer[TPayload]
 ) -> PlannedWrite[TPayload]:
     """The write one planner outcome persists as, in the connector's labels."""
-    if outcome.kind == "reuse":
-        return PlannedWrite(
-            requested_id=answer.requested_id,
-            current_id=answer.current_id,
-            payload=answer.payload,
-            match_method=outcome.evidence.method,
-            evidence=outcome.evidence,
-            reuse_track=outcome.canonical,
-            leader=outcome.leader,
-        )
-    create = outcome if outcome.kind == "create" else outcome.create
     return PlannedWrite(
         requested_id=answer.requested_id,
         current_id=answer.current_id,
         payload=answer.payload,
-        match_method=creation_method,
-        evidence=create.evidence,
-        review=outcome if outcome.kind == "defer_to_review" else None,
-        contested=create if create.contested_leader is not None else None,
+        match_method=(
+            outcome.evidence.method if outcome.kind == "reuse" else "direct_import"
+        ),
+        outcome=outcome,
     )
 
 
@@ -916,7 +889,6 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        creation_method: MatchMethod = "direct_import",
     ) -> list[PlannedWrite[TPayload]]:
         """The two batch probes, the planner, and one write per answer.
 
@@ -940,7 +912,11 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
                 key=current_id,
                 description=group[0].description,
                 strong_id=group[0].isrc,
-                names_decide=any(answer.names_decide for answer in group),
+                name_key=(
+                    track_name_key(group[0].description)
+                    if any(answer.names_decide for answer in group)
+                    else None
+                ),
             )
             for current_id, group in by_current.items()
         ]
@@ -952,66 +928,45 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
             else {}
         )
 
-        probed = [
-            item
-            for item in described
-            if item.names_decide
-            and item.description.title
-            and item.description.artist
-            and not (item.strong_id and item.strong_id in isrc_owners)
-        ]
+        pairs = undecided_name_pairs(described, isrc_owners)
         found = (
-            await track_repo.find_tracks_by_title_artist(
-                [(item.description.title, item.description.artist) for item in probed],
-                user_id=user_id,
-            )
-            if probed
+            await track_repo.find_tracks_by_title_artist(pairs, user_id=user_id)
+            if pairs
             else {}
         )
-        # Keyed by what the *found canonical* normalizes to, not by the probe
-        # pair that surfaced it: the probe also answers on a
-        # parenthetical-stripped form, and a candidate reached that way keys
-        # differently from the payload — the pairing the recording gate refuses.
-        name_owners: dict[Hashable, list[Track]] = {}
-        seen: set[object] = set()
-        for owner in found.values():
-            if owner.id in seen:
-                continue
-            seen.add(owner.id)
-            name_owners.setdefault(identity_key(describe_track(owner)), []).append(
-                owner
-            )
 
         plan = plan_resolution(
             described,
             strong_owners=isrc_owners,
-            name_owners=name_owners,
+            name_owners=owners_by_identity(found.values()),
             rules=self._rules,
         )
         writes: list[PlannedWrite[TPayload]] = []
         for answer in answers:
-            write = planned_write(
-                plan[answer.current_id], answer, creation_method=creation_method
-            )
-            if write.reuse_track is not None:
-                logger.info(
-                    f"Identity reuse: {self.connector_name}:{write.requested_id} "
-                    f"describes the recording canonical {write.reuse_track.id} "
-                    f"already holds ({write.match_method}, "
-                    f"confidence: {write.confidence})"
-                )
-            elif write.leader is not None:
-                logger.info(
-                    f"Identity fold: {self.connector_name}:{write.requested_id} "
-                    f"describes the same recording as "
-                    f"{self.connector_name}:{write.leader}, earlier in this chunk"
-                )
-            elif write.review is not None:
-                logger.info(
-                    f"ISRC suspect: deferring {self.connector_name}:"
-                    f"{write.current_id} to review against canonical "
-                    f"{write.review.owner.id} (ISRC={answer.isrc})"
-                )
+            outcome = plan[answer.current_id]
+            write = planned_write(outcome, answer)
+            match outcome.kind:
+                case "reuse" if outcome.canonical is not None:
+                    logger.info(
+                        f"Identity reuse: {self.connector_name}:{write.requested_id} "
+                        f"describes the recording canonical {outcome.canonical.id} "
+                        f"already holds ({write.match_method}, "
+                        f"confidence: {write.confidence})"
+                    )
+                case "reuse":
+                    logger.info(
+                        f"Identity fold: {self.connector_name}:{write.requested_id} "
+                        f"describes the same recording as "
+                        f"{self.connector_name}:{outcome.leader}, earlier in this chunk"
+                    )
+                case "defer_to_review":
+                    logger.info(
+                        f"ISRC suspect: deferring {self.connector_name}:"
+                        f"{write.current_id} to review against canonical "
+                        f"{outcome.owner.id} (ISRC={answer.isrc})"
+                    )
+                case "create":
+                    pass
             writes.append(write)
         return writes
 
@@ -1088,16 +1043,16 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         connector_repo = uow.get_connector_repository()
         persisted = persisted or {}
 
-        created = [write for write in writes if write.creates_canonical]
         creates_by_id: dict[str, PlannedWrite[TPayload]] = {}
-        for write in created:
-            _ = creates_by_id.setdefault(write.current_id, write)
+        for write in writes:
+            if write.creates_canonical:
+                _ = creates_by_id.setdefault(write.current_id, write)
         # Before anything is written: every leader a write depends on is
         # either created in this chunk or already has a row from an earlier
         # savepoint. Otherwise the write fails here, not after its own rows
         # have landed in a savepoint that then has to be discarded.
         for write in writes:
-            leader_id = write.required_leader
+            leader_id = write.outcome.depends_on
             if (
                 leader_id is not None
                 and leader_id not in creates_by_id
@@ -1111,20 +1066,18 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         ])
         track_by_current_id = dict(zip(creates_by_id, saved, strict=True))
         leaders = {**persisted, **track_by_current_id}
-        canonicals: dict[str, Track] = {
-            write.requested_id: track_by_current_id[write.current_id]
-            for write in created
-        }
-        canonicals.update({
-            write.requested_id: write.reuse_track
-            for write in writes
-            if write.reuse_track is not None
-        })
-        canonicals.update({
-            write.requested_id: leaders[write.leader]
-            for write in writes
-            if write.leader is not None
-        })
+        canonicals: dict[str, Track] = {}
+        for write in writes:
+            outcome = write.outcome
+            match outcome.kind:
+                case "reuse" if outcome.canonical is not None:
+                    canonicals[write.requested_id] = outcome.canonical
+                case "reuse":
+                    canonicals[write.requested_id] = leaders[_leader_of(outcome)]
+                case "create" | "defer_to_review":
+                    canonicals[write.requested_id] = track_by_current_id[
+                        write.current_id
+                    ]
 
         _ = await connector_repo.map_tracks_to_connectors(
             self._mapping_batch(writes, canonicals)
@@ -1198,55 +1151,45 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
                     f"{write.current_id} — its ISRC collision review was not queued"
                 )
                 continue
-            if write.review is not None:
-                review = review_for(
-                    write.review,
+            owner, priced = self._collision_of(write, leaders)
+            reviews.append(
+                suspect_review(
+                    owner,
+                    priced,
                     connector=self.connector_name,
                     connector_track_id=connector_track_id,
                     user_id=user_id,
                 )
-            else:
-                review = self._contest_review(
-                    write,
-                    leaders,
-                    connector_track_id=connector_track_id,
-                    user_id=user_id,
-                )
-            reviews.append(review)
+            )
             logger.warning(
                 "isrc_collision_deferred",
-                track_id=review.track_id,
+                track_id=owner.id,
                 connector=self.connector_name,
                 connector_id=write.current_id,
-                confidence=review.confidence,
+                confidence=priced.confidence,
             )
         if reviews:
             _ = await uow.get_match_review_repository().create_reviews_batch(reviews)
 
-    def _contest_review(
-        self,
-        write: PlannedWrite[TPayload],
-        leaders: Mapping[str, Track],
-        *,
-        connector_track_id: UUID,
-        user_id: str,
-    ) -> MatchReview:
-        """The review a contested creation queues against its persisted leader."""
-        contested = write.contested
-        if contested is None or contested.contested_leader is None:
-            raise ValueError("only a contested creation has a leader to review against")
-        leader = leaders.get(contested.contested_leader)
+    @staticmethod
+    def _collision_of(
+        write: PlannedWrite[TPayload], leaders: Mapping[str, Track]
+    ) -> tuple[Track, ResolutionEvidence]:
+        """The owner a deferred write's review names, and the collision's price.
+
+        The persisted owner of a deferral, or the canonical a contested
+        creation's leader created (``leaders``).
+        """
+        outcome = write.outcome
+        if outcome.kind == "defer_to_review":
+            return outcome.owner, outcome.review
+        create = creation_of(outcome)
+        if create is None or create.contest is None:
+            raise ValueError("only a deferred or contested creation queues a review")
+        leader = leaders.get(create.contest.leader)
         if leader is None:
-            raise LeaderNotPersistedError(
-                write.requested_id, contested.contested_leader
-            )
-        return contest_review_for(
-            contested,
-            leader,
-            connector=self.connector_name,
-            connector_track_id=connector_track_id,
-            user_id=user_id,
-        )
+            raise LeaderNotPersistedError(write.requested_id, create.contest.leader)
+        return leader, create.contest.evidence
 
     def _mapping_batch(
         self,

@@ -49,10 +49,17 @@ from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.config.telemetry import phase
 from src.domain.entities import Artist, Track
-from src.domain.matching.canonical_resolution import ResolutionEvidence
+from src.domain.matching.canonical_resolution import (
+    Create,
+    ResolutionEvidence,
+    Reuse,
+)
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.recording_identity import RecordingDescription
+from src.domain.matching.recording_identity import (
+    RecordingDescription,
+    describe_recording,
+)
 from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
@@ -153,10 +160,10 @@ def _shortest_plausible_ms(completed_play_ms_estimate: int | None) -> int | None
 
 def _describe_payload(spotify_track: SpotifyTrack) -> RecordingDescription:
     """A Spotify payload as the same-recording question sees it."""
-    return RecordingDescription(
-        title=spotify_track.name,
-        artist=spotify_track.artists[0].name if spotify_track.artists else "",
-        duration_ms=spotify_track.duration_ms,
+    return describe_recording(
+        spotify_track.name,
+        [a.name for a in spotify_track.artists],
+        spotify_track.duration_ms,
     )
 
 
@@ -274,13 +281,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
         if not hint:
             return None
         return ReuseMetadata(
-            artist=hint.artist_name,
-            title=hint.track_name,
-            connector_id=identifier,
-            lookup_pair=(
-                hint.track_name.strip().lower(),
-                hint.artist_name.strip().lower(),
-            ),
+            artist=hint.artist_name, title=hint.track_name, connector_id=identifier
         )
 
     @override
@@ -641,10 +642,20 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                 current_ids[track.id or spotify_id] = spotify_id
         if not current_ids:
             return {}
-        column_owners = await uow.get_track_repository().find_tracks_by_spotify_ids(
+        # Ids only, hydrating the rare hit: the column probe runs on every
+        # chunk and almost always answers nothing.
+        track_repo = uow.get_track_repository()
+        column_owners = await track_repo.find_track_ids_by_spotify_ids(
             sorted(current_ids), user_id=user_id
         )
-        held = dict(column_owners)
+        held: dict[str, Track] = {}
+        if column_owners:
+            hydrated = await track_repo.find_tracks_by_ids(list(column_owners.values()))
+            held = {
+                current_id: hydrated[track_id]
+                for current_id, track_id in column_owners.items()
+                if track_id in hydrated
+            }
         relinked = sorted(
             current_id
             for current_id, requested_id in current_ids.items()
@@ -682,8 +693,10 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
             current_id=current_id,
             payload=spotify_track,
             match_method="direct_import_stale_id" if stale else "direct_import",
-            evidence=self._rules.creation(_describe_payload(spotify_track)),
-            reuse_track=owner,
+            outcome=Reuse(
+                evidence=self._rules.creation(_describe_payload(spotify_track)),
+                canonical=owner,
+            ),
             primary=not stale,
         )
 
@@ -735,7 +748,10 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                     current_id=search_result.candidate.id or dead_id,
                     payload=search_result.candidate,
                     match_method="search_fallback",
-                    evidence=search_result.evidence,
+                    outcome=Create(
+                        strong_id=normalized_spotify_isrc(search_result.candidate),
+                        evidence=search_result.evidence,
+                    ),
                 )
                 for dead_id, search_result in search_results.items()
             ],

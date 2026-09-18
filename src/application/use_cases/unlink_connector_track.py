@@ -9,8 +9,8 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.services.track_resolution import canonical_from_connector_track
 from src.application.use_cases._shared.mapping_guard import require_owned_mapping
-from src.domain.entities.track import Artist, Track
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.connector import ConnectorRepositoryProtocol
 from src.domain.repositories.track import TrackRepositoryProtocol
@@ -112,19 +112,11 @@ class UnlinkConnectorTrackUseCase:
         if ct is None:
             raise NotFoundError(f"Connector track {connector_track_id} not found")
 
-        new_track = Track(
-            title=ct.title,
-            artists=[Artist(name=a.name) for a in ct.artists]
-            if ct.artists
-            else [Artist(name="Unknown")],
-            album=ct.album,
-            duration_ms=ct.duration_ms,
-            release_date=ct.release_date,
-            # Deliberately NOT ct.isrc: save_track upserts by ISRC, which
-            # would merge the orphan straight back onto the canonical the
-            # user just unlinked from. The ISRC stays on the connector track.
-            isrc=None,
-            user_id=user_id,
+        # Deliberately no ISRC: save_track upserts by ISRC, which would merge
+        # the orphan straight back onto the canonical the user just unlinked
+        # from. The ISRC stays on the connector track.
+        new_track = canonical_from_connector_track(
+            ct, user_id=user_id, unknown_artist="Unknown"
         )
         saved_track = await track_repo.save_track(new_track)
 

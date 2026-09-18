@@ -361,21 +361,23 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def find_tracks_by_spotify_ids(
+    def find_track_ids_by_spotify_ids(
         self, spotify_ids: list[str], *, user_id: str
-    ) -> Awaitable[dict[str, Track]]:
-        """Batch lookup tracks by the denormalized ``spotify_id`` column.
+    ) -> Awaitable[dict[str, UUID]]:
+        """Which track holds each denormalized ``spotify_id`` column value.
 
         The column is an identity key ``save_tracks`` refuses to claim twice,
         and it can be set on a canonical that has no live Spotify mapping —
         so a resolver whose mapping lookup missed still has to ask who holds
-        the id before it creates.
+        the id before it creates. Ids only: the probe runs on every chunk
+        and hits rarely, so the caller hydrates just the hits
+        (``find_tracks_by_ids``).
 
         Args:
             spotify_ids: Spotify track ids to search for.
 
         Returns:
-            Dict keyed by Spotify id → Track.
+            Dict keyed by Spotify id → track id.
         """
         ...
 
