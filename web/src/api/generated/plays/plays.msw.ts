@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,9 +14,12 @@ import type {
 } from 'msw';
 
 import type {
-  PlayHistogramResponse,
+  PlayHistogramResponse
+} from '../model/playHistogramResponse.ts';
+
+import type {
   PlayListResponse
-} from '../model';
+} from '../model/playListResponse.ts';
 
 import {
   getGetPlaysHistogramApiV1PlaysHistogramGetResponseMock,

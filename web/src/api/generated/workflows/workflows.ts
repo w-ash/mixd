@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation,
@@ -25,27 +25,84 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  CreateWorkflowRequest,
-  HTTPValidationError,
-  ListActiveRunsApiV1WorkflowsActiveRunsGetParams,
-  ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams,
-  ListWorkflowsApiV1WorkflowsGetParams,
-  NodeTypeInfoSchema,
-  PaginatedResponseWorkflowRunSummarySchema,
-  PaginatedResponseWorkflowSummarySchema,
-  PreviewStartedResponse,
-  ScheduleResponse,
-  ScheduleToggleRequest,
-  ScheduleUpsertRequest,
-  UpdateWorkflowRequest,
-  WorkflowDetailSchema,
-  WorkflowRunDetailSchema,
-  WorkflowRunStartedResponse,
-  WorkflowTemplateSchema,
-  WorkflowValidationRequest,
-  WorkflowValidationResponse,
+  CreateWorkflowRequest
+} from '../model/createWorkflowRequest.ts';
+
+import type {
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
+  ListActiveRunsApiV1WorkflowsActiveRunsGetParams
+} from '../model/listActiveRunsApiV1WorkflowsActiveRunsGetParams.ts';
+
+import type {
+  ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams
+} from '../model/listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams.ts';
+
+import type {
+  ListWorkflowsApiV1WorkflowsGetParams
+} from '../model/listWorkflowsApiV1WorkflowsGetParams.ts';
+
+import type {
+  NodeTypeInfoSchema
+} from '../model/nodeTypeInfoSchema.ts';
+
+import type {
+  PaginatedResponseWorkflowRunSummarySchema
+} from '../model/paginatedResponseWorkflowRunSummarySchema.ts';
+
+import type {
+  PaginatedResponseWorkflowSummarySchema
+} from '../model/paginatedResponseWorkflowSummarySchema.ts';
+
+import type {
+  PreviewStartedResponse
+} from '../model/previewStartedResponse.ts';
+
+import type {
+  ScheduleResponse
+} from '../model/scheduleResponse.ts';
+
+import type {
+  ScheduleToggleRequest
+} from '../model/scheduleToggleRequest.ts';
+
+import type {
+  ScheduleUpsertRequest
+} from '../model/scheduleUpsertRequest.ts';
+
+import type {
+  UpdateWorkflowRequest
+} from '../model/updateWorkflowRequest.ts';
+
+import type {
+  WorkflowDetailSchema
+} from '../model/workflowDetailSchema.ts';
+
+import type {
+  WorkflowRunDetailSchema
+} from '../model/workflowRunDetailSchema.ts';
+
+import type {
+  WorkflowRunStartedResponse
+} from '../model/workflowRunStartedResponse.ts';
+
+import type {
+  WorkflowTemplateSchema
+} from '../model/workflowTemplateSchema.ts';
+
+import type {
+  WorkflowValidationRequest
+} from '../model/workflowValidationRequest.ts';
+
+import type {
+  WorkflowValidationResponse
+} from '../model/workflowValidationResponse.ts';
+
+import type {
   WorkflowVersionSchema
-} from '../model';
+} from '../model/workflowVersionSchema.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -230,11 +287,25 @@ export const getCreateWorkflowApiV1WorkflowsPostUrl = () => {
  */
 export const createWorkflowApiV1WorkflowsPost = async (createWorkflowRequest: CreateWorkflowRequest, options?: Parameters<typeof customFetch>[1]): Promise<createWorkflowApiV1WorkflowsPostResponse> => {
 
-  return customFetch<createWorkflowApiV1WorkflowsPostResponse>(getCreateWorkflowApiV1WorkflowsPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<createWorkflowApiV1WorkflowsPostResponse>(getCreateWorkflowApiV1WorkflowsPostUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(createWorkflowRequest)
   }
 );}
@@ -243,11 +314,13 @@ export const createWorkflowApiV1WorkflowsPost = async (createWorkflowRequest: Cr
 
 
 
-export const useCreateWorkflowApiV1WorkflowsPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, TError,{data: CreateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, TError,{data: CreateWorkflowRequest}, TContext> => {
+export const getCreateWorkflowApiV1WorkflowsPostMutationKey = () => ['createWorkflowApiV1WorkflowsPost'] as const;
 
-const mutationKey = ['createWorkflowApiV1WorkflowsPost'];
+export const useCreateWorkflowApiV1WorkflowsPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, TError,CreateWorkflowApiV1WorkflowsPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, TError,CreateWorkflowApiV1WorkflowsPostMutationVariables, TContext> => {
+
+const mutationKey = getCreateWorkflowApiV1WorkflowsPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -257,7 +330,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, {data: CreateWorkflowRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, CreateWorkflowApiV1WorkflowsPostMutationVariables> = (props) => {
           const {data} = props ?? {};
 
           return  createWorkflowApiV1WorkflowsPost(data,requestOptions)
@@ -273,16 +346,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateWorkflowApiV1WorkflowsPostMutationResult = NonNullable<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>>
     export type CreateWorkflowApiV1WorkflowsPostMutationBody = CreateWorkflowRequest
     export type CreateWorkflowApiV1WorkflowsPostMutationError = HTTPValidationError
+    export type CreateWorkflowApiV1WorkflowsPostMutationVariables = {data: CreateWorkflowRequest}
 
     /**
  * @summary Create Workflow
  */
 export const useCreateWorkflowApiV1WorkflowsPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, TError,{data: CreateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, TError,CreateWorkflowApiV1WorkflowsPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>,
         TError,
-        {data: CreateWorkflowRequest},
+        CreateWorkflowApiV1WorkflowsPostMutationVariables,
         TContext
       > => {
       return useMutation(useCreateWorkflowApiV1WorkflowsPostMutationOptions(options), queryClient);
@@ -446,11 +520,13 @@ export const useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost = async
 
 
 
-export const useUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,{templateId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,{templateId: string}, TContext> => {
+export const getUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationKey = () => ['useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost'] as const;
 
-const mutationKey = ['useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost'];
+export const useUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationVariables, TContext> => {
+
+const mutationKey = getUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -460,7 +536,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, {templateId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationVariables> = (props) => {
           const {templateId} = props ?? {};
 
           return  useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost(templateId,requestOptions)
@@ -476,16 +552,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationResult = NonNullable<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>>
 
     export type UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationError = HTTPValidationError
+    export type UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationVariables = {templateId: string}
 
     /**
  * @summary Use Workflow Template
  */
 export const useUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,{templateId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>,
         TError,
-        {templateId: string},
+        UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationVariables,
         TContext
       > => {
       return useMutation(useUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationOptions(options), queryClient);
@@ -536,11 +613,13 @@ export const duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost = async (wor
 
 
 
-export const useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,{workflowId: string}, TContext> => {
+export const getDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationKey = () => ['duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost'] as const;
 
-const mutationKey = ['duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost'];
+export const useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationVariables, TContext> => {
+
+const mutationKey = getDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -550,7 +629,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, {workflowId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationVariables> = (props) => {
           const {workflowId} = props ?? {};
 
           return  duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost(workflowId,requestOptions)
@@ -566,16 +645,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationResult = NonNullable<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>>
 
     export type DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationError = HTTPValidationError
+    export type DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationVariables = {workflowId: string}
 
     /**
  * @summary Duplicate Workflow
  */
 export const useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>,
         TError,
-        {workflowId: string},
+        DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationVariables,
         TContext
       > => {
       return useMutation(useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationOptions(options), queryClient);
@@ -857,11 +937,25 @@ export const getValidateWorkflowApiV1WorkflowsValidatePostUrl = () => {
  */
 export const validateWorkflowApiV1WorkflowsValidatePost = async (workflowValidationRequest: WorkflowValidationRequest, options?: Parameters<typeof customFetch>[1]): Promise<validateWorkflowApiV1WorkflowsValidatePostResponse> => {
 
-  return customFetch<validateWorkflowApiV1WorkflowsValidatePostResponse>(getValidateWorkflowApiV1WorkflowsValidatePostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<validateWorkflowApiV1WorkflowsValidatePostResponse>(getValidateWorkflowApiV1WorkflowsValidatePostUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(workflowValidationRequest)
   }
 );}
@@ -870,11 +964,13 @@ export const validateWorkflowApiV1WorkflowsValidatePost = async (workflowValidat
 
 
 
-export const useValidateWorkflowApiV1WorkflowsValidatePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, TError,{data: WorkflowValidationRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, TError,{data: WorkflowValidationRequest}, TContext> => {
+export const getValidateWorkflowApiV1WorkflowsValidatePostMutationKey = () => ['validateWorkflowApiV1WorkflowsValidatePost'] as const;
 
-const mutationKey = ['validateWorkflowApiV1WorkflowsValidatePost'];
+export const useValidateWorkflowApiV1WorkflowsValidatePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, TError,ValidateWorkflowApiV1WorkflowsValidatePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, TError,ValidateWorkflowApiV1WorkflowsValidatePostMutationVariables, TContext> => {
+
+const mutationKey = getValidateWorkflowApiV1WorkflowsValidatePostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -884,7 +980,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, {data: WorkflowValidationRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, ValidateWorkflowApiV1WorkflowsValidatePostMutationVariables> = (props) => {
           const {data} = props ?? {};
 
           return  validateWorkflowApiV1WorkflowsValidatePost(data,requestOptions)
@@ -900,16 +996,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ValidateWorkflowApiV1WorkflowsValidatePostMutationResult = NonNullable<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>>
     export type ValidateWorkflowApiV1WorkflowsValidatePostMutationBody = WorkflowValidationRequest
     export type ValidateWorkflowApiV1WorkflowsValidatePostMutationError = HTTPValidationError
+    export type ValidateWorkflowApiV1WorkflowsValidatePostMutationVariables = {data: WorkflowValidationRequest}
 
     /**
  * @summary Validate Workflow
  */
 export const useValidateWorkflowApiV1WorkflowsValidatePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, TError,{data: WorkflowValidationRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, TError,ValidateWorkflowApiV1WorkflowsValidatePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>,
         TError,
-        {data: WorkflowValidationRequest},
+        ValidateWorkflowApiV1WorkflowsValidatePostMutationVariables,
         TContext
       > => {
       return useMutation(useValidateWorkflowApiV1WorkflowsValidatePostMutationOptions(options), queryClient);
@@ -949,11 +1046,25 @@ export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostUrl = () => {
  */
 export const previewUnsavedWorkflowApiV1WorkflowsPreviewPost = async (createWorkflowRequest: CreateWorkflowRequest, options?: Parameters<typeof customFetch>[1]): Promise<previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse> => {
 
-  return customFetch<previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse>(getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse>(getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(createWorkflowRequest)
   }
 );}
@@ -962,11 +1073,13 @@ export const previewUnsavedWorkflowApiV1WorkflowsPreviewPost = async (createWork
 
 
 
-export const usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,{data: CreateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,{data: CreateWorkflowRequest}, TContext> => {
+export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationKey = () => ['previewUnsavedWorkflowApiV1WorkflowsPreviewPost'] as const;
 
-const mutationKey = ['previewUnsavedWorkflowApiV1WorkflowsPreviewPost'];
+export const usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationVariables, TContext> => {
+
+const mutationKey = getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -976,7 +1089,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, {data: CreateWorkflowRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationVariables> = (props) => {
           const {data} = props ?? {};
 
           return  previewUnsavedWorkflowApiV1WorkflowsPreviewPost(data,requestOptions)
@@ -992,16 +1105,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>>
     export type PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationBody = CreateWorkflowRequest
     export type PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationError = HTTPValidationError
+    export type PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationVariables = {data: CreateWorkflowRequest}
 
     /**
  * @summary Preview Unsaved Workflow
  */
 export const usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,{data: CreateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>,
         TError,
-        {data: CreateWorkflowRequest},
+        PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationVariables,
         TContext
       > => {
       return useMutation(usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationOptions(options), queryClient);
@@ -1054,11 +1168,13 @@ export const previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = async (wo
 
 
 
-export const usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: string}, TContext> => {
+export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationKey = () => ['previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost'] as const;
 
-const mutationKey = ['previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost'];
+export const usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationVariables, TContext> => {
+
+const mutationKey = getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -1068,7 +1184,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, {workflowId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationVariables> = (props) => {
           const {workflowId} = props ?? {};
 
           return  previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost(workflowId,requestOptions)
@@ -1084,16 +1200,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>>
 
     export type PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationError = HTTPValidationError
+    export type PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationVariables = {workflowId: string}
 
     /**
  * @summary Preview Saved Workflow
  */
 export const usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>,
         TError,
-        {workflowId: string},
+        PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationVariables,
         TContext
       > => {
       return useMutation(usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationOptions(options), queryClient);
@@ -1252,11 +1369,25 @@ export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl = (workflowId: st
 export const updateWorkflowApiV1WorkflowsWorkflowIdPatch = async (workflowId: string,
     updateWorkflowRequest: UpdateWorkflowRequest, options?: Parameters<typeof customFetch>[1]): Promise<updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse> => {
 
-  return customFetch<updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse>(getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl(workflowId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse>(getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl(workflowId),
   {
     ...options,
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(updateWorkflowRequest)
   }
 );}
@@ -1265,11 +1396,13 @@ export const updateWorkflowApiV1WorkflowsWorkflowIdPatch = async (workflowId: st
 
 
 
-export const useUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: string;data: UpdateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: string;data: UpdateWorkflowRequest}, TContext> => {
+export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationKey = () => ['updateWorkflowApiV1WorkflowsWorkflowIdPatch'] as const;
 
-const mutationKey = ['updateWorkflowApiV1WorkflowsWorkflowIdPatch'];
+export const useUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationVariables, TContext> => {
+
+const mutationKey = getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -1279,7 +1412,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, {workflowId: string;data: UpdateWorkflowRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationVariables> = (props) => {
           const {workflowId,data} = props ?? {};
 
           return  updateWorkflowApiV1WorkflowsWorkflowIdPatch(workflowId,data,requestOptions)
@@ -1295,16 +1428,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>>
     export type UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationBody = UpdateWorkflowRequest
     export type UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationError = HTTPValidationError
+    export type UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationVariables = {workflowId: string;data: UpdateWorkflowRequest}
 
     /**
  * @summary Update Workflow
  */
 export const useUpdateWorkflowApiV1WorkflowsWorkflowIdPatch = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: string;data: UpdateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>,
         TError,
-        {workflowId: string;data: UpdateWorkflowRequest},
+        UpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationVariables,
         TContext
       > => {
       return useMutation(useUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationOptions(options), queryClient);
@@ -1355,11 +1489,13 @@ export const runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost = async (workflo
 
 
 
-export const useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: string}, TContext> => {
+export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationKey = () => ['runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost'] as const;
 
-const mutationKey = ['runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost'];
+export const useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationVariables, TContext> => {
+
+const mutationKey = getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -1369,7 +1505,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, {workflowId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationVariables> = (props) => {
           const {workflowId} = props ?? {};
 
           return  runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost(workflowId,requestOptions)
@@ -1385,16 +1521,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationResult = NonNullable<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>>
 
     export type RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationError = HTTPValidationError
+    export type RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationVariables = {workflowId: string}
 
     /**
  * @summary Run Workflow Endpoint
  */
 export const useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>,
         TError,
-        {workflowId: string},
+        RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationVariables,
         TContext
       > => {
       return useMutation(useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationOptions(options), queryClient);
@@ -1958,11 +2095,13 @@ export const revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertP
 
 
 
-export const useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: string;version: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: string;version: number}, TContext> => {
+export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationKey = () => ['revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost'] as const;
 
-const mutationKey = ['revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost'];
+export const useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationVariables, TContext> => {
+
+const mutationKey = getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -1972,7 +2111,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, {workflowId: string;version: number}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationVariables> = (props) => {
           const {workflowId,version} = props ?? {};
 
           return  revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost(workflowId,version,requestOptions)
@@ -1988,16 +2127,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationResult = NonNullable<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>>
 
     export type RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationError = HTTPValidationError
+    export type RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationVariables = {workflowId: string;version: number}
 
     /**
  * @summary Revert Workflow Version
  */
 export const useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: string;version: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>,
         TError,
-        {workflowId: string;version: number},
+        RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationVariables,
         TContext
       > => {
       return useMutation(useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions(options), queryClient);
@@ -2039,11 +2179,25 @@ export const getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutUrl = (
 export const upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut = async (workflowId: string,
     scheduleUpsertRequest: ScheduleUpsertRequest, options?: Parameters<typeof customFetch>[1]): Promise<upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse> => {
 
-  return customFetch<upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse>(getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutUrl(workflowId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse>(getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutUrl(workflowId),
   {
     ...options,
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(scheduleUpsertRequest)
   }
 );}
@@ -2052,11 +2206,13 @@ export const upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut = async (
 
 
 
-export const useUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,{workflowId: string;data: ScheduleUpsertRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,{workflowId: string;data: ScheduleUpsertRequest}, TContext> => {
+export const getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationKey = () => ['upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut'] as const;
 
-const mutationKey = ['upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut'];
+export const useUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationVariables, TContext> => {
+
+const mutationKey = getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -2066,7 +2222,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, {workflowId: string;data: ScheduleUpsertRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationVariables> = (props) => {
           const {workflowId,data} = props ?? {};
 
           return  upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut(workflowId,data,requestOptions)
@@ -2082,16 +2238,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationResult = NonNullable<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>>
     export type UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationBody = ScheduleUpsertRequest
     export type UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationError = HTTPValidationError
+    export type UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationVariables = {workflowId: string;data: ScheduleUpsertRequest}
 
     /**
  * @summary Upsert Workflow Schedule
  */
 export const useUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,{workflowId: string;data: ScheduleUpsertRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>,
         TError,
-        {workflowId: string;data: ScheduleUpsertRequest},
+        UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationVariables,
         TContext
       > => {
       return useMutation(useUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationOptions(options), queryClient);
@@ -2250,11 +2407,25 @@ export const getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchUrl =
 export const toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch = async (workflowId: string,
     scheduleToggleRequest: ScheduleToggleRequest, options?: Parameters<typeof customFetch>[1]): Promise<toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse> => {
 
-  return customFetch<toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse>(getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchUrl(workflowId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse>(getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchUrl(workflowId),
   {
     ...options,
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(scheduleToggleRequest)
   }
 );}
@@ -2263,11 +2434,13 @@ export const toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch = async
 
 
 
-export const useToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,{workflowId: string;data: ScheduleToggleRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,{workflowId: string;data: ScheduleToggleRequest}, TContext> => {
+export const getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationKey = () => ['toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch'] as const;
 
-const mutationKey = ['toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch'];
+export const useToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationVariables, TContext> => {
+
+const mutationKey = getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -2277,7 +2450,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, {workflowId: string;data: ScheduleToggleRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationVariables> = (props) => {
           const {workflowId,data} = props ?? {};
 
           return  toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch(workflowId,data,requestOptions)
@@ -2293,16 +2466,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationResult = NonNullable<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>>
     export type ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationBody = ScheduleToggleRequest
     export type ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationError = HTTPValidationError
+    export type ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationVariables = {workflowId: string;data: ScheduleToggleRequest}
 
     /**
  * @summary Toggle Workflow Schedule
  */
 export const useToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,{workflowId: string;data: ScheduleToggleRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>,
         TError,
-        {workflowId: string;data: ScheduleToggleRequest},
+        ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationVariables,
         TContext
       > => {
       return useMutation(useToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationOptions(options), queryClient);
@@ -2353,11 +2527,13 @@ export const deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete = asyn
 
 
 
-export const useDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,{workflowId: string}, TContext> => {
+export const getDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationKey = () => ['deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete'] as const;
 
-const mutationKey = ['deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete'];
+export const useDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -2367,7 +2543,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, {workflowId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationVariables> = (props) => {
           const {workflowId} = props ?? {};
 
           return  deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete(workflowId,requestOptions)
@@ -2383,16 +2559,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>>
 
     export type DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationError = HTTPValidationError
+    export type DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationVariables = {workflowId: string}
 
     /**
  * @summary Delete Workflow Schedule
  */
 export const useDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>,
         TError,
-        {workflowId: string},
+        DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationVariables,
         TContext
       > => {
       return useMutation(useDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationOptions(options), queryClient);

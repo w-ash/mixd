@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,10 +14,16 @@ import type {
 } from 'msw';
 
 import type {
-  ApplyResultSchema,
-  CreateAssignmentResponse,
+  ApplyResultSchema
+} from '../model/applyResultSchema.ts';
+
+import type {
+  CreateAssignmentResponse
+} from '../model/createAssignmentResponse.ts';
+
+import type {
   OperationStartedResponse
-} from '../model';
+} from '../model/operationStartedResponse.ts';
 
 import {
   getApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostResponseMock,

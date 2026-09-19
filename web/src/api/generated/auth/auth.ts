@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation,
@@ -25,14 +25,32 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  AppleMusicTokenRequest,
-  GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200,
-  HTTPValidationError,
-  LastfmCallbackAuthLastfmCallbackGetParams,
-  MusicKitConfigResponse,
-  SpotifyCallbackAuthSpotifyCallbackGetParams,
+  AppleMusicTokenRequest
+} from '../model/appleMusicTokenRequest.ts';
+
+import type {
+  GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200
+} from '../model/getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200.ts';
+
+import type {
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
+  LastfmCallbackAuthLastfmCallbackGetParams
+} from '../model/lastfmCallbackAuthLastfmCallbackGetParams.ts';
+
+import type {
+  MusicKitConfigResponse
+} from '../model/musicKitConfigResponse.ts';
+
+import type {
+  SpotifyCallbackAuthSpotifyCallbackGetParams
+} from '../model/spotifyCallbackAuthSpotifyCallbackGetParams.ts';
+
+import type {
   TidalCallbackAuthTidalCallbackGetParams
-} from '../model';
+} from '../model/tidalCallbackAuthTidalCallbackGetParams.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -734,11 +752,25 @@ export const getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostUrl = () =
  */
 export const storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost = async (appleMusicTokenRequest: AppleMusicTokenRequest, options?: Parameters<typeof customFetch>[1]): Promise<storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse> => {
 
-  return customFetch<storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse>(getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse>(getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(appleMusicTokenRequest)
   }
 );}
@@ -747,11 +779,13 @@ export const storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost = async (app
 
 
 
-export const useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,{data: AppleMusicTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,{data: AppleMusicTokenRequest}, TContext> => {
+export const getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationKey = () => ['storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost'] as const;
 
-const mutationKey = ['storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost'];
+export const useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationVariables, TContext> => {
+
+const mutationKey = getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -761,7 +795,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, {data: AppleMusicTokenRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationVariables> = (props) => {
           const {data} = props ?? {};
 
           return  storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost(data,requestOptions)
@@ -777,16 +811,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationResult = NonNullable<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>>
     export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationBody = AppleMusicTokenRequest
     export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationError = HTTPValidationError
+    export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationVariables = {data: AppleMusicTokenRequest}
 
     /**
  * @summary Store Apple Music Token
  */
 export const useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,{data: AppleMusicTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>,
         TError,
-        {data: AppleMusicTokenRequest},
+        StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationVariables,
         TContext
       > => {
       return useMutation(useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions(options), queryClient);

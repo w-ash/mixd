@@ -3,17 +3,23 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import type {
-  OperationRunDetailSchema,
-  OperationRunListResponse,
+  OperationRunDetailSchema
+} from '../model/operationRunDetailSchema.ts';
+
+import type {
+  OperationRunListResponse
+} from '../model/operationRunListResponse.ts';
+
+import type {
   OperationStartedResponse
-} from '../model';
+} from '../model/operationStartedResponse.ts';
 
 
 export const getListOperationRunsApiV1OperationRunsGetResponseMock = (overrideResponse: Partial<Extract<OperationRunListResponse, object>> = {}): OperationRunListResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), operation_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ended_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), status: faker.helpers.arrayElement(['running','complete','partial','error','cancelled'] as const), counts: {

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation,
@@ -25,10 +25,16 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  HTTPValidationError,
-  UserSettingsPatch,
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
+  UserSettingsPatch
+} from '../model/userSettingsPatch.ts';
+
+import type {
   UserSettingsResponse
-} from '../model';
+} from '../model/userSettingsResponse.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -199,11 +205,25 @@ export const getPatchSettingsApiV1SettingsPatchUrl = () => {
  */
 export const patchSettingsApiV1SettingsPatch = async (userSettingsPatch: UserSettingsPatch, options?: Parameters<typeof customFetch>[1]): Promise<patchSettingsApiV1SettingsPatchResponse> => {
 
-  return customFetch<patchSettingsApiV1SettingsPatchResponse>(getPatchSettingsApiV1SettingsPatchUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<patchSettingsApiV1SettingsPatchResponse>(getPatchSettingsApiV1SettingsPatchUrl(),
   {
     ...options,
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(userSettingsPatch)
   }
 );}
@@ -212,11 +232,13 @@ export const patchSettingsApiV1SettingsPatch = async (userSettingsPatch: UserSet
 
 
 
-export const usePatchSettingsApiV1SettingsPatchMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, TError,{data: UserSettingsPatch}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, TError,{data: UserSettingsPatch}, TContext> => {
+export const getPatchSettingsApiV1SettingsPatchMutationKey = () => ['patchSettingsApiV1SettingsPatch'] as const;
 
-const mutationKey = ['patchSettingsApiV1SettingsPatch'];
+export const usePatchSettingsApiV1SettingsPatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, TError,PatchSettingsApiV1SettingsPatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, TError,PatchSettingsApiV1SettingsPatchMutationVariables, TContext> => {
+
+const mutationKey = getPatchSettingsApiV1SettingsPatchMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -226,7 +248,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, {data: UserSettingsPatch}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, PatchSettingsApiV1SettingsPatchMutationVariables> = (props) => {
           const {data} = props ?? {};
 
           return  patchSettingsApiV1SettingsPatch(data,requestOptions)
@@ -242,16 +264,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PatchSettingsApiV1SettingsPatchMutationResult = NonNullable<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>>
     export type PatchSettingsApiV1SettingsPatchMutationBody = UserSettingsPatch
     export type PatchSettingsApiV1SettingsPatchMutationError = HTTPValidationError
+    export type PatchSettingsApiV1SettingsPatchMutationVariables = {data: UserSettingsPatch}
 
     /**
  * @summary Patch Settings
  */
 export const usePatchSettingsApiV1SettingsPatch = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, TError,{data: UserSettingsPatch}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, TError,PatchSettingsApiV1SettingsPatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>,
         TError,
-        {data: UserSettingsPatch},
+        PatchSettingsApiV1SettingsPatchMutationVariables,
         TContext
       > => {
       return useMutation(usePatchSettingsApiV1SettingsPatchMutationOptions(options), queryClient);

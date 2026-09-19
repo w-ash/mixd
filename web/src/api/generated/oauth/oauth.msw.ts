@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,9 +14,12 @@ import type {
 } from 'msw';
 
 import type {
-  ConsentDetails,
+  ConsentDetails
+} from '../model/consentDetails.ts';
+
+import type {
   ConsentRedirect
-} from '../model';
+} from '../model/consentRedirect.ts';
 
 import {
   getApproveConsentApiV1OauthConsentRequestIdApprovePostResponseMock,

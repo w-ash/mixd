@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useQuery
@@ -21,11 +21,20 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  DashboardStatsSchema,
-  GetMatchingHealthApiV1StatsMatchingGetParams,
-  HTTPValidationError,
+  DashboardStatsSchema
+} from '../model/dashboardStatsSchema.ts';
+
+import type {
+  GetMatchingHealthApiV1StatsMatchingGetParams
+} from '../model/getMatchingHealthApiV1StatsMatchingGetParams.ts';
+
+import type {
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
   MatchMethodHealthSchema
-} from '../model';
+} from '../model/matchMethodHealthSchema.ts';
 
 import { customFetch } from '../../client.ts';
 

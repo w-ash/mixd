@@ -3,16 +3,19 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import type {
-  PlayHistogramResponse,
+  PlayHistogramResponse
+} from '../model/playHistogramResponse.ts';
+
+import type {
   PlayListResponse
-} from '../model';
+} from '../model/playListResponse.ts';
 
 
 export const getListPlaysApiV1PlaysGetResponseMock = (overrideResponse: Partial<Extract<PlayListResponse, object>> = {}): PlayListResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), track_id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), artists: faker.string.alpha({length: {min: 10, max: 20}}), played_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ms_played: faker.helpers.arrayElement([faker.number.int(),null,]), service: faker.string.alpha({length: {min: 10, max: 20}}), source_services: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))})), limit: faker.number.int(), next_cursor: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ...overrideResponse})

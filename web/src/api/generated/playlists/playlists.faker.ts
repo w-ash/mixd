@@ -3,21 +3,39 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import type {
-  OperationStartedResponse,
-  PaginatedResponsePlaylistEntrySchema,
-  PaginatedResponsePlaylistSummarySchema,
-  PlaylistDetailSchema,
-  PlaylistLinkSchema,
-  RepairUnresolvedResponse,
+  OperationStartedResponse
+} from '../model/operationStartedResponse.ts';
+
+import type {
+  PaginatedResponsePlaylistEntrySchema
+} from '../model/paginatedResponsePlaylistEntrySchema.ts';
+
+import type {
+  PaginatedResponsePlaylistSummarySchema
+} from '../model/paginatedResponsePlaylistSummarySchema.ts';
+
+import type {
+  PlaylistDetailSchema
+} from '../model/playlistDetailSchema.ts';
+
+import type {
+  PlaylistLinkSchema
+} from '../model/playlistLinkSchema.ts';
+
+import type {
+  RepairUnresolvedResponse
+} from '../model/repairUnresolvedResponse.ts';
+
+import type {
   SyncPreviewResponse
-} from '../model';
+} from '../model/syncPreviewResponse.ts';
 
 
 export const getListPlaylistsApiV1PlaylistsGetResponseMock = (overrideResponse: Partial<Extract<PaginatedResponsePlaylistSummarySchema, object>> = {}): PaginatedResponsePlaylistSummarySchema => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), track_count: faker.number.int(), connector_links: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_name: faker.string.alpha({length: {min: 10, max: 20}}), sync_direction: faker.string.alpha({length: {min: 10, max: 20}}), sync_status: faker.string.alpha({length: {min: 10, max: 20}})})), updated_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])})), total: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), limit: faker.number.int(), offset: faker.number.int(), next_cursor: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})

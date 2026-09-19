@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,13 +14,28 @@ import type {
 } from 'msw';
 
 import type {
-  AddTagResponse,
-  BatchTagResponse,
-  PaginatedLibraryTracksResponse,
-  SetPreferenceRequest,
-  TrackDetailSchema,
+  AddTagResponse
+} from '../model/addTagResponse.ts';
+
+import type {
+  BatchTagResponse
+} from '../model/batchTagResponse.ts';
+
+import type {
+  PaginatedLibraryTracksResponse
+} from '../model/paginatedLibraryTracksResponse.ts';
+
+import type {
+  SetPreferenceRequest
+} from '../model/setPreferenceRequest.ts';
+
+import type {
+  TrackDetailSchema
+} from '../model/trackDetailSchema.ts';
+
+import type {
   UnlinkMappingResponse
-} from '../model';
+} from '../model/unlinkMappingResponse.ts';
 
 import {
   getAddTrackTagApiV1TracksTrackIdTagsPostResponseMock,

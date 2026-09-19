@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,11 +14,20 @@ import type {
 } from 'msw';
 
 import type {
-  CheckpointStatusSchema,
-  ImportQueueResponse,
-  ImportQueueSchema,
+  CheckpointStatusSchema
+} from '../model/checkpointStatusSchema.ts';
+
+import type {
+  ImportQueueResponse
+} from '../model/importQueueResponse.ts';
+
+import type {
+  ImportQueueSchema
+} from '../model/importQueueSchema.ts';
+
+import type {
   OperationStartedResponse
-} from '../model';
+} from '../model/operationStartedResponse.ts';
 
 import {
   getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseMock,

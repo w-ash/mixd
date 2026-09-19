@@ -11,6 +11,9 @@ export default defineConfig({
       schemas: "src/api/generated/model",
       client: "react-query",
       mock: true,
+      // orval 8.34 writes a root barrel by default; every consumer imports its
+      // tag module directly, so the barrel would be dead code.
+      indexFiles: false,
       override: {
         mutator: {
           path: "src/api/client.ts",

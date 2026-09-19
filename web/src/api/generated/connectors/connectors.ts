@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation,
@@ -25,16 +25,40 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  ConnectorMetadataSchema,
-  ConnectorPlaylistBrowseResponse,
-  ConnectorTokenRequest,
-  HTTPValidationError,
-  ImportConnectorPlaylistsRequest,
-  ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams,
-  OperationStartedResponse,
-  PlayPollingRequest,
+  ConnectorMetadataSchema
+} from '../model/connectorMetadataSchema.ts';
+
+import type {
+  ConnectorPlaylistBrowseResponse
+} from '../model/connectorPlaylistBrowseResponse.ts';
+
+import type {
+  ConnectorTokenRequest
+} from '../model/connectorTokenRequest.ts';
+
+import type {
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
+  ImportConnectorPlaylistsRequest
+} from '../model/importConnectorPlaylistsRequest.ts';
+
+import type {
+  ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams
+} from '../model/listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams.ts';
+
+import type {
+  OperationStartedResponse
+} from '../model/operationStartedResponse.ts';
+
+import type {
+  PlayPollingRequest
+} from '../model/playPollingRequest.ts';
+
+import type {
   PlayPollingResponse
-} from '../model';
+} from '../model/playPollingResponse.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -219,11 +243,25 @@ export const getPutConnectorTokenApiV1ConnectorsServiceTokenPutUrl = (service: s
 export const putConnectorTokenApiV1ConnectorsServiceTokenPut = async (service: string,
     connectorTokenRequest: ConnectorTokenRequest, options?: Parameters<typeof customFetch>[1]): Promise<putConnectorTokenApiV1ConnectorsServiceTokenPutResponse> => {
 
-  return customFetch<putConnectorTokenApiV1ConnectorsServiceTokenPutResponse>(getPutConnectorTokenApiV1ConnectorsServiceTokenPutUrl(service),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<putConnectorTokenApiV1ConnectorsServiceTokenPutResponse>(getPutConnectorTokenApiV1ConnectorsServiceTokenPutUrl(service),
   {
     ...options,
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(connectorTokenRequest)
   }
 );}
@@ -232,11 +270,13 @@ export const putConnectorTokenApiV1ConnectorsServiceTokenPut = async (service: s
 
 
 
-export const usePutConnectorTokenApiV1ConnectorsServiceTokenPutMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,{service: string;data: ConnectorTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,{service: string;data: ConnectorTokenRequest}, TContext> => {
+export const getPutConnectorTokenApiV1ConnectorsServiceTokenPutMutationKey = () => ['putConnectorTokenApiV1ConnectorsServiceTokenPut'] as const;
 
-const mutationKey = ['putConnectorTokenApiV1ConnectorsServiceTokenPut'];
+export const usePutConnectorTokenApiV1ConnectorsServiceTokenPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationVariables, TContext> => {
+
+const mutationKey = getPutConnectorTokenApiV1ConnectorsServiceTokenPutMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -246,7 +286,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, {service: string;data: ConnectorTokenRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationVariables> = (props) => {
           const {service,data} = props ?? {};
 
           return  putConnectorTokenApiV1ConnectorsServiceTokenPut(service,data,requestOptions)
@@ -262,16 +302,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationResult = NonNullable<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>>
     export type PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationBody = ConnectorTokenRequest
     export type PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationError = HTTPValidationError
+    export type PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationVariables = {service: string;data: ConnectorTokenRequest}
 
     /**
  * @summary Put Connector Token
  */
 export const usePutConnectorTokenApiV1ConnectorsServiceTokenPut = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,{service: string;data: ConnectorTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>, TError,PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof putConnectorTokenApiV1ConnectorsServiceTokenPut>>,
         TError,
-        {service: string;data: ConnectorTokenRequest},
+        PutConnectorTokenApiV1ConnectorsServiceTokenPutMutationVariables,
         TContext
       > => {
       return useMutation(usePutConnectorTokenApiV1ConnectorsServiceTokenPutMutationOptions(options), queryClient);
@@ -330,11 +371,13 @@ export const deleteConnectorTokenApiV1ConnectorsServiceTokenDelete = async (serv
 
 
 
-export const useDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,{service: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,{service: string}, TContext> => {
+export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationKey = () => ['deleteConnectorTokenApiV1ConnectorsServiceTokenDelete'] as const;
 
-const mutationKey = ['deleteConnectorTokenApiV1ConnectorsServiceTokenDelete'];
+export const useDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -344,7 +387,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, {service: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationVariables> = (props) => {
           const {service} = props ?? {};
 
           return  deleteConnectorTokenApiV1ConnectorsServiceTokenDelete(service,requestOptions)
@@ -360,16 +403,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>>
 
     export type DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationError = HTTPValidationError
+    export type DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationVariables = {service: string}
 
     /**
  * @summary Delete Connector Token
  */
 export const useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,{service: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>,
         TError,
-        {service: string},
+        DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationVariables,
         TContext
       > => {
       return useMutation(useDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationOptions(options), queryClient);
@@ -414,11 +458,25 @@ export const getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutUrl =
 export const setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut = async (service: string,
     playPollingRequest: PlayPollingRequest, options?: Parameters<typeof customFetch>[1]): Promise<setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse> => {
 
-  return customFetch<setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse>(getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutUrl(service),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse>(getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutUrl(service),
   {
     ...options,
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(playPollingRequest)
   }
 );}
@@ -427,11 +485,13 @@ export const setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut = async
 
 
 
-export const useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,{service: string;data: PlayPollingRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,{service: string;data: PlayPollingRequest}, TContext> => {
+export const getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationKey = () => ['setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut'] as const;
 
-const mutationKey = ['setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut'];
+export const useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationVariables, TContext> => {
+
+const mutationKey = getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -441,7 +501,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, {service: string;data: PlayPollingRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationVariables> = (props) => {
           const {service,data} = props ?? {};
 
           return  setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut(service,data,requestOptions)
@@ -457,16 +517,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationResult = NonNullable<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>>
     export type SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationBody = PlayPollingRequest
     export type SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationError = HTTPValidationError
+    export type SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationVariables = {service: string;data: PlayPollingRequest}
 
     /**
  * @summary Set Connector Play Polling
  */
 export const useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,{service: string;data: PlayPollingRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>,
         TError,
-        {service: string;data: PlayPollingRequest},
+        SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationVariables,
         TContext
       > => {
       return useMutation(useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationOptions(options), queryClient);
@@ -772,11 +833,25 @@ export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPos
 export const importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost = async (service: string,
     importConnectorPlaylistsRequest: ImportConnectorPlaylistsRequest, options?: Parameters<typeof customFetch>[1]): Promise<importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse> => {
 
-  return customFetch<importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse>(getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostUrl(service),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse>(getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostUrl(service),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(importConnectorPlaylistsRequest)
   }
 );}
@@ -785,11 +860,13 @@ export const importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost =
 
 
 
-export const useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,{service: string;data: ImportConnectorPlaylistsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,{service: string;data: ImportConnectorPlaylistsRequest}, TContext> => {
+export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationKey = () => ['importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost'] as const;
 
-const mutationKey = ['importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost'];
+export const useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationVariables, TContext> => {
+
+const mutationKey = getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -799,7 +876,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, {service: string;data: ImportConnectorPlaylistsRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationVariables> = (props) => {
           const {service,data} = props ?? {};
 
           return  importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost(service,data,requestOptions)
@@ -815,16 +892,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationResult = NonNullable<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>>
     export type ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationBody = ImportConnectorPlaylistsRequest
     export type ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationError = HTTPValidationError
+    export type ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationVariables = {service: string;data: ImportConnectorPlaylistsRequest}
 
     /**
  * @summary Import Connector Playlists
  */
 export const useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,{service: string;data: ImportConnectorPlaylistsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>,
         TError,
-        {service: string;data: ImportConnectorPlaylistsRequest},
+        ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationVariables,
         TContext
       > => {
       return useMutation(useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationOptions(options), queryClient);

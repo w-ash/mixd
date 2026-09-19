@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,9 +14,12 @@ import type {
 } from 'msw';
 
 import type {
-  GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200,
+  GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200
+} from '../model/getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200.ts';
+
+import type {
   MusicKitConfigResponse
-} from '../model';
+} from '../model/musicKitConfigResponse.ts';
 
 import {
   getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock,

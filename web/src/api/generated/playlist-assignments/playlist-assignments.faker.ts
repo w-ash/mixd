@@ -3,20 +3,27 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
+import type {
+  ApplyResultSchema
+} from '../model/applyResultSchema.ts';
+
 import {
   AssignmentActionType
-} from '../model';
+} from '../model/assignmentActionType.ts';
+
 import type {
-  ApplyResultSchema,
-  CreateAssignmentResponse,
+  CreateAssignmentResponse
+} from '../model/createAssignmentResponse.ts';
+
+import type {
   OperationStartedResponse
-} from '../model';
+} from '../model/operationStartedResponse.ts';
 
 
 export const getCreateAndApplyAssignmentApiV1PlaylistAssignmentsPostResponseMock = (overrideResponse: Partial<Extract<CreateAssignmentResponse, object>> = {}): CreateAssignmentResponse => ({assignment: {id: faker.string.uuid(), connector_playlist_id: faker.string.uuid(), action_type: faker.helpers.arrayElement(Object.values(AssignmentActionType)), action_value: faker.string.alpha({length: {min: 10, max: 20}})}, result: {preferences_applied: faker.number.int(), preferences_cleared: faker.number.int(), tags_applied: faker.number.int(), tags_cleared: faker.number.int(), conflicts_logged: faker.number.int(), assignments_processed: faker.number.int()}, ...overrideResponse})

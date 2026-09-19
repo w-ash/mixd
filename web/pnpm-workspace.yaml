@@ -49,25 +49,10 @@ overrides:
   # vulnerable serve-static path is Windows-only and never invoked — we consume
   # shadcn's stylesheet and `shadcn add`, never the SDK's HTTP transport.
   '@hono/node-server': '>=2.0.5'
-  # NOTE: there is deliberately no `better-auth` floor here, despite its 10 open
-  # Dependabot alerts (one critical). @neondatabase/auth@0.4.2-beta exact-pins
-  # better-auth 1.4.18, and so does @neondatabase/auth-ui@0.2.1-beta via
-  # @daveyplate/better-auth-ui@3.3.9 + @better-auth/passkey@1.4.18 — forcing the
-  # patched line means overriding that whole cascade, and 1.6.x drops the
-  # `apiKeyClient` export auth-ui imports (MISSING_EXPORT at build).
-  #
-  # Upstream has already fixed this: neondatabase/neon-js#198 (merged
-  # 2026-08-07) moves better-auth to 1.6.23 and auth-ui to 3.4.0 on main. It is
-  # UNRELEASED — packages/auth/package.json on main still reads 0.4.2-beta and
-  # the PR's "re-run Stage 2 publish" box is unticked. Trigger to act is a new
-  # @neondatabase/auth on npm, not a date:
-  #   npm view @neondatabase/auth version   # still 0.4.2-beta as of 2026-08-09
-  # then drop the pin and re-run the auth e2e.
-  #
-  # Meanwhile the exposure is already closed where it executes. All 10
-  # advisories are auth-SERVER flaws (oidc-provider, mcp, organization,
-  # admin/SCIM, OAuth token endpoints); we run no better-auth server, and
-  # web/src/api/auth.ts only calls createAuthClient/getSession against Neon's
-  # hosted one — which #198's title confirms is already on 1.6.23. What remains
-  # in our lockfile is stale client-side metadata about someone else's server.
-  # Tracking: neondatabase/neon-js#190 (open, no reply as of 2026-08-09).
+  # NOTE: there is deliberately no `better-auth` floor here. @neondatabase/auth
+  # exact-pins it (0.5.0-beta → better-auth 1.6.23, via @neondatabase/auth-ui
+  # 0.3.0-beta + @daveyplate/better-auth-ui 3.4.0), so the line moves when the
+  # Neon package moves and an override would only fight that cascade. The
+  # 0.4.2-beta → 1.4.18 pin that carried 10 Dependabot alerts (all auth-SERVER
+  # flaws; we run no better-auth server) was lifted by the v0.12.0.3 sweep when
+  # neondatabase/neon-js#198 finally published.

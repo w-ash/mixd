@@ -3,17 +3,23 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import type {
-  AssistantStatusResponse,
-  ConnectKeyResponse,
+  AssistantStatusResponse
+} from '../model/assistantStatusResponse.ts';
+
+import type {
+  ConnectKeyResponse
+} from '../model/connectKeyResponse.ts';
+
+import type {
   TestKeyResponse
-} from '../model';
+} from '../model/testKeyResponse.ts';
 
 
 export const getGetAssistantStatusApiV1AssistantStatusGetResponseMock = (overrideResponse: Partial<Extract<AssistantStatusResponse, object>> = {}): AssistantStatusResponse => ({connected: faker.datatype.boolean(), source: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.helpers.arrayElement(['user','server'] as const),null,]), undefined]), ...overrideResponse})

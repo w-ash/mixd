@@ -3,29 +3,63 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import {
-  FieldType,
+  FieldType
+} from '../model/fieldType.ts';
+
+import {
   NodeType
-} from '../model';
+} from '../model/nodeType.ts';
+
 import type {
-  NodeTypeInfoSchema,
-  PaginatedResponseWorkflowRunSummarySchema,
-  PaginatedResponseWorkflowSummarySchema,
-  PreviewStartedResponse,
-  ScheduleResponse,
-  WorkflowDetailSchema,
-  WorkflowRunDetailSchema,
-  WorkflowRunStartedResponse,
-  WorkflowTemplateSchema,
-  WorkflowValidationResponse,
+  NodeTypeInfoSchema
+} from '../model/nodeTypeInfoSchema.ts';
+
+import type {
+  PaginatedResponseWorkflowRunSummarySchema
+} from '../model/paginatedResponseWorkflowRunSummarySchema.ts';
+
+import type {
+  PaginatedResponseWorkflowSummarySchema
+} from '../model/paginatedResponseWorkflowSummarySchema.ts';
+
+import type {
+  PreviewStartedResponse
+} from '../model/previewStartedResponse.ts';
+
+import type {
+  ScheduleResponse
+} from '../model/scheduleResponse.ts';
+
+import type {
+  WorkflowDetailSchema
+} from '../model/workflowDetailSchema.ts';
+
+import type {
+  WorkflowRunDetailSchema
+} from '../model/workflowRunDetailSchema.ts';
+
+import type {
+  WorkflowRunStartedResponse
+} from '../model/workflowRunStartedResponse.ts';
+
+import type {
+  WorkflowTemplateSchema
+} from '../model/workflowTemplateSchema.ts';
+
+import type {
+  WorkflowValidationResponse
+} from '../model/workflowValidationResponse.ts';
+
+import type {
   WorkflowVersionSchema
-} from '../model';
+} from '../model/workflowVersionSchema.ts';
 
 
 export const getListWorkflowsApiV1WorkflowsGetResponseMock = (overrideResponse: Partial<Extract<PaginatedResponseWorkflowSummarySchema, object>> = {}): PaginatedResponseWorkflowSummarySchema => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), definition_version: faker.number.int(), task_count: faker.number.int(), node_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), updated_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_run: faker.helpers.arrayElement([faker.helpers.arrayElement([{id: faker.string.uuid(), run_number: faker.number.int(), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled','crashed'] as const), definition_version: faker.number.int(), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined])},null,]), undefined]), successful_run_count: faker.number.int()})), total: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), limit: faker.number.int(), offset: faker.number.int(), next_cursor: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})

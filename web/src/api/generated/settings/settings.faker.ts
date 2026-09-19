@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
@@ -11,7 +11,7 @@ import {
 
 import type {
   UserSettingsResponse
-} from '../model';
+} from '../model/userSettingsResponse.ts';
 
 
 export const getGetSettingsApiV1SettingsGetResponseMock = (overrideResponse: Partial<Extract<UserSettingsResponse, object>> = {}): UserSettingsResponse => ({theme_mode: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})

@@ -3,23 +3,39 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
+import type {
+  AddTagResponse
+} from '../model/addTagResponse.ts';
+
+import type {
+  BatchTagResponse
+} from '../model/batchTagResponse.ts';
+
+import type {
+  PaginatedLibraryTracksResponse
+} from '../model/paginatedLibraryTracksResponse.ts';
+
 import {
   PreferenceState
-} from '../model';
+} from '../model/preferenceState.ts';
+
 import type {
-  AddTagResponse,
-  BatchTagResponse,
-  PaginatedLibraryTracksResponse,
-  SetPreferenceRequest,
-  TrackDetailSchema,
+  SetPreferenceRequest
+} from '../model/setPreferenceRequest.ts';
+
+import type {
+  TrackDetailSchema
+} from '../model/trackDetailSchema.ts';
+
+import type {
   UnlinkMappingResponse
-} from '../model';
+} from '../model/unlinkMappingResponse.ts';
 
 
 export const getListTracksApiV1TracksGetResponseMock = (overrideResponse: Partial<Extract<PaginatedLibraryTracksResponse, object>> = {}): PaginatedLibraryTracksResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}})})), album: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), isrc: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), connector_names: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), is_liked: faker.datatype.boolean(), preference: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(PreferenceState)),null,]), undefined]), tags: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), total_plays: faker.number.int(), last_played: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])})), total: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), limit: faker.number.int(), offset: faker.number.int(), next_cursor: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), facets: faker.helpers.arrayElement([faker.helpers.arrayElement([{preference: {

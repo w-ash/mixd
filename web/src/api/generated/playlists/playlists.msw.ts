@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,14 +14,32 @@ import type {
 } from 'msw';
 
 import type {
-  OperationStartedResponse,
-  PaginatedResponsePlaylistEntrySchema,
-  PaginatedResponsePlaylistSummarySchema,
-  PlaylistDetailSchema,
-  PlaylistLinkSchema,
-  RepairUnresolvedResponse,
+  OperationStartedResponse
+} from '../model/operationStartedResponse.ts';
+
+import type {
+  PaginatedResponsePlaylistEntrySchema
+} from '../model/paginatedResponsePlaylistEntrySchema.ts';
+
+import type {
+  PaginatedResponsePlaylistSummarySchema
+} from '../model/paginatedResponsePlaylistSummarySchema.ts';
+
+import type {
+  PlaylistDetailSchema
+} from '../model/playlistDetailSchema.ts';
+
+import type {
+  PlaylistLinkSchema
+} from '../model/playlistLinkSchema.ts';
+
+import type {
+  RepairUnresolvedResponse
+} from '../model/repairUnresolvedResponse.ts';
+
+import type {
   SyncPreviewResponse
-} from '../model';
+} from '../model/syncPreviewResponse.ts';
 
 import {
   getAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponseMock,

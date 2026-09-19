@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useQuery
@@ -21,12 +21,24 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  GetPlaysHistogramApiV1PlaysHistogramGetParams,
-  HTTPValidationError,
-  ListPlaysApiV1PlaysGetParams,
-  PlayHistogramResponse,
+  GetPlaysHistogramApiV1PlaysHistogramGetParams
+} from '../model/getPlaysHistogramApiV1PlaysHistogramGetParams.ts';
+
+import type {
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
+  ListPlaysApiV1PlaysGetParams
+} from '../model/listPlaysApiV1PlaysGetParams.ts';
+
+import type {
+  PlayHistogramResponse
+} from '../model/playHistogramResponse.ts';
+
+import type {
   PlayListResponse
-} from '../model';
+} from '../model/playListResponse.ts';
 
 import { customFetch } from '../../client.ts';
 

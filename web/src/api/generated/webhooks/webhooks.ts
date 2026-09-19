@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation
@@ -62,11 +62,13 @@ export const neonAuthWebhookWebhooksNeonAuthPost = async ( options?: Parameters<
 
 
 
+export const getNeonAuthWebhookWebhooksNeonAuthPostMutationKey = () => ['neonAuthWebhookWebhooksNeonAuthPost'] as const;
+
 export const useNeonAuthWebhookWebhooksNeonAuthPostMutationOptions = <TError = unknown,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof neonAuthWebhookWebhooksNeonAuthPost>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof neonAuthWebhookWebhooksNeonAuthPost>>, TError,void, TContext> => {
 
-const mutationKey = ['neonAuthWebhookWebhooksNeonAuthPost'];
+const mutationKey = getNeonAuthWebhookWebhooksNeonAuthPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -92,6 +94,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type NeonAuthWebhookWebhooksNeonAuthPostMutationResult = NonNullable<Awaited<ReturnType<typeof neonAuthWebhookWebhooksNeonAuthPost>>>
 
     export type NeonAuthWebhookWebhooksNeonAuthPostMutationError = unknown
+
 
     /**
  * @summary Neon Auth Webhook

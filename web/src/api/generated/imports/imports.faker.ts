@@ -3,21 +3,31 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
+import type {
+  CheckpointStatusSchema
+} from '../model/checkpointStatusSchema.ts';
+
+import type {
+  ImportQueueResponse
+} from '../model/importQueueResponse.ts';
+
+import type {
+  ImportQueueSchema
+} from '../model/importQueueSchema.ts';
+
+import type {
+  OperationStartedResponse
+} from '../model/operationStartedResponse.ts';
+
 import {
   OperationStatus
-} from '../model';
-import type {
-  CheckpointStatusSchema,
-  ImportQueueResponse,
-  ImportQueueSchema,
-  OperationStartedResponse
-} from '../model';
+} from '../model/operationStatus.ts';
 
 
 export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})

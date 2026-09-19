@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation,
@@ -25,12 +25,24 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  HTTPValidationError,
-  ListOperationRunsApiV1OperationRunsGetParams,
-  OperationRunDetailSchema,
-  OperationRunListResponse,
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
+  ListOperationRunsApiV1OperationRunsGetParams
+} from '../model/listOperationRunsApiV1OperationRunsGetParams.ts';
+
+import type {
+  OperationRunDetailSchema
+} from '../model/operationRunDetailSchema.ts';
+
+import type {
+  OperationRunListResponse
+} from '../model/operationRunListResponse.ts';
+
+import type {
   OperationStartedResponse
-} from '../model';
+} from '../model/operationStartedResponse.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -364,11 +376,13 @@ export const retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost = async 
 
 
 
-export const useRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,{runId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,{runId: string}, TContext> => {
+export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationKey = () => ['retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost'] as const;
 
-const mutationKey = ['retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost'];
+export const useRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationVariables, TContext> => {
+
+const mutationKey = getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -378,7 +392,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, {runId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationVariables> = (props) => {
           const {runId} = props ?? {};
 
           return  retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost(runId,requestOptions)
@@ -394,16 +408,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationResult = NonNullable<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>>
 
     export type RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationError = HTTPValidationError
+    export type RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationVariables = {runId: string}
 
     /**
  * @summary Retry Failed Operation
  */
 export const useRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,{runId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>,
         TError,
-        {runId: string},
+        RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationVariables,
         TContext
       > => {
       return useMutation(useRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions(options), queryClient);

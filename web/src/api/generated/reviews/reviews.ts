@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation,
@@ -25,12 +25,24 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  HTTPValidationError,
-  ListReviewsApiV1ReviewsGetParams,
-  MatchReviewListSchema,
-  ResolveReviewRequest,
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
+  ListReviewsApiV1ReviewsGetParams
+} from '../model/listReviewsApiV1ReviewsGetParams.ts';
+
+import type {
+  MatchReviewListSchema
+} from '../model/matchReviewListSchema.ts';
+
+import type {
+  ResolveReviewRequest
+} from '../model/resolveReviewRequest.ts';
+
+import type {
   ResolveReviewResponse
-} from '../model';
+} from '../model/resolveReviewResponse.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -216,11 +228,25 @@ export const getResolveReviewApiV1ReviewsReviewIdResolvePostUrl = (reviewId: str
 export const resolveReviewApiV1ReviewsReviewIdResolvePost = async (reviewId: string,
     resolveReviewRequest: ResolveReviewRequest, options?: Parameters<typeof customFetch>[1]): Promise<resolveReviewApiV1ReviewsReviewIdResolvePostResponse> => {
 
-  return customFetch<resolveReviewApiV1ReviewsReviewIdResolvePostResponse>(getResolveReviewApiV1ReviewsReviewIdResolvePostUrl(reviewId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<resolveReviewApiV1ReviewsReviewIdResolvePostResponse>(getResolveReviewApiV1ReviewsReviewIdResolvePostUrl(reviewId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(resolveReviewRequest)
   }
 );}
@@ -229,11 +255,13 @@ export const resolveReviewApiV1ReviewsReviewIdResolvePost = async (reviewId: str
 
 
 
-export const useResolveReviewApiV1ReviewsReviewIdResolvePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, TError,{reviewId: string;data: ResolveReviewRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, TError,{reviewId: string;data: ResolveReviewRequest}, TContext> => {
+export const getResolveReviewApiV1ReviewsReviewIdResolvePostMutationKey = () => ['resolveReviewApiV1ReviewsReviewIdResolvePost'] as const;
 
-const mutationKey = ['resolveReviewApiV1ReviewsReviewIdResolvePost'];
+export const useResolveReviewApiV1ReviewsReviewIdResolvePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, TError,ResolveReviewApiV1ReviewsReviewIdResolvePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, TError,ResolveReviewApiV1ReviewsReviewIdResolvePostMutationVariables, TContext> => {
+
+const mutationKey = getResolveReviewApiV1ReviewsReviewIdResolvePostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -243,7 +271,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, {reviewId: string;data: ResolveReviewRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, ResolveReviewApiV1ReviewsReviewIdResolvePostMutationVariables> = (props) => {
           const {reviewId,data} = props ?? {};
 
           return  resolveReviewApiV1ReviewsReviewIdResolvePost(reviewId,data,requestOptions)
@@ -259,16 +287,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ResolveReviewApiV1ReviewsReviewIdResolvePostMutationResult = NonNullable<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>>
     export type ResolveReviewApiV1ReviewsReviewIdResolvePostMutationBody = ResolveReviewRequest
     export type ResolveReviewApiV1ReviewsReviewIdResolvePostMutationError = HTTPValidationError
+    export type ResolveReviewApiV1ReviewsReviewIdResolvePostMutationVariables = {reviewId: string;data: ResolveReviewRequest}
 
     /**
  * @summary Resolve Review
  */
 export const useResolveReviewApiV1ReviewsReviewIdResolvePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, TError,{reviewId: string;data: ResolveReviewRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, TError,ResolveReviewApiV1ReviewsReviewIdResolvePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>,
         TError,
-        {reviewId: string;data: ResolveReviewRequest},
+        ResolveReviewApiV1ReviewsReviewIdResolvePostMutationVariables,
         TContext
       > => {
       return useMutation(useResolveReviewApiV1ReviewsReviewIdResolvePostMutationOptions(options), queryClient);

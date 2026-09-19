@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation,
@@ -25,13 +25,28 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  HTTPValidationError,
-  ListTagsApiV1TagsGetParams,
-  MergeTagsRequest,
-  RenameTagRequest,
-  TagOperationResult,
+  HTTPValidationError
+} from '../model/hTTPValidationError.ts';
+
+import type {
+  ListTagsApiV1TagsGetParams
+} from '../model/listTagsApiV1TagsGetParams.ts';
+
+import type {
+  MergeTagsRequest
+} from '../model/mergeTagsRequest.ts';
+
+import type {
+  RenameTagRequest
+} from '../model/renameTagRequest.ts';
+
+import type {
+  TagOperationResult
+} from '../model/tagOperationResult.ts';
+
+import type {
   TagSummarySchema
-} from '../model';
+} from '../model/tagSummarySchema.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -227,11 +242,25 @@ export const getRenameTagApiV1TagsTagPatchUrl = (tag: string,) => {
 export const renameTagApiV1TagsTagPatch = async (tag: string,
     renameTagRequest: RenameTagRequest, options?: Parameters<typeof customFetch>[1]): Promise<renameTagApiV1TagsTagPatchResponse> => {
 
-  return customFetch<renameTagApiV1TagsTagPatchResponse>(getRenameTagApiV1TagsTagPatchUrl(tag),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<renameTagApiV1TagsTagPatchResponse>(getRenameTagApiV1TagsTagPatchUrl(tag),
   {
     ...options,
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(renameTagRequest)
   }
 );}
@@ -240,11 +269,13 @@ export const renameTagApiV1TagsTagPatch = async (tag: string,
 
 
 
-export const useRenameTagApiV1TagsTagPatchMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, TError,{tag: string;data: RenameTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, TError,{tag: string;data: RenameTagRequest}, TContext> => {
+export const getRenameTagApiV1TagsTagPatchMutationKey = () => ['renameTagApiV1TagsTagPatch'] as const;
 
-const mutationKey = ['renameTagApiV1TagsTagPatch'];
+export const useRenameTagApiV1TagsTagPatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, TError,RenameTagApiV1TagsTagPatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, TError,RenameTagApiV1TagsTagPatchMutationVariables, TContext> => {
+
+const mutationKey = getRenameTagApiV1TagsTagPatchMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -254,7 +285,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, {tag: string;data: RenameTagRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, RenameTagApiV1TagsTagPatchMutationVariables> = (props) => {
           const {tag,data} = props ?? {};
 
           return  renameTagApiV1TagsTagPatch(tag,data,requestOptions)
@@ -270,16 +301,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RenameTagApiV1TagsTagPatchMutationResult = NonNullable<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>>
     export type RenameTagApiV1TagsTagPatchMutationBody = RenameTagRequest
     export type RenameTagApiV1TagsTagPatchMutationError = HTTPValidationError
+    export type RenameTagApiV1TagsTagPatchMutationVariables = {tag: string;data: RenameTagRequest}
 
     /**
  * @summary Rename Tag
  */
 export const useRenameTagApiV1TagsTagPatch = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, TError,{tag: string;data: RenameTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>, TError,RenameTagApiV1TagsTagPatchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof renameTagApiV1TagsTagPatch>>,
         TError,
-        {tag: string;data: RenameTagRequest},
+        RenameTagApiV1TagsTagPatchMutationVariables,
         TContext
       > => {
       return useMutation(useRenameTagApiV1TagsTagPatchMutationOptions(options), queryClient);
@@ -334,11 +366,13 @@ export const deleteTagApiV1TagsTagDelete = async (tag: string, options?: Paramet
 
 
 
-export const useDeleteTagApiV1TagsTagDeleteMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, TError,{tag: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, TError,{tag: string}, TContext> => {
+export const getDeleteTagApiV1TagsTagDeleteMutationKey = () => ['deleteTagApiV1TagsTagDelete'] as const;
 
-const mutationKey = ['deleteTagApiV1TagsTagDelete'];
+export const useDeleteTagApiV1TagsTagDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, TError,DeleteTagApiV1TagsTagDeleteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, TError,DeleteTagApiV1TagsTagDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeleteTagApiV1TagsTagDeleteMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -348,7 +382,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, {tag: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, DeleteTagApiV1TagsTagDeleteMutationVariables> = (props) => {
           const {tag} = props ?? {};
 
           return  deleteTagApiV1TagsTagDelete(tag,requestOptions)
@@ -364,16 +398,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteTagApiV1TagsTagDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>>
 
     export type DeleteTagApiV1TagsTagDeleteMutationError = HTTPValidationError
+    export type DeleteTagApiV1TagsTagDeleteMutationVariables = {tag: string}
 
     /**
  * @summary Delete Tag
  */
 export const useDeleteTagApiV1TagsTagDelete = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, TError,{tag: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>, TError,DeleteTagApiV1TagsTagDeleteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof deleteTagApiV1TagsTagDelete>>,
         TError,
-        {tag: string},
+        DeleteTagApiV1TagsTagDeleteMutationVariables,
         TContext
       > => {
       return useMutation(useDeleteTagApiV1TagsTagDeleteMutationOptions(options), queryClient);
@@ -416,11 +451,25 @@ export const getMergeTagsApiV1TagsMergePostUrl = () => {
  */
 export const mergeTagsApiV1TagsMergePost = async (mergeTagsRequest: MergeTagsRequest, options?: Parameters<typeof customFetch>[1]): Promise<mergeTagsApiV1TagsMergePostResponse> => {
 
-  return customFetch<mergeTagsApiV1TagsMergePostResponse>(getMergeTagsApiV1TagsMergePostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<mergeTagsApiV1TagsMergePostResponse>(getMergeTagsApiV1TagsMergePostUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(mergeTagsRequest)
   }
 );}
@@ -429,11 +478,13 @@ export const mergeTagsApiV1TagsMergePost = async (mergeTagsRequest: MergeTagsReq
 
 
 
-export const useMergeTagsApiV1TagsMergePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, TError,{data: MergeTagsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, TError,{data: MergeTagsRequest}, TContext> => {
+export const getMergeTagsApiV1TagsMergePostMutationKey = () => ['mergeTagsApiV1TagsMergePost'] as const;
 
-const mutationKey = ['mergeTagsApiV1TagsMergePost'];
+export const useMergeTagsApiV1TagsMergePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, TError,MergeTagsApiV1TagsMergePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, TError,MergeTagsApiV1TagsMergePostMutationVariables, TContext> => {
+
+const mutationKey = getMergeTagsApiV1TagsMergePostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -443,7 +494,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, {data: MergeTagsRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, MergeTagsApiV1TagsMergePostMutationVariables> = (props) => {
           const {data} = props ?? {};
 
           return  mergeTagsApiV1TagsMergePost(data,requestOptions)
@@ -459,16 +510,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type MergeTagsApiV1TagsMergePostMutationResult = NonNullable<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>>
     export type MergeTagsApiV1TagsMergePostMutationBody = MergeTagsRequest
     export type MergeTagsApiV1TagsMergePostMutationError = HTTPValidationError
+    export type MergeTagsApiV1TagsMergePostMutationVariables = {data: MergeTagsRequest}
 
     /**
  * @summary Merge Tags
  */
 export const useMergeTagsApiV1TagsMergePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, TError,{data: MergeTagsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>, TError,MergeTagsApiV1TagsMergePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof mergeTagsApiV1TagsMergePost>>,
         TError,
-        {data: MergeTagsRequest},
+        MergeTagsApiV1TagsMergePostMutationVariables,
         TContext
       > => {
       return useMutation(useMergeTagsApiV1TagsMergePostMutationOptions(options), queryClient);

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,18 +14,48 @@ import type {
 } from 'msw';
 
 import type {
-  NodeTypeInfoSchema,
-  PaginatedResponseWorkflowRunSummarySchema,
-  PaginatedResponseWorkflowSummarySchema,
-  PreviewStartedResponse,
-  ScheduleResponse,
-  WorkflowDetailSchema,
-  WorkflowRunDetailSchema,
-  WorkflowRunStartedResponse,
-  WorkflowTemplateSchema,
-  WorkflowValidationResponse,
+  NodeTypeInfoSchema
+} from '../model/nodeTypeInfoSchema.ts';
+
+import type {
+  PaginatedResponseWorkflowRunSummarySchema
+} from '../model/paginatedResponseWorkflowRunSummarySchema.ts';
+
+import type {
+  PaginatedResponseWorkflowSummarySchema
+} from '../model/paginatedResponseWorkflowSummarySchema.ts';
+
+import type {
+  PreviewStartedResponse
+} from '../model/previewStartedResponse.ts';
+
+import type {
+  ScheduleResponse
+} from '../model/scheduleResponse.ts';
+
+import type {
+  WorkflowDetailSchema
+} from '../model/workflowDetailSchema.ts';
+
+import type {
+  WorkflowRunDetailSchema
+} from '../model/workflowRunDetailSchema.ts';
+
+import type {
+  WorkflowRunStartedResponse
+} from '../model/workflowRunStartedResponse.ts';
+
+import type {
+  WorkflowTemplateSchema
+} from '../model/workflowTemplateSchema.ts';
+
+import type {
+  WorkflowValidationResponse
+} from '../model/workflowValidationResponse.ts';
+
+import type {
   WorkflowVersionSchema
-} from '../model';
+} from '../model/workflowVersionSchema.ts';
 
 import {
   getCreateWorkflowApiV1WorkflowsPostResponseMock,

@@ -30,7 +30,7 @@ regenerate on every PR. The single source of truth is the Playwright Docker
 image used in CI.
 
 **Image ↔ package coupling**: the Docker tag must match `@playwright/test`
-in `web/pnpm-lock.yaml` exactly (currently `v1.62.1-noble`) — the browsers
+in `web/pnpm-lock.yaml` exactly (currently `v1.63.0-noble`) — the browsers
 inside the image are revision-locked to the Playwright version, and a skew
 kills every test at `browserType.launch`. Baselines are additionally coupled
 to the browser build: bumping `@playwright/test` (and therefore the image)
@@ -53,8 +53,8 @@ Docker image:
 ```bash
 docker run --rm -e CI=true \
   -v "$PWD":/work -w /work/web \
-  mcr.microsoft.com/playwright:v1.62.1-noble \
-  bash -c "corepack enable && corepack prepare pnpm@11.20.0 --activate \
+  mcr.microsoft.com/playwright:v1.63.0-noble \
+  bash -c "corepack enable && corepack prepare pnpm@12.4.2 --activate \
            && pnpm install --frozen-lockfile \
            && pnpm exec playwright test --update-snapshots"
 ```

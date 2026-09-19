@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -15,7 +15,7 @@ import type {
 
 import type {
   ChatFeedbackResponse
-} from '../model';
+} from '../model/chatFeedbackResponse.ts';
 
 import {
   getPostChatFeedbackApiV1ChatFeedbackPostResponseMock

@@ -3,16 +3,19 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import type {
-  ConsentDetails,
+  ConsentDetails
+} from '../model/consentDetails.ts';
+
+import type {
   ConsentRedirect
-} from '../model';
+} from '../model/consentRedirect.ts';
 
 
 export const getGetConsentDetailsApiV1OauthConsentRequestIdGetResponseMock = (overrideResponse: Partial<Extract<ConsentDetails, object>> = {}): ConsentDetails => ({client_id: faker.string.alpha({length: {min: 10, max: 20}}), client_name: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), redirect_uri: faker.string.alpha({length: {min: 10, max: 20}}), scopes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), resource: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ...overrideResponse})

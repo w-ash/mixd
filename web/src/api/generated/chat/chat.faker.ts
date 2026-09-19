@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
@@ -11,7 +11,7 @@ import {
 
 import type {
   ChatFeedbackResponse
-} from '../model';
+} from '../model/chatFeedbackResponse.ts';
 
 
 export const getPostChatFeedbackApiV1ChatFeedbackPostResponseMock = (overrideResponse: Partial<Extract<ChatFeedbackResponse, object>> = {}): ChatFeedbackResponse => ({id: faker.string.uuid(), ...overrideResponse})

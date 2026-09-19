@@ -3,16 +3,19 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import type {
-  TagOperationResult,
+  TagOperationResult
+} from '../model/tagOperationResult.ts';
+
+import type {
   TagSummarySchema
-} from '../model';
+} from '../model/tagSummarySchema.ts';
 
 
 export const getListTagsApiV1TagsGetResponseMock = (): TagSummarySchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({tag: faker.string.alpha({length: {min: 10, max: 20}}), namespace: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), value: faker.string.alpha({length: {min: 10, max: 20}}), track_count: faker.number.int(), last_used_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))

@@ -3,16 +3,19 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import type {
-  DashboardStatsSchema,
+  DashboardStatsSchema
+} from '../model/dashboardStatsSchema.ts';
+
+import type {
   MatchMethodHealthSchema
-} from '../model';
+} from '../model/matchMethodHealthSchema.ts';
 
 
 export const getGetDashboardStatsApiV1StatsDashboardGetResponseMock = (overrideResponse: Partial<Extract<DashboardStatsSchema, object>> = {}): DashboardStatsSchema => ({total_tracks: faker.number.int(), total_plays: faker.number.int(), total_playlists: faker.number.int(), total_liked: faker.number.int(), tracks_by_connector: {

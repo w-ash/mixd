@@ -3,16 +3,19 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import type {
-  MatchReviewListSchema,
+  MatchReviewListSchema
+} from '../model/matchReviewListSchema.ts';
+
+import type {
   ResolveReviewResponse
-} from '../model';
+} from '../model/resolveReviewResponse.ts';
 
 
 export const getListReviewsApiV1ReviewsGetResponseMock = (overrideResponse: Partial<Extract<MatchReviewListSchema, object>> = {}): MatchReviewListSchema => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.helpers.arrayElement([faker.string.uuid(),null,]), track_id: faker.string.uuid(), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_id: faker.string.uuid(), match_method: faker.string.alpha({length: {min: 10, max: 20}}), confidence: faker.number.int(), match_weight: faker.number.float({fractionDigits: 2}), confidence_evidence: faker.helpers.arrayElement([null,]), status: faker.string.alpha({length: {min: 10, max: 20}}), reviewed_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), created_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), updated_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), connector_track_title: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))})), total: faker.number.int(), limit: faker.number.int(), offset: faker.number.int(), ...overrideResponse})

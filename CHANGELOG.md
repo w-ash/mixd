@@ -6,6 +6,17 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0.3] — 2026-09-19
+
+**A dependency-freshness sweep.** Every dependency to its latest stable release — internal currency and security patches, nothing user-visible — with one item worth naming: the ten open Dependabot alerts against `better-auth` close, because `@neondatabase/auth` finally published the release that carries the patched line.
+
+- **Python** (44 packages): `mcp`/`mcp-types` 2.0→2.2, `anthropic` 0.121→0.125, `httpx2` 2.9→2.13, `sqlalchemy` 2.0.54, `uvicorn` 0.53, `orjson` 3.12, `pyjwt` 2.14, `ruff` 0.16.8, `basedpyright` 1.40.1; `pyproject.toml` floors re-based onto the lock as before; Python 3.14.3→3.14.7. `sse-starlette` is now declared — `api/app.py` imports it directly for the shutdown drain, and deptry rightly reported the transitive-only arrival. Starlette's TestClient emits 15 new `anyio.abc.BlockingPortal` deprecation warnings under anyio 4.15; upstream's to fix, not filtered.
+- **Web** (28 packages): three majors — `vitest` 4→5, `eventsource-parser` 3→4 (the surviving `eventsource-parser/stream` path is the one the SSE client uses), `@neondatabase/auth` 0.4.2→0.5.0-beta (`better-auth` 1.4.18→1.6.23; the workspace note that was waiting on this release is retired) — plus React 19.3, Vite 8.3, react-router 8.4, orval 8.34 (the regenerated client normalises request headers), Biome 2.5.14, and the rest. No test or source change was needed for any of them.
+- **Toolchain**: pnpm 11.20→12.4.2 across every pin (`packageManager` in both manifests, `Dockerfile`, `ci.yml`, e2e docs — the root manifest gains a `packageManager` so `pnpm --prefix web` from the root resolves the same binary); Playwright 1.62.1→1.63.0 with the CI image; baselines regenerated inside it came back pixel-identical (22/22); `setup-uv` v9.0.0→v10.1.0 (its one breaking change disables the Actions cache on `pull_request_target`/`workflow_run`/`release` events — none of the three workflows that use it run on those); ruff pre-commit hook 0.16.8.
+- **Held back**: `jsdom` 30.1.0 — a regression makes a focus event's `relatedTarget` the `Document` where browsers report `null`, which breaks sonner's focus restore and Radix menu focus scoping under test (6 failures). Pinned exactly at 30.0.1; upstream tracks it as jsdom/jsdom#4344 and #4347 with fix PR #4346 — lift the pin when the fix ships.
+
+→ [details](docs/backlog/v0.12.x.md#post-deploy-revisions)
+
 ## [0.12.0.2] — 2026-09-18
 
 **A track's service ids now live only in its mappings, so a Spotify id your library already knows can never block an import again.** The denormalized `tracks.spotify_id`/`mbid` columns and their unique constraints are gone (migration 059): a code review of the new resolution service found two import paths that never asked about them before creating a track, which made a claimed id fail every import that hit it. Every row now carries its tenant, unliking a track deletes the like instead of leaving a tombstone, paging is decided one way, and one planner decides every reuse-or-create. This is tranche 2 of the track-stack pre-flight the artist and album stacks (v0.12.1/v0.12.2) are built on.

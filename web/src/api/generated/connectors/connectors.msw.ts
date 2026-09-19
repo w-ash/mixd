@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,11 +14,20 @@ import type {
 } from 'msw';
 
 import type {
-  ConnectorMetadataSchema,
-  ConnectorPlaylistBrowseResponse,
-  OperationStartedResponse,
+  ConnectorMetadataSchema
+} from '../model/connectorMetadataSchema.ts';
+
+import type {
+  ConnectorPlaylistBrowseResponse
+} from '../model/connectorPlaylistBrowseResponse.ts';
+
+import type {
+  OperationStartedResponse
+} from '../model/operationStartedResponse.ts';
+
+import type {
   PlayPollingResponse
-} from '../model';
+} from '../model/playPollingResponse.ts';
 
 import {
   getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponseMock,

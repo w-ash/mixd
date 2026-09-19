@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation,
@@ -25,10 +25,16 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  ConsentDetails,
-  ConsentRedirect,
+  ConsentDetails
+} from '../model/consentDetails.ts';
+
+import type {
+  ConsentRedirect
+} from '../model/consentRedirect.ts';
+
+import type {
   HTTPValidationError
-} from '../model';
+} from '../model/hTTPValidationError.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -219,11 +225,13 @@ export const approveConsentApiV1OauthConsentRequestIdApprovePost = async (reques
 
 
 
-export const useApproveConsentApiV1OauthConsentRequestIdApprovePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, TError,{requestId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, TError,{requestId: string}, TContext> => {
+export const getApproveConsentApiV1OauthConsentRequestIdApprovePostMutationKey = () => ['approveConsentApiV1OauthConsentRequestIdApprovePost'] as const;
 
-const mutationKey = ['approveConsentApiV1OauthConsentRequestIdApprovePost'];
+export const useApproveConsentApiV1OauthConsentRequestIdApprovePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, TError,ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, TError,ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationVariables, TContext> => {
+
+const mutationKey = getApproveConsentApiV1OauthConsentRequestIdApprovePostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -233,7 +241,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, {requestId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationVariables> = (props) => {
           const {requestId} = props ?? {};
 
           return  approveConsentApiV1OauthConsentRequestIdApprovePost(requestId,requestOptions)
@@ -249,16 +257,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationResult = NonNullable<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>>
 
     export type ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationError = HTTPValidationError
+    export type ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationVariables = {requestId: string}
 
     /**
  * @summary Approve Consent
  */
 export const useApproveConsentApiV1OauthConsentRequestIdApprovePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, TError,{requestId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>, TError,ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof approveConsentApiV1OauthConsentRequestIdApprovePost>>,
         TError,
-        {requestId: string},
+        ApproveConsentApiV1OauthConsentRequestIdApprovePostMutationVariables,
         TContext
       > => {
       return useMutation(useApproveConsentApiV1OauthConsentRequestIdApprovePostMutationOptions(options), queryClient);
@@ -309,11 +318,13 @@ export const denyConsentApiV1OauthConsentRequestIdDenyPost = async (requestId: s
 
 
 
-export const useDenyConsentApiV1OauthConsentRequestIdDenyPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, TError,{requestId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, TError,{requestId: string}, TContext> => {
+export const getDenyConsentApiV1OauthConsentRequestIdDenyPostMutationKey = () => ['denyConsentApiV1OauthConsentRequestIdDenyPost'] as const;
 
-const mutationKey = ['denyConsentApiV1OauthConsentRequestIdDenyPost'];
+export const useDenyConsentApiV1OauthConsentRequestIdDenyPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, TError,DenyConsentApiV1OauthConsentRequestIdDenyPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, TError,DenyConsentApiV1OauthConsentRequestIdDenyPostMutationVariables, TContext> => {
+
+const mutationKey = getDenyConsentApiV1OauthConsentRequestIdDenyPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -323,7 +334,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, {requestId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, DenyConsentApiV1OauthConsentRequestIdDenyPostMutationVariables> = (props) => {
           const {requestId} = props ?? {};
 
           return  denyConsentApiV1OauthConsentRequestIdDenyPost(requestId,requestOptions)
@@ -339,16 +350,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DenyConsentApiV1OauthConsentRequestIdDenyPostMutationResult = NonNullable<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>>
 
     export type DenyConsentApiV1OauthConsentRequestIdDenyPostMutationError = HTTPValidationError
+    export type DenyConsentApiV1OauthConsentRequestIdDenyPostMutationVariables = {requestId: string}
 
     /**
  * @summary Deny Consent
  */
 export const useDenyConsentApiV1OauthConsentRequestIdDenyPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, TError,{requestId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>, TError,DenyConsentApiV1OauthConsentRequestIdDenyPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof denyConsentApiV1OauthConsentRequestIdDenyPost>>,
         TError,
-        {requestId: string},
+        DenyConsentApiV1OauthConsentRequestIdDenyPostMutationVariables,
         TContext
       > => {
       return useMutation(useDenyConsentApiV1OauthConsentRequestIdDenyPostMutationOptions(options), queryClient);

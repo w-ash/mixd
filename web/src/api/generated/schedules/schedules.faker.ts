@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
@@ -11,12 +11,19 @@ import {
 
 import {
   ConnectorBlockedReason
-} from '../model';
+} from '../model/connectorBlockedReason.ts';
+
 import type {
-  ScheduleListResponse,
-  ScheduleResponse,
+  ScheduleListResponse
+} from '../model/scheduleListResponse.ts';
+
+import type {
+  ScheduleResponse
+} from '../model/scheduleResponse.ts';
+
+import type {
   SyncTargetListResponse
-} from '../model';
+} from '../model/syncTargetListResponse.ts';
 
 
 export const getListSyncTargetsApiV1SyncTargetsGetResponseMock = (overrideResponse: Partial<Extract<SyncTargetListResponse, object>> = {}): SyncTargetListResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.helpers.arrayElement(['apple:plays','lastfm:likes','lastfm:plays','spotify:likes','spotify:plays'] as const), label: faker.string.alpha({length: {min: 10, max: 20}}), service: faker.string.alpha({length: {min: 10, max: 20}}), self_managed: faker.datatype.boolean(), available: faker.datatype.boolean(), blocked_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(ConnectorBlockedReason)),null,]), undefined])})), ...overrideResponse})

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   HttpResponse,
@@ -14,10 +14,16 @@ import type {
 } from 'msw';
 
 import type {
-  ScheduleListResponse,
-  ScheduleResponse,
+  ScheduleListResponse
+} from '../model/scheduleListResponse.ts';
+
+import type {
+  ScheduleResponse
+} from '../model/scheduleResponse.ts';
+
+import type {
   SyncTargetListResponse
-} from '../model';
+} from '../model/syncTargetListResponse.ts';
 
 import {
   getGetSyncScheduleApiV1SyncSchedulesTargetIdGetResponseMock,

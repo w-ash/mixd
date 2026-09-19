@@ -3,26 +3,51 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   faker
 } from '@faker-js/faker';
 
 import {
-  AssignmentActionType,
-  Capability,
-  ConnectorAuthError,
-  ConnectorAuthMethod,
-  ConnectorCategory,
-  ConnectorStatusState
-} from '../model';
+  AssignmentActionType
+} from '../model/assignmentActionType.ts';
+
+import {
+  Capability
+} from '../model/capability.ts';
+
+import {
+  ConnectorAuthError
+} from '../model/connectorAuthError.ts';
+
+import {
+  ConnectorAuthMethod
+} from '../model/connectorAuthMethod.ts';
+
+import {
+  ConnectorCategory
+} from '../model/connectorCategory.ts';
+
 import type {
-  ConnectorMetadataSchema,
-  ConnectorPlaylistBrowseResponse,
-  OperationStartedResponse,
+  ConnectorMetadataSchema
+} from '../model/connectorMetadataSchema.ts';
+
+import type {
+  ConnectorPlaylistBrowseResponse
+} from '../model/connectorPlaylistBrowseResponse.ts';
+
+import {
+  ConnectorStatusState
+} from '../model/connectorStatusState.ts';
+
+import type {
+  OperationStartedResponse
+} from '../model/operationStartedResponse.ts';
+
+import type {
   PlayPollingResponse
-} from '../model';
+} from '../model/playPollingResponse.ts';
 
 
 export const getGetConnectorsApiV1ConnectorsGetResponseMock = (): ConnectorMetadataSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.string.alpha({length: {min: 10, max: 20}}), category: faker.helpers.arrayElement(Object.values(ConnectorCategory)), auth_method: faker.helpers.arrayElement(Object.values(ConnectorAuthMethod)), status: faker.helpers.arrayElement(Object.values(ConnectorStatusState)), connected: faker.datatype.boolean(), account_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), token_expires_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), capabilities: faker.helpers.arrayElements(Object.values(Capability)), auth_error: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(ConnectorAuthError)),null,]), undefined]), last_synced_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), detail: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})))

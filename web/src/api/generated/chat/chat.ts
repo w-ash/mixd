@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.2
+ * OpenAPI spec version: 0.12.0.3
  */
 import {
   useMutation
@@ -16,11 +16,20 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  ChatFeedbackRequest,
-  ChatFeedbackResponse,
-  ChatRequest,
+  ChatFeedbackRequest
+} from '../model/chatFeedbackRequest.ts';
+
+import type {
+  ChatFeedbackResponse
+} from '../model/chatFeedbackResponse.ts';
+
+import type {
+  ChatRequest
+} from '../model/chatRequest.ts';
+
+import type {
   HTTPValidationError
-} from '../model';
+} from '../model/hTTPValidationError.ts';
 
 import { customFetch } from '../../client.ts';
 import { withCacheTags } from '../../cache-tags-mutator.ts';
@@ -62,11 +71,25 @@ export const getPostChatFeedbackApiV1ChatFeedbackPostUrl = () => {
  */
 export const postChatFeedbackApiV1ChatFeedbackPost = async (chatFeedbackRequest: ChatFeedbackRequest, options?: Parameters<typeof customFetch>[1]): Promise<postChatFeedbackApiV1ChatFeedbackPostResponse> => {
 
-  return customFetch<postChatFeedbackApiV1ChatFeedbackPostResponse>(getPostChatFeedbackApiV1ChatFeedbackPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<postChatFeedbackApiV1ChatFeedbackPostResponse>(getPostChatFeedbackApiV1ChatFeedbackPostUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(chatFeedbackRequest)
   }
 );}
@@ -75,11 +98,13 @@ export const postChatFeedbackApiV1ChatFeedbackPost = async (chatFeedbackRequest:
 
 
 
-export const usePostChatFeedbackApiV1ChatFeedbackPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, TError,{data: ChatFeedbackRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, TError,{data: ChatFeedbackRequest}, TContext> => {
+export const getPostChatFeedbackApiV1ChatFeedbackPostMutationKey = () => ['postChatFeedbackApiV1ChatFeedbackPost'] as const;
 
-const mutationKey = ['postChatFeedbackApiV1ChatFeedbackPost'];
+export const usePostChatFeedbackApiV1ChatFeedbackPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, TError,PostChatFeedbackApiV1ChatFeedbackPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, TError,PostChatFeedbackApiV1ChatFeedbackPostMutationVariables, TContext> => {
+
+const mutationKey = getPostChatFeedbackApiV1ChatFeedbackPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -89,7 +114,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, {data: ChatFeedbackRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, PostChatFeedbackApiV1ChatFeedbackPostMutationVariables> = (props) => {
           const {data} = props ?? {};
 
           return  postChatFeedbackApiV1ChatFeedbackPost(data,requestOptions)
@@ -105,16 +130,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PostChatFeedbackApiV1ChatFeedbackPostMutationResult = NonNullable<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>>
     export type PostChatFeedbackApiV1ChatFeedbackPostMutationBody = ChatFeedbackRequest
     export type PostChatFeedbackApiV1ChatFeedbackPostMutationError = HTTPValidationError
+    export type PostChatFeedbackApiV1ChatFeedbackPostMutationVariables = {data: ChatFeedbackRequest}
 
     /**
  * @summary Post Chat Feedback
  */
 export const usePostChatFeedbackApiV1ChatFeedbackPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, TError,{data: ChatFeedbackRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>, TError,PostChatFeedbackApiV1ChatFeedbackPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof postChatFeedbackApiV1ChatFeedbackPost>>,
         TError,
-        {data: ChatFeedbackRequest},
+        PostChatFeedbackApiV1ChatFeedbackPostMutationVariables,
         TContext
       > => {
       return useMutation(usePostChatFeedbackApiV1ChatFeedbackPostMutationOptions(options), queryClient);
@@ -151,11 +177,25 @@ export const getPostChatApiV1ChatPostUrl = () => {
  */
 export const postChatApiV1ChatPost = async (chatRequest: ChatRequest, options?: Parameters<typeof customFetch>[1]): Promise<postChatApiV1ChatPostResponse> => {
 
-  return customFetch<postChatApiV1ChatPostResponse>(getPostChatApiV1ChatPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<postChatApiV1ChatPostResponse>(getPostChatApiV1ChatPostUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(chatRequest)
   }
 );}
@@ -164,11 +204,13 @@ export const postChatApiV1ChatPost = async (chatRequest: ChatRequest, options?: 
 
 
 
-export const usePostChatApiV1ChatPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, TError,{data: ChatRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, TError,{data: ChatRequest}, TContext> => {
+export const getPostChatApiV1ChatPostMutationKey = () => ['postChatApiV1ChatPost'] as const;
 
-const mutationKey = ['postChatApiV1ChatPost'];
+export const usePostChatApiV1ChatPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, TError,PostChatApiV1ChatPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, TError,PostChatApiV1ChatPostMutationVariables, TContext> => {
+
+const mutationKey = getPostChatApiV1ChatPostMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -178,7 +220,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, {data: ChatRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, PostChatApiV1ChatPostMutationVariables> = (props) => {
           const {data} = props ?? {};
 
           return  postChatApiV1ChatPost(data,requestOptions)
@@ -194,16 +236,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PostChatApiV1ChatPostMutationResult = NonNullable<Awaited<ReturnType<typeof postChatApiV1ChatPost>>>
     export type PostChatApiV1ChatPostMutationBody = ChatRequest
     export type PostChatApiV1ChatPostMutationError = HTTPValidationError
+    export type PostChatApiV1ChatPostMutationVariables = {data: ChatRequest}
 
     /**
  * @summary Post Chat
  */
 export const usePostChatApiV1ChatPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, TError,{data: ChatRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postChatApiV1ChatPost>>, TError,PostChatApiV1ChatPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof postChatApiV1ChatPost>>,
         TError,
-        {data: ChatRequest},
+        PostChatApiV1ChatPostMutationVariables,
         TContext
       > => {
       return useMutation(usePostChatApiV1ChatPostMutationOptions(options), queryClient);
