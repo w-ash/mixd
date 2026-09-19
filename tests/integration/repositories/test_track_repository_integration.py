@@ -108,14 +108,14 @@ class TestTrackRepositoryIntegration:
 
         saved_track = await track_repo.save_track(test_track)
 
-        # save_track persists only the connectors in DENORMALIZED_ID_COLUMNS
-        # (spotify, musicbrainz). Others like lastfm are dropped — they require a
-        # separate create_mapping call.
-        assert "spotify" in saved_track.connector_track_identifiers
+        # A canonical's connector ids come from its mappings alone, so
+        # save_track persists none of them — every connector needs its own
+        # map_track_to_connector call.
+        assert "spotify" not in saved_track.connector_track_identifiers
         assert "lastfm" not in saved_track.connector_track_identifiers
 
         retrieved_track = await track_repo.get_by_id(saved_track.id)
-        assert "spotify" in retrieved_track.connector_track_identifiers
+        assert "spotify" not in retrieved_track.connector_track_identifiers
         assert "lastfm" not in retrieved_track.connector_track_identifiers
 
     async def test_bulk_track_operations(self, db_session):
@@ -162,8 +162,8 @@ class TestTrackRepositoryIntegration:
 
         saved_track = await track_repo.save_track(original_track)
 
-        # Update track with new connector identifier (evolve preserves version)
-
+        # Updating a canonical rewrites its own columns; connector ids are
+        # not among them, so the update arm leaves them to the mappings.
         updated_track = evolve(
             saved_track,
             connector_track_identifiers={
@@ -176,12 +176,8 @@ class TestTrackRepositoryIntegration:
 
         assert final_track.id == saved_track.id  # Same ID
         assert final_track.title == saved_track.title  # Same title
-        assert (
-            "spotify" in final_track.connector_track_identifiers
-        )  # Original connector preserved
-        assert (
-            "musicbrainz" in final_track.connector_track_identifiers
-        )  # New connector added
+        assert final_track.album == saved_track.album
+        assert final_track.version == saved_track.version + 1
 
 
 class TestTrackOptimisticLocking:
@@ -737,51 +733,6 @@ class TestFindTracksByISRC:
         assert result == {}
 
 
-class TestFindTracksByMBID:
-    """Integration tests for MBID-based batch lookup."""
-
-    async def test_find_by_mbid(self, db_session):
-        """Track with MBID should be found by MBID lookup."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        mbid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-        track = make_track(
-            title="MBID Track",
-            artist="MBID Artist",
-            connector_track_identifiers={"musicbrainz": mbid},
-        )
-        saved = await track_repo.save_track(track)
-
-        result = await track_repo.find_tracks_by_mbids([mbid], user_id="default")
-        assert mbid in result
-        assert result[mbid].id == saved.id
-
-    async def test_a_claimed_mbid_is_refused_not_upserted(self, db_session):
-        """Repositories only persist: a second row naming a claimed MBID is a
-        caller that skipped the resolution planner, not a merge to perform."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        mbid = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
-        track1 = make_track(
-            title="MBID Track V1",
-            artist="Artist",
-            connector_track_identifiers={"musicbrainz": mbid},
-        )
-        saved1 = await track_repo.save_track(track1)
-
-        track2 = make_track(
-            title="MBID Track V2",
-            artist="Artist",
-            connector_track_identifiers={"musicbrainz": mbid},
-        )
-        with pytest.raises(IdentityKeyClaimedError) as raised:
-            _ = await track_repo.save_track(track2)
-
-        assert ("mbid", saved1.user_id, mbid) in raised.value.keys
-
-
 class TestTrackNormalizedColumns:
     """Verify save_track populates the four columns that back fuzzy search.
 
@@ -848,21 +799,25 @@ class TestSaveTracksBulk:
             retrieved = await track_repo.get_by_id(track.id)
             assert retrieved.title == track.title
 
-    async def test_the_denormalized_spotify_id_survives_the_batch_insert(
-        self, db_session
-    ):
-        """The resolver's whole fast path depends on that column being written."""
+    async def test_two_canonicals_may_carry_one_spotify_id(self, db_session):
+        """A Spotify id is not an identity key: it lives in the mappings, so
+        two canonicals naming the same one are both inserted. Which canonical
+        an id belongs to is the resolution planner's call, not the table's."""
         track_repo = get_unit_of_work(db_session).get_track_repository()
         spotify_id = f"spotify_{uuid4()}"
 
-        (saved,) = await track_repo.save_tracks([
+        saved = await track_repo.save_tracks([
             make_track(
-                title=f"TEST_Denorm_{uuid4()}",
+                title=f"TEST_First_{uuid4()}",
                 connector_track_identifiers={"spotify": spotify_id},
-            )
+            ),
+            make_track(
+                title=f"TEST_Second_{uuid4()}",
+                connector_track_identifiers={"spotify": spotify_id},
+            ),
         ])
 
-        assert saved.connector_track_identifiers["spotify"] == spotify_id
+        assert len({track.id for track in saved}) == 2
 
     async def test_a_claimed_isrc_is_refused_naming_the_key(self, db_session):
         """A key the table already holds is not new, and the batch does not
@@ -902,63 +857,20 @@ class TestSaveTracksBulk:
         batch is handed here; two rows naming one key would race the unique
         constraint, so the second is refused up front."""
         track_repo = get_unit_of_work(db_session).get_track_repository()
-        spotify_id = f"spotify_{uuid4()}"
+        isrc = f"TEST{uuid4().hex[:8].upper()}"
 
         with pytest.raises(IdentityKeyClaimedError) as raised:
             _ = await track_repo.save_tracks([
-                make_track(
-                    title=f"TEST_First_{uuid4()}",
-                    connector_track_identifiers={"spotify": spotify_id},
-                ),
-                make_track(
-                    title=f"TEST_Second_{uuid4()}",
-                    connector_track_identifiers={"spotify": spotify_id},
-                ),
+                make_track(title=f"TEST_First_{uuid4()}", isrc=isrc),
+                make_track(title=f"TEST_Second_{uuid4()}", isrc=isrc),
             ])
 
-        assert {value for _, _, value in raised.value.keys} == {spotify_id}
+        assert {value for _, _, value in raised.value.keys} == {isrc}
 
     async def test_an_empty_batch_touches_nothing(self, db_session):
         track_repo = get_unit_of_work(db_session).get_track_repository()
 
         assert await track_repo.save_tracks([]) == []
-
-    async def test_a_pre_claimed_spotify_id_is_refused_and_writes_no_row(
-        self, db_session, test_user_id
-    ):
-        """Never a duplicate row, never a silent upsert into the owner: the
-        refusal is the signal that the caller's mapping-lookup/reuse passes
-        are not seeing the rows the batch collides with (v0.10.2.9)."""
-        track_repo = get_unit_of_work(db_session).get_track_repository()
-        spotify_id = f"TEST_spotify_{uuid4()}"
-        owner = await track_repo.save_track(
-            make_track(
-                title=f"TEST_Owner_{uuid4()}",
-                user_id=test_user_id,
-                connector_track_identifiers={"spotify": spotify_id},
-            )
-        )
-
-        with pytest.raises(IdentityKeyClaimedError):
-            _ = await track_repo.save_tracks([
-                make_track(
-                    title=f"TEST_Incoming_{uuid4()}",
-                    user_id=test_user_id,
-                    connector_track_identifiers={"spotify": spotify_id},
-                )
-            ])
-
-        rows_claiming_id = (
-            await db_session.execute(
-                select(DBTrack.id, DBTrack.title).where(
-                    DBTrack.user_id == test_user_id,
-                    DBTrack.spotify_id == spotify_id,
-                )
-            )
-        ).all()
-        assert [(row.id, row.title) for row in rows_claiming_id] == [
-            (owner.id, owner.title)
-        ]
 
     async def test_a_version_bump_row_takes_the_update_arm(self, db_session):
         """The optimistic-locking arm (version > 0) has no batch form and is

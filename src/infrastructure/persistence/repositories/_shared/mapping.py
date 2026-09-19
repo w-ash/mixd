@@ -12,9 +12,9 @@ whether the table carries supersession.
 The track instantiation (``track/connector.py``) is the one exercised in
 production; its ``assert_mappings`` shape — two statements, a deferred
 self-FK, a 23505 retry — is PG17-verified and reproduced here unchanged.
-Everything the generic does not know about an entity (the denormalized
-``tracks.spotify_id`` fast path, the ``DBTrack.mappings`` identity-map
-collection) is a hook the instantiation overrides.
+Everything the generic does not know about an entity (the
+``DBTrack.mappings`` identity-map collection) is a hook the instantiation
+overrides.
 """
 
 from collections import defaultdict
@@ -96,10 +96,10 @@ _ASSERT_DEFAULTS: Final[Mapping[str, object]] = {
 
 # A stale-id mapping is a cache entry for a dead connector id, written beside
 # the live id it was redirected to so a later import carrying the old id still
-# resolves from cache. It never holds primacy: promoting one would copy the
-# dead id into a denormalized fast-path column. Every election reads this
-# predicate; a pair whose only live rows are stale-id ones has no live identity
-# and is neither elected nor reported as a vacancy.
+# resolves from cache. It never holds primacy: a pair's primary is the mapping
+# that names its current identity, and a dead id is not one. Every election
+# reads this predicate; a pair whose only live rows are stale-id ones has no
+# live identity and is neither elected nor reported as a vacancy.
 STALE_ID_METHODS: Final[frozenset[MatchMethod]] = frozenset(STALE_ID_FOR.values())
 
 
@@ -298,9 +298,9 @@ class MappingAssertion:
     owner. ``vacated_owners`` names the (owner, connector) pairs a changed
     decision left without a primary because the successor landed on a
     *different* owner; the restoration above only re-promotes on the new one,
-    and the departed owner needs its own heal (a surviving sibling promoted,
-    or the denormalized column cleared) — the FM4d drift migration 044's
-    pre-pass had to repair on 366 production rows.
+    and the departed owner needs its own heal (a surviving sibling promoted)
+    — the FM4d drift migration 044's pre-pass had to repair on 366 production
+    rows.
 
     ``written`` carries the full row for every mapping that landed live this
     batch (``created`` plus ``superseded.values()`` plus ``rewritten``); it is
@@ -351,9 +351,9 @@ def _require_shape_columns(table: FromClause, shape: MappingShape) -> None:
 class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
     """Assert, scope, elect and record for one typed mapping table.
 
-    Instantiate with a :class:`MappingShape`; override the two hooks
-    (:meth:`_after_promotion`, :meth:`_expire_owner_identity`) where the
-    entity keeps state outside its mapping table.
+    Instantiate with a :class:`MappingShape`; override the
+    :meth:`_expire_owner_identity` hook where the entity keeps state outside
+    its mapping table.
     """
 
     shape: MappingShape
@@ -375,12 +375,6 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         self.columns = MappingColumns.of(self.table.c, shape)
 
     # ── hooks ────────────────────────────────────────────────────────
-
-    async def _after_promotion(self, promoted: Sequence[PrimaryCandidate]) -> None:
-        """Run after a promotion landed, with exactly the pairs that moved.
-
-        The track instantiation syncs ``tracks.spotify_id``/``mbid`` here.
-        """
 
     def _expire_owner_identity(self, owner_ids: Sequence[UUID]) -> None:
         """Drop in-session owner objects whose mapping collection just changed.
@@ -589,9 +583,9 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
                     ),
                     "supersession_reason": case((decision_differs, reason), else_=None),
                     # A retired row must not keep primacy: it would collide
-                    # with its successor under the primary partial unique and
-                    # a denormalized column would follow a ghost. else_ keeps
-                    # an unchanged (merely touched) row exactly as it was.
+                    # with its successor under the primary partial unique.
+                    # else_ keeps an unchanged (merely touched) row exactly as
+                    # it was.
                     "is_primary": case(
                         (decision_differs, False), else_=cols.is_primary
                     ),
@@ -639,8 +633,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
             ]
             restorations = tuple(self._candidate_of(row) for row in was_primary)
             # A re-score that also moves the mapping to another owner leaves
-            # the old one with no primary and a denormalized id pointing at an
-            # identifier it no longer owns. Only the successor's owner is
+            # the old one with no primary. Only the successor's owner is
             # re-promoted above, so name the departed owner for the healer.
             vacated = tuple({
                 (departed, cast("str", row["connector_name"]))
@@ -838,10 +831,10 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         Returns the candidates promoted; a ``fill`` over an occupied pair
         promotes nothing and is not an error. A ``reset`` that promotes
         fewer pairs than it was asked to *is*: the deposition already ran, so
-        releasing the savepoint would leave those pairs with no primary and a
-        denormalized column pointing at the deposed row. The ``ValueError``
-        rolls the savepoint back with the incumbents intact — the named row is
-        a stale-id cache entry, or was retired under the caller's feet.
+        releasing the savepoint would leave those pairs with no primary. The
+        ``ValueError`` rolls the savepoint back with the incumbents intact —
+        the named row is a stale-id cache entry, or was retired under the
+        caller's feet.
         """
         if not candidates:
             return []
@@ -912,10 +905,9 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         ``candidates`` is one per (owner, connector) — :meth:`ensure_primaries`
         deduplicates before calling.
 
-        **``RETURNING`` is the "promotion landed" signal**: the FM4d rule needs
-        to know exactly which pairs moved before a hook touches a denormalized
-        id, and with one statement for the whole batch there is no per-row
-        count to read instead.
+        **``RETURNING`` is the "promotion landed" signal**: the caller needs
+        to know exactly which pairs moved, and with one statement for the whole
+        batch there is no per-row count to read instead.
         """
         cols = self.columns
         promotion_values = values(
@@ -937,10 +929,7 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
             .returning(cols.owner_id, cols.connector_name, cols.connector_id)
             .execution_options(synchronize_session=False)
         )
-        promoted = list(starmap(PrimaryCandidate, result.tuples().all()))
-        if promoted:
-            await self._after_promotion(promoted)
-        return promoted
+        return list(starmap(PrimaryCandidate, result.tuples().all()))
 
     @db_operation("repair_missing_primaries")
     async def repair_missing_primaries(
@@ -952,10 +941,9 @@ class MappingRepository[DBM: DatabaseModel, M](BaseRepository[DBM, M]):
         highest-confidence, lowest-id live mapping of the pair — the total
         order every per-pair heal applies — chosen set-based so the repair is
         one query rather than one per vacancy. Promotion goes through
-        :meth:`ensure_primaries` in ``fill`` mode, which keeps the peer guard
-        (a pair that gained a primary between the two statements is left
-        alone) and the after-promotion hook (a denormalized id moves only for
-        pairs whose promotion actually landed).
+        :meth:`ensure_primaries` in ``fill`` mode, which keeps the peer guard:
+        a pair that gained a primary between the two statements is left
+        alone.
 
         Stale-id cache rows are never candidates, here or in any other
         election: a pair whose only live rows are stale-id ones has no live

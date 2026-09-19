@@ -17,7 +17,11 @@ from src.infrastructure.connectors.spotify.inward_resolver import (
     SpotifyInwardResolver,
 )
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
-from src.infrastructure.persistence.database.models import DBTrack, DBTrackMapping
+from src.infrastructure.persistence.database.models import (
+    DBConnectorTrack,
+    DBTrack,
+    DBTrackMapping,
+)
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures.factories import make_spotify_track
 
@@ -99,27 +103,20 @@ class TestSpotifyImportTenancy:
 
         assert metrics.created == 3
         assert set(result) == set(canned)
-        owners = (
-            (
-                await db_session.execute(
-                    select(DBTrack.user_id).where(DBTrack.spotify_id.in_(list(canned)))
-                )
+        # The imported canonicals are reached through their mappings: a
+        # canonical's connector ids live there and nowhere else.
+        imported = (
+            select(DBTrack.user_id)
+            .join(DBTrackMapping, DBTrackMapping.track_id == DBTrack.id)
+            .join(
+                DBConnectorTrack,
+                DBConnectorTrack.id == DBTrackMapping.connector_track_id,
             )
-            .scalars()
-            .all()
+            .where(DBConnectorTrack.connector_track_identifier.in_(list(canned)))
         )
-        assert owners == [test_user_id] * 3
-        mistenanted = (
-            await db_session.execute(
-                select(func.count())
-                .select_from(DBTrack)
-                .where(
-                    DBTrack.user_id == "default",
-                    DBTrack.spotify_id.in_(list(canned)),
-                )
-            )
-        ).scalar_one()
-        assert mistenanted == 0
+        owners = (await db_session.execute(imported)).scalars().all()
+        assert sorted(owners) == [test_user_id] * 3
+        assert "default" not in owners
         assert stub.fetch_calls == 1
 
     async def test_second_chunk_with_same_ids_takes_the_mapping_fast_path(

@@ -266,12 +266,12 @@ class TestCollisionLabelling:
         other_id = uuid4()
         row: dict[str, object] = {
             "clash_isrc": owned_id,
-            "clash_spotify_id": other_id,
+            "clash_normalized": other_id,
         }
 
         assert collisions_for(row, owned_id) == ("uq_tracks_user_isrc",)
         assert collisions_elsewhere(row, owned_id) == (
-            ("uq_tracks_user_spotify_id", other_id),
+            ("normalization-equal (no constraint — same title+artist)", other_id),
         )
 
     def test_absent_columns_produce_no_collisions(self):

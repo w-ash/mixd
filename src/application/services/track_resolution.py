@@ -368,7 +368,7 @@ class TrackResolutionService:
                     name_key=track_name_key(description),
                 )
             )
-        pairs = undecided_name_pairs(described, isrc_owners)
+        pairs = undecided_name_pairs(described, strong_owners=isrc_owners)
         found = (
             await track_repo.find_tracks_by_title_artist(pairs, user_id=user_id)
             if pairs

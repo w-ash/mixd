@@ -27,6 +27,7 @@ from src.domain.matching.canonical_resolution import (
     price_reuse,
     suspect_review,
     track_name_key,
+    undecided_name_pairs,
 )
 from src.domain.matching.recording_identity import (
     RecordingDescription,
@@ -84,12 +85,14 @@ def _plan(
     *items: Described[str, RecordingDescription],
     isrc_owners: dict[str, Track] | None = None,
     name_owners: dict[Hashable, list[Track]] | None = None,
+    held_owners: dict[str, Track] | None = None,
 ) -> dict[str, Outcome[str, Track]]:
     return plan_canonical_resolution(
         list(items),
         isrc_owners=isrc_owners or {},
         name_owners=name_owners or {},
         config=CONFIG,
+        held_owners=held_owners,
     )
 
 
@@ -240,6 +243,25 @@ class TestStrongIdsInsideOneBatch:
 
         assert isinstance(plan["a"], DeferToReview)
         assert isinstance(plan["b"], Create)
+
+    def test_a_contested_creation_is_not_a_leader(self):
+        """The batch twin of a contested creation creates on its own.
+
+        "a" claims the ISRC; "b" collides with it as a suspect and is
+        created without the id, its review pending against "a". Folding
+        "c" — the same recording as "b", no ISRC of its own — onto "b"
+        would settle that review by the back door.
+        """
+        plan = _plan(
+            _described("a", isrc=ISRC, duration_ms=200_000),
+            _described("b", isrc=ISRC, duration_ms=260_000),
+            _described("c", duration_ms=260_000),
+        )
+
+        contested = plan["b"]
+        assert isinstance(contested, Create)
+        assert contested.contest is not None
+        assert isinstance(plan["c"], Create)
 
 
 class TestNameOwners:
@@ -535,3 +557,31 @@ class TestOutcomeInvariants:
             pass
         else:
             raise AssertionError("a deferred creation claimed the contested id")
+
+
+class TestHeldOwners:
+    """An entity already holding the item's key: the provider's own
+    assertion of identity, which outranks the strong id."""
+
+    def test_a_held_owner_is_reused_before_a_differing_isrc_owner(self):
+        held = _canonical(title="Angel", artist="Massive Attack")
+        isrc_owner = _canonical(isrc=ISRC)
+
+        (outcome,) = _plan(
+            _described("a", isrc=ISRC),
+            isrc_owners={ISRC: isrc_owner},
+            held_owners={"a": held},
+        ).values()
+
+        assert isinstance(outcome, Reuse)
+        assert outcome.canonical is held
+        assert outcome.evidence.method == "direct"
+
+    def test_a_held_key_asks_the_name_probe_nothing(self):
+        described = [_described("a"), _described("b", title="Ibrik II")]
+
+        pairs = undecided_name_pairs(
+            described, strong_owners={}, held_owners={"a": _canonical()}
+        )
+
+        assert pairs == [("Ibrik II", "Bonobo")]

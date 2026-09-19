@@ -3,11 +3,15 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.0.1
+ * OpenAPI spec version: 0.12.0.2
  */
 
 /**
  * Per-service like status.
+ *
+ * ``is_liked`` is derived from presence: a service appears in the map only
+ * when the track is liked on it, so the field is always ``True``. It stays
+ * for the web client, which reads it.
  */
 export interface LikeStatusSchema {
   is_liked: boolean;

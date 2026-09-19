@@ -68,7 +68,7 @@ class UnlinkConnectorTrackUseCase:
                 command.mapping_id, user_id=command.user_id
             )
 
-            # 3. Old track: promote next primary or clear denormalized ID
+            # 3. Old track: promote next primary, if any mapping remains
             await connector_repo.ensure_primary_for_connector(
                 old_track_id, connector_name
             )

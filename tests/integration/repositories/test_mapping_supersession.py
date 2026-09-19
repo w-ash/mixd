@@ -127,15 +127,6 @@ async def _connector_track_id(db_session: AsyncSession, identifier: str) -> UUID
     return result.scalar_one()
 
 
-async def _spotify_id(db_session: AsyncSession, track_id: UUID) -> str | None:
-    """The denormalized fast-path column, read past the identity map."""
-    # Column select, not the identity map: Core DML wrote these rows.
-    result = await db_session.execute(
-        select(DBTrack.spotify_id).where(DBTrack.id == track_id)
-    )
-    return result.scalar_one()
-
-
 class _CrossTrackMove(NamedTuple):
     """The two tracks and two external ids a cross-track re-assertion involves."""
 
@@ -736,10 +727,9 @@ class TestSupersessionAndPrimacy:
         """Re-asserting onto another track vacates the first one's primary.
 
         Restoration re-promotes on the *successor's* track. The track the
-        mapping left keeps a denormalized ``spotify_id`` pointing at an
-        identifier that now belongs to someone else, and no primary of its own
-        — the FM4d drift migration 044's pre-pass had to repair on 366
-        production rows, reintroduced one supersession at a time.
+        mapping left is otherwise stranded with live mappings and no primary
+        of its own — the FM4d drift migration 044's pre-pass had to repair on
+        366 production rows, reintroduced one supersession at a time.
         """
 
         departed = await _make_track(db_session, "Departed")
@@ -770,14 +760,12 @@ class TestSupersessionAndPrimacy:
             )
         ])
 
-        # Column select, not the identity map: Core DML wrote these rows.
-        stale = await db_session.execute(
-            select(DBTrack.spotify_id).where(DBTrack.id == departed)
+        # The mapping moved wholesale: the departed track keeps no live
+        # spotify mapping, so it names no identifier it no longer owns.
+        departed_live = await _live_spotify_mappings_by_connector_track(
+            db_session, departed
         )
-        assert stale.scalar_one() is None, (
-            "the departed track must not keep an identifier it no longer owns"
-        )
-        assert await connector_repo.count_stale_denormalized_ids(user_id=_USER) == 0
+        assert departed_live == {}
 
     async def test_cross_track_successor_does_not_depose_a_pinned_destination_primary(
         self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
@@ -806,9 +794,6 @@ class TestSupersessionAndPrimacy:
         assert live[moving_ct].is_primary is False, (
             "the arrival is live, but the slot was occupied"
         )
-        assert await _spotify_id(db_session, move.destination) == (
-            move.incumbent_identifier
-        )
         assert sum(1 for row in live.values() if row.is_primary) == 1
 
     async def test_cross_track_successor_does_not_depose_an_automatic_destination_primary(
@@ -836,9 +821,6 @@ class TestSupersessionAndPrimacy:
         )
         assert live[incumbent_ct].is_primary is True
         assert live[moving_ct].is_primary is False
-        assert await _spotify_id(db_session, move.destination) == (
-            move.incumbent_identifier
-        )
         assert sum(1 for row in live.values() if row.is_primary) == 1
 
     async def test_cross_track_successor_fills_a_vacant_destination_primary(
@@ -848,7 +830,7 @@ class TestSupersessionAndPrimacy:
 
         A destination holding live mappings but no primary is exactly the FM4d
         drift the restoration path exists to drain, so the arrival takes the
-        empty slot and the denormalized column follows it.
+        empty slot.
         """
         move = await _move_a_primary_mapping_onto_the_destination(
             db_session,
@@ -864,7 +846,6 @@ class TestSupersessionAndPrimacy:
         )
         assert live[moving_ct].is_primary is True
         assert live[incumbent_ct].is_primary is False
-        assert await _spotify_id(db_session, move.destination) == move.moving_identifier
         assert sum(1 for row in live.values() if row.is_primary) == 1
 
 

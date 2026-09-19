@@ -6,6 +6,21 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0.2] — 2026-09-18
+
+**A track's service ids now live only in its mappings, so a Spotify id your library already knows can never block an import again.** The denormalized `tracks.spotify_id`/`mbid` columns and their unique constraints are gone (migration 059): a code review of the new resolution service found two import paths that never asked about them before creating a track, which made a claimed id fail every import that hit it. Every row now carries its tenant, unliking a track deletes the like instead of leaving a tombstone, paging is decided one way, and one planner decides every reuse-or-create. This is tranche 2 of the track-stack pre-flight the artist and album stacks (v0.12.1/v0.12.2) are built on.
+
+- **Identity lives only in mappings.** `tracks.spotify_id`, `tracks.mbid`, `uq_tracks_user_spotify_id` and `uq_tracks_user_mbid` are dropped; `uq_tracks_user_isrc` stays. The mapper no longer seeds a connector id from a column, the promotion-time column sync, the column-clear path, the `stale_denormalized_ids` integrity check and the `stale_denormalized_ids_count` drift field are deleted with them. The planner gains a held-owner arm (a canonical already mapped to the id a provider calls current is reused before the ISRC decides), a contested creation no longer leads its name bucket, and the Spotify dead-id rescue plans through the shared path — a rescue onto a recording the library holds reuses it, caches the dead id, and never takes primacy from a provider-vouched mapping.
+- **One resolve-and-record service.** `domain/matching/canonical_resolution.py` is the one place a payload becomes a reuse, a creation or a review, with in-batch leader folding; the likes/playlist ingest and every inward resolver consume it, and repositories only persist — a row whose ISRC is already claimed raises instead of merging.
+- **Every row carries its tenant.** The `'default'` fallback is stripped at every layer (migration 056); nine entities require `user_id`, and two live leaks (`playlist_mappings`, `track_metrics` rows inserted with no tenant) are closed.
+- **Likes are presence rows** (migration 057): a like exists or it does not; unliking deletes the row, and a service's `is_saved=False` deletes rather than tombstones.
+- **One page-fetch helper.** `BaseRepository._fetch_page` probes `limit + 1` for tracks, play events and operation runs, so an exactly-full last page stops emitting a cursor; a cursor from another sort starts at page one.
+- **Generic mapping repository.** `MappingRepository[DBM, M]` over a `MappingShape`, with one election (`ensure_primaries`, fill or reset, under a savepoint); the track repository is its supersession instantiation.
+- **`db_models.py` split by aggregate** — 38 models in 13 modules, guarded by schema gates that compare the migrated schema against the ORM.
+- Schema: migrations `056`, `057` and `059_identity_lives_in_mappings` (plain DDL; the release command applies them before traffic cutover). Before deploying, confirm no track holds a `spotify_id` with no live Spotify mapping — the migration's docstring carries the query; it is the only data the drop cannot carry.
+
+→ [details](docs/backlog/v0.12.x.md#pre-flight-refactors-hygiene--skimmers-may-skip)
+
 ## [0.12.0.1] — 2026-09-17
 
 **Which service id is a track's primary is now decided when the mapping is written, never when the track is looked at.** The read-path "healing" write that could change a track's primary Spotify id just because someone opened it is gone; every writer elects a primary at write time, a stale-id cache row can never become one (so a dead Spotify id can never reach the fast-path column), and a legacy vacancy has a repair command instead of a permanent red integrity check. This is tranche 1 of the track-stack pre-flight the artist and album stacks (v0.12.1/v0.12.2) are built on.

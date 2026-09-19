@@ -60,8 +60,8 @@ Refusals
 --------
 A track is skipped, never forced, when re-owning it would be a *merge*:
 
-- the target already owns a track with the same ISRC, Spotify id, or MBID —
-  ``uq_tracks_user_isrc`` / ``_spotify_id`` / ``_mbid`` would fire;
+- the target already owns a track with the same ISRC — ``uq_tracks_user_isrc``
+  would fire;
 - the target already owns a normalization-equal track (same
   ``title_normalized`` + ``artist_normalized``) — no constraint fires, but two
   rows for one recording is exactly the duplicate class
@@ -250,8 +250,6 @@ SELECT
     f.title,
     f.artists_text,
     f.isrc,
-    f.spotify_id,
-    f.mbid,
     (SELECT count(*) FROM track_plays tp
       WHERE tp.user_id = :user AND tp.track_id = f.id) AS dep_track_plays,
     (SELECT count(*) FROM connector_plays cp
@@ -289,12 +287,6 @@ SELECT
     (SELECT o.id FROM tracks o
       WHERE o.user_id = :user AND f.isrc IS NOT NULL AND o.isrc = f.isrc
       LIMIT 1) AS clash_isrc,
-    (SELECT o.id FROM tracks o
-      WHERE o.user_id = :user AND f.spotify_id IS NOT NULL
-        AND o.spotify_id = f.spotify_id LIMIT 1) AS clash_spotify_id,
-    (SELECT o.id FROM tracks o
-      WHERE o.user_id = :user AND f.mbid IS NOT NULL AND o.mbid = f.mbid
-      LIMIT 1) AS clash_mbid,
     (SELECT o.id FROM tracks o
       WHERE o.user_id = :user
         AND f.title_normalized IS NOT NULL AND f.artist_normalized IS NOT NULL
@@ -366,12 +358,6 @@ __POPULATION__
         WHERE o.user_id = :user AND f.isrc IS NOT NULL AND o.isrc = f.isrc
         LIMIT 1) AS clash_isrc,
       (SELECT o.id FROM tracks o
-        WHERE o.user_id = :user AND f.spotify_id IS NOT NULL
-          AND o.spotify_id = f.spotify_id LIMIT 1) AS clash_spotify_id,
-      (SELECT o.id FROM tracks o
-        WHERE o.user_id = :user AND f.mbid IS NOT NULL AND o.mbid = f.mbid
-        LIMIT 1) AS clash_mbid,
-      (SELECT o.id FROM tracks o
         WHERE o.user_id = :user
           AND f.title_normalized IS NOT NULL AND f.artist_normalized IS NOT NULL
           AND o.title_normalized = f.title_normalized
@@ -385,7 +371,6 @@ SELECT
     c.artists_text AS loser_artists_text,
     c.artists->'names'->>0 AS loser_primary_artist,
     c.isrc AS loser_isrc,
-    c.spotify_id AS loser_spotify_id,
     c.duration_ms AS loser_duration_ms,
     (SELECT count(*) FROM track_plays tp WHERE tp.track_id = c.id)
       AS loser_track_plays,
@@ -397,15 +382,12 @@ SELECT
     o.artists_text AS winner_artists_text,
     o.artists->'names'->>0 AS winner_primary_artist,
     o.isrc AS winner_isrc,
-    o.spotify_id AS winner_spotify_id,
     o.duration_ms AS winner_duration_ms,
     (SELECT count(*) FROM track_plays tp WHERE tp.track_id = o.id)
       AS winner_track_plays,
     (SELECT count(*) FROM connector_plays cp WHERE cp.resolved_track_id = o.id)
       AS winner_connector_plays,
     c.clash_isrc,
-    c.clash_spotify_id,
-    c.clash_mbid,
     c.clash_normalized,
     -- Weight the operator needs to see moving.
     (SELECT count(*) FROM play_sources ps
@@ -476,8 +458,7 @@ SELECT
         )) AS clash_mapping_claimed_elsewhere
 FROM clashes c
 JOIN tracks o
-  ON o.id = coalesce(c.clash_isrc, c.clash_spotify_id, c.clash_mbid,
-                     c.clash_normalized)
+  ON o.id = coalesce(c.clash_isrc, c.clash_normalized)
  AND o.user_id = :user
 ORDER BY c.artists_text, c.title
 """
@@ -555,11 +536,6 @@ SELECT
 _CLASH_REASONS: tuple[tuple[str, str], ...] = (
     ("clash_isrc", "target already owns a track with this ISRC (uq_tracks_user_isrc)"),
     (
-        "clash_spotify_id",
-        "target already owns a track with this Spotify id (uq_tracks_user_spotify_id)",
-    ),
-    ("clash_mbid", "target already owns a track with this MBID (uq_tracks_user_mbid)"),
-    (
         "clash_normalized",
         "target already owns a normalization-equal track (same title+artist normalized)",
     ),
@@ -600,7 +576,6 @@ class CrossTenantTrack:
     title: str
     artists: str
     isrc: str | None
-    spotify_id: str | None
     dep_track_plays: int
     dep_connector_plays: int
     moving: dict[str, int]
@@ -616,7 +591,7 @@ class CrossTenantTrack:
         return self.dep_track_plays + self.dep_connector_plays
 
     def describe(self) -> str:
-        ident = self.isrc or self.spotify_id or "no external id"
+        ident = self.isrc or "no external id"
         return (
             f"{self.track_id}  owner={self.owner}  {self.artists} — {self.title}  "
             f"[{ident}, {self.dep_track_plays} track_plays + "
@@ -666,7 +641,6 @@ def _to_track(row: dict[str, object]) -> CrossTenantTrack:
         title=str(row["title"]),
         artists=_as_str_or_none(row["artists_text"]) or "unknown artist",
         isrc=_as_str_or_none(row["isrc"]),
-        spotify_id=_as_str_or_none(row["spotify_id"]),
         dep_track_plays=_as_int(row["dep_track_plays"]),
         dep_connector_plays=_as_int(row["dep_connector_plays"]),
         moving=_counts_by_prefix(row, "move_"),
@@ -911,8 +885,6 @@ _CLASH_REFUSALS: tuple[tuple[str, str], ...] = (
 # Clash column → the unique constraint it names, for the printed plan.
 _MERGE_COLLISION_LABELS: tuple[tuple[str, str], ...] = (
     ("clash_isrc", "uq_tracks_user_isrc"),
-    ("clash_spotify_id", "uq_tracks_user_spotify_id"),
-    ("clash_mbid", "uq_tracks_user_mbid"),
     ("clash_normalized", "normalization-equal (no constraint — same title+artist)"),
 )
 
@@ -927,7 +899,6 @@ class Side:
     artists: str
     primary_artist: str
     isrc: str | None
-    spotify_id: str | None
     duration_ms: int | None
     track_plays: int
     connector_plays: int
@@ -954,8 +925,7 @@ class Side:
         )
         return (
             f"{self.track_id}  owner={self.owner}  {self.artists} — {self.title}  "
-            f"[{duration}, isrc={self.isrc or '—'}, "
-            f"spotify={self.spotify_id or '—'}, {self.track_plays} track_plays, "
+            f"[{duration}, isrc={self.isrc or '—'}, {self.track_plays} track_plays, "
             f"{self.connector_plays} connector_plays]"
         )
 
@@ -1079,7 +1049,6 @@ def _side(row: dict[str, object], *, prefix: str) -> Side:
         artists=artists_text or primary or "unknown artist",
         primary_artist=primary or "",
         isrc=_as_str_or_none(row[f"{prefix}isrc"]),
-        spotify_id=_as_str_or_none(row[f"{prefix}spotify_id"]),
         duration_ms=_as_int(row[f"{prefix}duration_ms"]) or None,
         track_plays=_as_int(row[f"{prefix}track_plays"]),
         connector_plays=_as_int(row[f"{prefix}connector_plays"]),

@@ -55,8 +55,6 @@ class DBTrack(BaseEntity):
     duration_ms: Mapped[int | None]
     release_date: Mapped[datetime | None]
     isrc: Mapped[str | None] = mapped_column(String(32), index=True)
-    spotify_id: Mapped[str | None] = mapped_column(String(), index=True)
-    mbid: Mapped[str | None] = mapped_column(String(36), index=True)
 
     # Pre-computed normalized text for fuzzy matching (diacritics stripped, lowercased, etc.)
     title_normalized: Mapped[str | None] = mapped_column(String())
@@ -122,10 +120,9 @@ class DBTrack(BaseEntity):
     # require the pg_trgm extension and would fail with metadata.create_all()
     # in test fixtures.
     __table_args__: tuple[SchemaItem, ...] = (
-        # User-scoped unique constraints for external identifiers
-        UniqueConstraint("user_id", "spotify_id", name="uq_tracks_user_spotify_id"),
+        # The one user-scoped identity key a canonical carries. Every other
+        # external identifier lives in ``track_mappings``.
         UniqueConstraint("user_id", "isrc", name="uq_tracks_user_isrc"),
-        UniqueConstraint("user_id", "mbid", name="uq_tracks_user_mbid"),
         # Regular index for title searches
         Index("ix_tracks_title", "title"),
         # Canonical Reuse normalized fuzzy lookup, and its parenthetical-

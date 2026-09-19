@@ -3,7 +3,7 @@
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, ClassVar, Final, Literal, NamedTuple, cast
+from typing import Final, Literal, NamedTuple, cast
 from uuid import UUID, uuid7
 
 from attrs import evolve
@@ -31,7 +31,6 @@ from sqlalchemy.dialects.postgresql import (
     insert as pg_insert,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
 
 from src.config import get_logger
 from src.domain.entities import Track
@@ -64,7 +63,6 @@ from src.infrastructure.persistence.database.models import (
     DBTrackTag,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
-    DENORMALIZED_ID_COLUMNS,
     build_canonical_track_row,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
@@ -81,11 +79,11 @@ logger = get_logger(__name__)
 _CONFLATION: SupersessionReason = "conflation"
 
 
-# The user-scoped unique keys a canonical carries: the ISRC, the MusicBrainz
-# id and the denormalized Spotify id. Each is backed by a unique constraint
-# (``uq_tracks_user_isrc`` and siblings), so a batch insert has to know which
-# of them are already claimed before it can call its rows new.
-_IDENTITY_COLUMNS: Final[tuple[str, ...]] = ("isrc", "mbid", "spotify_id")
+# The one user-scoped unique key a canonical carries. It is backed by
+# ``uq_tracks_user_isrc``, so a batch insert has to know which ISRCs are
+# already claimed before it can call its rows new. Every other external
+# identifier lives in ``track_mappings`` and constrains nothing here.
+_IDENTITY_COLUMNS: Final[tuple[str, ...]] = ("isrc",)
 
 
 def _identity_keys(values: Mapping[str, object]) -> set[tuple[str, str, str]]:
@@ -400,13 +398,6 @@ class MappingHistoryLossError(DomainError):
 class TrackRepository(BaseRepository[DBTrack, Track]):
     """Repository for core track operations."""
 
-    # ID type lookup definitions: non-connector types + shared connector→column map
-    _TRACK_ID_TYPES: ClassVar[dict[str, str]] = {
-        "internal": "id",
-        "isrc": "isrc",
-        **DENORMALIZED_ID_COLUMNS,
-    }
-
     def __init__(self, session: AsyncSession) -> None:
         """Initialize repository with session and mapper."""
         super().__init__(
@@ -490,12 +481,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             return (await self.save_tracks([track]))[0]
 
         values = build_canonical_track_row(track)
-        # An update never clears a denormalized id it was not handed: the
-        # column mirrors the primary mapping, which this statement does not
-        # touch.
-        for column in DENORMALIZED_ID_COLUMNS.values():
-            if values[column] is None:
-                del values[column]
         values["version"] = track.version + 1
         values["updated_at"] = datetime.now(UTC)
 
@@ -523,8 +508,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         chunk of canonicals at once, and at a 26ms round trip a per-row form
         was the bulk of import wall time.
 
-        A row whose identity key (ISRC, MBID or Spotify id) is **already
-        claimed** — by an existing canonical, or by an earlier row of this
+        A row whose identity key (the ISRC) is **already claimed** — by an
+        existing canonical, or by an earlier row of this
         same batch — is not new, and this repository does not decide what
         it is instead: it raises ``IdentityKeyClaimedError`` naming the
         keys. Every caller plans against the table before it writes (the
@@ -660,39 +645,27 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     ) -> set[tuple[str, str, str]]:
         """Which (column, user, value) identity keys the table already holds.
 
-        One statement for a whole batch: an OR across the three user-scoped
-        unique keys. Existence is the only question asked.
+        One statement for a whole batch: the user-scoped ISRC key.
+        Existence is the only question asked.
         """
-        wanted: dict[str, set[str]] = {name: set() for name in _IDENTITY_COLUMNS}
+        wanted: set[str] = set()
         users: set[str] = set()
         for row in rows:
             users.add(cast("str", row["user_id"]))
-            for name, _user, value in _identity_keys(row):
-                wanted[name].add(value)
+            wanted.update(value for _name, _user, value in _identity_keys(row))
 
-        columns: dict[str, InstrumentedAttribute[str | None]] = {
-            name: getattr(DBTrack, name) for name in _IDENTITY_COLUMNS
-        }
-        predicates = [
-            columns[name].in_(sorted(values))
-            for name, values in wanted.items()
-            if values
-        ]
-        if not predicates:
+        if not wanted:
             return set()
 
         result = await self.session.execute(
-            select(DBTrack.user_id, *columns.values()).where(
-                DBTrack.user_id.in_(sorted(users)), or_(*predicates)
+            select(DBTrack.user_id, DBTrack.isrc).where(
+                DBTrack.user_id.in_(sorted(users)), DBTrack.isrc.in_(sorted(wanted))
             )
         )
-        # (user_id, *identity columns) — the row's width is ``_IDENTITY_COLUMNS``'.
-        held = cast("Sequence[Sequence[object]]", result.all())
         return {
-            (name, cast("str", user_id), value)
-            for user_id, *values in held
-            for name, value in zip(columns, values, strict=True)
-            if isinstance(value, str) and value in wanted[name]
+            ("isrc", user_id, isrc)
+            for user_id, isrc in result.tuples()
+            if isrc is not None and isrc in wanted
         }
 
     # -------------------------------------------------------------------------
@@ -1482,35 +1455,17 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         self, isrcs: list[str], *, user_id: str
     ) -> dict[str, Track]:
         """Batch lookup tracks by ISRC. Returns {isrc: Track} for found tracks."""
-        return await self._find_tracks_by_unique_column(
-            DBTrack.isrc, isrcs, user_id=user_id
-        )
-
-    @db_operation("find_tracks_by_mbids")
-    async def find_tracks_by_mbids(
-        self, mbids: list[str], *, user_id: str
-    ) -> dict[str, Track]:
-        """Batch lookup tracks by MusicBrainz Recording ID (MBID)."""
-        return await self._find_tracks_by_unique_column(
-            DBTrack.mbid, mbids, user_id=user_id
-        )
-
-    @db_operation("find_track_ids_by_spotify_ids")
-    async def find_track_ids_by_spotify_ids(
-        self, spotify_ids: list[str], *, user_id: str
-    ) -> dict[str, UUID]:
-        """Which track holds each denormalized ``spotify_id`` column value."""
-        if not spotify_ids:
+        if not isrcs:
             return {}
-        stmt = select(DBTrack.spotify_id, DBTrack.id).where(
-            DBTrack.user_id == user_id, DBTrack.spotify_id.in_(spotify_ids)
-        )
-        result = await self.session.execute(stmt)
-        return {
-            spotify_id: track_id
-            for spotify_id, track_id in result.tuples()
-            if spotify_id
-        }
+
+        stmt = self.select().where(DBTrack.user_id == user_id, DBTrack.isrc.in_(isrcs))
+        result = await self.session.execute(self.with_default_relationships(stmt))
+
+        matched: dict[str, Track] = {}
+        for db_track in result.scalars().all():
+            if db_track.isrc:
+                matched[db_track.isrc] = await self.mapper.to_domain(db_track)
+        return matched
 
     # ── Integrity check queries ──────────────────────────────────────
 
@@ -1552,32 +1507,3 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             }
             for title, artist, album, count, track_ids in result.tuples()
         ]
-
-    # -------------------------------------------------------------------------
-    # PRIVATE HELPERS
-    # -------------------------------------------------------------------------
-
-    async def _find_tracks_by_unique_column(
-        self,
-        column: InstrumentedAttribute[Any],  # pyright: ignore[reportExplicitAny]  # InstrumentedAttribute is generic over column type
-        values: list[str],
-        *,
-        user_id: str,
-    ) -> dict[str, Track]:
-        """Batch lookup tracks by a unique string column (ISRC, MBID, etc.)."""
-        if not values:
-            return {}
-
-        stmt = self.select().where(DBTrack.user_id == user_id, column.in_(values))
-        stmt = self.with_default_relationships(stmt)
-        result = await self.session.execute(stmt)
-        rows = result.scalars().all()
-
-        # InstrumentedAttribute.key is str at runtime; stubs declare it str | None.
-        col_key: str = column.key or ""
-        matched: dict[str, Track] = {}
-        for db_track in rows:
-            key = cast("str | None", getattr(db_track, col_key))
-            if key:
-                matched[key] = await self.mapper.to_domain(db_track)
-        return matched

@@ -33,7 +33,6 @@ async def _seed_track(session: AsyncSession, title: str = "Track") -> int:
     track = DBTrack(
         title=f"{title} {uid}",
         artists={"names": [f"Artist {uid}"]},
-        spotify_id=f"sp_{uid}",
         user_id=TEST_USER_ID,
     )
     session.add(track)
@@ -384,88 +383,6 @@ class TestStalePendingReviews:
         repo = MatchReviewRepository(db_session)
         count = await repo.count_stale_pending(user_id="default", older_than_days=30)
         assert count == 0
-
-
-class TestCountStaleDenormalizedIds:
-    """Stale/dangling denormalized spotify_id detection (Q7 mirror)."""
-
-    async def test_no_drift_on_clean_db(self, db_session: AsyncSession):
-        repo = TrackConnectorRepository(db_session)
-        count = await repo.count_stale_denormalized_ids(user_id="default")
-        assert count == 0
-
-    async def test_ignores_track_with_no_spotify_id_and_no_mapping(
-        self, db_session: AsyncSession
-    ):
-        track = DBTrack(
-            title="Track", artists={"names": ["Artist"]}, user_id=TEST_USER_ID
-        )
-        db_session.add(track)
-        await db_session.flush()
-
-        repo = TrackConnectorRepository(db_session)
-        count = await repo.count_stale_denormalized_ids(user_id="default")
-        assert count == 0
-
-    async def test_ignores_agreeing_primary_mapping(self, db_session: AsyncSession):
-        uid = uuid4().hex[:8]
-        matching_id = f"sp_{uid}"
-        track = DBTrack(
-            title="Track",
-            artists={"names": ["Artist"]},
-            spotify_id=matching_id,
-            user_id=TEST_USER_ID,
-        )
-        db_session.add(track)
-        ct = DBConnectorTrack(
-            connector_name="spotify",
-            connector_track_identifier=matching_id,
-            title="CT",
-            artists={"names": ["Artist"]},
-            raw_metadata={},
-            last_updated=datetime.now(UTC),
-        )
-        db_session.add(ct)
-        await db_session.flush()
-        await _seed_mapping(db_session, track.id, ct.id, is_primary=True)
-        await db_session.flush()
-
-        repo = TrackConnectorRepository(db_session)
-        count = await repo.count_stale_denormalized_ids(user_id="default")
-        assert count == 0
-
-    async def test_detects_column_disagrees_with_primary(
-        self, db_session: AsyncSession
-    ):
-        track_id = await _seed_track(db_session)  # spotify_id = "sp_<uid>"
-        ct_id = await _seed_connector_track(db_session)  # identifier = "ct_<uid>"
-        await _seed_mapping(db_session, track_id, ct_id, is_primary=True)
-
-        repo = TrackConnectorRepository(db_session)
-        count = await repo.count_stale_denormalized_ids(user_id="default")
-        assert count == 1
-
-    async def test_detects_column_set_but_no_mapping(self, db_session: AsyncSession):
-        await _seed_track(db_session)  # spotify_id set, no mapping at all
-
-        repo = TrackConnectorRepository(db_session)
-        count = await repo.count_stale_denormalized_ids(user_id="default")
-        assert count == 1
-
-    async def test_scoped_to_user(self, db_session: AsyncSession):
-        uid = uuid4().hex[:8]
-        track = DBTrack(
-            title="Other User Track",
-            artists={"names": ["Artist"]},
-            spotify_id=f"sp_{uid}",
-            user_id="other-user",
-        )
-        db_session.add(track)
-        await db_session.flush()
-
-        repo = TrackConnectorRepository(db_session)
-        assert await repo.count_stale_denormalized_ids(user_id="default") == 0
-        assert await repo.count_stale_denormalized_ids(user_id="other-user") == 1
 
 
 class TestCountConfidenceEvidenceDivergence:

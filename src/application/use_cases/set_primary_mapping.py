@@ -1,8 +1,7 @@
 """Use case for setting a connector mapping as primary for its connector.
 
 Deposes the pair's current primary and elects the named mapping — the
-``reset`` election — which also moves the denormalized ID column the fast
-path reads.
+``reset`` election.
 """
 
 from uuid import UUID

@@ -298,17 +298,15 @@ class TestMatchMethodHealthDrift:
 
         assert result.drift.review_oldest_pending_days is None
 
-    async def test_divergence_and_stale_denorm_counts_passed_through(self, mock_uow):
+    async def test_divergence_count_passed_through(self, mock_uow):
         connector_repo = mock_uow.get_connector_repository()
         connector_repo.count_confidence_evidence_divergence.return_value = 7
-        connector_repo.count_stale_denormalized_ids.return_value = 12
 
         result = await GetMatchMethodHealthUseCase().execute(
             GetMatchMethodHealthCommand(user_id="test-user"), mock_uow
         )
 
         assert result.drift.confidence_evidence_divergence_count == 7
-        assert result.drift.stale_denormalized_ids_count == 12
 
     async def test_negative_cache_size_reaches_the_drift_panel(self, mock_uow):
         """The cache's own size is a monitored metric, not an internal detail.

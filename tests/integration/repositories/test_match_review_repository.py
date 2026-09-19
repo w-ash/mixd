@@ -37,9 +37,7 @@ async def _seed_track_and_connector_track(
     track = DBTrack(
         title=f"Track {uid}",
         artists=[{"name": f"Artist {uid}"}],
-        spotify_id=f"sp_{uid}",
         isrc=f"ISRC{uid.upper()[:8]}",
-        mbid=f"mbid-{uid}",
         user_id=TEST_USER_ID,
     )
     session.add(track)

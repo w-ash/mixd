@@ -8,10 +8,7 @@ ISRC collision) correctly resolves tracks in realistic scenarios.
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from src.domain.entities import Artist, Track
-from src.domain.repositories.errors import IdentityKeyClaimedError
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
@@ -257,48 +254,3 @@ class TestCrossDiscoveryISRCCollision:
         assert outcome.track.id == track_a.id
         assert outcome.spotify_id == "sp_different_release"
         assert outcome.match_method == "isrc_match"
-
-
-class TestMBIDUpsertMerge:
-    """A claimed MBID is refused, never silently merged (v0.12.0.2).
-
-    ``save_track`` used to upsert by MBID; which canonical a row belongs to
-    is now decided upstream by the resolution planner, so a second row
-    naming a claimed MBID is a caller bug the repository surfaces.
-    """
-
-    async def test_same_mbid_is_refused_not_duplicated(
-        self, db_session, test_data_tracker
-    ):
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        mbid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-
-        track1 = await track_repo.save_track(
-            Track(
-                id=None,
-                title="Creep",
-                artists=[Artist(name="Radiohead")],
-                connector_track_identifiers={"musicbrainz": mbid},
-                user_id=TEST_USER_ID,
-            )
-        )
-        test_data_tracker.add_track(track1.id)
-
-        with pytest.raises(IdentityKeyClaimedError) as raised:
-            _ = await track_repo.save_track(
-                Track(
-                    id=None,
-                    title="Creep",
-                    artists=[Artist(name="Radiohead")],
-                    album="Pablo Honey",
-                    duration_ms=238000,
-                    connector_track_identifiers={"musicbrainz": mbid},
-                    user_id=TEST_USER_ID,
-                )
-            )
-
-        assert raised.value.keys == {("mbid", TEST_USER_ID, mbid)}
-        found = await track_repo.find_tracks_by_mbids([mbid], user_id=TEST_USER_ID)
-        assert found[mbid].id == track1.id

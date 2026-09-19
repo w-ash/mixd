@@ -603,13 +603,13 @@ class LastfmInwardResolver(InwardTrackResolver):
 
         # Last.fm's getInfo MBID is deliberately NOT written into the
         # musicbrainz identity slot. Last.fm returns a *track* MBID from its own
-        # matching (not a recording MBID), and MetaBrainz guidance is to never
-        # trust Last.fm MBIDs (LB-431). Feeding one to save_track's mbid merge
-        # key (uq_tracks_user_mbid) would collapse distinct recordings that
-        # happen to share a stale/type-confused MBID. It is kept in the log for
-        # provenance until a MusicBrainz WS/2 verification path exists (backlog:
-        # MBID verification). FM1d: the matching layer already refuses these
-        # MBIDs ISRC-grade weight; the write path must match.
+        # matching, not a recording MBID, and MetaBrainz guidance is to never
+        # trust Last.fm MBIDs (LB-431) — treating one as a recording identity
+        # would conflate distinct recordings that share a stale or
+        # type-confused MBID. It is kept in the log for provenance until a
+        # MusicBrainz WS/2 verification path exists (backlog: MBID
+        # verification). FM1d: the matching layer already refuses these MBIDs
+        # ISRC-grade weight; the write path must match.
         probe = evolve(
             probe,
             album=info.lastfm_album_name,

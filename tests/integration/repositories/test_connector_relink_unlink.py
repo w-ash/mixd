@@ -47,7 +47,6 @@ async def _setup_track_with_mapping(
     db_track = DBTrack(
         title=f"Track {uid}",
         artists={"names": [f"Artist {uid}"]},
-        spotify_id=external_id if connector_name == "spotify" else None,
         user_id=TEST_USER_ID,
     )
     db_session.add(db_track)
@@ -245,17 +244,15 @@ class TestEnsurePrimaryForConnector:
         assert len(primaries) == 1
         assert primaries[0].confidence == 90
 
-    async def test_only_stale_id_rows_left_clears_the_column_instead(
+    async def test_only_stale_id_rows_left_promotes_nothing(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
         """When the live id is gone and only its stale-id cache row remains,
-        the pair has no identity: no promotion, and the denormalized column
-        is cleared rather than filled with the dead id."""
+        the pair has no identity: the dead id is never promoted."""
         uid = str(uuid4())[:8]
         db_track = DBTrack(
             title=f"StaleOnly {uid}",
             artists={"names": ["A"]},
-            spotify_id=f"sp:{uid}:live",
             user_id=TEST_USER_ID,
         )
         db_session.add(db_track)
@@ -300,14 +297,6 @@ class TestEnsurePrimaryForConnector:
             .all()
         )
         assert primaries == []
-        spotify_id = (
-            await db_session.execute(
-                select(DBTrack.spotify_id)
-                .where(DBTrack.id == db_track.id)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one()
-        assert spotify_id is None
 
     async def test_noop_when_primary_exists(
         self, db_session: AsyncSession, connector_repo

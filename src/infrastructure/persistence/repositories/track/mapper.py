@@ -66,8 +66,8 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             connector_track_identifiers[DB_PSEUDO_CONNECTOR] = str(db_model.id)
 
         # Process connector track mappings with primary awareness.
-        # The mapping walk runs BEFORE the denormalized columns are consulted —
-        # a stale column value must not shadow a live mapping (v0.8.18 FM4b).
+        # A track's connector ids come from its mappings alone: a track with no
+        # mapping for a connector reports no id for it.
         # First pass: collect all primary mappings
         for mapping in active_mappings:
             if mapping.is_primary:
@@ -122,13 +122,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                     conn_track.connector_track_identifier
                 )
                 connector_metadata[connector_name] = conn_track.raw_metadata or {}
-
-        # Denormalized columns are post-walk FALLBACKS only (no mapping rows
-        # to contradict them — e.g. lazy-load degradation or hint columns).
-        if db_model.spotify_id:
-            _ = connector_track_identifiers.setdefault("spotify", db_model.spotify_id)
-        if db_model.mbid:
-            _ = connector_track_identifiers.setdefault("musicbrainz", db_model.mbid)
 
         if fallback_mappings:
             # structlog carries the detail for operators; the Python warning

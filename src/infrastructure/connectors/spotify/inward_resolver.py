@@ -33,8 +33,10 @@ provider's own assertion of identity, and the redirect keeps its dual mapping
 and ``substituted`` event.
 
 Persistence runs through the shared planned-write pipeline
-(``WritePlanningResolver``); this module owns the held-id and fallback arms,
-payload extraction, and the ``id_mismatch`` detection label.
+(``WritePlanningResolver``); the held-id arm — a canonical already mapped to
+the id the provider calls current — lives in the planner, and this module
+owns the fallback arm, payload extraction, and the ``id_mismatch`` detection
+label.
 """
 
 from collections import Counter
@@ -49,11 +51,7 @@ from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.config.telemetry import phase
 from src.domain.entities import Artist, Track
-from src.domain.matching.canonical_resolution import (
-    Create,
-    ResolutionEvidence,
-    Reuse,
-)
+from src.domain.matching.canonical_resolution import ResolutionEvidence
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.recording_identity import (
@@ -112,10 +110,14 @@ class FallbackHint:
 class Provenance(StrEnum):
     """How an id resolved, beyond a plain direct import.
 
-    One label per id — the shapes are mutually exclusive but for one corner:
-    a relinked id whose ISRC collision is also suspect carries both a
-    redirect and a deferral, and the redirect label wins there because it
-    feeds the metrics and ``get_resolution_method``.
+    One label per id — the shapes are mutually exclusive but for two
+    corners. A relinked id whose ISRC collision is also suspect carries both
+    a redirect and a deferral, and the redirect label wins because it feeds
+    the metrics and ``get_resolution_method``. A rescued id whose collision
+    is suspect carries the fallback label, which is assigned after
+    ``_on_writes_persisted`` has recorded the deferral: the search is how
+    the id resolved at all, and the deferral is a fact about the canonical
+    the rescue landed on.
     """
 
     REDIRECT = "redirect"
@@ -290,11 +292,11 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
     ) -> Track:
         """The canonical this write creates, built from the Spotify payload.
 
-        Keyed on the *current* id: that is the identifier the new canonical's
-        denormalized fast-path column has to carry, even when the id asked
-        about was a stale one. ``user_id`` is threaded through to the Track
-        itself: every row this payload becomes is user-scoped, and a payload
-        built without the tenant lands under ``"default"``.
+        Keyed on the *current* id: that is the identifier the payload
+        describes, even when the id asked about was a stale one. ``user_id``
+        is threaded through to the Track itself: every row this payload
+        becomes is user-scoped, and a payload built without the tenant lands
+        under ``"default"``.
         """
         return create_track_from_spotify_data(
             write.current_id, write.payload, user_id=user_id
@@ -303,6 +305,28 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
     @override
     def _mapping_metadata(self, write: PlannedWrite[SpotifyTrack]) -> dict[str, object]:
         return write.payload.model_dump()
+
+    @override
+    def _primary_mapping_id(self, write: PlannedWrite[SpotifyTrack]) -> str:
+        """The found id leads a rescue, whether it created or reused.
+
+        A search stand-in answers under the id the search returned, never
+        under the dead one that was asked about.
+        """
+        if write.match_method == "search_fallback":
+            return write.current_id
+        return super()._primary_mapping_id(write)
+
+    @override
+    def _owes_stale_mapping(self, write: PlannedWrite[SpotifyTrack]) -> bool:
+        """A rescue always caches the dead id, reuse included.
+
+        The cache mapping is what stops the next import re-searching for an
+        id the provider will never answer for again.
+        """
+        if write.match_method == "search_fallback":
+            return True
+        return super()._owes_stale_mapping(write)
 
     @override
     def _successor_assertion(
@@ -367,8 +391,9 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
         """Fetch metadata from Spotify API in batch, create tracks + mappings.
 
         Detects redirects (track.id != requested_id) and creates dual mappings.
-        Before creating new tracks, checks if an existing canonical already owns
-        the same ISRC — reuses it instead of creating a duplicate.
+        Every payload goes to the planner before anything is created, so an id
+        the library already holds — by its current id, its ISRC or its name —
+        reuses that canonical instead of minting a duplicate.
         Dead IDs (returned as null by the API) are resolved via artist+title
         search if fallback hints are available. Ids whose *request* failed are
         excluded from every conclusion below — see ``answered_ids``.
@@ -398,28 +423,12 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                 requested=len(missing_ids),
             )
 
-        # The held-id arm is first because the current id is the provider's
-        # own assertion of identity, which outranks an ISRC match. It also
-        # outranks an ISRC *miss*: a relink onto a remaster carries the
-        # original recording's ISRC while the canonical holding it carries
-        # the remaster's, so the ISRC arm cannot see a pairing Spotify has
-        # stated outright.
-        held = await self._canonicals_holding_current_ids(
-            answered_ids, spotify_metadata, uow, user_id=user_id
-        )
-        writes: list[PlannedWrite[SpotifyTrack]] = []
         answers: list[ProviderAnswer[SpotifyTrack]] = []
         for spotify_id in answered_ids:
             spotify_track = spotify_metadata.get(spotify_id)
             if spotify_track is None:
                 continue
             current_id = spotify_track.id or spotify_id
-            owner = held.get(current_id)
-            if owner is not None:
-                writes.append(
-                    self._held_id_write(spotify_id, current_id, spotify_track, owner)
-                )
-                continue
             answers.append(
                 ProviderAnswer(
                     requested_id=spotify_id,
@@ -433,7 +442,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
                     names_decide=current_id == spotify_id,
                 )
             )
-        writes.extend(await self._plan_writes(answers, uow, user_id=user_id))
+        writes = await self._plan_writes(answers, uow, user_id=user_id)
         result, failed_ids = await self._persist_planned_writes(
             writes, uow, user_id=user_id
         )
@@ -616,90 +625,6 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
             artists=(hint.artist_name,) if hint else (),
         )
 
-    async def _canonicals_holding_current_ids(
-        self,
-        answered_ids: list[str],
-        spotify_metadata: Mapping[str, SpotifyTrack],
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> dict[str, Track]:
-        """Canonicals already holding the ids the provider calls current.
-
-        Two probes. A relinked id is looked up by its live mapping: an id
-        whose current id is itself was asked about by the mapping lookup and
-        would have resolved there, so only a relink's current id can be
-        found this way. Every current id is also looked up by the
-        canonical's denormalized ``spotify_id`` column, which is an identity
-        key ``save_tracks`` refuses to claim twice and can be set on a
-        canonical with no live Spotify mapping — creating past it would fail
-        the whole chunk. The mapping is the live truth where both answer.
-        """
-        current_ids: dict[str, str] = {}
-        for spotify_id in answered_ids:
-            track = spotify_metadata.get(spotify_id)
-            if track is not None:
-                current_ids[track.id or spotify_id] = spotify_id
-        if not current_ids:
-            return {}
-        # Ids only, hydrating the rare hit: the column probe runs on every
-        # chunk and almost always answers nothing.
-        track_repo = uow.get_track_repository()
-        column_owners = await track_repo.find_track_ids_by_spotify_ids(
-            sorted(current_ids), user_id=user_id
-        )
-        held: dict[str, Track] = {}
-        if column_owners:
-            hydrated = await track_repo.find_tracks_by_ids(list(column_owners.values()))
-            held = {
-                current_id: hydrated[track_id]
-                for current_id, track_id in column_owners.items()
-                if track_id in hydrated
-            }
-        relinked = sorted(
-            current_id
-            for current_id, requested_id in current_ids.items()
-            if current_id != requested_id
-        )
-        if relinked:
-            mapped = await uow.get_connector_repository().find_tracks_by_connectors(
-                [(self.connector_name, current_id) for current_id in relinked],
-                user_id=user_id,
-            )
-            held.update({
-                current_id: track for (_, current_id), track in mapped.items()
-            })
-        return held
-
-    def _held_id_write(
-        self,
-        requested_id: str,
-        current_id: str,
-        spotify_track: SpotifyTrack,
-        owner: Track,
-    ) -> PlannedWrite[SpotifyTrack]:
-        """Map the requested id onto the canonical already holding its current id.
-
-        A relink only aliases the requested id onto an already-mapped
-        canonical, so its mapping never takes primacy. A current id held by
-        the column alone is the canonical's own id with its live mapping
-        missing, and the mapping written here is that primary. Either way
-        the provider vouched for the id, so the write is priced as the
-        payload vouching for itself.
-        """
-        stale = current_id != requested_id
-        return PlannedWrite(
-            requested_id=requested_id,
-            current_id=current_id,
-            payload=spotify_track,
-            match_method="direct_import_stale_id" if stale else "direct_import",
-            outcome=Reuse(
-                evidence=self._rules.creation(_describe_payload(spotify_track)),
-                canonical=owner,
-            ),
-            primary=not stale,
-        )
-
     async def _fallback_resolve_by_search(
         self,
         dead_ids: list[str],
@@ -739,24 +664,37 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
             if search_result is not None
         }
 
-        # Step 2: DB writes (the session is not concurrency-safe, so these are
+        # Step 2: the planner decides each candidate — a rescue that lands on a
+        # recording the library already holds reuses it rather than minting a
+        # twin. The search price stays on every mapping the rescue writes,
+        # whatever the planner decided: the stand-in was picked by similarity,
+        # and no mapping it produces may claim a stronger provenance — nor
+        # primacy over a mapping the provider itself vouched for, so only a
+        # rescue that mints the canonical leads it.
+        answers = [
+            ProviderAnswer(
+                requested_id=dead_id,
+                current_id=search_result.candidate.id or dead_id,
+                payload=search_result.candidate,
+                description=_describe_payload(search_result.candidate),
+                isrc=normalized_spotify_isrc(search_result.candidate),
+            )
+            for dead_id, search_result in search_results.items()
+        ]
+        writes = [
+            evolve(
+                write,
+                match_method="search_fallback",
+                evidence=search_results[write.requested_id].evidence,
+                primary=write.creates_canonical,
+            )
+            for write in await self._plan_writes(answers, uow, user_id=user_id)
+        ]
+
+        # Step 3: DB writes (the session is not concurrency-safe, so these are
         # sequential regardless — batching them is what makes them cheap).
         result, failed_ids = await self._persist_planned_writes(
-            [
-                PlannedWrite(
-                    requested_id=dead_id,
-                    current_id=search_result.candidate.id or dead_id,
-                    payload=search_result.candidate,
-                    match_method="search_fallback",
-                    outcome=Create(
-                        strong_id=normalized_spotify_isrc(search_result.candidate),
-                        evidence=search_result.evidence,
-                    ),
-                )
-                for dead_id, search_result in search_results.items()
-            ],
-            uow,
-            user_id=user_id,
+            writes, uow, user_id=user_id
         )
         if failed_ids:
             await self._note_write_failures(failed_ids, uow, user_id=user_id)

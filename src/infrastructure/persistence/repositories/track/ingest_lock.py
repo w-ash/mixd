@@ -1,7 +1,7 @@
 """Per-user serialization of the two canonical-track writers.
 
 Two paths create rows in ``tracks`` and both key on the same user-scoped
-unique indexes (``uq_tracks_user_isrc``, ``_mbid``, ``_spotify_id``): the
+unique index (``uq_tracks_user_isrc``): the
 fire-and-forget play-import resolver, through
 ``TrackRepository.save_tracks``, and the workflow's ingest through
 ``TrackResolutionService`` (which takes the lock via

@@ -46,7 +46,6 @@ def _make_uow_with_repos():
     track_repo = AsyncMock()
     track_repo.save_track.return_value = make_track(1)
     track_repo.find_tracks_by_title_artist.return_value = {}
-    track_repo.find_track_ids_by_spotify_ids.return_value = {}
     track_repo.find_tracks_by_isrcs.return_value = {}
 
     # The chunk-bulk persist saves a whole chunk of canonicals in one call.
@@ -327,8 +326,8 @@ class TestRelinkOntoHeldCanonical:
 
     async def test_the_stale_mapping_never_takes_primacy(self):
         # The current id's live-sync mapping is the one that describes the
-        # track; promoting the stale id would demote it and flap the
-        # denormalized spotify_id fast path.
+        # track; promoting the stale id would demote it and flap which id the
+        # canonical answers under.
         owner = make_track(7, title="Karma Police - Remastered")
         resolver = SpotifyInwardResolver(
             spotify_connector=self._connector_relinking((self.OLD_ID, self.NEW_ID))
@@ -407,6 +406,79 @@ class TestFallbackSearch:
         specs = _mapping_specs(connector_repo)
         assert [spec.connector_id for spec in specs] == [found_id, dead_id]
         assert _promoted_ids(connector_repo) == [found_id]
+
+    async def test_a_candidate_whose_isrc_is_held_reuses_that_canonical(self):
+        """The rescue plans like any other answer: a stand-in whose ISRC the
+        library already holds maps onto that canonical instead of minting a
+        twin, both mappings still carry the search price, and neither takes
+        primacy from a mapping the provider vouched for."""
+        dead_id = "dead_id_000000000000000"
+        found_id = "found_id_00000000000000"
+        isrc = "USRC12345678"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
+        connector.search_track.return_value = [
+            make_spotify_track(
+                found_id, "My Song", external_ids=SpotifyExternalIds(isrc=isrc)
+            )
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        owner = make_track(7, title="My Song", duration_ms=240_000, isrc=isrc)
+        track_repo.find_tracks_by_isrcs.return_value = {isrc: owner}
+
+        hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
+        result, _metrics = await resolver.resolve_to_canonical_tracks(
+            [dead_id], uow, hints=hints, user_id="test-user"
+        )
+
+        assert result[dead_id].id == owner.id
+        track_repo.save_track.assert_not_called()
+        specs = _mapping_specs(connector_repo)
+        assert [(spec.connector_id, spec.match_method) for spec in specs] == [
+            (found_id, "search_fallback"),
+            (dead_id, "search_fallback_stale_id"),
+        ]
+        assert all(spec.track.id == owner.id for spec in specs)
+        assert _promoted_ids(connector_repo) == []
+
+    async def test_a_candidate_already_mapped_reuses_without_repromoting_it(self):
+        """The stand-in the search picked is already live-mapped: the rescue
+        aliases the dead id onto its canonical and asserts nothing at all for
+        the found id, whose live mapping already describes the track with a
+        stronger provenance than a search could."""
+        dead_id = "dead_id_000000000000000"
+        found_id = "found_id_00000000000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
+        connector.search_track.return_value = [make_spotify_track(found_id, "My Song")]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        owner = make_track(7, title="My Song", duration_ms=240_000)
+
+        async def _find(connections, *, user_id):
+            _ = user_id
+            return {(name, cid): owner for name, cid in connections if cid == found_id}
+
+        connector_repo.find_tracks_by_connectors.side_effect = _find
+
+        hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
+        result, _metrics = await resolver.resolve_to_canonical_tracks(
+            [dead_id], uow, hints=hints, user_id="test-user"
+        )
+
+        assert result[dead_id].id == owner.id
+        track_repo.save_track.assert_not_called()
+        specs = _mapping_specs(connector_repo)
+        assert [(spec.connector_id, spec.match_method) for spec in specs] == [
+            (dead_id, "search_fallback_stale_id")
+        ]
+        assert found_id not in [spec.connector_id for spec in specs]
+        assert _promoted_ids(connector_repo) == []
 
     async def test_no_search_results_returns_none(self):
         """When search returns no candidates, the dead ID remains unresolved."""
@@ -2674,37 +2746,3 @@ class TestIdentityKeysDecidedBeforeSaving:
         }
         assert sorted(methods) == sorted([first, second])
         assert sorted(methods.values()) == ["direct_import", "isrc_match"]
-
-    async def test_a_canonical_holding_the_id_in_its_column_is_reused(self):
-        """``tracks.spotify_id`` set with no live mapping: the column owner
-        is the canonical, and the missing primary mapping is written on it
-        rather than a creation the repository would refuse."""
-        spotify_id = "column_held_id_0000001"
-        connector = self._fetch({
-            spotify_id: make_spotify_track(
-                spotify_id, "Angel", "Massive Attack", duration_ms=379_000
-            )
-        })
-
-        resolver = SpotifyInwardResolver(spotify_connector=connector)
-        uow, track_repo, connector_repo = _make_uow_with_repos()
-        holder = make_track(42, title="Angel", artist="Massive Attack")
-        track_repo.find_track_ids_by_spotify_ids.return_value = {spotify_id: holder.id}
-        track_repo.find_tracks_by_ids.return_value = {holder.id: holder}
-
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            [spotify_id], uow, user_id="test-user"
-        )
-
-        assert result[spotify_id].id == holder.id
-        assert metrics.redirects == 0
-        track_repo.save_track.assert_not_called()
-        (spec,) = _mapping_specs(connector_repo)
-        assert spec.track.id == holder.id
-        assert spec.connector_id == spotify_id
-        assert spec.match_method == "direct_import"
-        assert spec.primary is True
-        track_repo.find_track_ids_by_spotify_ids.assert_awaited_once_with(
-            [spotify_id], user_id="test-user"
-        )
-        track_repo.find_tracks_by_ids.assert_awaited_once_with([holder.id])

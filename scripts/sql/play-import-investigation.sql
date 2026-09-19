@@ -179,13 +179,12 @@ FROM (
 
 \echo ''
 \echo '=== C3: identifier strength of PLAYED tracks ==='
+-- spotify_id/mbid columns are gone (migration 059) — identity lives only in
+-- track_mappings, so ISRC is the only strong identifier left on tracks.
 SELECT tp.service,
        count(DISTINCT tp.track_id) AS played_tracks,
-       count(DISTINCT tp.track_id) FILTER (WHERE t.spotify_id IS NOT NULL) AS with_spotify_id,
-       count(DISTINCT tp.track_id) FILTER (WHERE t.isrc IS NOT NULL)       AS with_isrc,
-       count(DISTINCT tp.track_id) FILTER (WHERE t.mbid IS NOT NULL)       AS with_mbid,
-       count(DISTINCT tp.track_id) FILTER (
-         WHERE t.spotify_id IS NULL AND t.isrc IS NULL AND t.mbid IS NULL) AS no_strong_identifier
+       count(DISTINCT tp.track_id) FILTER (WHERE t.isrc IS NOT NULL) AS with_isrc,
+       count(DISTINCT tp.track_id) FILTER (WHERE t.isrc IS NULL)     AS no_strong_identifier
 FROM track_plays tp JOIN tracks t ON t.id = tp.track_id
 WHERE tp.user_id = :'user_id'
 GROUP BY 1;
@@ -349,21 +348,22 @@ GROUP BY 1;
 
 \echo ''
 \echo '=== F4: canonical-track field richness by mapping coverage ==='
+-- mbid column is gone (migration 059) — identity lives only in
+-- track_mappings, so this drops the mbid_pct column.
 SELECT CASE WHEN bool_sp AND bool_lf THEN 'both'
             WHEN bool_sp THEN 'spotify_only'
             ELSE 'lastfm_only' END AS mapped_via,
        count(*) AS tracks,
        round(100.0 * count(isrc)        / count(*), 1) AS isrc_pct,
        round(100.0 * count(duration_ms) / count(*), 1) AS duration_pct,
-       round(100.0 * count(album)       / count(*), 1) AS album_pct,
-       round(100.0 * count(mbid)        / count(*), 1) AS mbid_pct
+       round(100.0 * count(album)       / count(*), 1) AS album_pct
 FROM (
-  SELECT t.id, t.isrc, t.duration_ms, t.album, t.mbid,
+  SELECT t.id, t.isrc, t.duration_ms, t.album,
          bool_or(m.connector_name = 'spotify') AS bool_sp,
          bool_or(m.connector_name = 'lastfm')  AS bool_lf
   FROM tracks t JOIN track_mappings m ON m.track_id = t.id AND m.user_id = t.user_id
   WHERE t.user_id = :'user_id'
-  GROUP BY t.id, t.isrc, t.duration_ms, t.album, t.mbid
+  GROUP BY t.id, t.isrc, t.duration_ms, t.album
 ) x GROUP BY 1;
 
 \echo ''

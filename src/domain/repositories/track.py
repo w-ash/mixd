@@ -169,10 +169,9 @@ class TrackRepositoryProtocol(Protocol):
     def save_tracks(self, tracks: Sequence[Track]) -> Awaitable[list[Track]]:
         """Insert a batch of new canonical tracks, returning them in input order.
 
-        Repositories only persist: a track whose identity key (ISRC, MBID or
-        Spotify id) is already claimed — by the table or by an earlier row
-        of the batch — raises ``IdentityKeyClaimedError`` instead of being
-        merged. Which canonical an incoming row belongs to is decided
+        Repositories only persist: a track whose identity key (the ISRC) is
+        already claimed — by the table or by an earlier row of the batch —
+        raises ``IdentityKeyClaimedError`` instead of being merged. Which canonical an incoming row belongs to is decided
         upstream by ``domain.matching.canonical_resolution``.
         """
         ...
@@ -345,39 +344,6 @@ class TrackRepositoryProtocol(Protocol):
 
         Returns:
             Dict keyed by ISRC → Track.
-        """
-        ...
-
-    def find_tracks_by_mbids(
-        self, mbids: list[str], *, user_id: str
-    ) -> Awaitable[dict[str, Track]]:
-        """Batch lookup tracks by MusicBrainz Recording ID.
-
-        Args:
-            mbids: MBID strings to search for.
-
-        Returns:
-            Dict keyed by MBID → Track.
-        """
-        ...
-
-    def find_track_ids_by_spotify_ids(
-        self, spotify_ids: list[str], *, user_id: str
-    ) -> Awaitable[dict[str, UUID]]:
-        """Which track holds each denormalized ``spotify_id`` column value.
-
-        The column is an identity key ``save_tracks`` refuses to claim twice,
-        and it can be set on a canonical that has no live Spotify mapping —
-        so a resolver whose mapping lookup missed still has to ask who holds
-        the id before it creates. Ids only: the probe runs on every chunk
-        and hits rarely, so the caller hydrates just the hits
-        (``find_tracks_by_ids``).
-
-        Args:
-            spotify_ids: Spotify track ids to search for.
-
-        Returns:
-            Dict keyed by Spotify id → track id.
         """
         ...
 

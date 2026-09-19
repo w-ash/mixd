@@ -68,7 +68,9 @@ cd "$(dirname "$0")/.."
 # _shared/external_urls and routes/connectors, which vulture cannot follow), plus two
 # wire-only fields whose readers live in web/src (external_url on the mapping schema,
 # accepted_at on the run_accepted SSE frame) — the size_bytes/settled_at precedent.
-BASE_WHITELIST=115
+# 115 → 114 at v0.12.0.2: ``find_tracks_by_mbids`` deleted with ``tracks.mbid``
+# (migration 059 — identity lives only in mappings).
+BASE_WHITELIST=114
 # 13 → 0, 2026-09-05: every inline suppression in src/ resolved at the source — the
 # nested playlist-link routes now scope their commands by playlist_id, the reuse
 # metadata hook is abstract, `mixd-api` binds loopback by default, the weighted
@@ -80,7 +82,10 @@ BASE_TYPE_IGNORE=0
 # 18 → 17 at v0.12.0.2: ``BaseRepository._extract_relationship_names`` deleted with
 # its only caller (``TrackRepository._refresh_and_map``, retired when ``save_track``
 # became the one-row case of ``save_tracks``); its ``reportIndexIssue`` went with it.
-BASE_PYRIGHT_IGNORE=17
+# 17 → 16 at v0.12.0.2: ``_find_tracks_by_unique_column`` folded into
+# ``find_tracks_by_isrcs`` once ISRC was the only unique identifier column left;
+# its ``reportExplicitAny`` on the generic column parameter went with it.
+BASE_PYRIGHT_IGNORE=16
 
 # `|| true`: grep exits 1 on zero matches, which is a ratchet success, not an error.
 whitelist=$(grep -cvE '^\s*(#|$)' vulture_whitelist.py || true)

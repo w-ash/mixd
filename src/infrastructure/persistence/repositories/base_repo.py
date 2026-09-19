@@ -713,10 +713,10 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 _raise_update_retrieval_error()
             return await self.mapper.to_domain(db_entity)
         # Phase 2: Entity doesn't exist, create it. Deliberately not ON
-        # CONFLICT: a row can claim several unique constraints at once (tracks:
-        # isrc + spotify_id + mbid) while ON CONFLICT arbitrates only one, and
-        # blocking on a contended index is inherent either way. Contention is
-        # handled by savepoint-owning callers (see domain.repositories.errors).
+        # CONFLICT: a row can claim several unique constraints at once while ON
+        # CONFLICT arbitrates only one, and blocking on a contended index is
+        # inherent either way. Contention is handled by savepoint-owning
+        # callers (see domain.repositories.errors).
         stmt = (
             insert(self.model_class)
             .values(**insert_values)

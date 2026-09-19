@@ -54,7 +54,6 @@ def _side(
         artists="HNNY",
         primary_artist="HNNY",
         isrc="QMFME1984859",
-        spotify_id="7mY3gSbmqBfMqKv0cCyXJl",
         duration_ms=duration_ms,
         track_plays=1,
         connector_plays=1,
@@ -97,7 +96,6 @@ def _row(**overrides: object) -> dict[str, object]:
         "winner_artists_text": "HNNY",
         "winner_primary_artist": "HNNY",
         "winner_isrc": "QMFME1984859",
-        "winner_spotify_id": "7mY3gSbmqBfMqKv0cCyXJl",
         "winner_duration_ms": _DURATION_MS,
         "winner_track_plays": 3,
         "winner_connector_plays": 3,
@@ -107,13 +105,10 @@ def _row(**overrides: object) -> dict[str, object]:
         "loser_artists_text": "HNNY",
         "loser_primary_artist": "HNNY",
         "loser_isrc": "QMFME1984859",
-        "loser_spotify_id": "7mY3gSbmqBfMqKv0cCyXJl",
         "loser_duration_ms": _DURATION_MS,
         "loser_track_plays": 1,
         "loser_connector_plays": 1,
         "clash_isrc": winner_id,
-        "clash_spotify_id": None,
-        "clash_mbid": None,
         "clash_normalized": None,
         "carry_mappings": 1,
     }
@@ -163,8 +158,8 @@ class TestEveryClashColumnBlocks:
 
     def test_normalization_equality_blocks_even_with_no_shared_identifier(self):
         """The case no unique constraint would catch: same recording, no ISRC
-        or Spotify id in common. Re-owning it would create a duplicate
-        canonical rather than raise."""
+        in common. Re-owning it would create a duplicate canonical rather than
+        raise."""
         row = _clean_row()
         winner = uuid4()
         row["clash_normalized"] = winner
@@ -279,10 +274,14 @@ class TestMergeCollisionLabels:
         """One merge does not clear it — the operator needs to know a second
         pass will still find the loser colliding."""
         third = uuid7()
-        pair = to_pair(_row(clash_mbid=third), user=_USER)
+        pair = to_pair(_row(clash_normalized=third), user=_USER)
 
-        assert "uq_tracks_user_mbid" not in pair.collisions
-        assert pair.collisions_elsewhere == (("uq_tracks_user_mbid", third),)
+        assert "normalization-equal (no constraint — same title+artist)" not in (
+            pair.collisions
+        )
+        assert pair.collisions_elsewhere == (
+            ("normalization-equal (no constraint — same title+artist)", third),
+        )
 
     def test_an_identifier_clash_is_never_read_as_a_count(self):
         """The clash columns hold the colliding track's *id*; the refusal

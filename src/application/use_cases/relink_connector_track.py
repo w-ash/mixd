@@ -79,7 +79,7 @@ class RelinkConnectorTrackUseCase:
                 user_id=command.user_id,
             )
 
-            # 4. Old track: promote next primary or clear denormalized ID
+            # 4. Old track: promote next primary, if any mapping remains
             await connector_repo.ensure_primary_for_connector(
                 old_track_id, connector_name
             )

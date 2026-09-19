@@ -53,8 +53,9 @@ class TestBulkUoWPatterns:
             assert all(t.id is not None for t in saved_tracks)
             track_ids = [t.id for t in saved_tracks]
             for track in saved_tracks:
-                assert track.connector_track_identifiers  # Should have mappings
-                assert "spotify" in track.connector_track_identifiers
+                # The DB pseudo-connector only: a canonical's connector ids
+                # come from its mappings, which save_track does not write.
+                assert set(track.connector_track_identifiers) == {"db"}
 
             from src.domain.entities.playlist import Playlist, PlaylistEntry
 
@@ -98,7 +99,6 @@ class TestBulkUoWPatterns:
             saved_track = await track_repo.save_track(track)
             assert saved_track.id is not None
             assert saved_track.connector_track_identifiers  # Relationships loaded
-            assert "spotify" in saved_track.connector_track_identifiers
 
             await uow.commit()
 

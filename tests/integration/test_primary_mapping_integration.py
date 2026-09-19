@@ -210,42 +210,6 @@ class TestPrimaryMappingQueries:
                 f"Track {dt.id} has {primary_count} primary mappings, expected 1"
             )
 
-    async def test_map_track_to_connector_updates_denormalized_spotify_id(
-        self, db_session: AsyncSession, test_data_tracker
-    ):
-        """map_track_to_connector syncs the denormalized spotify_id column on DBTrack."""
-        # Create a canonical track with no spotify_id
-        track_repo = TrackRepository(db_session)
-        track = Track(
-            id=None,
-            title="Denorm Test",
-            artists=[Artist(name="Denorm Artist")],
-            user_id=TEST_USER_ID,
-        )
-        saved_track = await track_repo.save_track(track)
-        await db_session.commit()
-        assert saved_track.id is not None
-        test_data_tracker.add_track(saved_track.id)
-
-        # Verify spotify_id starts null
-        result = await db_session.execute(
-            select(DBTrack.spotify_id).where(DBTrack.id == saved_track.id)
-        )
-        assert result.scalar_one_or_none() is None
-
-        # Map to spotify via the full repository code path
-        repo = TrackConnectorRepository(db_session)
-        await repo.map_track_to_connector(
-            saved_track, "spotify", "sp_denorm_123", "direct", 100
-        )
-        await db_session.commit()
-
-        # Verify spotify_id was synced by _sync_denormalized_id
-        result = await db_session.execute(
-            select(DBTrack.spotify_id).where(DBTrack.id == saved_track.id)
-        )
-        assert result.scalar_one() == "sp_denorm_123"
-
     async def test_relinking_single_primary_survives(
         self, db_session: AsyncSession, test_data_tracker
     ):
@@ -296,15 +260,14 @@ class TestPrimaryMappingQueries:
         assert mapping_status["sp_relink_A"] is False
         assert mapping_status["sp_relink_B"] is True
 
-    async def test_reset_onto_a_stale_id_row_leaves_primary_and_column_intact(
+    async def test_reset_onto_a_stale_id_row_leaves_primary_intact(
         self, db_session: AsyncSession, test_data_tracker
     ):
         """A reset election that promotes nothing rolls its deposition back.
 
         The stale-id row is a cache entry for a dead identifier and can never
         be primary; a reset naming it used to depose the live primary, promote
-        nothing, and commit — a vacancy, with ``tracks.spotify_id`` still
-        pointing at the deposed row.
+        nothing, and commit — leaving the pair with no primary at all.
         """
         track_repo = TrackRepository(db_session)
         saved_track = await track_repo.save_track(
@@ -362,9 +325,3 @@ class TestPrimaryMappingQueries:
             )
         )
         assert list(primaries.scalars().all()) == ["sp_stale_live"]
-        spotify_id = (
-            await db_session.execute(
-                select(DBTrack.spotify_id).where(DBTrack.id == saved_track.id)
-            )
-        ).scalar_one()
-        assert spotify_id == "sp_stale_live"

@@ -74,8 +74,6 @@ def db_track():
         duration_ms=200000,
         release_date=None,
         isrc=f"TEST{unique_id.upper()[:8]}",
-        spotify_id=f"spotify_test_{unique_id}",
-        mbid=f"mbid-test-{unique_id}",
         user_id=TEST_USER_ID,
     )
     # Set required relationships
@@ -102,8 +100,6 @@ def db_tracks():
             duration_ms=200000,
             release_date=None,
             isrc=f"TEST{i}{unique_id.upper()[:4]}",
-            spotify_id=f"spotify_test_{i}_{unique_id}",
-            mbid=f"mbid-test-{i}-{unique_id}",
             user_id=TEST_USER_ID,
         )
         # Set required relationships
@@ -220,8 +216,6 @@ def db_track_with_relationships():
         duration_ms=210000,
         release_date=datetime(2012, 5, 3, tzinfo=UTC),
         isrc=f"ISRC{unique_id.upper()[:8]}",
-        spotify_id=f"spotify_{unique_id}",
-        mbid=f"mbid-{unique_id}",
         user_id=TEST_USER_ID,
     )
     # Initialize relationships to prevent lazy loading issues
@@ -251,8 +245,6 @@ async def persisted_db_track(db_session):
         album=f"Persisted Album {unique_id}",
         duration_ms=180000,
         isrc=f"PERSIST{unique_id.upper()[:8]}",
-        spotify_id=f"spotify_{unique_id}",
-        mbid=f"mbid-{unique_id}",
         user_id=TEST_USER_ID,
     )
 
@@ -290,9 +282,7 @@ def db_tracks_with_relationships():
             title=f"Track {i} {unique_id}",
             artists={"names": [f"Artist {i} {unique_id}"]},
             duration_ms=200000 + (i * 10000),
-            spotify_id=f"spotify_id_{i}_{unique_id}",
             isrc=f"ISRC{i}{unique_id.upper()[:4]}",
-            mbid=f"mbid-{i}-{unique_id}",
             user_id=TEST_USER_ID,
         )
         # Initialize relationships

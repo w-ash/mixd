@@ -90,9 +90,7 @@ CREATE TABLE tracks (
     album VARCHAR,
     duration_ms INTEGER,
     release_date TIMESTAMPTZ,
-    spotify_id VARCHAR,                -- Indexed for fast lookup
     isrc VARCHAR(32),                  -- Indexed for entity resolution
-    mbid VARCHAR(36),                  -- Indexed for MusicBrainz lookup
     title_normalized VARCHAR,          -- Pre-computed for fuzzy matching
     artist_normalized VARCHAR,         -- Pre-computed for fuzzy matching
     title_stripped VARCHAR,            -- Parentheticals removed for matching
@@ -102,9 +100,7 @@ CREATE TABLE tracks (
 );
 
 -- B-tree indexes
-CREATE INDEX ix_tracks_spotify_id ON tracks(spotify_id);
 CREATE INDEX ix_tracks_isrc ON tracks(isrc);
-CREATE INDEX ix_tracks_mbid ON tracks(mbid);
 CREATE INDEX ix_tracks_title ON tracks(title);
 CREATE INDEX ix_tracks_normalized_lookup ON tracks(title_normalized, artist_normalized);
 CREATE INDEX ix_tracks_stripped_lookup ON tracks(title_stripped, artist_normalized);
@@ -122,7 +118,7 @@ CREATE INDEX ix_tracks_artists_gin ON tracks USING gin (artists jsonb_path_ops);
 - Primary source of truth for track information
 - JSONB artist storage with GIN index for containment queries
 - Trigram indexes on text columns for fast substring search
-- Direct storage for common identifiers (spotify_id, isrc, mbid)
+- ISRC lives on the row; every other connector id (Spotify, MusicBrainz, …) lives in `track_mappings`
 
 ### track_plays
 Immutable record of track play events from service imports.
@@ -207,7 +203,7 @@ The database uses a rich relationship model with SQLAlchemy's relationship featu
 
 | Table | Index | Type | Purpose |
 |-------|-------|------|---------|
-| `tracks` | `spotify_id`, `isrc`, `mbid` | B-tree | Fast identifier lookup |
+| `tracks` | `isrc` | B-tree | Fast identifier lookup |
 | `tracks` | `title`, `album`, `artists_text` | GIN (trgm) | Substring search |
 | `tracks` | `artists` | GIN (jsonb) | JSONB containment queries |
 | `tracks` | `(title_normalized, artist_normalized)` | B-tree | Fuzzy matching |

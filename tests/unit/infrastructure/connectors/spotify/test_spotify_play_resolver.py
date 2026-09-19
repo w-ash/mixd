@@ -507,7 +507,6 @@ class TestResolverTrackResolution:
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
         track_repo.find_tracks_by_title_artist.return_value = {}
-        track_repo.find_track_ids_by_spotify_ids.return_value = {}
         _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
@@ -538,7 +537,6 @@ class TestResolverTrackResolution:
         uow.get_connector_repository.return_value = connector_repo
         track_repo = AsyncMock()
         track_repo.find_tracks_by_title_artist.return_value = {}
-        track_repo.find_track_ids_by_spotify_ids.return_value = {}
         _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
@@ -814,7 +812,6 @@ class TestFallbackHintsIntegration:
         uow.get_connector_repository.return_value = connector_repo
         track_repo = AsyncMock()
         track_repo.find_tracks_by_title_artist.return_value = {}
-        track_repo.find_track_ids_by_spotify_ids.return_value = {}
         _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
@@ -859,7 +856,6 @@ class TestFallbackHintsIntegration:
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
         track_repo.find_tracks_by_title_artist.return_value = {}
-        track_repo.find_track_ids_by_spotify_ids.return_value = {}
         _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
@@ -905,7 +901,6 @@ class TestRedirectResolvedPlays:
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
         track_repo.find_tracks_by_title_artist.return_value = {}
-        track_repo.find_track_ids_by_spotify_ids.return_value = {}
         _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
@@ -939,7 +934,6 @@ class TestRedirectResolvedPlays:
         track_repo = AsyncMock()
         track_repo.save_track.return_value = make_track(id=99)
         track_repo.find_tracks_by_title_artist.return_value = {}
-        track_repo.find_track_ids_by_spotify_ids.return_value = {}
         _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 

@@ -1001,6 +1001,45 @@ class TestPlannedWritePipeline:
         assert specs[0].confidence_evidence == _CREATION.evidence
         recorder.record.assert_not_awaited()
 
+    async def test_a_held_write_only_caches_the_requested_id(self):
+        """The current id keeps the live mapping it was found by.
+
+        Asserting a second mapping for it would supersede the one that
+        already describes the track, so a held write writes exactly one
+        spec: the requested id's non-primary cache alias, whose method the
+        ``STALE_ID_FOR`` map derives from the write's own.
+        """
+        held = make_track(7, title="Held Song")
+        resolver = PipelineResolver(
+            answers=[_answer("old", current_id="new", isrc="USUM72309818")]
+        )
+        uow, track_repo, connector_repo, _, _ = _pipeline_uow()
+
+        async def _find(connections, *, user_id):
+            _ = user_id
+            return {(c, cid): held for c, cid in connections if cid == "new"}
+
+        connector_repo.find_tracks_by_connectors.side_effect = _find
+
+        (write,) = await resolver._plan_writes(
+            resolver.answers, uow, user_id="test-user"
+        )
+        assert write.held is True
+        assert write.match_method == "direct_import"
+
+        result, _ = await resolver._persist_planned_writes(
+            [write], uow, user_id="test-user"
+        )
+
+        assert result["old"] is held
+        [saved] = track_repo.save_tracks.await_args.args
+        assert saved == []
+        [specs] = connector_repo.map_tracks_to_connectors.await_args.args
+        assert [(s.connector_id, s.match_method) for s in specs] == [
+            ("old", "direct_import_stale_id")
+        ]
+        assert specs[0].primary is False
+
     async def test_one_chunk_two_ids_one_isrc_is_one_canonical_two_mappings(self):
         """The in-batch twin folds onto its leader before ``save_tracks``
         can refuse the second claim on the same identity key."""

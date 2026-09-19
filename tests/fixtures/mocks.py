@@ -93,9 +93,6 @@ def make_mock_track_repo(**overrides) -> AsyncMock:
     repo = AsyncMock()
     repo.find_tracks_by_ids.return_value = overrides.pop("find_tracks_by_ids", {})
     repo.find_tracks_by_isrcs.return_value = overrides.pop("find_tracks_by_isrcs", {})
-    repo.find_track_ids_by_spotify_ids.return_value = overrides.pop(
-        "find_track_ids_by_spotify_ids", {}
-    )
     repo.find_tracks_by_title_artist.return_value = overrides.pop(
         "find_tracks_by_title_artist", {}
     )
@@ -160,9 +157,6 @@ def make_mock_connector_repo(**overrides) -> AsyncMock:
     )
     repo.ensure_connector_tracks.return_value = overrides.pop(
         "ensure_connector_tracks", {}
-    )
-    repo.count_stale_denormalized_ids.return_value = overrides.pop(
-        "count_stale_denormalized_ids", 0
     )
     repo.count_confidence_evidence_divergence.return_value = overrides.pop(
         "count_confidence_evidence_divergence", 0

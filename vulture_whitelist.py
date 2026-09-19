@@ -67,7 +67,6 @@ delete_versions_for_workflow  # WorkflowVersionRepositoryProtocol
 get_connector_metadata  # ConnectorRepositoryProtocol
 error_classifier  # BaseAPIConnector property — Protocol contract
 enrich_track_with_lastfm_metadata  # LastFMOperations — called by connector
-find_tracks_by_mbids  # TrackRepositoryProtocol — tested, part of public API
 
 # --- Parked decisions (v0.8.17 closeout, 2026-07-02) — see fable-sweep/README.md Deferred ---
 added_at_dates  # Track metadata key: reader (sort_by_date) has no production writer; wire-or-delete decision pending

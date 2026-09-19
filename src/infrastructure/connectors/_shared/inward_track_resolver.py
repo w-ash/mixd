@@ -22,7 +22,7 @@ from collections.abc import Awaitable, Callable, Generator, Hashable, Mapping, S
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from attrs import define, evolve, field
+from attrs import Factory, define, evolve, field
 
 from src.config import create_evaluation_service, get_logger
 from src.domain.entities import Track
@@ -36,6 +36,7 @@ from src.domain.matching.canonical_resolution import (
     Reuse,
     TrackResolutionRules,
     creation_of,
+    evidence_of,
     owners_by_identity,
     plan_resolution,
     price_reuse,
@@ -733,6 +734,11 @@ class ProviderAnswer[TPayload]:
     names_decide: bool = True
 
 
+def _priced_by_the_planner(write: PlannedWrite[object]) -> ResolutionEvidence:
+    """A write's default price: the one its planner outcome carries."""
+    return evidence_of(write.outcome)
+
+
 @define(frozen=True, slots=True)
 class PlannedWrite[TPayload]:
     """One requested id's persist, decided before anything is written.
@@ -752,18 +758,21 @@ class PlannedWrite[TPayload]:
     payload: TPayload
     match_method: MatchMethod
     outcome: Outcome[str, Track]
+    # The price of the decision the main mapping asserts. Defaults to the
+    # outcome's own; the Spotify rescue overrides it, because the search
+    # price belongs on every mapping that rescue writes.
+    evidence: ResolutionEvidence = field(
+        default=Factory(_priced_by_the_planner, takes_self=True)
+    )
     # Does the main mapping this write asserts hold primacy? A creation and
     # an ISRC reuse do; a mapping that only aliases a stale id onto an
     # already-mapped canonical does not.
     primary: bool = True
-
-    @property
-    def evidence(self) -> ResolutionEvidence:
-        """The price of the decision the main mapping asserts."""
-        outcome = self.outcome
-        if outcome.kind == "defer_to_review":
-            return outcome.create.evidence
-        return outcome.evidence
+    # Is the current id already mapped to the canonical this write resolves
+    # to? Then the write asserts no mapping of its own for that id — the
+    # live one already describes it — and owes only the requested id's
+    # non-primary cache alias.
+    held: bool = False
 
     @property
     def confidence(self) -> int:
@@ -787,17 +796,26 @@ class PlannedWrite[TPayload]:
 
 
 def planned_write[TPayload](
-    outcome: Outcome[str, Track], answer: ProviderAnswer[TPayload]
+    outcome: Outcome[str, Track], answer: ProviderAnswer[TPayload], *, held: bool
 ) -> PlannedWrite[TPayload]:
-    """The write one planner outcome persists as, in the connector's labels."""
+    """The write one planner outcome persists as, in the connector's labels.
+
+    A held write carries the plain import label: the only mapping it writes
+    is the requested id's cache alias, and ``stale_id_mapping_spec`` derives
+    that alias's own ``*_STALE_ID`` method from this one. Any other reuse
+    keeps the planner's method; a creation is a direct import.
+    """
+    if held or outcome.kind != "reuse":
+        match_method: MatchMethod = "direct_import"
+    else:
+        match_method = outcome.evidence.method
     return PlannedWrite(
         requested_id=answer.requested_id,
         current_id=answer.current_id,
         payload=answer.payload,
-        match_method=(
-            outcome.evidence.method if outcome.kind == "reuse" else "direct_import"
-        ),
+        match_method=match_method,
         outcome=outcome,
+        held=held,
     )
 
 
@@ -883,6 +901,33 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         an unreleased savepoint's rows can still be discarded.
         """
 
+    async def _canonicals_holding(
+        self,
+        answers: Sequence[ProviderAnswer[TPayload]],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> dict[str, Track]:
+        """Canonicals already mapped to the ids the provider calls current.
+
+        Only the current ids that differ from their requested id: a
+        requested id's own mapping was already asked about by the mapping
+        lookup, so only a substitution's current id can be found here. The
+        write that follows aliases the requested id onto that canonical.
+        """
+        current_ids = sorted({
+            answer.current_id
+            for answer in answers
+            if answer.current_id != answer.requested_id
+        })
+        if not current_ids:
+            return {}
+        mapped = await uow.get_connector_repository().find_tracks_by_connectors(
+            [(self.connector_name, current_id) for current_id in current_ids],
+            user_id=user_id,
+        )
+        return {current_id: track for (_, current_id), track in mapped.items()}
+
     async def _plan_writes(
         self,
         answers: Sequence[ProviderAnswer[TPayload]],
@@ -890,15 +935,16 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         *,
         user_id: str,
     ) -> list[PlannedWrite[TPayload]]:
-        """The two batch probes, the planner, and one write per answer.
+        """The three batch probes, the planner, and one write per answer.
 
         One decision per *current* id: two requested ids the provider
         answers with one current id (two dead ids sharing a successor) are
         one answer, and every write sharing it fans in to the same
-        canonical. Who owns these ISRCs, then who already describes these
-        names — the latter only for answers names may decide and the ISRC
-        step leaves undecided. The planner ranks the evidence and the
-        outcomes become writes in chunk order.
+        canonical. Who already holds these current ids, then who owns these
+        ISRCs, then who already describes these names — the last only for
+        answers names may decide and the earlier steps leave undecided. The
+        planner ranks the evidence and the outcomes become writes in chunk
+        order.
         """
         if not answers:
             return []
@@ -921,6 +967,8 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
             for current_id, group in by_current.items()
         ]
 
+        held = await self._canonicals_holding(answers, uow, user_id=user_id)
+
         isrcs = sorted({item.strong_id for item in described if item.strong_id})
         isrc_owners = (
             await track_repo.find_tracks_by_isrcs(isrcs, user_id=user_id)
@@ -928,7 +976,9 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
             else {}
         )
 
-        pairs = undecided_name_pairs(described, isrc_owners)
+        pairs = undecided_name_pairs(
+            described, held_owners=held, strong_owners=isrc_owners
+        )
         found = (
             await track_repo.find_tracks_by_title_artist(pairs, user_id=user_id)
             if pairs
@@ -940,11 +990,12 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
             strong_owners=isrc_owners,
             name_owners=owners_by_identity(found.values()),
             rules=self._rules,
+            held_owners=held,
         )
         writes: list[PlannedWrite[TPayload]] = []
         for answer in answers:
             outcome = plan[answer.current_id]
-            write = planned_write(outcome, answer)
+            write = planned_write(outcome, answer, held=answer.current_id in held)
             match outcome.kind:
                 case "reuse" if outcome.canonical is not None:
                     logger.info(
@@ -1202,7 +1253,8 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         and `uq_track_mappings_live_connector` admits one live mapping per
         (user, connector track, connector), so a second spec for an id
         already claimed is a constraint violation that costs the whole chunk
-        its bulk write.
+        its bulk write. A held write asserts no mapping for its current id:
+        the live one already there is the mapping that describes the track.
         """
         specs: list[ConnectorMappingSpec] = []
         claimed: set[str] = set()
@@ -1215,6 +1267,23 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
 
         for write in writes:
             track = canonicals[write.requested_id]
+            if write.held:
+                # The current id is mapped to this canonical already — that
+                # is what held means — so re-asserting it would only
+                # supersede a live mapping with weaker provenance. All this
+                # write owes is the requested id's cache alias.
+                if write.requested_id_is_stale:
+                    claim(
+                        stale_id_mapping_spec(
+                            track=track,
+                            connector=self.connector_name,
+                            requested_id=write.requested_id,
+                            primary_method=write.match_method,
+                            confidence=write.confidence,
+                            metadata=self._mapping_metadata(write),
+                        )
+                    )
+                continue
             claim(
                 ConnectorMappingSpec(
                     track=track,

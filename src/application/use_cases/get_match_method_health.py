@@ -8,8 +8,7 @@ Also assembles "drift signals" — exploratory metrics with no fixed
 thresholds, meant to be baselined empirically and compared week-over-week
 (see docs/backlog/identity-resolution-design-space.md): recent
 search_fallback share per connector, review-queue inflow/depth/age,
-isrc_suspect pending depth, confidence/evidence divergence, and stale
-denormalized ID drain.
+isrc_suspect pending depth, and confidence/evidence divergence.
 """
 
 from datetime import UTC, datetime
@@ -88,7 +87,6 @@ class MatchingDrift:
     review_pending_by_method: dict[str, int]
     isrc_suspect_pending_count: int
     confidence_evidence_divergence_count: int
-    stale_denormalized_ids_count: int
     # The negative cache's own size (v0.10.2). A sticky cannot-link store has
     # no clock-based expiry, so it only ever grows; watching it grow is how the
     # documented failure (silent undermatching) is caught before users report
@@ -206,9 +204,6 @@ async def _compute_drift(
         isrc_suspect_pending_count=pending_by_method.get("isrc_suspect", 0),
         confidence_evidence_divergence_count=(
             await connector_repo.count_confidence_evidence_divergence(user_id=user_id)
-        ),
-        stale_denormalized_ids_count=(
-            await connector_repo.count_stale_denormalized_ids(user_id=user_id)
         ),
         rejected_pairs_active=cache_size.rejected_pairs_active,
         no_match_pending=cache_size.no_match_pending,

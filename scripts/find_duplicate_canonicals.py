@@ -131,8 +131,6 @@ SELECT
     t.artists->'names'->>0 AS primary_artist,
     t.artist_normalized AS artist_normalized,
     t.isrc AS isrc,
-    t.spotify_id AS spotify_id,
-    t.mbid AS mbid,
     t.duration_ms AS duration_ms,
     t.created_at AS created_at,
     (SELECT count(*) FROM track_plays p WHERE p.track_id = t.id) AS play_count
@@ -168,12 +166,6 @@ clashes AS (
         WHERE o.user_id = :user_id AND f.isrc IS NOT NULL AND o.isrc = f.isrc
         LIMIT 1) AS clash_isrc,
       (SELECT o.id FROM tracks o
-        WHERE o.user_id = :user_id AND f.spotify_id IS NOT NULL
-          AND o.spotify_id = f.spotify_id LIMIT 1) AS clash_spotify_id,
-      (SELECT o.id FROM tracks o
-        WHERE o.user_id = :user_id AND f.mbid IS NOT NULL AND o.mbid = f.mbid
-        LIMIT 1) AS clash_mbid,
-      (SELECT o.id FROM tracks o
         WHERE o.user_id = :user_id
           AND f.title_normalized IS NOT NULL AND f.artist_normalized IS NOT NULL
           AND o.title_normalized = f.title_normalized
@@ -183,8 +175,6 @@ clashes AS (
 SELECT
     c.user_id AS foreign_owner,
     c.clash_isrc,
-    c.clash_spotify_id,
-    c.clash_mbid,
     c.clash_normalized,
     (SELECT count(*) FROM track_plays tp
       WHERE tp.user_id = :user_id AND tp.track_id = c.id) AS dep_track_plays,
@@ -197,8 +187,6 @@ SELECT
     c.artists->'names'->>0 AS foreign_primary_artist,
     c.artist_normalized AS foreign_artist_normalized,
     c.isrc AS foreign_isrc,
-    c.spotify_id AS foreign_spotify_id,
-    c.mbid AS foreign_mbid,
     c.duration_ms AS foreign_duration_ms,
     c.created_at AS foreign_created_at,
     (SELECT count(*) FROM track_plays p WHERE p.track_id = c.id)
@@ -209,16 +197,13 @@ SELECT
     o.artists->'names'->>0 AS owned_primary_artist,
     o.artist_normalized AS owned_artist_normalized,
     o.isrc AS owned_isrc,
-    o.spotify_id AS owned_spotify_id,
-    o.mbid AS owned_mbid,
     o.duration_ms AS owned_duration_ms,
     o.created_at AS owned_created_at,
     (SELECT count(*) FROM track_plays p WHERE p.track_id = o.id)
       AS owned_play_count
 FROM clashes c
 JOIN tracks o
-  ON o.id = coalesce(c.clash_isrc, c.clash_spotify_id, c.clash_mbid,
-                     c.clash_normalized)
+  ON o.id = coalesce(c.clash_isrc, c.clash_normalized)
 ORDER BY c.artist_normalized, c.title_normalized, c.id
 """
 
@@ -227,8 +212,6 @@ ORDER BY c.artist_normalized, c.title_normalized, c.id
 # the two reports without translating.
 _COLLISION_LABELS: tuple[tuple[str, str], ...] = (
     ("clash_isrc", "uq_tracks_user_isrc"),
-    ("clash_spotify_id", "uq_tracks_user_spotify_id"),
-    ("clash_mbid", "uq_tracks_user_mbid"),
     ("clash_normalized", "normalization-equal (no constraint — same title+artist)"),
 )
 
@@ -246,8 +229,6 @@ class _Candidate:
     duration_ms: int | None
     created_at: datetime
     play_count: int
-    spotify_id: str | None = None
-    mbid: str | None = None
 
     @property
     def isrc_year(self) -> int | None:
@@ -504,8 +485,6 @@ def _candidate(values: dict[str, object], *, prefix: str, owner: str) -> _Candid
         duration_ms=_as_int_or_none(values[f"{prefix}duration_ms"]),
         created_at=_as_datetime(values[f"{prefix}created_at"]),
         play_count=_as_int_or_none(values[f"{prefix}play_count"]) or 0,
-        spotify_id=_as_str_or_none(values[f"{prefix}spotify_id"]),
-        mbid=_as_str_or_none(values[f"{prefix}mbid"]),
     )
 
 

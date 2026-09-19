@@ -529,9 +529,8 @@ class TestMergePreservesMappingHistory:
         it would fire.
         """
         # Last.fm rather than Spotify: the shape below is already impossible,
-        # and a connector with a denormalized id column on ``tracks`` would
-        # additionally trip ``uq_tracks_user_spotify_id`` when both tracks'
-        # primary elections claimed the same identifier.
+        # and keeping it off the connector the rest of the suite exercises
+        # keeps this test's index surgery to itself.
         ct = await self._connector_track(db_session, "lastfm")
         winner_mapping = (
             await TrackMappingRepository(db_session).assert_mappings([

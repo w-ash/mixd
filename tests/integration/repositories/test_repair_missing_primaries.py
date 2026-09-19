@@ -103,11 +103,22 @@ async def _primary_mapping_ids(db_session: AsyncSession, track_id: UUID) -> set[
     return set(result.scalars().all())
 
 
-async def _spotify_id(db_session: AsyncSession, track_id: UUID) -> str | None:
+async def _primary_identifier(db_session: AsyncSession, track_id: UUID) -> str | None:
+    """The external id the track's primary spotify mapping names, if any."""
     result = await db_session.execute(
-        select(DBTrack.spotify_id).where(DBTrack.id == track_id)
+        select(DBConnectorTrack.connector_track_identifier)
+        .join(
+            DBTrackMapping,
+            DBTrackMapping.connector_track_id == DBConnectorTrack.id,
+        )
+        .where(
+            DBTrackMapping.track_id == track_id,
+            DBTrackMapping.connector_name == "spotify",
+            DBTrackMapping.is_primary.is_(True),
+        )
+        .execution_options(populate_existing=True)
     )
-    return result.scalar_one()
+    return result.scalar_one_or_none()
 
 
 class TestElection:
@@ -128,7 +139,7 @@ class TestElection:
 
         assert [r.mapping_id for r in repaired] == [winner]
         assert await _primary_mapping_ids(db_session, track_id) == {winner}
-        assert await _spotify_id(db_session, track_id) == strong_identifier
+        assert await _primary_identifier(db_session, track_id) == strong_identifier
 
     async def test_breaks_a_confidence_tie_on_the_lowest_id(
         self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
@@ -156,7 +167,7 @@ class TestElection:
         repaired = await connector_repo.repair_missing_primaries(user_id=_USER)
 
         assert [r.mapping_id for r in repaired] == [first_id]
-        assert await _spotify_id(db_session, track_id) == first_identifier
+        assert await _primary_identifier(db_session, track_id) == first_identifier
 
     async def test_repairs_each_connector_of_a_track_independently(
         self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
@@ -245,14 +256,14 @@ class TestWhatItLeavesAlone:
         repaired = await connector_repo.repair_missing_primaries(user_id=_USER)
 
         assert [r.mapping_id for r in repaired] == [live]
-        assert await _spotify_id(db_session, track_id) == live_identifier
+        assert await _primary_identifier(db_session, track_id) == live_identifier
 
     async def test_a_stale_id_row_is_never_the_winner(
         self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
     ):
-        """A stale-id row caches a dead id; promoting it would write that dead
-        id into ``tracks.spotify_id``. It is never a candidate, even when it
-        carries the highest confidence."""
+        """A stale-id row caches a dead id, and a pair's primary names its
+        current identity. It is never a candidate, even when it carries the
+        highest confidence."""
         track_id = await _make_track(db_session)
         stale_ct, _ = await _make_connector_track(db_session)
         live_ct, live_identifier = await _make_connector_track(db_session)
@@ -271,7 +282,7 @@ class TestWhatItLeavesAlone:
 
         assert [r.mapping_id for r in repaired] == [live_mapping]
         assert await _primary_mapping_ids(db_session, track_id) == {live_mapping}
-        assert await _spotify_id(db_session, track_id) == live_identifier
+        assert await _primary_identifier(db_session, track_id) == live_identifier
 
     async def test_a_pair_with_only_stale_id_rows_is_not_a_vacancy(
         self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
@@ -322,7 +333,7 @@ class TestIdempotenceAndDryRun:
 
         assert [r.mapping_id for r in planned] == [mapping_id]
         assert await _primary_mapping_ids(db_session, track_id) == set()
-        assert await _spotify_id(db_session, track_id) is None
+        assert await _primary_identifier(db_session, track_id) is None
 
 
 class TestRepairClearsTheIntegrityCheck:

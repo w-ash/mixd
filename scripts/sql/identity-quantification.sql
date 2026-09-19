@@ -117,18 +117,9 @@ WHERE confidence = 100
 GROUP BY match_method, connector_name
 ORDER BY bumped DESC;
 
-\echo ''
-\echo '=== Q7: stale denormalized spotify_id (FM4d bug evidence) ==='
-SELECT
-    count(*) FILTER (WHERE t.spotify_id IS DISTINCT FROM ct.connector_track_identifier)
-        AS column_disagrees_with_primary,
-    count(*) FILTER (WHERE t.spotify_id IS NOT NULL AND m.id IS NULL)
-        AS column_set_but_no_spotify_mapping
-FROM tracks t
-LEFT JOIN track_mappings m
-    ON m.track_id = t.id AND m.connector_name = 'spotify' AND m.is_primary
-LEFT JOIN connector_tracks ct ON ct.id = m.connector_track_id
-WHERE t.spotify_id IS NOT NULL OR m.id IS NOT NULL;
+-- Q7 (stale denormalized spotify_id, FM4d) is gone: migration 059 dropped
+-- tracks.spotify_id/mbid, so identity lives only in track_mappings and this
+-- failure mode no longer exists.
 
 \echo ''
 \echo '=== Q8: Last.fm identifier-scheme split (FM3a fragmentation) ==='

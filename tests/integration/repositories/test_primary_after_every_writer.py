@@ -17,7 +17,7 @@ from src.application.services.track_resolution import TrackResolutionService
 from src.domain.entities import ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.live_rows import live_only
-from src.infrastructure.persistence.database.models import DBTrack, DBTrackMapping
+from src.infrastructure.persistence.database.models import DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_connector_track, make_track
 
@@ -260,8 +260,8 @@ class TestMapTracksToConnectors:
     async def test_a_lone_stale_id_secondary_never_takes_a_vacant_slot(
         self, db_session: AsyncSession
     ):
-        """A stale-id row exists so a dead id resolves from cache; promoting
-        it would write the dead id into ``tracks.spotify_id``."""
+        """A stale-id row exists so a dead id resolves from cache; a pair's
+        primary names its current identity, never a dead one."""
         connector_repo = get_unit_of_work(db_session).get_connector_repository()
         track = await _save_track(db_session, f"Gold Rush {uuid4().hex[:8]}")
         live = f"sp_live_{uuid4().hex[:8]}"
@@ -293,13 +293,9 @@ class TestMapTracksToConnectors:
             )
         ])
 
-        assert await _live_primary_ct_ids(db_session, track.id) == set()
-        spotify_id = (
-            await db_session.execute(
-                select(DBTrack.spotify_id).where(DBTrack.id == track.id)
-            )
-        ).scalar_one()
-        assert spotify_id == live, "the dead id must never reach the column"
+        assert await _live_primary_ct_ids(db_session, track.id) == set(), (
+            "the dead id must never take the vacant slot"
+        )
 
 
 class TestOtherWriters:

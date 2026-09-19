@@ -280,6 +280,45 @@ class TestReplacementSuccessor:
         # No backoff for a substituted id — it resolved.
         recorder.remember_no_match.assert_not_awaited()
 
+    async def test_a_successor_already_mapped_only_caches_the_dead_id(self):
+        """The successor's live mapping is left exactly as it is.
+
+        Re-asserting it under this write's label would supersede the mapping
+        that already describes the track, and the cache alias the dead id
+        owes derives its ``*_STALE_ID`` method from that label.
+        """
+        dead = make_tidal_track_document(
+            track_id="old101", isrc=None, replacement_id="new202"
+        )
+        successor = make_tidal_track_document(track_id="new202", isrc="USUM72309818")
+        resolver, _ = _make_resolver({"old101": dead, "new202": successor})
+        uow, track_repo, connector_repo, _recorder = _make_uow()
+        owner = make_track(7, title="Already Mapped")
+
+        async def _find(connections, *, user_id):
+            _ = user_id
+            return {
+                (connector, cid): owner
+                for connector, cid in connections
+                if cid == "new202"
+            }
+
+        connector_repo.find_tracks_by_connectors.side_effect = _find
+
+        result, _metrics = await resolver.resolve_to_canonical_tracks(
+            ["old101"], uow, user_id="test-user"
+        )
+
+        assert result["old101"].id == owner.id
+        # No canonical is minted: the chunk's save carries nothing.
+        track_repo.save_track.assert_not_called()
+
+        specs = _mapping_specs(connector_repo)
+        assert len(specs) == 1
+        assert specs[0].connector_id == "old101"
+        assert specs[0].match_method == "direct_import_stale_id"
+        assert specs[0].primary is False
+
     async def test_two_dead_ids_sharing_one_successor_fan_in_to_one_canonical(self):
         """Duplicate-successor fan-in: ONE canonical create, two stale
         secondaries, two substituted events. Two dead ids sharing a

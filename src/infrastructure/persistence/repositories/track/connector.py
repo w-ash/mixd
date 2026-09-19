@@ -10,11 +10,9 @@ The mapping mechanism itself — assert, live scoping, election, event
 recording — is the generic :class:`MappingRepository` in
 ``_shared/mapping.py``; :class:`TrackMappingRepository` is its track
 instantiation, adding only what the generic cannot know about tracks: the
-denormalized ``tracks.spotify_id``/``mbid`` fast path and the
 ``DBTrack.mappings`` identity-map collection.
 """
 
-from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import cast, overload, override
@@ -25,16 +23,12 @@ from sqlalchemy import (
     ColumnElement,
     Integer,
     Numeric,
-    String,
     case,
-    column,
     func,
     select,
     text,
     update,
-    values,
 )
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -71,11 +65,9 @@ from src.infrastructure.persistence.database.live_rows import (
 from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBResolutionNegative,
-    DBTrack,
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
-    DENORMALIZED_ID_COLUMNS,
     artist_names_column,
     build_connector_track_row,
     extract_db_artist_names,
@@ -298,9 +290,8 @@ class TrackMappingRepository(MappingRepository[DBTrackMapping, TrackMapping]):
     """The track instantiation of the generic mapping mechanism.
 
     Assert, live scoping, election and event recording are the generic's;
-    the two hooks below are what tracks add — the denormalized
-    ``tracks.spotify_id``/``mbid`` fast path that follows the primary, and
-    the ``DBTrack.mappings`` collection a Core write leaves stale.
+    the hook below is what tracks add — the ``DBTrack.mappings`` collection a
+    Core write leaves stale.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -315,57 +306,6 @@ class TrackMappingRepository(MappingRepository[DBTrackMapping, TrackMapping]):
     @override
     def _expire_owner_identity(self, owner_ids: Sequence[UUID]) -> None:
         expire_mapping_identity(self.session, track_ids=owner_ids)
-
-    @override
-    async def _after_promotion(self, promoted: Sequence[PrimaryCandidate]) -> None:
-        """Sync the fast-path column for pairs whose promotion actually landed.
-
-        FM4d rule — the denormalized id must move ONLY when the promotion
-        landed (the election's ``RETURNING`` rows, never its input), never
-        unconditionally: a promotion that changes which row is primary
-        without moving the column leaves ``tracks.spotify_id``/``mbid``
-        describing a mapping that no longer holds primacy, the same
-        disagreement migration 044's pre-pass had to repair on 366 rows.
-
-        The external identifier *string* is what the column stores, while
-        ``promoted`` only carries the connector track's UUID; the lookup is
-        scoped to the promoted pairs on a connector that has a column at all
-        — most have none, and nothing to sync is not a failure.
-
-        Written back one statement per denormalized *column* rather than one
-        per row: the column name cannot be parameterised, so rows are grouped
-        by it and each group joins its own VALUES list.
-        """
-        denormalized = [
-            (track_id, column_name, ct_id)
-            for track_id, connector_name, ct_id in promoted
-            if (column_name := DENORMALIZED_ID_COLUMNS.get(connector_name))
-        ]
-        if not denormalized:
-            return
-        result = await self.session.execute(
-            select(
-                DBConnectorTrack.id, DBConnectorTrack.connector_track_identifier
-            ).where(DBConnectorTrack.id.in_([ct_id for _, _, ct_id in denormalized]))
-        )
-        external_ids = dict(result.tuples().all())
-
-        by_column: dict[str, list[tuple[UUID, str]]] = defaultdict(list)
-        for track_id, column_name, ct_id in denormalized:
-            if external_id := external_ids.get(ct_id):
-                by_column[column_name].append((track_id, external_id))
-
-        for column_name, pairs in by_column.items():
-            identifier_values = values(
-                column("track_id", PGUUID(as_uuid=True)),
-                column("external_id", String()),
-                name="denormalized_values",
-            ).data(pairs)
-            _ = await self.session.execute(
-                update(DBTrack)
-                .where(DBTrack.id == identifier_values.c.track_id)
-                .values(**{column_name: identifier_values.c.external_id})
-            )
 
 
 class TrackConnectorRepository:
@@ -718,13 +658,12 @@ class TrackConnectorRepository:
 
         Supersession strips the incumbent's primacy, so without this a re-score
         of a track's primary mapping leaves it with a live mapping and no
-        primary at all — the denormalized ``spotify_id``/``mbid`` fast path
-        stops resolving and the review queue's provenance reads as absent.
+        primary at all — the review queue's provenance reads as absent.
 
         When the successor landed on a *different* track, the track it left
         needs the opposite treatment: not a re-promotion (the identifier it
         held now belongs elsewhere) but ``ensure_primary_for_connector``, which
-        promotes a surviving sibling or clears the denormalized column.
+        promotes a surviving sibling.
 
         The restorations already carry the connector track's internal UUID,
         so this goes straight to ``ensure_primaries`` in ``fill`` mode — no
@@ -737,8 +676,8 @@ class TrackConnectorRepository:
         The vacated-pairs loop above stays per-pair on purpose. It is 0-2
         entries in practice, and each one needs
         ``ensure_primary_for_connector``'s selection policy — pick the
-        highest-confidence survivor, or clear the denormalized column when
-        there is none — which is a decision per track, not a set operation.
+        highest-confidence survivor — which is a decision per track, not a set
+        operation.
         """
         for track_id, connector_name in assertion.vacated_owners:
             await self.ensure_primary_for_connector(track_id, connector_name)
@@ -763,9 +702,9 @@ class TrackConnectorRepository:
         then match nothing, leaving the pair vacant. A pair that also carried
         a ``primary=True`` spec in this batch was just elected and is skipped,
         and a stale-id secondary is never a candidate: it exists so a dead id
-        resolves from cache, and promoting it would write that dead id into
-        the denormalized column. Highest confidence first, so first-wins is
-        the same choice ``ensure_primary_for_connector`` makes.
+        resolves from cache, and a pair's primary names its current identity.
+        Highest confidence first, so first-wins is the same choice
+        ``ensure_primary_for_connector`` makes.
         """
         elected_pairs = {
             (candidate.owner_id, candidate.connector_name)
@@ -825,9 +764,8 @@ class TrackConnectorRepository:
 
         One mapping is the degenerate case of a batch of them, all the way
         down to the election: ``auto_set_primary`` is the spec's ``primary``
-        flag, so the promotion, the vacancy rules and the FM4d denormalized-id
-        sync are the batch path's and there is no second election chain to
-        keep in agreement with it.
+        flag, so the promotion and the vacancy rules are the batch path's and
+        there is no second election chain to keep in agreement with it.
 
         No existence probe on ``track``: every caller holds a canonical it
         either just persisted or just read back inside this same transaction,
@@ -910,16 +848,6 @@ class TrackConnectorRepository:
     def _resolution_recorder(self) -> ResolutionRecorderProtocol:
         """The identity write seam bound to this repository's transaction."""
         return ResolutionRecorder(self.session)
-
-    async def _clear_denormalized_id(self, track_id: UUID, connector: str) -> None:
-        """Clear denormalized ID column on DBTrack when no mappings remain for a connector."""
-        column_name = DENORMALIZED_ID_COLUMNS.get(connector)
-        if column_name:
-            await self.session.execute(
-                update(DBTrack)
-                .where(DBTrack.id == track_id)
-                .values(**{column_name: None})
-            )
 
     async def _live_mapping_row(
         self, mapping_id: UUID, *, user_id: str
@@ -1144,8 +1072,8 @@ class TrackConnectorRepository:
         """Electable mappings for a (track, connector) pair, confidence desc.
 
         Stale-id cache rows are left out (``_not_stale_id``): a pair with only
-        those left has no live identity, and the caller clears the denormalized
-        column instead of promoting a dead id. The ``id`` ascending secondary
+        those left has no live identity, and a dead id is never promoted. The
+        ``id`` ascending secondary
         key makes the ordering total: on an equal-confidence tie
         ``remaining[0]`` is deterministic, and the mapper's display-fallback
         selection applies the SAME (confidence desc, id asc) tiebreak, so the
@@ -1187,20 +1115,15 @@ class TrackConnectorRepository:
     ) -> None:
         """Ensure a primary mapping exists for a (track, connector) pair.
 
-        Promotes the highest-confidence mapping if none is primary,
-        or clears the denormalized ID if no mappings remain.
+        Promotes the highest-confidence electable mapping if none is primary.
+        A pair with no electable mapping left has no live identity to name,
+        so there is nothing to do.
         """
         remaining = await self._get_remaining_mappings(track_id, connector_name)
-        if not remaining:
-            await self._clear_denormalized_id(track_id, connector_name)
-            return
-        if any(m.is_primary for m in remaining):
+        if not remaining or any(m.is_primary for m in remaining):
             return
         # Choosing the winner is this method's whole job; promoting it is the
-        # election's, and going through it is what keeps the FM4d rule — sync
-        # the denormalized column ONLY if the promotion actually landed — in
-        # one place. A second copy here is the disagreement migration 044's
-        # pre-pass had to repair on 366 production rows, written again.
+        # election's, and going through it is what keeps one promotion path.
         #
         # ``fill`` only fills a vacancy, which is precisely the state the
         # check above has just established this track to be in.
@@ -1220,8 +1143,8 @@ class TrackConnectorRepository:
         """Get primary-mapping provenance (id, confidence, method) per track.
 
         A primary-only track→connector join widened with the mapping row's
-        stored confidence and match method (v0.8.18 FM1b — the fast path
-        re-asserts real provenance, not a synthetic constant).
+        stored confidence and match method (v0.8.18 FM1b — it re-asserts real
+        provenance, not a synthetic constant).
         """
         if not track_ids:
             return {}
@@ -1419,8 +1342,7 @@ class TrackConnectorRepository:
         past writer left behind: every writer elects now and no read repairs,
         so a legacy vacancy is a permanent FAIL on the
         ``missing_primary_mappings`` integrity check with nothing to clear it.
-        The election itself is the generic's; the FM4d denormalized-id sync
-        rides its after-promotion hook.
+        The election itself is the generic's.
         """
         return await self.mapping_repo.repair_missing_primaries(
             user_id=user_id, dry_run=dry_run
@@ -1552,66 +1474,6 @@ class TrackConnectorRepository:
                 band_certain,
             ) in rows
         ]
-
-    @db_operation("count_stale_denormalized_ids")
-    async def count_stale_denormalized_ids(self, *, user_id: str) -> int:
-        """Count tracks with a stale or dangling denormalized spotify_id.
-
-        Sums two disjoint failure modes (mirrors SQL pack Q7,
-        scripts/sql/identity-quantification.sql):
-          - a primary spotify mapping exists but the column disagrees with
-            its connector identifier
-          - the column is set but no primary spotify mapping exists at all
-
-        Epic 5 fixed the write flow that caused this drift; this watches the
-        remaining stock, which only moves through writers or explicit repair.
-        """
-        primary_spotify = (DBTrackMapping.connector_name == "spotify") & (
-            DBTrackMapping.is_primary.is_(True)
-        )
-        stmt = (
-            select(
-                func
-                .count()
-                .filter(
-                    DBTrackMapping.id.is_not(None),
-                    DBTrack.spotify_id.is_distinct_from(
-                        DBConnectorTrack.connector_track_identifier
-                    ),
-                )
-                .label("column_disagrees_with_primary"),
-                func
-                .count()
-                .filter(
-                    DBTrack.spotify_id.is_not(None),
-                    DBTrackMapping.id.is_(None),
-                )
-                .label("column_set_but_no_mapping"),
-            )
-            .select_from(DBTrack)
-            .outerjoin(
-                DBTrackMapping,
-                (DBTrackMapping.track_id == DBTrack.id)
-                & primary_spotify
-                & (DBTrackMapping.user_id == user_id)
-                # In the JOIN, not the WHERE: the second failure mode counts
-                # tracks with no matching mapping row at all.
-                & live_only(DBTrackMapping),
-            )
-            .outerjoin(
-                DBConnectorTrack,
-                DBConnectorTrack.id == DBTrackMapping.connector_track_id,
-            )
-            .where(
-                DBTrack.user_id == user_id,
-                (DBTrack.spotify_id.is_not(None)) | (DBTrackMapping.id.is_not(None)),
-            )
-        )
-        result = await self.session.execute(stmt)
-        # .tuples().one() (not .one()) so the pair unpacks as (int, int)
-        # instead of an untyped Row.
-        disagrees, no_mapping = result.tuples().one()
-        return disagrees + no_mapping
 
     @db_operation("count_confidence_evidence_divergence")
     async def count_confidence_evidence_divergence(self, *, user_id: str) -> int:

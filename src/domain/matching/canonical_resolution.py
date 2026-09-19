@@ -193,6 +193,17 @@ def creation_of[TKey, TEntity](
     return None
 
 
+def evidence_of[TKey, TEntity](outcome: Outcome[TKey, TEntity]) -> ResolutionEvidence:
+    """The price of the decision an outcome's main assertion carries.
+
+    A deferral's is its creation's: the collision price belongs to the
+    review, not to the row the creation writes.
+    """
+    if outcome.kind == "defer_to_review":
+        return outcome.create.evidence
+    return outcome.evidence
+
+
 class ResolutionRules[TDesc, TEntity](Protocol):
     """What the planner needs to know about one kind of entity."""
 
@@ -238,14 +249,16 @@ def plan_resolution[TKey, TDesc, TEntity](
     strong_owners: Mapping[str, TEntity],
     name_owners: Mapping[Hashable, Sequence[TEntity]],
     rules: ResolutionRules[TDesc, TEntity],
+    held_owners: Mapping[TKey, TEntity] | None = None,
 ) -> dict[TKey, Outcome[TKey, TEntity]]:
     """Decide every description in order: reuse, create or defer.
 
-    Per description: a strong id with a persisted owner is decided by the
-    strong match alone — reuse, or defer when suspect. A strong id an earlier
-    creation in this batch claimed folds onto that leader unless suspect, in
-    which case it is created without the id, naming the leader in a
-    ``Contest`` so the caller can queue the review once the leader is
+    Per description: an entity already holding the item's key (``held_owners``)
+    is reused outright. Then a strong id with a persisted owner is decided by
+    the strong match alone — reuse, or defer when suspect. A strong id an
+    earlier creation in this batch claimed folds onto that leader unless
+    suspect, in which case it is created without the id, naming the leader in
+    a ``Contest`` so the caller can queue the review once the leader is
     persisted. Only then do names count: the bucket's persisted owners
     and its leaders are priced in that order, and the first accepted one is
     reused. Anything else is a creation, which joins the bucket's leaders
@@ -266,11 +279,14 @@ def plan_resolution[TKey, TDesc, TEntity](
             name_owners=name_owners,
             rules=rules,
             leaders=leaders,
+            held_owners=held_owners or {},
         )
         outcomes[item.key] = outcome
-        if outcome.kind != "create":
-            # A deferred creation is not a leader: folding a later twin onto
-            # it would settle by the back door what the review exists to ask.
+        if outcome.kind != "create" or outcome.contest is not None:
+            # A creation the strong-id step left in question — deferred
+            # against a persisted owner, or contesting an earlier leader —
+            # is not a leader itself: folding a later twin onto it would
+            # settle by the back door what the review exists to ask.
             continue
         if outcome.strong_id is not None:
             leaders.by_strong_id[outcome.strong_id] = (item.key, item.description)
@@ -314,8 +330,17 @@ def _plan_one[TKey, TDesc, TEntity](
     name_owners: Mapping[Hashable, Sequence[TEntity]],
     rules: ResolutionRules[TDesc, TEntity],
     leaders: _Leaders[TKey, TDesc],
+    held_owners: Mapping[TKey, TEntity],
 ) -> Outcome[TKey, TEntity]:
     description = item.description
+    # An entity already holding this item's key is the provider's own
+    # assertion of identity, and it outranks the strong id: a relink onto a
+    # remaster carries the original recording's ISRC, so the strong-id arm
+    # cannot see a pairing the provider has stated outright. Priced as the
+    # description vouching for itself.
+    held = held_owners.get(item.key)
+    if held is not None:
+        return Reuse(evidence=rules.creation(description), canonical=held)
     if item.strong_id is not None:
         owner = strong_owners.get(item.strong_id)
         if owner is not None:
@@ -480,6 +505,7 @@ def plan_canonical_resolution[TKey](
     isrc_owners: Mapping[str, Track],
     name_owners: Mapping[Hashable, Sequence[Track]],
     config: MatchingConfig,
+    held_owners: Mapping[TKey, Track] | None = None,
 ) -> dict[TKey, Outcome[TKey, Track]]:
     """``plan_resolution`` under the track rules."""
     return plan_resolution(
@@ -487,6 +513,7 @@ def plan_canonical_resolution[TKey](
         strong_owners=isrc_owners,
         name_owners=name_owners,
         rules=TrackResolutionRules(config),
+        held_owners=held_owners,
     )
 
 
@@ -526,18 +553,23 @@ def track_name_key(description: RecordingDescription) -> Hashable | None:
 
 def undecided_name_pairs[TKey](
     described: Sequence[Described[TKey, RecordingDescription]],
+    *,
     strong_owners: Mapping[str, object],
+    held_owners: Mapping[TKey, object] | None = None,
 ) -> list[tuple[str, str]]:
     """The (title, artist) pairs the name probe should ask about.
 
-    Only what the ISRC step leaves undecided: an item whose strong id has
-    a persisted owner is settled either way by that owner, and an item
-    names may not decide has nothing to ask.
+    Only what the earlier steps leave undecided: an item whose key an
+    entity already holds is settled, an item whose strong id has a
+    persisted owner is settled either way by that owner, and an item names
+    may not decide has nothing to ask.
     """
+    held = held_owners or {}
     return [
         (item.description.title, item.description.artist)
         for item in described
         if item.name_key is not None
+        and item.key not in held
         and not (item.strong_id and item.strong_id in strong_owners)
     ]
 
@@ -572,6 +604,7 @@ __all__ = [
     "Reuse",
     "TrackResolutionRules",
     "creation_of",
+    "evidence_of",
     "owners_by_identity",
     "plan_canonical_resolution",
     "plan_resolution",

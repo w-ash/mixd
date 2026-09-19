@@ -458,10 +458,9 @@ class ConnectorRepositoryProtocol(Protocol):
     ) -> Awaitable[None]:
         """Ensure a primary mapping exists for a (track, connector) pair.
 
-        If no mappings remain, clears the denormalized ID column.
-        If mappings exist but none is primary, promotes the highest-confidence one
-        and syncs the denormalized ID.
-        If a primary already exists, does nothing.
+        If electable mappings exist but none is primary, promotes the
+        highest-confidence one. If a primary already exists, or no electable
+        mapping remains, does nothing.
 
         Args:
             track_id: Canonical track ID.
@@ -519,19 +518,6 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             Rows ordered by total_count descending.
-        """
-        ...
-
-    def count_stale_denormalized_ids(self, *, user_id: str) -> Awaitable[int]:
-        """Count tracks with a stale or dangling denormalized spotify_id.
-
-        Sums two disjoint failure modes (mirrors SQL pack Q7,
-        scripts/sql/identity-quantification.sql): a primary spotify mapping
-        exists but the column disagrees with its connector identifier, or
-        the column is set but no primary spotify mapping exists at all.
-
-        Epic 5 fixed the write flow that caused this drift; this watches the
-        remaining stock, which only moves through writers or explicit repair.
         """
         ...
 

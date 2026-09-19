@@ -19,7 +19,6 @@ recorder could only get at it through a function-scoped import.
 
 from collections.abc import Iterable, Mapping
 from datetime import datetime
-from typing import Final
 
 from src.domain.entities.shared import JsonDict
 from src.domain.entities.track import Track
@@ -27,14 +26,6 @@ from src.domain.matching.text_normalization import (
     normalize_for_comparison,
     strip_parentheticals,
 )
-
-# Connector name → the fast-path id column on ``tracks`` that mirrors the
-# connector's primary mapping. Persistence knowledge (column names), so it
-# lives here rather than in the domain vocabulary.
-DENORMALIZED_ID_COLUMNS: Final[Mapping[str, str]] = {
-    "spotify": "spotify_id",
-    "musicbrainz": "mbid",
-}
 
 
 def extract_db_artist_names(artists: JsonDict) -> list[str]:
@@ -93,10 +84,6 @@ def build_canonical_track_row(track: Track) -> dict[str, object]:
         "duration_ms": track.duration_ms,
         "release_date": track.release_date,
         "isrc": track.isrc,
-        **{
-            column: track.connector_track_identifiers.get(connector)
-            for connector, column in DENORMALIZED_ID_COLUMNS.items()
-        },
         **normalized_text_columns(track),
     }
 
