@@ -12,6 +12,9 @@ import type {
   PlaylistEntrySchema,
   PlaylistSummarySchema,
 } from "#/api/generated/model";
+// The generated model barrel does not yet re-export the artist schemas, so
+// this comes straight from its generated module.
+import type { ArtistSummarySchema } from "#/api/generated/model/artistSummarySchema";
 import { connectorBrand } from "#/lib/connector-brand";
 
 import { expiredAt, statusStateFor } from "./status-matrix";
@@ -185,4 +188,19 @@ export function makePlaylistEntries(
     },
     added_at: item.added_at ?? null,
   }));
+}
+
+export function makeArtistSummary(
+  overrides: Partial<ArtistSummarySchema> = {},
+): ArtistSummarySchema {
+  return {
+    id: "019dbf00-0000-7000-8000-000000000001",
+    name: "Test Artist",
+    mbid: null,
+    kind: null,
+    track_count: 0,
+    is_favorited: false,
+    connectors: ["spotify"],
+    ...overrides,
+  };
 }

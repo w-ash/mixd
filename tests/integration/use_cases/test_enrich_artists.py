@@ -165,9 +165,9 @@ class TestEnrichmentRoundTrip:
             command, get_unit_of_work(db_session)
         )
 
-        assert first.artists_processed == 1
+        assert first.result.summary_metrics.get("artists_processed") == 1
         # Identified and freshly touched, so no longer a candidate.
-        assert second.artists_processed == 0
+        assert second.result.summary_metrics.get("artists_processed") == 0
         assert second.mappings_seeded == 0
         assert (
             await count(db_session, DBArtistMapping, DBArtistMapping.user_id == user_id)

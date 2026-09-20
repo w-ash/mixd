@@ -21,7 +21,6 @@ from uuid import UUID
 from src.domain.entities.artist import (
     Artist,
     ArtistAlias,
-    ArtistFavorite,
     ArtistKind,
     ConnectorArtist,
 )
@@ -90,9 +89,11 @@ class ArtistListingPage(TypedDict):
 class ArtistMappingInfo(TypedDict):
     """One live mapping plus the connector artist it names, for the detail page.
 
-    ``raw_metadata`` rides along because this cycle has no ``artist_relations``
-    table: same-person and member-of links are read out of the connector
-    payload by the page that shows them.
+    ``name`` is the service's own spelling, not the canonical one, so the
+    detail page can show how each service writes the artist. ``raw_metadata``
+    rides along because this cycle has no ``artist_relations`` table:
+    same-person and member-of links are read out of the connector payload by
+    the page that shows them.
     """
 
     mapping_id: UUID
@@ -102,7 +103,7 @@ class ArtistMappingInfo(TypedDict):
     confidence: int
     origin: str
     is_primary: bool
-    connector_artist_name: str
+    name: str
     raw_metadata: JsonDict
 
 
@@ -113,12 +114,6 @@ class ArtistRepositoryProtocol(Protocol):
         self, artist_id: UUID, *, user_id: str
     ) -> Awaitable[Artist | None]:
         """Get one artist, scoped to the user. None when absent or another tenant's."""
-        ...
-
-    def get_artists_by_ids(
-        self, artist_ids: Sequence[UUID], *, user_id: str
-    ) -> Awaitable[dict[UUID, Artist]]:
-        """Batch counterpart of :meth:`get_artist_by_id`, keyed by artist id."""
         ...
 
     def save_artists(self, artists: Sequence[Artist]) -> Awaitable[list[Artist]]:
@@ -185,16 +180,6 @@ class ArtistRepositoryProtocol(Protocol):
         """Count distinct credited tracks per artist in one grouped query."""
         ...
 
-    def get_track_ids_for_artist(
-        self, artist_id: UUID, *, user_id: str
-    ) -> Awaitable[list[UUID]]:
-        """Every track id carrying a credit resolved to this artist."""
-        ...
-
-    def delete_artist(self, artist_id: UUID, *, user_id: str) -> Awaitable[None]:
-        """Delete one artist. Credits survive with a null artist id (SET NULL)."""
-        ...
-
 
 class ArtistConnectorRepositoryProtocol(Protocol):
     """Connector-artist cache plus the mapping seam for artists."""
@@ -216,22 +201,10 @@ class ArtistConnectorRepositoryProtocol(Protocol):
         """Canonical artists reachable from connector row ids through live mappings."""
         ...
 
-    def find_artists_by_connector_identifiers(
-        self, connector_name: str, identifiers: Sequence[str], *, user_id: str
-    ) -> Awaitable[dict[str, Artist]]:
-        """Canonical artists for a service's own identifiers, keyed by identifier."""
-        ...
-
     def get_full_mappings_for_artist(
         self, artist_id: UUID, *, user_id: str
     ) -> Awaitable[list[ArtistMappingInfo]]:
         """Every live mapping on an artist, joined to its connector record."""
-        ...
-
-    def get_connector_names_batch(
-        self, artist_ids: Sequence[UUID], *, user_id: str
-    ) -> Awaitable[dict[UUID, list[str]]]:
-        """Which services each artist is mapped to — one query for a page of rows."""
         ...
 
     def touch_last_seen(
@@ -272,10 +245,6 @@ class ArtistFavoriteRepositoryProtocol(Protocol):
         """Unfavorite an artist. True when a row was deleted."""
         ...
 
-    def get_favorites(self, *, user_id: str) -> Awaitable[list[ArtistFavorite]]:
-        """Every favorite the user holds, most recently favorited first."""
-        ...
-
     def get_favorite_status_batch(
         self, artist_ids: Sequence[UUID], *, user_id: str
     ) -> Awaitable[set[UUID]]:
@@ -284,10 +253,6 @@ class ArtistFavoriteRepositoryProtocol(Protocol):
 
     def get_favorite_artist_ids(self, *, user_id: str) -> Awaitable[frozenset[UUID]]:
         """Every favorited artist id, for filters that need the whole set."""
-        ...
-
-    def count_favorites(self, *, user_id: str) -> Awaitable[int]:
-        """Count the user's favorites without hydrating them."""
         ...
 
 

@@ -16,10 +16,13 @@ so the lookup agrees with every other string comparison in the matcher rather
 than introducing a second notion of "same text".
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Final, Self
+from uuid import UUID
 
 from attrs import define, field
+
+from src.domain.entities.artist import ArtistAlias
 
 from .text_normalization import normalize_for_comparison
 
@@ -90,3 +93,27 @@ class ArtistEquivalence:
 
 EMPTY_EQUIVALENCE: Final[ArtistEquivalence] = ArtistEquivalence()
 """The no-op equivalence: every comparison falls through to string matching."""
+
+
+def equivalence_from_alias_rows(
+    ids_by_name: Mapping[str, Sequence[UUID]],
+    aliases_by_id: Mapping[UUID, Sequence[ArtistAlias]],
+) -> ArtistEquivalence:
+    """Compile cached alias rows into an equivalence.
+
+    ``ids_by_name`` names the connector artists a batch's credited names
+    reach; ``aliases_by_id`` holds every spelling each of those artists is
+    known by. One connector artist is one group, so two names agree only when
+    the same service row states both.
+
+    The caller does the I/O and hands the rows in — this layer stays pure.
+    """
+    reachable = sorted({
+        connector_artist_id
+        for ids in ids_by_name.values()
+        for connector_artist_id in ids
+    })
+    return ArtistEquivalence.from_groups(
+        [alias.name for alias in aliases_by_id.get(connector_artist_id, ())]
+        for connector_artist_id in reachable
+    )

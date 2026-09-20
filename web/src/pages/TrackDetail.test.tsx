@@ -181,6 +181,37 @@ describe("TrackDetail", () => {
     expect(screen.getByText("Relaxing tracks")).toBeInTheDocument();
   });
 
+  it("links a resolved artist credit to its artist page", async () => {
+    overrideTrackDetail({
+      ...mockTrack,
+      artists: [
+        { name: "Radiohead", artist_id: "art-1" },
+        { name: "Unresolved Guest" },
+      ],
+    });
+
+    renderTrackDetail();
+
+    const link = await screen.findByRole("link", { name: "Radiohead" });
+    expect(link).toHaveAttribute("href", "/artists/art-1");
+  });
+
+  it("leaves an unresolved credit as plain text", async () => {
+    overrideTrackDetail({
+      ...mockTrack,
+      artists: [{ name: "Unresolved Guest" }],
+    });
+
+    renderTrackDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Unresolved Guest")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("link", { name: "Unresolved Guest" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows back link to library", async () => {
     overrideTrackDetail(mockTrack);
 

@@ -141,7 +141,13 @@ class TestMatchAndIdentifyTracksUseCase:
         }
 
         # Raw matches from infrastructure
-        raw_matches = {tracks[1].id: {"connector_id": "spotify_2", "confidence": 90}}
+        raw_matches = {
+            tracks[1].id: {
+                "connector_id": "spotify_2",
+                "match_method": "artist_title",
+                "service_data": {"title": "Song", "artist": "Artist"},
+            }
+        }
         identity_service.get_raw_external_matches.return_value = raw_matches
 
         command = MatchAndIdentifyTracksCommand(

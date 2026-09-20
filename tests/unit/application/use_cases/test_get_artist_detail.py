@@ -34,7 +34,7 @@ def _mapping(
         confidence=95,
         origin="automatic",
         is_primary=is_primary,
-        connector_artist_name=name,
+        name=name,
         raw_metadata=raw_metadata or {},
     )
 

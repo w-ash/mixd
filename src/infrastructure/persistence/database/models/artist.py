@@ -111,12 +111,10 @@ class DBConnectorArtist(BaseEntity):
     last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     mappings: Mapped[list[DBArtistMapping]] = relationship(
-        back_populates="connector_artist",
         passive_deletes=True,
         lazy="raise_on_sql",
     )
     aliases: Mapped[list[DBArtistAlias]] = relationship(
-        back_populates="connector_artist",
         cascade="all, delete-orphan",
         passive_deletes=True,
         lazy="raise_on_sql",
@@ -180,12 +178,6 @@ class DBArtistMapping(BaseEntity):
         passive_deletes=True,
         lazy="raise_on_sql",
     )
-    connector_artist: Mapped[DBConnectorArtist] = relationship(
-        back_populates="mappings",
-        passive_deletes=True,
-        lazy="raise_on_sql",
-    )
-
     __table_args__: tuple[SchemaItem, ...] = (
         # The live key the generic assert conflicts on. A plain unique
         # constraint, not a partial index: with no supersession every row is
@@ -323,12 +315,6 @@ class DBArtistAlias(BaseEntity):
     locale: Mapped[str | None] = mapped_column(String(16))
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-    connector_artist: Mapped[DBConnectorArtist] = relationship(
-        back_populates="aliases",
-        passive_deletes=True,
-        lazy="raise_on_sql",
-    )
 
     __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint(

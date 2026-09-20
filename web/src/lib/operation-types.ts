@@ -18,7 +18,8 @@ export type RunOperationType =
   | "import_spotify_recent"
   | "import_apple_recent"
   | "import_connector_playlists"
-  | "apply_assignments_bulk";
+  | "apply_assignments_bulk"
+  | "artist_enrichment";
 
 export interface OperationTypeSpec {
   /** Display name for run history rows and logs. */
@@ -80,6 +81,12 @@ export const OPERATION_TYPES: Record<RunOperationType, OperationTypeSpec> = {
     countKeys: ["succeeded", "imported"],
     title: (n) =>
       n > 0 ? `Imported ${pluralize(n, "playlist")}` : "Import complete",
+  },
+  artist_enrichment: {
+    label: "Artist enrichment",
+    countKeys: ["resolved", "artists_processed"],
+    title: (n) =>
+      n > 0 ? `Identified ${pluralize(n, "artist")}` : "Enrichment complete",
   },
   apply_assignments_bulk: {
     label: "Apply all assignments",

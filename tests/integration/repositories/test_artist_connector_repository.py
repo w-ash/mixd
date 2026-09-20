@@ -88,7 +88,7 @@ class TestConnectorArtistCache:
 
 
 class TestLookupsThroughMappings:
-    async def test_find_by_connector_artist_ids_and_identifiers(self, db_session):
+    async def test_find_by_connector_artist_ids(self, db_session):
         uow = get_unit_of_work(db_session)
         artists, connectors = (
             uow.get_artist_repository(),
@@ -106,13 +106,8 @@ class TestLookupsThroughMappings:
         by_row_id = await connectors.find_artists_by_connector_artist_ids(
             [stored["sp-1"].id], user_id=user_id
         )
-        by_identifier = await connectors.find_artists_by_connector_identifiers(
-            "spotify", ["sp-1", "sp-missing"], user_id=user_id
-        )
 
         assert by_row_id[stored["sp-1"].id].id == artist.id
-        assert by_identifier["sp-1"].id == artist.id
-        assert "sp-missing" not in by_identifier
 
     async def test_another_tenants_mapping_is_never_followed(self, db_session):
         uow = get_unit_of_work(db_session)
@@ -168,35 +163,9 @@ class TestLookupsThroughMappings:
 
         assert info["connector_name"] == "musicbrainz"
         assert info["connector_artist_identifier"] == "mb-1"
-        assert info["connector_artist_name"] == "Caribou"
+        assert info["name"] == "Caribou"
         assert info["raw_metadata"] == {"type": "Person"}
         assert info["confidence"] == 90
-
-    async def test_connector_names_batch_groups_per_artist(self, db_session):
-        uow = get_unit_of_work(db_session)
-        artists, connectors = (
-            uow.get_artist_repository(),
-            uow.get_artist_connector_repository(),
-        )
-        user_id = _user()
-        artist = await _artist(artists, user_id)
-        spotify = await connectors.bulk_upsert_connector_artists(
-            "spotify", [make_connector_artist("sp-1")]
-        )
-        lastfm = await connectors.bulk_upsert_connector_artists(
-            "lastfm", [make_connector_artist("lf-1", connector_name="lastfm")]
-        )
-        await connectors.assert_mappings([
-            _mapping_row(user_id, artist.id, spotify["sp-1"].id),
-            {
-                **_mapping_row(user_id, artist.id, lastfm["lf-1"].id),
-                "connector_name": "lastfm",
-            },
-        ])
-
-        names = await connectors.get_connector_names_batch([artist.id], user_id=user_id)
-
-        assert names == {artist.id: ["lastfm", "spotify"]}
 
 
 class TestMappingMechanism:

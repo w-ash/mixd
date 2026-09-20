@@ -168,7 +168,7 @@ def _to_mapping_info(info: ArtistMappingInfo) -> ArtistConnectorMappingInfo:
     return ArtistConnectorMappingInfo(
         connector_name=info["connector_name"],
         connector_artist_identifier=identifier,
-        name=info["connector_artist_name"],
+        name=info["name"],
         is_primary=info["is_primary"],
         match_method=info["match_method"],
         confidence=info["confidence"],

@@ -7,9 +7,12 @@ wholesale, because a refresh must be able to drop a name MusicBrainz retired.
 """
 
 from datetime import UTC, datetime
-from uuid import uuid7
+from uuid import UUID, uuid7
+
+from sqlalchemy import select
 
 from src.domain.entities.artist import Artist, ArtistAlias
+from src.infrastructure.persistence.database.models import DBArtistFavorite
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_connector_artist
 
@@ -21,6 +24,17 @@ def _user() -> str:
 async def _artist(repo, user_id: str, name: str = "Caribou") -> Artist:
     (saved,) = await repo.save_artists([Artist(name=name, user_id=user_id)])
     return saved
+
+
+async def _favorited_at(db_session, user_id: str, artist_id: UUID) -> datetime | None:
+    """Read the stored timestamp straight off the presence row."""
+    result = await db_session.execute(
+        select(DBArtistFavorite.favorited_at).where(
+            DBArtistFavorite.user_id == user_id,
+            DBArtistFavorite.artist_id == artist_id,
+        )
+    )
+    return result.scalar_one()
 
 
 class TestFavorites:
@@ -37,11 +51,13 @@ class TestFavorites:
 
         assert await favorites.favorite(artist.id, user_id=user_id) is True
         assert await favorites.favorite(artist.id, user_id=user_id) is False
-        assert await favorites.count_favorites(user_id=user_id) == 1
+        assert await favorites.get_favorite_artist_ids(user_id=user_id) == frozenset({
+            artist.id
+        })
 
         assert await favorites.unfavorite(artist.id, user_id=user_id) is True
         assert await favorites.unfavorite(artist.id, user_id=user_id) is False
-        assert await favorites.count_favorites(user_id=user_id) == 0
+        assert await favorites.get_favorite_artist_ids(user_id=user_id) == frozenset()
 
     async def test_refavoriting_keeps_the_original_timestamp(self, db_session):
         uow = get_unit_of_work(db_session)
@@ -52,12 +68,11 @@ class TestFavorites:
         user_id = _user()
         artist = await _artist(artists, user_id)
         await favorites.favorite(artist.id, user_id=user_id)
-        (first,) = await favorites.get_favorites(user_id=user_id)
+        first = await _favorited_at(db_session, user_id, artist.id)
 
         await favorites.favorite(artist.id, user_id=user_id)
 
-        (again,) = await favorites.get_favorites(user_id=user_id)
-        assert again.favorited_at == first.favorited_at
+        assert await _favorited_at(db_session, user_id, artist.id) == first
 
     async def test_status_batch_and_id_set_read_presence(self, db_session):
         uow = get_unit_of_work(db_session)
@@ -90,10 +105,11 @@ class TestFavorites:
         artist = await _artist(artists, owner)
         await favorites.favorite(artist.id, user_id=owner)
 
-        assert await favorites.count_favorites(user_id=other) == 0
-        assert await favorites.get_favorites(user_id=other) == []
+        assert await favorites.get_favorite_artist_ids(user_id=other) == frozenset()
         assert await favorites.unfavorite(artist.id, user_id=other) is False
-        assert await favorites.count_favorites(user_id=owner) == 1
+        assert await favorites.get_favorite_artist_ids(user_id=owner) == frozenset({
+            artist.id
+        })
 
 
 class TestAliases:

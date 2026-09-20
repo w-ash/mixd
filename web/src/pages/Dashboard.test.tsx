@@ -12,6 +12,7 @@ const mockStats = {
   total_plays: 56789,
   total_playlists: 12,
   total_liked: 456,
+  total_favorite_artists: 19,
   tracks_by_connector: { spotify: 1000, lastfm: 800 },
   liked_by_connector: { spotify: 300, lastfm: 150 },
   plays_by_connector: { lastfm: 45000, spotify: 11789 },
@@ -143,6 +144,21 @@ describe("Dashboard", () => {
     expect(screen.getByText("Playlists \u00b7 3 linked")).toBeInTheDocument();
   });
 
+  it("links the favorite-artists stat at the filtered Artists page", async () => {
+    server.use(
+      http.get("*/api/v1/stats/dashboard", () => {
+        return HttpResponse.json(mockStats, { status: 200 });
+      }),
+    );
+
+    renderWithProviders(<Dashboard />);
+
+    const card = await screen.findByRole("link", {
+      name: /19\s+Favorite Artists/i,
+    });
+    expect(card).toHaveAttribute("href", "/artists?favorites=1");
+  });
+
   it("renders per-connector breakdowns", async () => {
     server.use(
       http.get("*/api/v1/stats/dashboard", () => {
@@ -174,6 +190,7 @@ describe("Dashboard", () => {
             total_plays: 0,
             total_playlists: 0,
             total_liked: 0,
+            total_favorite_artists: 0,
             tracks_by_connector: {},
             liked_by_connector: {},
             plays_by_connector: {},

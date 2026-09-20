@@ -75,6 +75,12 @@ const Plays = lazy(() =>
 const TrackDetail = lazy(() =>
   import("./pages/TrackDetail").then((m) => ({ default: m.TrackDetail })),
 );
+const Artists = lazy(() =>
+  import("./pages/Artists").then((m) => ({ default: m.Artists })),
+);
+const ArtistDetail = lazy(() =>
+  import("./pages/ArtistDetail").then((m) => ({ default: m.ArtistDetail })),
+);
 const Workflows = lazy(() =>
   import("./pages/Workflows").then((m) => ({ default: m.Workflows })),
 );
@@ -275,6 +281,22 @@ export function App() {
                       element={
                         <Suspense fallback={<PageSkeleton />}>
                           <TrackDetail />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="artists"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Artists />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="artists/:id"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <ArtistDetail />
                         </Suspense>
                       }
                     />

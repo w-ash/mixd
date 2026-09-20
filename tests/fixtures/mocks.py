@@ -211,7 +211,6 @@ def make_mock_artist_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`ArtistRepositoryProtocol`."""
     repo = AsyncMock()
     repo.get_artist_by_id.return_value = overrides.pop("get_artist_by_id", None)
-    repo.get_artists_by_ids.return_value = overrides.pop("get_artists_by_ids", {})
     repo.save_artists.return_value = overrides.pop("save_artists", [])
     repo.list_artists.return_value = overrides.pop(
         "list_artists",
@@ -230,9 +229,6 @@ def make_mock_artist_repo(**overrides) -> AsyncMock:
     repo.count_tracks_by_artist.return_value = overrides.pop(
         "count_tracks_by_artist", {}
     )
-    repo.get_track_ids_for_artist.return_value = overrides.pop(
-        "get_track_ids_for_artist", []
-    )
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -247,14 +243,8 @@ def make_mock_artist_connector_repo(**overrides) -> AsyncMock:
     repo.find_artists_by_connector_artist_ids.return_value = overrides.pop(
         "find_artists_by_connector_artist_ids", {}
     )
-    repo.find_artists_by_connector_identifiers.return_value = overrides.pop(
-        "find_artists_by_connector_identifiers", {}
-    )
     repo.get_full_mappings_for_artist.return_value = overrides.pop(
         "get_full_mappings_for_artist", []
-    )
-    repo.get_connector_names_batch.return_value = overrides.pop(
-        "get_connector_names_batch", {}
     )
     repo.ensure_primaries.return_value = overrides.pop("ensure_primaries", [])
     for k, v in overrides.items():
@@ -267,14 +257,12 @@ def make_mock_artist_favorite_repo(**overrides) -> AsyncMock:
     repo = AsyncMock()
     repo.favorite.return_value = overrides.pop("favorite", True)
     repo.unfavorite.return_value = overrides.pop("unfavorite", True)
-    repo.get_favorites.return_value = overrides.pop("get_favorites", [])
     repo.get_favorite_status_batch.return_value = overrides.pop(
         "get_favorite_status_batch", set()
     )
     repo.get_favorite_artist_ids.return_value = overrides.pop(
         "get_favorite_artist_ids", frozenset()
     )
-    repo.count_favorites.return_value = overrides.pop("count_favorites", 0)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

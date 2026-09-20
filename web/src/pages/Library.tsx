@@ -1,8 +1,7 @@
-import { ArrowUp, Bookmark, Heart, Music } from "lucide-react";
+import { Bookmark, Music } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
-import type { LibraryTrackSchema } from "#/api/generated/model";
 import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
@@ -12,179 +11,26 @@ import {
   LibraryFilterPanel,
 } from "#/components/library/LibraryFilterPanel";
 import { SaveFiltersAsWorkflowDialog } from "#/components/library/SaveFiltersAsWorkflowDialog";
+import { TrackTable } from "#/components/library/TrackTable";
 import { BulkSelectionBar } from "#/components/shared/BulkSelectionBar";
 import { BulkTagDialog } from "#/components/shared/BulkTagDialog";
-import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
-import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryStates } from "#/components/shared/QueryStates";
-import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { ListRowsSkeleton } from "#/components/shared/skeletons";
-import { TableCard } from "#/components/shared/TableCard";
 import { TablePagination } from "#/components/shared/TablePagination";
-import { TagChip } from "#/components/shared/TagChip";
-import { TitleLink } from "#/components/shared/TitleLink";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "#/components/ui/table";
 import type { SortDir, SortField } from "#/hooks/useLibraryFilters";
-import { SORT_LABELS, useLibraryFilters } from "#/hooks/useLibraryFilters";
+import { useLibraryFilters } from "#/hooks/useLibraryFilters";
 import { usePagination } from "#/hooks/usePagination";
 import { useSelectionSet } from "#/hooks/useSelectionSet";
 import { isConnectable } from "#/lib/connectors";
-import {
-  formatArtists,
-  formatCount,
-  formatDuration,
-  formatList,
-  formatRelativeTime,
-} from "#/lib/format";
+import { formatCount, formatList } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 
 const PAGE_SIZE = 50;
-const STAGGER_CAP = 15;
-const TAGS_PREVIEW_CAP = 3;
-
-/** Inline tag list for a Library row — shows first few chips, then "+N". */
-function TagRowChips({ tags }: { tags: string[] }) {
-  const visible = tags.slice(0, TAGS_PREVIEW_CAP);
-  const overflow = tags.length - visible.length;
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      {visible.map((tag) => (
-        <TagChip key={tag} tag={tag} />
-      ))}
-      {overflow > 0 && (
-        <span className="font-mono text-xs text-text-muted">+{overflow}</span>
-      )}
-    </div>
-  );
-}
-
-interface TrackCardProps {
-  track: LibraryTrackSchema;
-  selected: boolean;
-  onSelectedChange: (next: boolean) => void;
-}
-
-/**
- * Card representation of a Library row — used by ResponsiveTable below the
- * @2xl container threshold (typically iPhone / iPad portrait widths).
- */
-function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
-  return (
-    <TableCard
-      leading={
-        <Checkbox
-          aria-label={`Select ${track.title}`}
-          checked={selected}
-          onCheckedChange={(checked) => onSelectedChange(checked === true)}
-          className="mt-1 shrink-0"
-        />
-      }
-    >
-      <div className="flex items-baseline justify-between gap-2">
-        <TitleLink to={`/library/${track.id}`} viewTransition>
-          {track.title}
-        </TitleLink>
-        {track.is_liked && (
-          <Heart
-            className="size-3.5 shrink-0 text-status-liked"
-            aria-label="Liked"
-          />
-        )}
-      </div>
-      <p className="truncate text-sm text-text-muted">
-        {formatArtists(track.artists)}
-      </p>
-      <div className="mt-1.5 flex items-center gap-3 text-xs text-text-muted">
-        {track.album && <span className="truncate">{track.album}</span>}
-        <span className="shrink-0 tabular-nums">
-          {formatDuration(track.duration_ms)}
-        </span>
-        {track.total_plays ? (
-          <span
-            className="shrink-0 tabular-nums"
-            title={track.last_played ?? undefined}
-          >
-            {formatCount(track.total_plays)} play
-            {pluralSuffix(track.total_plays)}
-          </span>
-        ) : null}
-        {track.preference && <PreferenceBadge state={track.preference} />}
-      </div>
-      {track.tags && track.tags.length > 0 && (
-        <div className="mt-2">
-          <TagRowChips tags={track.tags} />
-        </div>
-      )}
-      {track.connector_names.length > 0 && (
-        <div className="mt-2 flex gap-1">
-          {track.connector_names.map((name) => (
-            <ConnectorIcon key={name} name={name} labelHidden />
-          ))}
-        </div>
-      )}
-    </TableCard>
-  );
-}
-
-/** Sortable column header — clicking toggles direction or sets new sort */
-function SortableHead({
-  field,
-  currentField,
-  currentDir,
-  onSort,
-  className,
-  children,
-}: {
-  field: SortField;
-  currentField: SortField;
-  currentDir: SortDir;
-  onSort: (field: SortField, dir: SortDir) => void;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  const isActive = field === currentField;
-  const nextDir = isActive && currentDir === "asc" ? "desc" : "asc";
-
-  return (
-    <TableHead
-      className={className}
-      aria-sort={
-        isActive ? (currentDir === "asc" ? "ascending" : "descending") : "none"
-      }
-    >
-      <button
-        type="button"
-        className="inline-flex items-center gap-1 hover:text-text transition-colors"
-        onClick={() => onSort(field, nextDir)}
-        aria-label={`Sort by ${SORT_LABELS[field]} ${nextDir === "asc" ? "ascending" : "descending"}`}
-      >
-        {children}
-        {isActive && (
-          <ArrowUp
-            className={cn(
-              "size-3 transition-transform duration-150",
-              currentDir === "desc" && "rotate-180",
-            )}
-            aria-hidden="true"
-          />
-        )}
-      </button>
-    </TableHead>
-  );
-}
 
 export function Library() {
   const cursorMapRef = useRef<Map<number, string>>(new Map());
@@ -444,184 +290,14 @@ export function Library() {
             isPlaceholderData && "opacity-70 blur-[0.5px]",
           )}
         >
-          <ResponsiveTable
-            cards={
-              <div className="flex flex-col gap-2">
-                {tracks.map((track) => (
-                  <TrackCard
-                    key={track.id}
-                    track={track}
-                    selected={selection.isSelected(track.id)}
-                    onSelectedChange={(checked) =>
-                      selection.toggle(track.id, checked)
-                    }
-                  />
-                ))}
-              </div>
-            }
-            table={
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8">
-                      <Checkbox
-                        aria-label="Select all rows on this page"
-                        checked={selection.headerChecked}
-                        onCheckedChange={selection.toggleAll}
-                      />
-                    </TableHead>
-                    <TableHead className="w-8">
-                      <span className="sr-only">Liked</span>
-                    </TableHead>
-                    <SortableHead
-                      field="title"
-                      currentField={filters.sort.field}
-                      currentDir={filters.sort.dir}
-                      onSort={handleSort}
-                    >
-                      Title
-                    </SortableHead>
-                    <TableHead>Artist</TableHead>
-                    {/* Column priority: Album/Tags yield below 2xl so the
-                        play columns (the default sort) stay in view without
-                        horizontal scrolling. */}
-                    <TableHead className="hidden w-48 2xl:table-cell">
-                      Album
-                    </TableHead>
-                    <SortableHead
-                      field="duration"
-                      currentField={filters.sort.field}
-                      currentDir={filters.sort.dir}
-                      onSort={handleSort}
-                      className="w-20 text-right"
-                    >
-                      Duration
-                    </SortableHead>
-                    <SortableHead
-                      field="plays"
-                      currentField={filters.sort.field}
-                      currentDir={filters.sort.dir}
-                      onSort={handleSort}
-                      className="w-16 text-right"
-                    >
-                      Plays
-                    </SortableHead>
-                    <SortableHead
-                      field="last_played"
-                      currentField={filters.sort.field}
-                      currentDir={filters.sort.dir}
-                      onSort={handleSort}
-                      className="w-28"
-                    >
-                      Last Played
-                    </SortableHead>
-                    <TableHead className="w-10 text-center">Pref</TableHead>
-                    <TableHead className="hidden w-48 2xl:table-cell">
-                      Tags
-                    </TableHead>
-                    <TableHead className="w-24 text-center">Sources</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tracks.map((track, index) => (
-                    <TableRow
-                      key={track.id}
-                      className="group relative"
-                      style={
-                        index < STAGGER_CAP
-                          ? {
-                              animation: `fade-in-row 300ms ease-out ${index * 20}ms both`,
-                            }
-                          : undefined
-                      }
-                    >
-                      {/* Select */}
-                      <TableCell className="w-8 text-center">
-                        <Checkbox
-                          aria-label={`Select ${track.title}`}
-                          checked={selection.isSelected(track.id)}
-                          onCheckedChange={(checked) =>
-                            selection.toggle(track.id, checked === true)
-                          }
-                        />
-                      </TableCell>
-                      {/* Liked */}
-                      <TableCell className="relative w-8 text-center">
-                        {/* Gold hover accent bar */}
-                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-                        {track.is_liked && (
-                          <Heart
-                            className="mx-auto size-3.5 text-status-liked -translate-y-px"
-                            aria-label="Liked"
-                          />
-                        )}
-                      </TableCell>
-                      {/* Title — truncated so one long title can't push the
-                          play columns past the viewport edge. */}
-                      <TableCell
-                        className="max-w-96 truncate"
-                        title={track.title}
-                      >
-                        <Link
-                          to={`/library/${track.id}`}
-                          viewTransition
-                          className="font-medium text-text hover:text-primary transition-colors"
-                        >
-                          {track.title}
-                        </Link>
-                      </TableCell>
-                      {/* Artist */}
-                      <TableCell className="text-text-muted text-sm truncate max-w-48">
-                        {formatArtists(track.artists)}
-                      </TableCell>
-                      {/* Album */}
-                      <TableCell className="hidden max-w-48 truncate text-text-muted text-sm 2xl:table-cell">
-                        {track.album ?? "\u2014"}
-                      </TableCell>
-                      {/* Duration */}
-                      <TableCell className="text-right tabular-nums text-text-muted text-sm">
-                        {formatDuration(track.duration_ms)}
-                      </TableCell>
-                      {/* Plays */}
-                      <TableCell className="text-right tabular-nums text-text-muted text-sm">
-                        {track.total_plays
-                          ? formatCount(track.total_plays)
-                          : "\u2014"}
-                      </TableCell>
-                      {/* Last Played */}
-                      <TableCell
-                        className="whitespace-nowrap text-text-muted text-sm"
-                        title={track.last_played ?? undefined}
-                      >
-                        {track.last_played
-                          ? formatRelativeTime(track.last_played)
-                          : "\u2014"}
-                      </TableCell>
-                      {/* Preference */}
-                      <TableCell className="w-10 text-center">
-                        {track.preference && (
-                          <PreferenceBadge state={track.preference} />
-                        )}
-                      </TableCell>
-                      {/* Tags */}
-                      <TableCell className="hidden w-48 2xl:table-cell">
-                        {track.tags && track.tags.length > 0 && (
-                          <TagRowChips tags={track.tags} />
-                        )}
-                      </TableCell>
-                      {/* Sources */}
-                      <TableCell className="w-24">
-                        <span className="flex justify-center gap-1">
-                          {track.connector_names.map((name) => (
-                            <ConnectorIcon key={name} name={name} labelHidden />
-                          ))}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            }
+          <TrackTable
+            tracks={tracks}
+            selection={selection}
+            sort={{
+              field: filters.sort.field,
+              dir: filters.sort.dir,
+              onSort: handleSort,
+            }}
           />
 
           <TablePagination

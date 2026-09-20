@@ -16,6 +16,7 @@ import { expect, type Page, test } from "@playwright/test";
 const ROUTES = [
   { path: "/", slug: "dashboard" },
   { path: "/library", slug: "library" },
+  { path: "/artists", slug: "artists" },
   { path: "/playlists", slug: "playlists" },
   { path: "/workflows", slug: "workflows" },
   { path: "/settings/integrations", slug: "settings-integrations" },

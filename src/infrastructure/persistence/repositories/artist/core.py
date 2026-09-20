@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from typing import Final, cast
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, delete, func, or_, select, update
+from sqlalchemy import ColumnElement, Select, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,23 +125,6 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
         )
         return None if db_artist is None else await self.mapper.to_domain(db_artist)
 
-    @db_operation("get_artists_by_ids")
-    async def get_artists_by_ids(
-        self, artist_ids: Sequence[UUID], *, user_id: str
-    ) -> dict[UUID, Artist]:
-        """Batch lookup by id, keyed by artist id."""
-        if not artist_ids:
-            return {}
-        db_artists = await self._execute_query(
-            select(DBArtist).where(
-                DBArtist.id.in_(artist_ids), DBArtist.user_id == user_id
-            )
-        )
-        return {
-            artist.id: artist
-            for artist in [await self.mapper.to_domain(row) for row in db_artists]
-        }
-
     @db_operation("list_needing_enrichment")
     async def list_needing_enrichment(
         self,
@@ -192,22 +175,6 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
         # An artist with no credits is a zero, not an absence: callers render
         # the number straight from this map.
         return {artist_id: counts.get(artist_id, 0) for artist_id in artist_ids}
-
-    @db_operation("get_track_ids_for_artist")
-    async def get_track_ids_for_artist(
-        self, artist_id: UUID, *, user_id: str
-    ) -> list[UUID]:
-        """Every track id carrying a credit resolved to this artist."""
-        result = await self.session.execute(
-            select(DBTrackArtist.track_id)
-            .where(
-                DBTrackArtist.artist_id == artist_id,
-                DBTrackArtist.user_id == user_id,
-            )
-            .distinct()
-            .order_by(DBTrackArtist.track_id)
-        )
-        return list(result.scalars().all())
 
     # ── listing ──────────────────────────────────────────────────────
 
@@ -409,13 +376,4 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
             update(DBArtist)
             .where(DBArtist.id.in_(artist_ids), DBArtist.user_id == user_id)
             .values(updated_at=datetime.now(UTC))
-        )
-
-    @db_operation("delete_artist")
-    async def delete_artist(self, artist_id: UUID, *, user_id: str) -> None:
-        """Delete one artist; its credits survive with a null artist id."""
-        await self.session.execute(
-            delete(DBArtist).where(
-                DBArtist.id == artist_id, DBArtist.user_id == user_id
-            )
         )

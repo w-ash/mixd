@@ -11,6 +11,7 @@ from uuid import UUID
 
 from attrs import define, field
 
+from src.application.services.artist_equivalence import build_artist_equivalence
 from src.application.services.progress_broker import ProgressBroker
 from src.application.utilities.timing import ExecutionTimer
 from src.config import create_evaluation_service, get_logger
@@ -32,6 +33,22 @@ from src.domain.repositories.track import TrackIdentityServiceProtocol
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+
+def _credited_names(
+    tracks: list[Track], raw_matches: dict[UUID, RawProviderMatch]
+) -> list[str]:
+    """Every artist name this batch compares — both sides of the scoring pair.
+
+    The alias lookup needs the library spelling and the service spelling: one
+    of the two carries the alias row, and which one is not knowable up front.
+    """
+    names = [artist.credited_name for track in tracks for artist in track.artists]
+    for raw_match in raw_matches.values():
+        artist = raw_match["service_data"].get("artist")
+        if isinstance(artist, str):
+            names.append(artist)
+    return names
 
 
 @define(frozen=True, slots=True)
@@ -209,11 +226,20 @@ class MatchAndIdentifyTracksUseCase:
                 command=command,
             )
 
+            # STEP 3b: Compile the batch's alias groups. A service that
+            # states "TEED" where the library says "Totally Enormous Extinct
+            # Dinosaurs" otherwise scores an artist mismatch and drags the
+            # whole track match down with it.
+            artist_equivalence = await build_artist_equivalence(
+                uow, _credited_names(tracks_needing_resolution, raw_matches)
+            )
+
             # STEP 4: Apply ALL business logic through domain service
             evaluation = self._evaluation_service.evaluate_raw_matches(
                 tracks=tracks_needing_resolution,
                 raw_matches=raw_matches,
                 connector=command.connector,
+                artist_equivalence=artist_equivalence,
             )
 
             # STEP 5: Persist auto-accepted identity mappings

@@ -14,6 +14,7 @@ import {
   Settings,
   Sparkles,
   Tag,
+  Users,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router";
 
@@ -38,6 +39,19 @@ interface NavItem {
   Icon: LucideIcon;
   end?: boolean;
   children?: NavChild[];
+  /**
+   * Path prefixes that keep the group expanded and highlighted. Defaults to
+   * the group's own `to`, which is only enough while every child lives under
+   * it — Artists does not.
+   */
+  matchPaths?: string[];
+}
+
+/** True while the sidebar should show `item` as the open, active group. */
+function isGroupActive(item: NavItem, pathname: string): boolean {
+  return (item.matchPaths ?? [item.to]).some((prefix) =>
+    pathname.startsWith(prefix),
+  );
 }
 
 const navItems: NavItem[] = [
@@ -46,9 +60,11 @@ const navItems: NavItem[] = [
     to: "/library",
     label: "Library",
     Icon: Library,
+    matchPaths: ["/library", "/artists"],
     children: [
       { to: "/library", label: "Tracks", Icon: Music, end: true },
       { to: "/library/plays", label: "Plays", Icon: Play },
+      { to: "/artists", label: "Artists", Icon: Users },
     ],
   },
   { to: "/playlists", label: "Playlists", Icon: ListMusic },
@@ -113,7 +129,7 @@ export function Sidebar() {
                 viewTransition
                 className={cn(
                   linkClass,
-                  pathname.startsWith(item.to) ? activeClass : inactiveClass,
+                  isGroupActive(item, pathname) ? activeClass : inactiveClass,
                 )}
               >
                 <item.Icon
@@ -126,7 +142,7 @@ export function Sidebar() {
                   className={cn(
                     "size-3.5",
                     "ml-auto transition-transform duration-150",
-                    pathname.startsWith(item.to) && "rotate-90",
+                    isGroupActive(item, pathname) && "rotate-90",
                   )}
                 />
               </NavLink>
@@ -134,7 +150,7 @@ export function Sidebar() {
               <div
                 className={cn(
                   "grid transition-[grid-template-rows] duration-150",
-                  pathname.startsWith(item.to)
+                  isGroupActive(item, pathname)
                     ? "grid-rows-[1fr]"
                     : "grid-rows-[0fr]",
                 )}

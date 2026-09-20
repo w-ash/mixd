@@ -290,7 +290,7 @@ class TestBatching:
 
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
-        assert result.artists_processed == 0
+        assert result.result.summary_metrics.get("artists_processed") == 0
         assert not result.result.is_failure
         provider.search_artist.assert_not_awaited()
         connector_repo.assert_mappings.assert_not_awaited()
@@ -315,7 +315,7 @@ class TestFailures:
 
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
-        assert result.artists_processed == 2
+        assert result.result.summary_metrics.get("artists_processed") == 2
         assert result.artists_identified == 1
         assert result.unresolved == 1
         assert result.result.is_failure

@@ -1,5 +1,13 @@
-import { Headphones, Heart, ListMusic, Music, Sparkles } from "lucide-react";
+import {
+  Headphones,
+  Heart,
+  ListMusic,
+  Music,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import type { ReactNode } from "react";
+import { Link } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import type { DashboardStatsSchema } from "#/api/generated/model";
 import {
@@ -32,6 +40,8 @@ interface StatCardProps {
   hero?: boolean;
   breakdown?: Record<string, number>;
   delay?: string;
+  /** Renders the card as a link to the page that lists what it counts. */
+  to?: string;
 }
 
 function StatCard({
@@ -41,19 +51,21 @@ function StatCard({
   hero = false,
   breakdown,
   delay,
+  to,
 }: StatCardProps) {
   const hasBreakdown = breakdown && Object.keys(breakdown).length > 0;
 
-  return (
-    <article
-      className={cn(
-        "animate-fade-up rounded-xl border p-5 space-y-1",
-        hero
-          ? "border-l-2 border-l-primary border-t-border-muted border-r-border-muted border-b-border-muted bg-surface-elevated shadow-md"
-          : "border-border-muted bg-surface",
-      )}
-      style={delay ? { animationDelay: delay } : undefined}
-    >
+  const className = cn(
+    "animate-fade-up block rounded-xl border p-5 space-y-1",
+    hero
+      ? "border-l-2 border-l-primary border-t-border-muted border-r-border-muted border-b-border-muted bg-surface-elevated shadow-md"
+      : "border-border-muted bg-surface",
+    to && "transition-colors hover:border-primary/60",
+  );
+  const style = delay ? { animationDelay: delay } : undefined;
+
+  const body = (
+    <>
       <span className="text-text-faint">{icon}</span>
       <p className="font-mono text-3xl font-semibold tracking-tight text-text">
         {formatCount(value)}
@@ -75,6 +87,16 @@ function StatCard({
           ))}
         </div>
       )}
+    </>
+  );
+
+  return to ? (
+    <Link to={to} viewTransition className={className} style={style}>
+      {body}
+    </Link>
+  ) : (
+    <article className={className} style={style}>
+      {body}
     </article>
   );
 }
@@ -146,7 +168,7 @@ function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
     linkedCount > 0 ? `Playlists \u00b7 ${linkedCount} linked` : "Playlists";
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <StatCard
         icon={<Music className="size-5" />}
         label={tracksLabel}
@@ -175,7 +197,14 @@ function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
         breakdown={stats.playlists_by_connector}
         delay="150ms"
       />
-      <PreferenceStatCard counts={stats.preference_counts} delay="200ms" />
+      <StatCard
+        icon={<Users className="size-5" />}
+        label="Favorite Artists"
+        value={stats.total_favorite_artists}
+        delay="200ms"
+        to="/artists?favorites=1"
+      />
+      <PreferenceStatCard counts={stats.preference_counts} delay="250ms" />
     </div>
   );
 }
@@ -221,8 +250,8 @@ export function Dashboard() {
         errorHeading="Failed to load statistics"
         skeleton={
           <CardGridSkeleton
-            count={4}
-            gridClassName="sm:grid-cols-2 lg:grid-cols-4"
+            count={6}
+            gridClassName="sm:grid-cols-2 lg:grid-cols-3"
             bars={["size-5", "h-8 w-24", "h-3 w-16"]}
           />
         }

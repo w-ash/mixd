@@ -23,6 +23,7 @@ import { Sync } from "./Sync";
 // completion toast, and there is no live stream in jsdom. Operation ids are
 // recorded so tests can assert which id a card attached its stream to.
 let mockProgress: OperationProgress | null = null;
+let mockIsActive = false;
 const seenOperationIds: (string | null)[] = [];
 vi.mock("#/hooks/useOperationProgress", async () => {
   const actual = await vi.importActual<
@@ -34,7 +35,10 @@ vi.mock("#/hooks/useOperationProgress", async () => {
     // card with no operation is not looking at anyone else's run.
     useOperationProgress: (operationId: string | null) => {
       seenOperationIds.push(operationId);
-      return { progress: operationId ? mockProgress : null, isActive: false };
+      return {
+        progress: operationId ? mockProgress : null,
+        isActive: operationId ? mockIsActive : false,
+      };
     },
   };
 });
@@ -54,6 +58,7 @@ vi.mock("#/lib/toasts", async () => {
 
 beforeEach(() => {
   mockProgress = null;
+  mockIsActive = false;
   seenOperationIds.length = 0;
   mockRunCompleted.mockReset();
   __resetRunToastLedger();
@@ -217,10 +222,11 @@ describe("Sync page", () => {
     expect(screen.getByText("Liked Tracks")).toBeInTheDocument();
   });
 
-  it("renders all six operation cards", () => {
+  it("renders all seven operation cards", () => {
     setupCheckpointsMock();
     renderWithProviders(<Sync />);
 
+    expect(screen.getByText("Enrich Artists")).toBeInTheDocument();
     expect(screen.getByText("Scrobble History")).toBeInTheDocument();
     expect(screen.getByText("Import Likes")).toBeInTheDocument();
     expect(screen.getByText("Export Loves")).toBeInTheDocument();
@@ -729,6 +735,83 @@ describe("Spotify history import queue", () => {
 
     await waitFor(() => {
       expect(deleteCalls).toHaveLength(1);
+    });
+  });
+});
+
+describe("Enrich artists", () => {
+  const runningProgress: OperationProgress = {
+    status: "running",
+    current: 3,
+    total: 10,
+    message: "Resolving artists",
+    description: null,
+    completionPercentage: 30,
+    itemsPerSecond: null,
+    etaSeconds: null,
+    counts: {},
+    subOperation: null,
+    subOperationHistory: {},
+  };
+
+  function enrichCard() {
+    return screen
+      .getByText("Enrich Artists")
+      .closest("div.rounded-xl") as HTMLElement;
+  }
+
+  it("names the work rather than the mechanism", () => {
+    setupCheckpointsMock();
+    renderWithProviders(<Sync />);
+
+    expect(
+      screen.getByText(
+        "Resolve artists against MusicBrainz: aliases, kind, and links to every connected service.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("starts the run and attaches its progress stream", async () => {
+    setupCheckpointsMock();
+    server.use(
+      http.post("*/api/v1/artists/enrich", () =>
+        HttpResponse.json({ operation_id: "op-art", run_id: "run-art" }),
+      ),
+    );
+    mockProgress = runningProgress;
+    renderWithProviders(<Sync />);
+
+    await userEvent.click(
+      within(enrichCard()).getByRole("button", { name: "Enrich" }),
+    );
+
+    await waitFor(() => {
+      expect(seenOperationIds).toContain("op-art");
+    });
+    expect(
+      await within(enrichCard()).findByText("Resolving artists"),
+    ).toBeInTheDocument();
+  });
+
+  it("gates the trigger while its own run is in flight", async () => {
+    setupCheckpointsMock();
+    server.use(
+      http.post("*/api/v1/artists/enrich", () =>
+        HttpResponse.json({ operation_id: "op-art", run_id: "run-art" }),
+      ),
+    );
+    mockProgress = runningProgress;
+    mockIsActive = true;
+    renderWithProviders(<Sync />);
+
+    await userEvent.click(
+      within(enrichCard()).getByRole("button", { name: "Enrich" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(enrichCard()).getByRole("button", { name: "Running..." }),
+      ).toBeDisabled();
     });
   });
 });

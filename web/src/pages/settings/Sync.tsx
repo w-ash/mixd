@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
+import { useEnrichArtistsApiV1ArtistsEnrichPost } from "#/api/generated/artists/artists";
 import {
   useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet,
   useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut,
@@ -668,6 +669,36 @@ function SpotifyHistoryImport() {
   );
 }
 
+/**
+ * Resolve every artist in the library against MusicBrainz.
+ *
+ * Not keyed to a connector account: MusicBrainz is a public API, so the card
+ * carries no sync target and gates only on work already in flight.
+ */
+function ArtistEnrichment() {
+  const operation = useImportOperation(
+    useEnrichArtistsApiV1ArtistsEnrichPost(),
+    "artist enrichment",
+  );
+
+  return (
+    <OperationCard
+      connector="musicbrainz"
+      title="Enrich Artists"
+      description="Resolve artists against MusicBrainz: aliases, kind, and links to every connected service."
+      // No checkpoint: enrichment re-reads whatever has gone stale rather than
+      // resuming from a cursor.
+      checkpoint={undefined}
+      operationId={operation.operationId}
+      runId={operation.runId}
+      operationType="artist_enrichment"
+      isPending={operation.isPending}
+      triggerLabel="Enrich"
+      onTrigger={() => operation.trigger({ data: {} })}
+    />
+  );
+}
+
 // ─── Page ───────────────────────────────────────────────────────
 
 export function Sync() {
@@ -752,6 +783,22 @@ export function Sync() {
                   style={{ animationDelay: "75ms" }}
                 >
                   <LastfmLikesExport checkpoints={checkpoints} />
+                </div>
+              </div>
+            </section>
+
+            {/* ── Artists ───────────────────────────────── */}
+            <section className="space-y-3">
+              <SectionHeader
+                title="Artists"
+                description="Who made the music — identity resolved once, then reused everywhere."
+              />
+              <div className="space-y-3">
+                <div
+                  className="animate-fade-up"
+                  style={{ animationDelay: "0ms" }}
+                >
+                  <ArtistEnrichment />
                 </div>
               </div>
             </section>

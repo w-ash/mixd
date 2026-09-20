@@ -9,11 +9,8 @@ filter and keyset paging, the enrichment queue, and the tenant scoping that
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
-from sqlalchemy import select
-
 from src.domain.entities.artist import Artist
 from src.domain.entities.track import ArtistCredit, Track
-from src.infrastructure.persistence.database.models import DBTrackArtist
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_connector_artist
 
@@ -68,22 +65,10 @@ class TestSaveAndGet:
         assert (await repo.get_artist_by_id(artist.id, user_id=user_id)) is not None
         assert (await repo.get_artist_by_id(artist.id, user_id=other)) is None
 
-    async def test_get_by_ids_keys_by_artist_id(self, db_session):
-        repo = get_unit_of_work(db_session).get_artist_repository()
-        user_id = _user()
-        saved = await _save_artists(repo, user_id, "A", "B")
-
-        found = await repo.get_artists_by_ids(
-            [saved[0].id, saved[1].id, uuid7()], user_id=user_id
-        )
-
-        assert set(found) == {saved[0].id, saved[1].id}
-
     async def test_empty_batches_do_not_query(self, db_session):
         repo = get_unit_of_work(db_session).get_artist_repository()
 
         assert await repo.save_artists([]) == []
-        assert await repo.get_artists_by_ids([], user_id=_user()) == {}
         assert await repo.count_tracks_by_artist([], user_id=_user()) == {}
 
 
@@ -318,8 +303,8 @@ class TestEnrichmentQueue:
         assert refreshed.updated_at >= before
 
 
-class TestCreditsAndDeletion:
-    async def test_counts_and_track_ids_read_the_credit_rows(self, db_session):
+class TestCredits:
+    async def test_counts_read_the_credit_rows(self, db_session):
         uow = get_unit_of_work(db_session)
         repo, track_repo = uow.get_artist_repository(), uow.get_track_repository()
         user_id = _user()
@@ -327,29 +312,8 @@ class TestCreditsAndDeletion:
         await _credit_tracks(track_repo, user_id, artist, 2)
 
         counts = await repo.count_tracks_by_artist([artist.id], user_id=user_id)
-        track_ids = await repo.get_track_ids_for_artist(artist.id, user_id=user_id)
 
         assert counts == {artist.id: 2}
-        assert len(track_ids) == 2
-
-    async def test_deleting_an_artist_leaves_its_credits_with_a_null_id(
-        self, db_session
-    ):
-        uow = get_unit_of_work(db_session)
-        repo, track_repo = uow.get_artist_repository(), uow.get_track_repository()
-        user_id = _user()
-        (artist,) = await _save_artists(repo, user_id, "Doomed")
-        await _credit_tracks(track_repo, user_id, artist, 1)
-
-        await repo.delete_artist(artist.id, user_id=user_id)
-
-        assert await repo.get_artist_by_id(artist.id, user_id=user_id) is None
-        result = await db_session.execute(
-            select(DBTrackArtist.credited_name, DBTrackArtist.artist_id).where(
-                DBTrackArtist.user_id == user_id
-            )
-        )
-        assert list(result.tuples()) == [("Doomed", None)]
 
 
 class TestTenantIsolation:
@@ -369,13 +333,3 @@ class TestTenantIsolation:
         assert await repo.count_tracks_by_artist([their_artist.id], user_id=mine) == {
             their_artist.id: 0
         }
-        assert await repo.get_track_ids_for_artist(their_artist.id, user_id=mine) == []
-
-    async def test_delete_refuses_another_tenants_row(self, db_session):
-        repo = get_unit_of_work(db_session).get_artist_repository()
-        mine, theirs = _user(), _user()
-        (their_artist,) = await _save_artists(repo, theirs, "Theirs")
-
-        await repo.delete_artist(their_artist.id, user_id=mine)
-
-        assert await repo.get_artist_by_id(their_artist.id, user_id=theirs) is not None

@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 
 interface PageHeaderProps {
   title: string;
-  description?: string;
+  /** Subtitle under the title. A node, so a page can link inside it. */
+  description?: ReactNode;
   action?: ReactNode;
 }
 

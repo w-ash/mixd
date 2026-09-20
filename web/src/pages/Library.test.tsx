@@ -59,6 +59,26 @@ describe("Library", () => {
     expect(screen.getAllByText("Album 1").length).toBeGreaterThan(0);
   });
 
+  it("links a track row's resolved artist credit to its artist page", async () => {
+    overrideTracks([
+      {
+        ...makeTracks(1)[0],
+        artists: [
+          { name: "Radiohead", artist_id: "art-1" },
+          { name: "Unresolved Guest" },
+        ],
+      },
+    ]);
+
+    renderWithProviders(<Library />);
+
+    const link = await screen.findByRole("link", { name: "Radiohead" });
+    expect(link).toHaveAttribute("href", "/artists/art-1");
+    expect(
+      screen.queryByRole("link", { name: "Unresolved Guest" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders empty state when no tracks exist", async () => {
     overrideTracks([]);
     // Empty-state copy is now derived from the backend's connector list

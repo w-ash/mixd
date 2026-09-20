@@ -10,6 +10,7 @@ import {
 } from "#/api/generated/tracks/tracks";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { TrackPlaysSection } from "#/components/plays/TrackPlaysSection";
+import { ArtistCredits } from "#/components/shared/ArtistCredits";
 import { BackLink } from "#/components/shared/BackLink";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { MergeTrackDialog } from "#/components/shared/MergeTrackDialog";
@@ -24,7 +25,6 @@ import { MappingList } from "#/components/track/MappingList";
 import { Badge } from "#/components/ui/badge";
 import {
   decodeHtmlEntities,
-  formatArtists,
   formatCount,
   formatDate,
   formatDateTime,
@@ -151,7 +151,7 @@ export function TrackDetail() {
 
       <PageHeader
         title={track.title}
-        description={formatArtists(track.artists)}
+        description={<ArtistCredits artists={track.artists} />}
         action={<MergeTrackDialog winner={track} />}
       />
 

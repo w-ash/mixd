@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,16 +75,6 @@ class ArtistFavoriteRepository(BaseRepository[DBArtistFavorite, ArtistFavorite])
         )
         return rows_affected(result) > 0
 
-    @db_operation("get_artist_favorites")
-    async def get_favorites(self, *, user_id: str) -> list[ArtistFavorite]:
-        """Every favorite the user holds, most recently favorited first."""
-        rows = await self._execute_query(
-            select(DBArtistFavorite)
-            .where(DBArtistFavorite.user_id == user_id)
-            .order_by(DBArtistFavorite.favorited_at.desc().nullslast())
-        )
-        return [await self.mapper.to_domain(row) for row in rows]
-
     @db_operation("get_favorite_status_batch")
     async def get_favorite_status_batch(
         self, artist_ids: Sequence[UUID], *, user_id: str
@@ -109,16 +99,6 @@ class ArtistFavoriteRepository(BaseRepository[DBArtistFavorite, ArtistFavorite])
             )
         )
         return frozenset(result.scalars().all())
-
-    @db_operation("count_artist_favorites")
-    async def count_favorites(self, *, user_id: str) -> int:
-        """Count the user's favorites without hydrating them."""
-        result = await self.session.execute(
-            select(func.count())
-            .select_from(DBArtistFavorite)
-            .where(DBArtistFavorite.user_id == user_id)
-        )
-        return result.scalar_one()
 
 
 __all__ = ["ArtistFavoriteRepository"]

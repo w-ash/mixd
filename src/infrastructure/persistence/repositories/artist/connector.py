@@ -34,9 +34,6 @@ from src.infrastructure.persistence.repositories._shared.mapping import (
     MappingRepository,
     MappingShape,
 )
-from src.infrastructure.persistence.repositories.artist.core import (
-    connector_names_stmt,
-)
 from src.infrastructure.persistence.repositories.artist.mapper import (
     ArtistMapper,
     ArtistMappingMapper,
@@ -198,32 +195,6 @@ class ArtistConnectorRepository:
             for connector_artist_id, db_artist in result.tuples()
         }
 
-    @db_operation("find_artists_by_connector_identifiers")
-    async def find_artists_by_connector_identifiers(
-        self, connector_name: str, identifiers: Sequence[str], *, user_id: str
-    ) -> dict[str, Artist]:
-        """Canonical artists for a service's own identifiers, keyed by identifier."""
-        if not identifiers:
-            return {}
-        result = await self.session.execute(
-            select(DBConnectorArtist.connector_artist_identifier, DBArtist)
-            .join(
-                DBArtistMapping,
-                DBArtistMapping.connector_artist_id == DBConnectorArtist.id,
-            )
-            .join(DBArtist, DBArtistMapping.artist_id == DBArtist.id)
-            .where(
-                DBConnectorArtist.connector_name == connector_name,
-                DBConnectorArtist.connector_artist_identifier.in_(identifiers),
-                DBArtistMapping.user_id == user_id,
-                DBArtist.user_id == user_id,
-            )
-        )
-        return {
-            identifier: await ArtistMapper.to_domain(db_artist)
-            for identifier, db_artist in result.tuples()
-        }
-
     @db_operation("get_full_mappings_for_artist")
     async def get_full_mappings_for_artist(
         self, artist_id: UUID, *, user_id: str
@@ -262,7 +233,7 @@ class ArtistConnectorRepository:
                 confidence=confidence,
                 origin=origin,
                 is_primary=is_primary,
-                connector_artist_name=name,
+                name=name,
                 raw_metadata=raw_metadata or {},
             )
             for (
@@ -277,19 +248,6 @@ class ArtistConnectorRepository:
                 raw_metadata,
             ) in result.tuples()
         ]
-
-    @db_operation("get_connector_names_batch")
-    async def get_connector_names_batch(
-        self, artist_ids: Sequence[UUID], *, user_id: str
-    ) -> dict[UUID, list[str]]:
-        """Which services each artist is mapped to — one query for a page."""
-        if not artist_ids:
-            return {}
-        result = await self.session.execute(connector_names_stmt(artist_ids, user_id))
-        names: dict[UUID, list[str]] = {}
-        for mapped_artist_id, connector_name in result.tuples():
-            names.setdefault(mapped_artist_id, []).append(connector_name)
-        return {artist_id: sorted(found) for artist_id, found in names.items()}
 
     # ── the generic mapping seam, unwrapped ──────────────────────────
 

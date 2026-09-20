@@ -10,9 +10,10 @@
 ```
 Mixd
 ├── Dashboard        /                    Stats, health, activity feed
-├── Library                               Nav section (v0.10.4); Artists/Albums nest here in v0.12.x
+├── Library                               Nav section (v0.10.4); Albums nest here in v0.12.2
 │   ├── Tracks       /library             Track browsing & search
-│   └── Plays        /library/plays       Play history feed with chart navigator
+│   ├── Plays        /library/plays       Play history feed with chart navigator
+│   └── Artists      /artists             Artist browsing, search & favorites (v0.12.1)
 ├── Playlists        /playlists           List, detail, edit, links
 ├── Workflows        /workflows           List, run, edit, visualize
 ├── Imports          /imports             Trigger & monitor data operations

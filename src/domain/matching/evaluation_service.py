@@ -20,6 +20,10 @@ from src.domain.matching.algorithms import (
     ServiceTrackData,
     calculate_confidence,
 )
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+)
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.types import (
     ISRC_GRADE_METHODS,
@@ -86,6 +90,8 @@ class MatchEvaluationService:
         track: Track,
         raw_match: RawProviderMatch,
         connector: str,
+        *,
+        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> MatchResult:
         """Evaluate a single track match using pure business logic.
 
@@ -93,6 +99,10 @@ class MatchEvaluationService:
             track: Internal track entity
             raw_match: Raw data from infrastructure provider
             connector: Name of the external service connector
+            artist_equivalence: Alias groups covering this batch's credited
+                names. Per-batch data, not configuration — it stays off
+                ``config`` so ``matcher_version`` does not move when the alias
+                cache does. The default compares names as plain strings.
 
         Returns:
             MatchResult with confidence score and business decision
@@ -113,6 +123,7 @@ class MatchEvaluationService:
             cast(ServiceTrackData, raw_match["service_data"]),
             raw_match["match_method"],
             self.config,
+            artist_equivalence=artist_equivalence,
         )
 
         # Apply three-zone classification
@@ -153,6 +164,8 @@ class MatchEvaluationService:
         tracks: list[Track],
         raw_matches: dict[UUID, RawProviderMatch],
         connector: str,
+        *,
+        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> EvaluationResult:
         """Evaluate raw provider matches using three-zone classification.
 
@@ -170,6 +183,8 @@ class MatchEvaluationService:
             tracks: List of internal track entities.
             raw_matches: Raw match data from providers (no business logic applied).
             connector: Name of the external service connector.
+            artist_equivalence: Alias groups covering this batch's credited
+                names, compiled once by the caller and read by every score.
 
         Returns:
             EvaluationResult with all four outcomes: accepted, review
@@ -191,6 +206,7 @@ class MatchEvaluationService:
                 track=track,
                 raw_match=raw_match,
                 connector=connector,
+                artist_equivalence=artist_equivalence,
             )
 
             if match_result.success:

@@ -118,10 +118,14 @@ class EnrichArtistsCommand:
 
 @define(frozen=True, slots=True)
 class EnrichArtistsResult:
-    """Enrichment outcome: what was looked at, identified, and seeded."""
+    """Enrichment outcome: what was identified and seeded.
+
+    The count of artists looked at rides in ``result.summary_metrics`` only —
+    every caller either renders that table or forwards the ``OperationResult``
+    whole.
+    """
 
     result: OperationResult
-    artists_processed: int = 0
     artists_identified: int = 0
     aliases_written: int = 0
     mappings_seeded: int = 0
@@ -450,7 +454,6 @@ class EnrichArtistsUseCase:
             result.metadata[RESOLUTION_FAILURES_TRUNCATED_KEY] = tally.issues_dropped
         return EnrichArtistsResult(
             result=result,
-            artists_processed=tally.processed,
             artists_identified=tally.identified,
             aliases_written=tally.aliases,
             mappings_seeded=tally.mappings,

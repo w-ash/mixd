@@ -6,6 +6,10 @@ mismatch without it — plus the property that makes the seam safe to add: a
 caller that passes nothing gets exactly the old score.
 """
 
+from uuid import UUID, uuid7
+
+from src.domain.entities.artist import ArtistAlias
+from src.domain.entities.track import ArtistCredit
 from src.domain.matching.algorithms import (
     InternalTrackData,
     ServiceTrackData,
@@ -14,11 +18,16 @@ from src.domain.matching.algorithms import (
 from src.domain.matching.artist_equivalence import (
     EMPTY_EQUIVALENCE,
     ArtistEquivalence,
+    equivalence_from_alias_rows,
 )
 from src.domain.matching.config import MatchingConfig
+from src.domain.matching.evaluation_service import MatchEvaluationService
+from src.domain.matching.types import MatchResult, RawProviderMatch
+from tests.fixtures import make_track
 
 TEED = "TEED"
 FULL_NAME = "Totally Enormous Extinct Dinosaurs"
+NAMES = (TEED, FULL_NAME)
 
 
 def make_config() -> MatchingConfig:
@@ -38,6 +47,32 @@ def internal(artist: str) -> InternalTrackData:
 
 def service(artist: str) -> ServiceTrackData:
     return {"title": "Garden", "artist": artist, "duration_ms": 240_000}
+
+
+def alias(connector_artist_id: UUID, name: str) -> ArtistAlias:
+    return ArtistAlias(connector_artist_id=connector_artist_id, name=name)
+
+
+def evaluate_teed_against(
+    library_artist: str, *, equivalence: ArtistEquivalence
+) -> MatchResult:
+    """Score a Last.fm-shaped answer credited to "TEED" against a library track.
+
+    A scrobble states a title and an artist and nothing else, and the library
+    title carries a parenthetical the scrobble drops — so the artist
+    comparison is the evidence that decides this match either way.
+    """
+    track = make_track(
+        title="Garden (Live)", artists=[ArtistCredit(credited_name=library_artist)]
+    )
+    raw_match: RawProviderMatch = {
+        "connector_id": "lastfm-garden",
+        "match_method": "artist_title",
+        "service_data": {"title": "Garden", "artist": TEED},
+    }
+    return MatchEvaluationService(config=make_config()).evaluate_single_match(
+        track, raw_match, "lastfm", artist_equivalence=equivalence
+    )
 
 
 class TestCompilation:
@@ -158,3 +193,54 @@ class TestConfidenceWithAliases:
         )
 
         assert default == explicit_none == empty
+
+
+class TestCompilingCachedRows:
+    """``equivalence_from_alias_rows``: repo results in, lookup out."""
+
+    def test_one_connector_artist_becomes_one_group(self):
+        connector_artist_id = uuid7()
+        equivalence = equivalence_from_alias_rows(
+            {TEED: [connector_artist_id]},
+            {connector_artist_id: [alias(connector_artist_id, n) for n in NAMES]},
+        )
+        assert equivalence.same(TEED, FULL_NAME)
+
+    def test_two_connector_artists_stay_apart(self):
+        teed_id, tourist_id = uuid7(), uuid7()
+        equivalence = equivalence_from_alias_rows(
+            {TEED: [teed_id], "Tourist": [tourist_id]},
+            {
+                teed_id: [alias(teed_id, n) for n in NAMES],
+                tourist_id: [alias(tourist_id, "Tourist")],
+            },
+        )
+        assert equivalence.same(TEED, FULL_NAME)
+        assert not equivalence.same(TEED, "Tourist")
+
+    def test_a_name_with_no_cached_rows_compiles_to_nothing(self):
+        assert equivalence_from_alias_rows({}, {}).groups == {}
+
+    def test_a_reached_artist_whose_rows_are_missing_is_skipped(self):
+        # The second query can come back short — the alias rows are a cache,
+        # and a concurrent refresh replaces them wholesale.
+        connector_artist_id = uuid7()
+        equivalence = equivalence_from_alias_rows({TEED: [connector_artist_id]}, {})
+        assert not equivalence.same(TEED, FULL_NAME)
+
+
+class TestEvaluatorSeam:
+    """The field on ``MatchEvaluationService`` reaches the scoring call."""
+
+    def test_an_alias_pair_is_accepted(self):
+        result = evaluate_teed_against(
+            FULL_NAME,
+            equivalence=ArtistEquivalence.from_groups([NAMES]),
+        )
+        assert result.success
+
+    def test_the_same_pair_is_refused_without_alias_data(self):
+        result = evaluate_teed_against(FULL_NAME, equivalence=EMPTY_EQUIVALENCE)
+        assert not result.success
+        assert not result.review_required
+        assert result.confidence < make_config().review_threshold

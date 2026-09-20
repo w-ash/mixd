@@ -574,6 +574,7 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
 | List checkpoints | `GET /imports/checkpoints` | Checkpoint query | ✅ Implemented (v0.3.1) |
+| Enrich artists | `POST /api/v1/artists/enrich` | `EnrichArtistsUseCase` | ✅ Implemented (v0.12.1) |
 
 ---
 
@@ -1343,7 +1344,7 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 
 ## 8. Artists & Albums
 
-> **Planned for v0.12.1 (artists) and v0.12.2 (albums).** Backlog: [v0.12.x](../backlog/v0.12.x.md). All endpoints below are 🔜 Planned.
+> **Artists shipped in v0.12.1; albums are planned for v0.12.2.** Backlog: [v0.12.x](../backlog/v0.12.x.md). Album endpoints (8.3, 8.4) are still 🔜 Planned.
 
 ### 8.1 Browsing Artists
 
@@ -1358,7 +1359,7 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| List/search artists | `GET /api/v1/artists` | `ListArtistsUseCase` | 🔜 Planned (v0.12.1) |
+| List/search artists | `GET /api/v1/artists` | `ListArtistsUseCase` | ✅ Implemented (v0.12.1) |
 
 **Edge cases**:
 - Empty library (no artists yet): empty state pointing at Import Center.
@@ -1377,9 +1378,10 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Detail | `GET /api/v1/artists/{id}` | `GetArtistDetailUseCase` | 🔜 Planned (v0.12.1) |
-| Favorite | `POST /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | 🔜 Planned (v0.12.1) |
-| Unfavorite | `DELETE /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | 🔜 Planned (v0.12.1) |
+| Detail | `GET /api/v1/artists/{id}` | `GetArtistDetailUseCase` | ✅ Implemented (v0.12.1) |
+| Favorite | `POST /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | ✅ Implemented (v0.12.1) |
+| Unfavorite | `DELETE /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | ✅ Implemented (v0.12.1) |
+| Tracks by artist | `GET /api/v1/tracks?artist_id=` | `ListTracksUseCase` | ✅ Implemented (v0.12.1) |
 
 **Edge cases**:
 - Artist with no connector mappings (backfilled from JSON only): sections render, connector links absent.
