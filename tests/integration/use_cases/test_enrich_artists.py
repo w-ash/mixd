@@ -15,7 +15,7 @@ from src.application.use_cases.enrich_artists import (
     EnrichArtistsCommand,
     EnrichArtistsUseCase,
 )
-from src.domain.entities.artist import Artist
+from src.domain.entities.artist import Artist, ConnectorArtist
 from src.domain.matching.artist_enrichment import (
     ArtistAliasRecord,
     ArtistLookup,
@@ -93,6 +93,9 @@ class TestEnrichmentRoundTrip:
 
         assert result.artists_identified == 1
         assert provider.searches == ["TEED"]
+        # The search names the MBID; only the lookup carries the url-rels the
+        # Spotify mapping below is seeded from, so it happens on this pass.
+        assert provider.lookups == [MBID]
 
         stored = await db_session.get(DBArtist, artist.id)
         assert stored is not None
@@ -203,3 +206,94 @@ class TestEnrichmentRoundTrip:
             await count(db_session, DBArtistMapping, DBArtistMapping.user_id == user_id)
             == 0
         )
+
+
+class TestExistingMappingsSurvive:
+    """What the import path wrote outranks what a url-rel infers."""
+
+    async def seed_spotify_mapping(self, db_session, artist: Artist) -> None:
+        """Give an artist the ``direct`` Spotify mapping an import would write."""
+        connectors = get_unit_of_work(db_session).get_artist_connector_repository()
+        stored = await connectors.bulk_upsert_connector_artists(
+            "spotify",
+            [
+                ConnectorArtist(
+                    connector_name="spotify",
+                    connector_artist_identifier="sp-teed",
+                    name=artist.name,
+                )
+            ],
+        )
+        assertion = await connectors.assert_mappings([
+            {
+                "user_id": artist.user_id,
+                "artist_id": artist.id,
+                "connector_artist_id": stored["sp-teed"].id,
+                "connector_name": "spotify",
+                "match_method": "direct",
+                "confidence": 100,
+                "confidence_evidence": None,
+            }
+        ])
+        await connectors.record_assertion(assertion)
+        await db_session.commit()
+
+    async def spotify_mapping(self, db_session, user_id: str):
+        result = await db_session.execute(
+            select(
+                DBArtistMapping.artist_id,
+                DBArtistMapping.match_method,
+            ).where(
+                DBArtistMapping.user_id == user_id,
+                DBArtistMapping.connector_name == "spotify",
+            )
+        )
+        return result.tuples().all()
+
+    async def test_a_direct_mapping_is_not_downgraded_by_the_rel_that_repeats_it(
+        self, db_session
+    ):
+        user_id = f"enrich-{uuid7()}"
+        artist = await seed_artist(db_session, user_id, "TEED")
+        await self.seed_spotify_mapping(db_session, artist)
+
+        result = await EnrichArtistsUseCase(
+            provider=FakeEnrichmentProvider(make_lookup())
+        ).execute(EnrichArtistsCommand(user_id=user_id), get_unit_of_work(db_session))
+
+        assert result.artists_identified == 1
+        # Still the import's own word for it, on the same artist.
+        assert await self.spotify_mapping(db_session, user_id) == [
+            (artist.id, "direct")
+        ]
+        # Only the MusicBrainz anchor was seeded this run.
+        assert result.mappings_seeded == 1
+        assert not result.result.resolution_failures
+
+    async def test_a_rel_claiming_another_artists_id_is_reported_not_re_pointed(
+        self, db_session
+    ):
+        user_id = f"enrich-{uuid7()}"
+        owner = await seed_artist(db_session, user_id, "Orlando Higginbottom")
+        await self.seed_spotify_mapping(db_session, owner)
+        # Identified already, so the run below only has the claimant to do.
+        await (
+            get_unit_of_work(db_session)
+            .get_artist_repository()
+            .set_identity(owner.id, user_id=user_id, mbid="mb-owner", kind="person")
+        )
+        await db_session.commit()
+        claimant = await seed_artist(db_session, user_id, "TEED")
+
+        result = await EnrichArtistsUseCase(
+            provider=FakeEnrichmentProvider(make_lookup())
+        ).execute(EnrichArtistsCommand(user_id=user_id), get_unit_of_work(db_session))
+
+        assert result.artists_identified == 1
+        # The Spotify id stays where it was; the claimant gets no Spotify row.
+        assert await self.spotify_mapping(db_session, user_id) == [(owner.id, "direct")]
+        (issue,) = result.result.resolution_failures
+        assert issue["artist"] == "TEED"
+        assert "Orlando Higginbottom" in str(issue["reason"])
+        stored = await db_session.get(DBArtist, claimant.id)
+        assert stored.mbid == MBID

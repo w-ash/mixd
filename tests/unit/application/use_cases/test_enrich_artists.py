@@ -7,7 +7,7 @@ mappings, how the run commits, and what a provider fault or a dry run does.
 """
 
 from unittest.mock import AsyncMock
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import pytest
 
@@ -61,8 +61,13 @@ def make_connector_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def upsert_returns(repo: AsyncMock) -> None:
-    """Echo each upserted batch back keyed by identifier, as the real one does."""
+def upsert_returns(repo: AsyncMock, ids: dict[str, UUID] | None = None) -> None:
+    """Echo each upserted batch back keyed by identifier, as the real one does.
+
+    ``ids`` pins the row id a given connector identifier comes back with, so a
+    test can hand the same id to ``find_artists_by_connector_artist_ids``.
+    """
+    pinned = ids or {}
 
     async def _upsert(connector_name: str, artists) -> dict[str, ConnectorArtist]:
         return {
@@ -71,6 +76,7 @@ def upsert_returns(repo: AsyncMock) -> None:
                 connector_artist_identifier=artist.connector_artist_identifier,
                 name=artist.name,
                 raw_metadata=artist.raw_metadata,
+                id=pinned.get(artist.connector_artist_identifier, artist.id),
             )
             for artist in artists
         }
@@ -78,9 +84,20 @@ def upsert_returns(repo: AsyncMock) -> None:
     repo.bulk_upsert_connector_artists.side_effect = _upsert
 
 
-def build(candidates, *, hits=None, lookup=None, error=None):
-    """Wire a UoW, a fake provider and the repos one run needs."""
+# "not given", as distinct from "the provider answers None".
+UNSET = object()
+
+
+def build(candidates, *, hits=None, lookup=UNSET, error=None, connector_repo=None):
+    """Wire a UoW, a fake provider and the repos one run needs.
+
+    A search hit is re-read by MBID before anything is written, so ``lookup``
+    defaults to the first hit: that is what MusicBrainz returns for the id the
+    search just handed over, minus the relations only a lookup carries.
+    """
     provider = AsyncMock()
+    if lookup is UNSET:
+        lookup = hits[0] if hits else None
     if error is not None:
         provider.search_artist.side_effect = error
         provider.lookup_artist.side_effect = error
@@ -89,8 +106,9 @@ def build(candidates, *, hits=None, lookup=None, error=None):
         provider.lookup_artist.return_value = lookup
 
     artist_repo = make_mock_artist_repo(list_needing_enrichment=candidates)
-    connector_repo = make_connector_repo()
-    upsert_returns(connector_repo)
+    if connector_repo is None:
+        connector_repo = make_connector_repo()
+        upsert_returns(connector_repo)
     alias_repo = make_mock_artist_alias_repo(replace_aliases=2)
     uow = make_mock_uow(
         artist_repo=artist_repo,
@@ -304,6 +322,7 @@ class TestFailures:
             RuntimeError("musicbrainz unreachable"),
             [make_lookup()],
         ]
+        provider.lookup_artist.return_value = make_lookup()
         connector_repo = make_connector_repo()
         upsert_returns(connector_repo)
         uow = make_mock_uow(
@@ -358,3 +377,129 @@ class TestMappingSeam:
 
         with pytest.raises(TypeError, match="assert_mappings"):
             _ = await EnrichArtistsUseCase().execute(command(), uow)
+
+
+class TestFirstPassSeeding:
+    """A name-identified artist gets its ids on the run that identified it."""
+
+    async def test_a_search_hit_is_re_read_by_mbid_before_anything_is_written(self):
+        # What MusicBrainz' /artist?query= actually returns: no relations.
+        hit = make_lookup(url_rels=())
+        full = make_lookup(
+            url_rels=(
+                ArtistUrlRel("spotify", "sp-1", "https://open.spotify.com/artist/sp-1"),
+                ArtistUrlRel("discogs", "1289", "https://www.discogs.com/artist/1289"),
+            )
+        )
+        artist = make_artist(name="TEED")
+        uow, provider, _, connector_repo, _ = build([artist], hits=[hit], lookup=full)
+
+        result = await EnrichArtistsUseCase().execute(command(), uow)
+
+        provider.lookup_artist.assert_awaited_once_with(MBID)
+        (rows,) = connector_repo.assert_mappings.call_args.args
+        assert {row["connector_name"] for row in rows} == {
+            "musicbrainz",
+            "spotify",
+            "discogs",
+        }
+        assert result.mappings_seeded == 3
+
+    async def test_the_search_hit_carries_the_artist_when_the_re_read_fails(self):
+        artist = make_artist(name="TEED")
+        hit = make_lookup(url_rels=())
+        uow, _, artist_repo, connector_repo, _ = build([artist], hits=[hit])
+        uow.get_artist_enrichment_provider.return_value.lookup_artist.side_effect = (
+            RuntimeError("musicbrainz 503")
+        )
+
+        result = await EnrichArtistsUseCase().execute(command(), uow)
+
+        # Identified on the hit's own aliases; the ids wait for the next pass.
+        assert result.artists_identified == 1
+        artist_repo.set_identity.assert_awaited_once()
+        (rows,) = connector_repo.assert_mappings.call_args.args
+        assert {row["connector_name"] for row in rows} == {"musicbrainz"}
+        (issue,) = result.result.resolution_failures
+        assert "lookup after search" in str(issue["reason"])
+
+
+class TestExistingMappingsSurvive:
+    """url-rel seeding is additive: it never rewrites a live mapping."""
+
+    def _repo_with_existing(self, connector_artist_id, owner):
+        repo = make_connector_repo(
+            find_artists_by_connector_artist_ids={connector_artist_id: owner}
+        )
+        upsert_returns(repo, {"sp-1": connector_artist_id})
+        return repo
+
+    async def test_an_existing_direct_mapping_is_stamped_not_rewritten(self):
+        artist = make_artist(name="TEED")
+        sp_row_id = uuid7()
+        repo = self._repo_with_existing(sp_row_id, artist)
+        uow, _, _, connector_repo, _ = build(
+            [artist], hits=[make_lookup()], connector_repo=repo
+        )
+
+        result = await EnrichArtistsUseCase().execute(command(), uow)
+
+        (rows,) = connector_repo.assert_mappings.call_args.args
+        # The MusicBrainz anchor only — the import path's ``direct`` Spotify
+        # mapping is left exactly as the import wrote it.
+        assert [row["connector_name"] for row in rows] == ["musicbrainz"]
+        connector_repo.touch_last_seen.assert_awaited_once_with(
+            "spotify", [sp_row_id], user_id=artist.user_id
+        )
+        assert result.mappings_seeded == 1
+        assert not result.result.resolution_failures
+
+    async def test_a_conflicting_owner_is_reported_and_nothing_is_re_pointed(self):
+        artist = make_artist(name="TEED")
+        other = make_artist(name="Orlando Higginbottom")
+        sp_row_id = uuid7()
+        repo = self._repo_with_existing(sp_row_id, other)
+        uow, _, _, connector_repo, _ = build(
+            [artist], hits=[make_lookup()], connector_repo=repo
+        )
+
+        result = await EnrichArtistsUseCase().execute(command(), uow)
+
+        (rows,) = connector_repo.assert_mappings.call_args.args
+        assert [row["connector_name"] for row in rows] == ["musicbrainz"]
+        # Not even a freshness stamp: the id is not this artist's to claim.
+        connector_repo.touch_last_seen.assert_not_awaited()
+        (issue,) = result.result.resolution_failures
+        assert "Orlando Higginbottom" in str(issue["reason"])
+        assert "left as is" in str(issue["reason"])
+
+    async def test_two_artists_in_one_batch_do_not_fight_over_one_id(self):
+        # Neither is mapped yet, so the database can answer for neither: the
+        # first to stage the claim keeps it.
+        first = make_artist(name="Caribou")
+        second = make_artist(name="Daphni")
+        sp_row_id = uuid7()
+        repo = make_connector_repo()
+        upsert_returns(repo, {"sp-1": sp_row_id})
+        uow, _, _, connector_repo, _ = build(
+            [first, second],
+            hits=[make_lookup(name="Caribou", aliases=())],
+            connector_repo=repo,
+        )
+        uow.get_artist_enrichment_provider.return_value.search_artist.side_effect = [
+            [make_lookup(name="Caribou", aliases=())],
+            [make_lookup(mbid="mb-daphni", name="Daphni", aliases=())],
+        ]
+        uow.get_artist_enrichment_provider.return_value.lookup_artist.side_effect = [
+            make_lookup(name="Caribou", aliases=()),
+            make_lookup(mbid="mb-daphni", name="Daphni", aliases=()),
+        ]
+
+        result = await EnrichArtistsUseCase().execute(command(), uow)
+
+        (rows,) = connector_repo.assert_mappings.call_args.args
+        spotify_rows = [row for row in rows if row["connector_name"] == "spotify"]
+        assert len(spotify_rows) == 1
+        assert spotify_rows[0]["artist_id"] == first.id
+        (issue,) = result.result.resolution_failures
+        assert issue["artist"] == "Daphni"

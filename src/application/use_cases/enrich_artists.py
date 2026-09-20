@@ -11,7 +11,15 @@ One MusicBrainz response pays for four services. Its ``url-rels`` carry the
 artist's Spotify, Discogs, Apple and Tidal ids, so a single lookup seeds
 ``connector_artists`` rows and id-tier mappings for services Mixd has never
 called — which is why the alternative (four name searches) is not on the
-table at all.
+table at all. Only a lookup by MBID carries them, so an artist identified by
+name search is re-read through its new MBID before anything is written.
+
+That seeding is additive and never corrective. An id the user already
+resolves keeps the mapping it has — the import path's first-hand ``direct``
+outranks an inferred rel — and is merely stamped as seen. When the live
+mapping names a different canonical artist, the two disagree about who owns
+the id; the mapping still stands, and the disagreement is reported as an
+issue for its owner to settle.
 
 A name search never decides anything on its own. A hit counts only when one
 of its spellings — the artist's name or any alias MusicBrainz states — is
@@ -170,12 +178,18 @@ class _Batch:
     mapping_rows: list[dict[str, object]] = field(factory=list)
     primaries: list[PrimaryCandidate] = field(factory=list)
     touched: list[UUID] = field(factory=list)
+    # Connector artists this batch has already staged a mapping for, by the
+    # artist staking the claim. The database cannot answer for rows that are
+    # still in ``mapping_rows``, and two of a user's artists naming one
+    # Spotify id through their url-rels is exactly the case that needs it.
+    claimed: dict[UUID, Artist] = field(factory=dict)
 
     def clear(self) -> None:
         """Drop everything this batch has already flushed."""
         self.mapping_rows.clear()
         self.primaries.clear()
         self.touched.clear()
+        self.claimed.clear()
 
 
 @define(slots=True)
@@ -308,7 +322,50 @@ class EnrichArtistsUseCase:
             tally.record_issue(artist, f"{type(error).__name__}: {error}")
             return None, None
 
-        return _choose_hit(artist.name, hits, config, evaluator) or (None, None)
+        chosen = _choose_hit(artist.name, hits, config, evaluator)
+        if chosen is None:
+            return None, None
+        hit, evidence = chosen
+        return await self._full_record(artist, hit, provider, tally), evidence
+
+    async def _full_record(
+        self,
+        artist: Artist,
+        hit: ArtistLookup,
+        provider: ArtistEnrichmentProviderProtocol,
+        tally: _Tally,
+    ) -> ArtistLookup:
+        """The search hit re-read by MBID, or the hit itself when that fails.
+
+        A search response states no relations — only a lookup asks for
+        ``url-rels`` — so acting on the hit alone seeds no Spotify, Discogs,
+        Apple or Tidal ids and leaves all four to a second run. One extra
+        request per newly identified artist buys them on the first pass, and
+        at MusicBrainz' 1 req/s that is the cost of the second the artist was
+        already going to spend.
+
+        A failed re-read never unidentifies the artist: the hit carries the
+        aliases, so the identity still lands and the ids come next pass.
+        """
+        try:
+            full = await provider.lookup_artist(hit.mbid)
+        except Exception as error:
+            logger.warning(
+                "Artist lookup after search failed — keeping the search hit",
+                artist=artist.name,
+                mbid=hit.mbid,
+                exc_info=True,
+            )
+            tally.record_issue(
+                artist, f"lookup after search: {type(error).__name__}: {error}"
+            )
+            return hit
+        if full is None:
+            tally.record_issue(
+                artist, f"lookup after search did not resolve {hit.mbid}"
+            )
+            return hit
+        return full
 
     async def _stage(
         self,
@@ -357,8 +414,9 @@ class EnrichArtistsUseCase:
         # rels for one service are normal (alias projects carry separate ids
         # and are linked, never merged), so every one is kept and the
         # election picks which the UI shows.
+        seeded: dict[str, list[tuple[ArtistUrlRel, ConnectorArtist]]] = {}
         for service, rels in _rels_by_service(lookup).items():
-            seeded = await connectors.bulk_upsert_connector_artists(
+            stored_rels = await connectors.bulk_upsert_connector_artists(
                 service,
                 [
                     ConnectorArtist(
@@ -370,16 +428,78 @@ class EnrichArtistsUseCase:
                     for rel in rels
                 ],
             )
-            for rel in rels:
-                row = seeded.get(rel.identifier)
-                if row is None:
+            seeded[service] = [
+                (rel, row)
+                for rel in rels
+                if (row := stored_rels.get(rel.identifier)) is not None
+            ]
+
+        tally.mappings += 1 + await self._seed_rel_mappings(
+            artist,
+            seeded,
+            connectors=connectors,
+            batch=batch,
+            tally=tally,
+            evidence=id_evidence,
+        )
+
+    async def _seed_rel_mappings(
+        self,
+        artist: Artist,
+        seeded: Mapping[str, Sequence[tuple[ArtistUrlRel, ConnectorArtist]]],
+        *,
+        connectors: ArtistConnectorRepositoryProtocol,
+        batch: _Batch,
+        tally: _Tally,
+        evidence: ArtistEvidence,
+    ) -> int:
+        """Stage mappings for the rels that have no live mapping yet.
+
+        Seeding is additive, never corrective. A url-rel is the weakest way
+        Mixd can learn an id: the import path writes the same Spotify id from
+        the payload it was handed, at ``direct``, and rewriting that to
+        ``mb_url_rel`` would replace first-hand evidence with hearsay. So an
+        id this user already resolves is left exactly as it is and only
+        stamped as seen — re-encounter is freshness, not evidence.
+
+        When the live mapping belongs to a *different* canonical artist, the
+        rel and the existing mapping disagree about who owns the id. The
+        existing mapping was written against real listening data and this one
+        is an inference from a relation, so the rule is the same: the mapping
+        stands, the disagreement is recorded as an issue, and nothing is
+        re-pointed. Splitting or merging the two artists is a decision for
+        their owner, not for a trickle-scheduled background pass.
+        """
+        owners = await connectors.find_artists_by_connector_artist_ids(
+            [row.id for pairs in seeded.values() for _, row in pairs],
+            user_id=artist.user_id,
+        )
+        staged = 0
+        for service, pairs in seeded.items():
+            re_seen: list[UUID] = []
+            for rel, row in pairs:
+                owner = owners.get(row.id) or batch.claimed.get(row.id)
+                if owner is not None:
+                    if owner.id == artist.id:
+                        re_seen.append(row.id)
+                    else:
+                        tally.record_issue(
+                            artist,
+                            f"{service} id {rel.identifier} already maps to "
+                            f"{owner.name} — mapping left as is",
+                        )
                     continue
+                batch.claimed[row.id] = artist
                 batch.mapping_rows.append(
-                    _mapping_row(artist, row.id, service, "mb_url_rel", id_evidence)
+                    _mapping_row(artist, row.id, service, "mb_url_rel", evidence)
                 )
                 batch.primaries.append(PrimaryCandidate(artist.id, service, row.id))
-
-        tally.mappings += 1 + len(url_rels)
+                staged += 1
+            if re_seen:
+                await connectors.touch_last_seen(
+                    service, re_seen, user_id=artist.user_id
+                )
+        return staged
 
     async def _flush(
         self,

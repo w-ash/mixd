@@ -49,7 +49,13 @@ export async function customFetch<T>(
     init = { ...init, headers };
   }
 
-  const response = await fetch(url, init);
+  // Tanstack Query is the app's cache of record. The API answers reads with
+  // `Cache-Control: max-age`, which would put a second cache *underneath* it
+  // that no invalidation can reach: the refetch a write triggers is served the
+  // pre-write body from the browser, and the optimistic flip snaps back. The
+  // responses carry ETags, so forcing revalidation keeps the bandwidth saving
+  // while making every read agree with the server.
+  const response = await fetch(url, { cache: "no-cache", ...init });
 
   // 204 No Content — return envelope with undefined data
   if (response.status === 204) {

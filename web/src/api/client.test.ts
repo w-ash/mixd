@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { installHttpCache } from "#/test/http-cache";
 import { server } from "#/test/setup";
 
 import { ApiError, customFetch } from "./client";
@@ -16,6 +17,12 @@ async function catchApiError(url: string): Promise<ApiError> {
 }
 
 describe("customFetch", () => {
+  let uninstallCache: (() => void) | undefined;
+  afterEach(() => {
+    uninstallCache?.();
+    uninstallCache = undefined;
+  });
+
   it("returns envelope with undefined data for 204 No Content", async () => {
     server.use(
       http.get("*/test-204", () => {
@@ -89,5 +96,29 @@ describe("customFetch", () => {
     expect(error.code).toBe("UNKNOWN_ERROR");
     expect(error.message).toBe("An unknown error occurred");
     expect(error.details).toBeUndefined();
+  });
+  it("revalidates a `max-age` read instead of reusing the browser's copy", async () => {
+    // The API caches reads for 10s. Without revalidation the browser answers
+    // the refetch that follows a write with the body from before it, and the
+    // screen keeps showing state the server has already changed.
+    const uninstall = installHttpCache();
+    uninstallCache = uninstall;
+    let liked = false;
+    server.use(
+      http.get("*/test-cached", () =>
+        HttpResponse.json(
+          { liked },
+          { status: 200, headers: { "Cache-Control": "max-age=10" } },
+        ),
+      ),
+    );
+
+    await customFetch<{ data: { liked: boolean } }>("/test-cached");
+    liked = true;
+    const second = await customFetch<{ data: { liked: boolean } }>(
+      "/test-cached",
+    );
+
+    expect(second.data.liked).toBe(true);
   });
 });

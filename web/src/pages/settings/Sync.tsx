@@ -112,6 +112,9 @@ interface OperationCardProps {
   renderDetail?: (progress: OperationProgressState | null) => React.ReactNode;
   /** Suppress the card's own bar when the detail renders one for the same work. */
   hideProgressBar?: boolean;
+  /** Drop the "Last sync" line for work that keeps no checkpoint — "Never"
+   * there reads as a failed run rather than as "this doesn't resume". */
+  hideLastSync?: boolean;
 }
 
 function OperationCard({
@@ -130,6 +133,7 @@ function OperationCard({
   children,
   renderDetail,
   hideProgressBar = false,
+  hideLastSync = false,
 }: OperationCardProps) {
   const { progress, isActive } = useOperationProgress(operationId);
   const { target, block: blocked } = useSyncTargetBlock(
@@ -177,12 +181,14 @@ function OperationCard({
 
       <PollStatusLine checkpoint={checkpoint} />
 
-      <p className="mt-3 text-right text-xs text-text-faint">
-        Last sync:{" "}
-        <span className="font-mono text-text-muted">
-          {formatDateTime(checkpoint?.last_sync_timestamp)}
-        </span>
-      </p>
+      {!hideLastSync && (
+        <p className="mt-3 text-right text-xs text-text-faint">
+          Last sync:{" "}
+          <span className="font-mono text-text-muted">
+            {formatDateTime(checkpoint?.last_sync_timestamp)}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
@@ -689,6 +695,7 @@ function ArtistEnrichment() {
       // No checkpoint: enrichment re-reads whatever has gone stale rather than
       // resuming from a cursor.
       checkpoint={undefined}
+      hideLastSync
       operationId={operation.operationId}
       runId={operation.runId}
       operationType="artist_enrichment"
