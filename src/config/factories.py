@@ -7,7 +7,7 @@ keeping settings.py focused on configuration schema and validation.
 import functools
 
 from src.domain.matching.config import MatchingConfig as DomainMatchingConfig
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 
 from .settings import settings
 
@@ -32,11 +32,11 @@ def create_matching_config() -> DomainMatchingConfig:
 
 
 @functools.cache
-def create_evaluation_service() -> TrackMatchEvaluationService:
-    """Create a TrackMatchEvaluationService with production config.
+def create_evaluation_service() -> MatchEvaluationService:
+    """Create a MatchEvaluationService with production config.
 
     Centralizes the two-step construction pattern used by
     InwardTrackResolver, SpotifyCrossDiscoveryProvider, and
     MatchAndIdentifyTracksUseCase.
     """
-    return TrackMatchEvaluationService(config=create_matching_config())
+    return MatchEvaluationService(config=create_matching_config())

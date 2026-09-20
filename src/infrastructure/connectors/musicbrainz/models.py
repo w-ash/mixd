@@ -13,6 +13,8 @@ Key design decisions:
 Endpoint coverage:
 - GET /recording?query=...  → MusicBrainzRecording (via recordings[] array)
 - GET /isrc/{isrc}          → MusicBrainzRecording (via recordings[] array)
+- GET /artist?query=...     → MusicBrainzArtist (via artists[] array)
+- GET /artist/{mbid}        → MusicBrainzArtist
 """
 
 from typing import ClassVar
@@ -60,6 +62,9 @@ class MusicBrainzArtist(MusicBrainzBaseModel):
     disambiguation: str | None = Field(default=None)
     aliases: list[MusicBrainzAlias] = Field(default_factory=list)
     relations: list[MusicBrainzRelation] = Field(default_factory=list)
+    # Lucene relevance, 0-100. Present on search hits only; a direct lookup
+    # and a nested artist-credit artist both leave it None.
+    score: int | None = Field(default=None)
 
 
 class MusicBrainzArtistCredit(MusicBrainzBaseModel):

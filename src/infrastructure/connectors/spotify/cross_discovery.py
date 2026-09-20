@@ -33,7 +33,7 @@ from src.domain.matching.canonical_resolution import (
     plan_canonical_resolution,
     suspect_review,
 )
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.protocols import (
     DiscoveryOutcome,
     DiscoveryRequest,
@@ -101,14 +101,14 @@ class SpotifyCrossDiscoveryProvider:
     """
 
     _spotify_connector: SpotifyConnector
-    _match_evaluation_service: TrackMatchEvaluationService
+    _match_evaluation_service: MatchEvaluationService
     _listenbrainz_lookup: ListenBrainzLookup | None
     _owns_connector: bool
 
     def __init__(
         self,
         spotify_connector: SpotifyConnector,
-        match_evaluation_service: TrackMatchEvaluationService | None = None,
+        match_evaluation_service: MatchEvaluationService | None = None,
         listenbrainz_lookup: ListenBrainzLookup | None = None,
         *,
         owns_connector: bool = False,

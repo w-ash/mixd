@@ -14,6 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.connector import ConnectorDescriptor
 from src.domain.repositories.admin import AdminRepositoryProtocol
+from src.domain.repositories.artist import (
+    ArtistAliasRepositoryProtocol,
+    ArtistConnectorRepositoryProtocol,
+    ArtistFavoriteRepositoryProtocol,
+    ArtistRepositoryProtocol,
+)
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
 from src.domain.repositories.connector import (
@@ -57,6 +63,16 @@ from src.domain.repositories.workflow import (
     WorkflowRepositoryProtocol,
     WorkflowRunRepositoryProtocol,
     WorkflowVersionRepositoryProtocol,
+)
+from src.infrastructure.persistence.repositories.artist.aliases import (
+    ArtistAliasRepository,
+)
+from src.infrastructure.persistence.repositories.artist.connector import (
+    ArtistConnectorRepository,
+)
+from src.infrastructure.persistence.repositories.artist.core import ArtistRepository
+from src.infrastructure.persistence.repositories.artist.favorites import (
+    ArtistFavoriteRepository,
 )
 from src.infrastructure.persistence.repositories.play.connector import (
     ConnectorTrackPlayRepository,
@@ -193,6 +209,22 @@ class DatabaseUnitOfWork:
     def get_like_repository(self) -> LikeRepositoryProtocol:
         """Get like repository using this unit of work's transaction."""
         return TrackLikeRepository(self._session)
+
+    def get_artist_repository(self) -> ArtistRepositoryProtocol:
+        """Get canonical artist repository using this unit of work's transaction."""
+        return ArtistRepository(self._session)
+
+    def get_artist_connector_repository(self) -> ArtistConnectorRepositoryProtocol:
+        """Get the connector-artist cache and artist mapping seam."""
+        return ArtistConnectorRepository(self._session)
+
+    def get_artist_favorite_repository(self) -> ArtistFavoriteRepositoryProtocol:
+        """Get the artist-favorites presence store."""
+        return ArtistFavoriteRepository(self._session)
+
+    def get_artist_alias_repository(self) -> ArtistAliasRepositoryProtocol:
+        """Get the connector-artist alias cache."""
+        return ArtistAliasRepository(self._session)
 
     def get_checkpoint_repository(self) -> CheckpointRepositoryProtocol:
         """Get checkpoint repository using this unit of work's transaction."""

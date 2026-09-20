@@ -17,7 +17,7 @@ from src.config import create_evaluation_service, get_logger
 from src.config.logging import logging_context
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import Track, TrackList
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.types import (
     EvaluationResult,
     MatchResultsById,
@@ -97,13 +97,13 @@ class MatchAndIdentifyTracksUseCase:
     This use case implements the new unambiguous identity pipeline by:
     1. Fetching existing track mappings from database
     2. Getting raw matches from infrastructure providers (no business logic)
-    3. Delegating ALL business decisions to domain TrackMatchEvaluationService
+    3. Delegating ALL business decisions to domain MatchEvaluationService
     4. Persisting successful identity mappings back to database
     5. Controlling transaction boundaries based on business outcomes
 
     Key Principles:
     - **Single Responsibility**: ONLY handles Identity Resolution workflow
-    - **Domain Delegation**: ALL business logic goes to TrackMatchEvaluationService
+    - **Domain Delegation**: ALL business logic goes to MatchEvaluationService
     - **Infrastructure Coordination**: Orchestrates raw data providers without decisions
     - **Transaction Control**: Manages database persistence and rollback decisions
     - **Clean Architecture**: Follows dependency flow Infrastructure → Application → Domain
@@ -115,7 +115,7 @@ class MatchAndIdentifyTracksUseCase:
     """
 
     # Domain services injected as class attributes - pure business logic delegation
-    _evaluation_service: TrackMatchEvaluationService = field(init=False)
+    _evaluation_service: MatchEvaluationService = field(init=False)
 
     def __attrs_post_init__(self) -> None:
         self._evaluation_service = create_evaluation_service()

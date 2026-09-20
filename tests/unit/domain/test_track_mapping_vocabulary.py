@@ -41,3 +41,12 @@ class TestDerivedMaps:
 
     def test_isrc_grade_methods_are_members(self):
         assert set(ISRC_GRADE_METHODS) <= MATCH_METHODS
+
+
+class TestArtistResolutionMethods:
+    def test_mb_url_rel_is_an_id_match_not_a_name_match(self):
+        # Seeded from a MusicBrainz url-rel: MusicBrainz asserts the link
+        # between an MBID and a service id, so it sits with the other
+        # identifier methods rather than with the import spellings.
+        assert is_match_method("mb_url_rel")
+        assert MATCH_METHOD_CATEGORIES["mb_url_rel"] == "Identity Resolution"

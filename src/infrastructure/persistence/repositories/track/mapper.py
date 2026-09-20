@@ -15,6 +15,7 @@ from src.domain.entities.track_mapping import STALE_ID_FOR
 from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
+    DBTrackArtist,
     DBTrackLike,
     DBTrackMapping,
 )
@@ -56,6 +57,12 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         # loaded_list primitive — a forgotten eager-load degrades to [].
         active_mappings = db_model.loaded_list(DBTrack.mappings, DBTrackMapping)
         active_likes = db_model.loaded_list(DBTrack.likes, DBTrackLike)
+        # ``track_artists`` is the credit's home; the JSONB column is the
+        # fallback for a read that did not load it (and for a row the backfill
+        # has not reached). The rows arrive ordered by position, so the credit
+        # order on the record survives the round trip — and with it the
+        # ``artist_id`` the JSON cannot carry.
+        credit_rows = db_model.loaded_list(DBTrack.artist_credits, DBTrackArtist)
 
         # Build connector IDs and metadata
         connector_track_identifiers: dict[str, str] = {}
@@ -153,10 +160,22 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             version=db_model.version,
             user_id=db_model.user_id,
             title=db_model.title,
-            artists=[
-                ArtistCredit(credited_name=n)
-                for n in extract_db_artist_names(db_model.artists)
-            ],
+            artists=(
+                [
+                    ArtistCredit(
+                        credited_name=credit.credited_name,
+                        artist_id=credit.artist_id,
+                        join_phrase=credit.join_phrase,
+                        role=credit.role,
+                    )
+                    for credit in credit_rows
+                ]
+                if credit_rows
+                else [
+                    ArtistCredit(credited_name=n)
+                    for n in extract_db_artist_names(db_model.artists)
+                ]
+            ),
             album=db_model.album,
             duration_ms=db_model.duration_ms,
             release_date=ensure_utc(db_model.release_date),
@@ -184,4 +203,8 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 DBTrackMapping.connector_track
             ),  # Nested chaining
             selectinload(DBTrack.likes),  # Simple relationship
+            # The credit rows are a relationship like any other, but the
+            # mapper *reads* them, so a missing loader here would silently
+            # demote every track to its JSONB names.
+            selectinload(DBTrack.artist_credits),
         ]

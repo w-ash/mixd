@@ -277,6 +277,7 @@ class TrackRepositoryProtocol(Protocol):
         query: str | None = None,
         liked: bool | None = None,
         connector: str | None = None,
+        artist_id: UUID | None = None,
         preference: str | None = None,
         tags: Sequence[str] | None = None,
         tag_mode: Literal["and", "or"] = "and",
@@ -300,6 +301,8 @@ class TrackRepositoryProtocol(Protocol):
             query: Text search across title, artist, album.
             liked: Filter by canonical liked status (liked on any service).
             connector: Filter by connector mapping presence.
+            artist_id: Filter to tracks carrying any credit resolved to this
+                canonical artist — the artist detail page's track table.
             tags: Filter to tracks carrying the given tag(s). When set,
                 ``tag_mode`` picks intersection ("and") or union ("or") semantics.
             tag_mode: Combine multi-tag filters. ``"and"`` returns tracks
@@ -318,6 +321,21 @@ class TrackRepositoryProtocol(Protocol):
 
         Returns:
             TrackListingPage with tracks, total, liked_track_ids, and next_page_key.
+        """
+        ...
+
+    def set_credit_artist_ids(
+        self, assignments: Sequence[tuple[UUID, int, UUID]], *, user_id: str
+    ) -> Awaitable[int]:
+        """Resolve credits to canonical artists, filling only the empty ones.
+
+        Args:
+            assignments: ``(track_id, position, artist_id)`` triples.
+            user_id: Owner's user ID.
+
+        Returns:
+            How many credit rows were filled. A credit that already names an
+            artist is left alone, so a re-run of the same batch returns 0.
         """
         ...
 

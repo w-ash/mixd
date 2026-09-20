@@ -44,7 +44,7 @@ from src.domain.matching.canonical_resolution import (
     track_name_key,
     undecided_name_pairs,
 )
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.recording_identity import RecordingDescription, identity_key
 from src.domain.matching.types import evidence_number, final_score_of
 from src.domain.repositories.connector import ConnectorMappingSpec
@@ -289,16 +289,14 @@ class InwardTrackResolver[THint = object](ABC):
     overrides ``_begin_resolution`` to stash them.
     """
 
-    _match_evaluation_service: TrackMatchEvaluationService
+    _match_evaluation_service: MatchEvaluationService
     # The reuse step's rules. Names alone: an identifier carries no duration
     # for the recording gate to rule on, so the gate is the evaluator's
     # accept plus a title-similarity floor.
     _reuse_rules: TrackResolutionRules
     _reuse_failed_ids: set[str]
 
-    def __init__(
-        self, match_evaluation_service: TrackMatchEvaluationService | None = None
-    ):
+    def __init__(self, match_evaluation_service: MatchEvaluationService | None = None):
         if match_evaluation_service is None:
             match_evaluation_service = create_evaluation_service()
         self._match_evaluation_service = match_evaluation_service
@@ -843,9 +841,7 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
     # the name gate is the recording gate.
     _rules: TrackResolutionRules
 
-    def __init__(
-        self, match_evaluation_service: TrackMatchEvaluationService | None = None
-    ):
+    def __init__(self, match_evaluation_service: MatchEvaluationService | None = None):
         super().__init__(match_evaluation_service)
         self._rules = TrackResolutionRules(self._match_evaluation_service.config)
 

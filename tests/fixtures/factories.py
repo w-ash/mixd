@@ -19,6 +19,7 @@ from uuid import UUID, uuid7
 
 import attrs
 
+from src.domain.entities.artist import Artist, ConnectorArtist
 from src.domain.entities.playlist import (
     ConnectorPlaylist,
     ConnectorPlaylistItem,
@@ -339,6 +340,44 @@ def make_connector_track(
         artists=[ArtistCredit(credited_name=artist)],
         **kwargs,
     )
+
+
+# ---------------------------------------------------------------------------
+# Artist factories
+# ---------------------------------------------------------------------------
+
+
+def make_artist(
+    name: str = "Test Artist",
+    user_id: str = TEST_USER_ID,
+    **kwargs,
+) -> Artist:
+    """Build an :class:`Artist` with sensible defaults."""
+    return Artist(name=name, user_id=user_id, **kwargs)
+
+
+def make_connector_artist(
+    identifier: str,
+    connector_name: str = "spotify",
+    *,
+    name: str | None = None,
+    **kwargs,
+) -> ConnectorArtist:
+    """Build a :class:`ConnectorArtist`."""
+    return ConnectorArtist(
+        connector_name=connector_name,
+        connector_artist_identifier=identifier,
+        name=name or f"Artist {identifier}",
+        **kwargs,
+    )
+
+
+def make_artist_credit(
+    credited_name: str = "Test Artist",
+    **kwargs,
+) -> ArtistCredit:
+    """Build one :class:`ArtistCredit` — the credited spelling plus optional identity."""
+    return ArtistCredit(credited_name=credited_name, **kwargs)
 
 
 # ---------------------------------------------------------------------------

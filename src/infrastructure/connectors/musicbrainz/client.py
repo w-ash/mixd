@@ -7,11 +7,14 @@ Provides a thin wrapper around the MusicBrainz JSON API with:
 - Centralized retry policy via tenacity
 - ISRC lookup via dedicated ``/isrc/{isrc}`` endpoint
 - Recording search via Lucene query syntax
+- Artist search (``artist:`` OR ``alias:``) and artist lookup with
+  ``inc=aliases+url-rels``
 
 No authentication required — MusicBrainz read-only endpoints are public.
 """
 
-from typing import ClassVar, override
+from collections.abc import Mapping
+from typing import ClassVar, Final, override
 
 from attrs import define, field
 import httpx2
@@ -26,9 +29,25 @@ from src.infrastructure.connectors._shared.retry_policies import (
     RetryPolicyFactory,
 )
 from src.infrastructure.connectors.base import BaseAPIClient
-from src.infrastructure.connectors.musicbrainz.models import MusicBrainzRecording
+from src.infrastructure.connectors.musicbrainz.models import (
+    MusicBrainzArtist,
+    MusicBrainzRecording,
+)
 
 logger = get_logger(__name__).bind(service="musicbrainz_client")
+
+# Enough hits to disambiguate a colliding name (Justice, Jungle, Bob Moses and
+# Tourist collide on every service) without paying for a long page at 1 req/s.
+_ARTIST_SEARCH_LIMIT: Final = 5
+
+# Lucene syntax characters that would otherwise turn a name into an operator.
+# Quotes and backslashes are the two that appear in real artist names.
+_LUCENE_ESCAPES: Final[Mapping[str, str]] = {"\\": "\\\\", '"': '\\"'}
+
+
+def _escape_lucene(value: str) -> str:
+    """Make *value* safe inside a quoted Lucene phrase."""
+    return "".join(_LUCENE_ESCAPES.get(char, char) for char in value)
 
 
 @define(slots=True)
@@ -147,3 +166,83 @@ class MusicBrainzAPIClient(BaseAPIClient):
         if isinstance(recordings_val, list) and recordings_val:
             return MusicBrainzRecording.model_validate(recordings_val[0])
         return None
+
+    # ── Artist Search and Lookup ─────────────────────────────────────────
+
+    async def search_artist(
+        self, name: str, *, limit: int = _ARTIST_SEARCH_LIMIT
+    ) -> list[MusicBrainzArtist]:
+        """Search for artists by name, ranked by MusicBrainz relevance.
+
+        Returns an empty list when the search finds nothing or the request
+        fails after retries — a caller cannot act on the difference, and an
+        artist is never minted from a name search alone.
+        """
+        results = await self._api_call(
+            "musicbrainz_search_artist",
+            self._search_artist_impl,
+            name,
+            limit,
+        )
+        return results if results is not None else []
+
+    async def _search_artist_impl(
+        self, name: str, limit: int
+    ) -> list[MusicBrainzArtist]:
+        """Search via Lucene query on the /artist endpoint.
+
+        The query covers ``artist:`` **and** ``alias:``. The fielded ``artist:``
+        search alone ranks "Kanye West Tribute Band" above the renamed primary
+        "Ye" and returns nothing at all for "STRFKR", whose only entry is an
+        alias — both observed in the 51-artist census.
+        """
+        if not name:
+            return []
+
+        escaped = _escape_lucene(name)
+        query = f'artist:"{escaped}" OR alias:"{escaped}"'
+        response = await self._client.get(
+            "/artist",
+            params={"query": query, "limit": str(limit)},
+        )
+        response.raise_for_status()
+        data = parse_json_response(response)
+
+        artists_val = data.get("artists")
+        if not isinstance(artists_val, list):
+            return []
+        return [
+            MusicBrainzArtist.model_validate(entry)
+            for entry in artists_val
+            if isinstance(entry, dict)
+        ]
+
+    async def get_artist(self, mbid: str) -> MusicBrainzArtist | None:
+        """Get one artist by MBID with its aliases and external URL relations."""
+        return await self._api_call(
+            "musicbrainz_get_artist",
+            self._get_artist_impl,
+            mbid,
+        )
+
+    async def _get_artist_impl(self, mbid: str) -> MusicBrainzArtist | None:
+        """Look up /artist/{mbid} with ``inc=aliases+url-rels``.
+
+        One request carries both halves artist resolution needs: the alias
+        names that feed the equivalence cache, and the url-rels that seed
+        Spotify/Discogs/Apple/Tidal mappings.
+        """
+        if not mbid:
+            return None
+
+        response = await self._client.get(
+            f"/artist/{mbid}",
+            params={"inc": "aliases+url-rels"},
+        )
+        response.raise_for_status()
+        data = parse_json_response(response)
+
+        if not data.get("id"):
+            logger.debug(f"No artist found for MBID {mbid}")
+            return None
+        return MusicBrainzArtist.model_validate(data)

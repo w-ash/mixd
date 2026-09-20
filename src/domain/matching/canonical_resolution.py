@@ -32,7 +32,7 @@ from src.domain.matching.algorithms import (
     calculate_confidence,
 )
 from src.domain.matching.config import MatchingConfig
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
     compute_duration_diff_ms,
@@ -405,8 +405,8 @@ def _service(description: RecordingDescription) -> ServiceTrackData:
     }
 
 
-def _evaluator_for(rules: TrackResolutionRules) -> TrackMatchEvaluationService:
-    return TrackMatchEvaluationService(rules.config)
+def _evaluator_for(rules: TrackResolutionRules) -> MatchEvaluationService:
+    return MatchEvaluationService(rules.config)
 
 
 @define(frozen=True, slots=True)
@@ -427,7 +427,7 @@ class TrackResolutionRules:
     names_alone: bool = False
     # The one zoner: the evaluator's two threshold reads, so a zone recorded
     # here is the zone the matching pipeline would have assigned.
-    _evaluator: TrackMatchEvaluationService = field(
+    _evaluator: MatchEvaluationService = field(
         init=False, default=Factory(_evaluator_for, takes_self=True)
     )
 

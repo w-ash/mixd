@@ -6,6 +6,14 @@ from .algorithms import (
     calculate_title_similarity,
     select_best_by_title_similarity,
 )
+from .artist_confidence import calculate_artist_confidence
+from .artist_enrichment import (
+    ArtistAliasRecord,
+    ArtistEnrichmentProviderProtocol,
+    ArtistLookup,
+    ArtistUrlRel,
+)
+from .artist_equivalence import EMPTY_EQUIVALENCE, ArtistEquivalence
 from .config import MatchingConfig
 from .protocols import (
     CrossDiscoveryProvider,
@@ -18,6 +26,8 @@ from .protocols import (
 )
 from .text_normalization import normalize_for_comparison, strip_parentheticals
 from .types import (
+    ArtistEvidence,
+    ArtistEvidenceLevel,
     ConfidenceEvidence,
     EvaluationResult,
     MatchResult,
@@ -25,6 +35,14 @@ from .types import (
 )
 
 __all__ = [
+    "EMPTY_EQUIVALENCE",
+    "ArtistAliasRecord",
+    "ArtistEnrichmentProviderProtocol",
+    "ArtistEquivalence",
+    "ArtistEvidence",
+    "ArtistEvidenceLevel",
+    "ArtistLookup",
+    "ArtistUrlRel",
     "ConfidenceEvidence",
     "CrossDiscoveryProvider",
     "DiscoveryOutcome",
@@ -38,6 +56,7 @@ __all__ = [
     "Nothing",
     "ReuseExisting",
     "SimilarityResult",
+    "calculate_artist_confidence",
     "calculate_confidence",
     "calculate_title_similarity",
     "normalize_for_comparison",

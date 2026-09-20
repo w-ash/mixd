@@ -14,7 +14,7 @@ import pytest
 from src.config import create_matching_config
 from src.config.constants import SpotifyConstants
 from src.domain.entities import ArtistCredit
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.infrastructure.connectors.spotify.client import (
     field_filtered_search_query,
     free_text_search_query,
@@ -259,8 +259,8 @@ def _make_connector(candidates: list[MagicMock] | None = None) -> AsyncMock:
 
 
 @pytest.fixture
-def evaluation_service() -> TrackMatchEvaluationService:
-    return TrackMatchEvaluationService(config=create_matching_config())
+def evaluation_service() -> MatchEvaluationService:
+    return MatchEvaluationService(config=create_matching_config())
 
 
 class TestWideningSearchPasses:
@@ -330,7 +330,7 @@ class TestSearchAndEvaluateHappyPath:
     """Successful search should return SpotifySearchMatch with correct fields."""
 
     async def test_returns_match_with_correct_fields(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         candidate = _make_candidate()
         connector = _make_connector([candidate])
@@ -361,7 +361,7 @@ class TestSearchAndEvaluateNoCandidates:
     """Empty search results should produce no match."""
 
     async def test_returns_none_when_no_candidates(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector([])
         track = make_track(id=1)
@@ -383,7 +383,7 @@ class TestSearchAndEvaluateBelowThreshold:
     """Candidates below min_similarity should be rejected."""
 
     async def test_returns_none_below_threshold(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         candidate = _make_candidate(name="Completely Different Title")
         connector = _make_connector([candidate])
@@ -407,7 +407,7 @@ class TestSearchAndEvaluateConnectorId:
     """A candidate without .id is usable only when the caller supplies a fallback."""
 
     async def test_returns_none_when_no_id(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector([_make_candidate(track_id=None)])
         track = make_track(id=1, title="Creep", artist="Radiohead")
@@ -425,7 +425,7 @@ class TestSearchAndEvaluateConnectorId:
         assert attempt.match is None
 
     async def test_uses_fallback_connector_id(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         candidate = _make_candidate(track_id=None)
         connector = _make_connector([candidate])
@@ -451,7 +451,7 @@ class TestWideningIsOptIn:
     """``widen`` is required at every call site because the cost is per-caller."""
 
     async def test_widen_false_issues_exactly_one_search_on_a_miss(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """The cross-discovery bound: a run of misses must not double its volume."""
         connector = _make_connector()
@@ -473,7 +473,7 @@ class TestWideningIsOptIn:
         assert attempt.queries == (field_filtered_search_query("Radiohead", "Creep"),)
 
     async def test_widen_true_issues_the_second_search_on_a_miss(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector()
         connector.search_track.side_effect = [[], [_make_candidate()]]
@@ -502,7 +502,7 @@ class TestWideningIsOptIn:
         ]
 
     async def test_widening_is_bounded_to_exactly_one_extra_pass(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector()
         connector.search_track.side_effect = [[], []]
@@ -522,7 +522,7 @@ class TestWideningIsOptIn:
         assert connector.search_track.await_count == 2
 
     async def test_a_junk_first_pass_still_widens(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """Returning junk is not the same as clearing the gate."""
         connector = _make_connector()
@@ -547,7 +547,7 @@ class TestWideningIsOptIn:
         assert connector.search_track.await_count == 2
 
     async def test_the_limit_is_the_same_on_both_passes(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector()
         connector.search_track.side_effect = [[], []]
@@ -585,7 +585,7 @@ class TestRequireSuccess:
         )
 
     async def test_a_failing_evaluation_is_not_a_match(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector([self._wrong_artist_candidate()])
         track = make_track(
@@ -606,7 +606,7 @@ class TestRequireSuccess:
         assert attempt.match is None
 
     async def test_the_same_candidate_survives_when_success_is_not_required(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """Cross-discovery keeps the rejected match so it can log its confidence."""
         connector = _make_connector([self._wrong_artist_candidate()])
@@ -629,7 +629,7 @@ class TestRequireSuccess:
         assert attempt.match.match_result.success is False
 
     async def test_the_gate_applies_to_the_widened_pass_too(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """The free-text query does not constrain the artist at all."""
         connector = _make_connector()
@@ -653,7 +653,7 @@ class TestRequireSuccess:
         assert connector.search_track.await_count == 2
 
     async def test_a_first_pass_failure_does_not_stop_the_widened_rescue(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector()
         connector.search_track.side_effect = [
@@ -690,7 +690,7 @@ class TestMinimumCandidateDuration:
     """A candidate shorter than the caller's evidence cannot be the recording."""
 
     async def test_a_too_short_candidate_is_rejected_despite_a_perfect_title(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector([
             _make_candidate(name="Creep", artist="Radiohead", duration_ms=218000)
@@ -711,7 +711,7 @@ class TestMinimumCandidateDuration:
         assert attempt.match is None
 
     async def test_a_longer_candidate_is_untouched(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """One-directional: an over-long candidate is ordinary, not suspicious."""
         connector = _make_connector([
@@ -733,7 +733,7 @@ class TestMinimumCandidateDuration:
         assert attempt.match is not None
 
     async def test_the_veto_runs_before_ranking_so_a_longer_candidate_can_win(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """Vetoing the ranked winner afterwards would discard the real match."""
         short_exact = _make_candidate(
@@ -760,7 +760,7 @@ class TestMinimumCandidateDuration:
         assert attempt.match.candidate.id == "album"
 
     async def test_a_candidate_without_a_duration_is_not_vetoed(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """Spotify reports 0 for an unknown length; absence is not evidence."""
         connector = _make_connector([
@@ -782,7 +782,7 @@ class TestMinimumCandidateDuration:
         assert attempt.match is not None
 
     async def test_no_minimum_leaves_every_candidate_in_play(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector([
             _make_candidate(name="Creep", artist="Radiohead", duration_ms=1000)
@@ -806,7 +806,7 @@ class TestSearchAttemptQueries:
     """The attempt carries the exact query strings sent, for caller telemetry."""
 
     async def test_accepted_first_pass_records_only_the_filtered_query(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector([_make_candidate()])
         track = make_track(id=1, title="Creep", artist="Radiohead")
@@ -824,7 +824,7 @@ class TestSearchAttemptQueries:
         assert attempt.queries == ('artist:"Radiohead" track:"Creep"',)
 
     async def test_widened_attempt_records_both_queries_in_order(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector()
         connector.search_track.side_effect = [[], []]
@@ -846,7 +846,7 @@ class TestSearchAttemptQueries:
         )
 
     async def test_the_recorded_queries_are_the_ones_on_the_wire(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """No parallel construction: the log and the request read one string."""
         connector = _make_connector()
@@ -872,7 +872,7 @@ class TestSearchAndEvaluateExceptionPropagation:
     """Exceptions from the connector should bubble up (not be caught)."""
 
     async def test_propagates_connector_exception(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector()
         connector.search_track.side_effect = RuntimeError("API down")
@@ -916,7 +916,7 @@ class TestArtistSimilarityFloor:
         return make_track(id=1, title=self.TITLE, artist=self.ARTIST)
 
     async def test_wrong_artist_rejected_by_floor_despite_success(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector([self._wrong_artist_candidate()])
 
@@ -937,7 +937,7 @@ class TestArtistSimilarityFloor:
         assert attempt.match is None
 
     async def test_without_the_floor_the_same_candidate_is_accepted(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         """Documents the exposure the floor closes — if this starts failing,
         the matcher's artist weighting changed and the floor may be redundant."""
@@ -957,7 +957,7 @@ class TestArtistSimilarityFloor:
         assert attempt.match is not None
 
     async def test_right_artist_clears_the_floor(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         candidate = _make_candidate(
             track_id="jc_hurt",
@@ -985,7 +985,7 @@ class TestArtistSimilarityFloor:
         assert attempt.match.candidate.id == "jc_hurt"
 
     async def test_missing_evidence_fails_closed_when_floor_requested(
-        self, evaluation_service: TrackMatchEvaluationService
+        self, evaluation_service: MatchEvaluationService
     ):
         connector = _make_connector([self._wrong_artist_candidate()])
         service = MagicMock()

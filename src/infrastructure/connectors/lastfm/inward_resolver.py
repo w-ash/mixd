@@ -50,7 +50,7 @@ from pydantic import ValidationError
 from src.config import get_logger, settings
 from src.domain.entities import ArtistCredit, Track
 from src.domain.entities.track_mapping import MatchMethod
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.protocols import (
     CrossDiscoveryProvider,
     DiscoveryOutcome,
@@ -170,7 +170,7 @@ class LastfmInwardResolver(InwardTrackResolver):
         self,
         lastfm_client: LastFMAPIClient,
         cross_discovery: CrossDiscoveryProvider | None = None,
-        match_evaluation_service: TrackMatchEvaluationService | None = None,
+        match_evaluation_service: MatchEvaluationService | None = None,
     ):
         super().__init__(match_evaluation_service)
         self._lastfm_client = lastfm_client

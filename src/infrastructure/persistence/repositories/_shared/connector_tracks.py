@@ -17,11 +17,12 @@ recorder reach these helpers directly — which is why
 recorder could only get at it through a function-scoped import.
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
+from uuid import UUID
 
 from src.domain.entities.shared import JsonDict
-from src.domain.entities.track import Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.domain.matching.text_normalization import (
     normalize_for_comparison,
     strip_parentheticals,
@@ -65,6 +66,30 @@ def normalized_text_columns(track: Track) -> dict[str, str | None]:
         "title_stripped": normalize_for_comparison(strip_parentheticals(track.title)),
         "artists_text": track.artists_display or None,
     }
+
+
+def build_track_artist_rows(
+    track_id: UUID, user_id: str, credits: Sequence[ArtistCredit]
+) -> list[dict[str, object]]:
+    """The ``track_artists`` rows one track's credits write.
+
+    ``position`` is the credit's index, which is what makes the row identity
+    ``(track_id, position)``: the credit order on the record is the fact being
+    stored, and a re-save at the same position is the same credit changing,
+    not a new one. Insert plumbing (``id``, timestamps) is the writer's.
+    """
+    return [
+        {
+            "user_id": user_id,
+            "track_id": track_id,
+            "artist_id": credit.artist_id,
+            "position": position,
+            "credited_name": credit.credited_name,
+            "join_phrase": credit.join_phrase,
+            "role": credit.role,
+        }
+        for position, credit in enumerate(credits)
+    ]
 
 
 def build_canonical_track_row(track: Track) -> dict[str, object]:
@@ -131,6 +156,7 @@ __all__ = [
     "artist_names_column",
     "build_canonical_track_row",
     "build_connector_track_row",
+    "build_track_artist_rows",
     "extract_db_artist_names",
     "normalized_text_columns",
 ]

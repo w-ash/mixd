@@ -9,6 +9,12 @@ the domain without a follow-up migration fails here.
 The constraint *text* is checked too: the ORM declares these constraints so
 ``metadata.create_all`` gives integration tests the production schema, and the
 two renderings have to agree character for character.
+
+``match_method`` is the exception: migration 062 recreated those two
+constraints, so it — not this revision — is what the ORM must now agree with,
+and ``test_062_mb_url_rel_match_method.py`` holds the exact-match assertions.
+What stays here is that this revision's frozen list never grew a member the
+domain does not have.
 """
 
 import importlib.util
@@ -18,10 +24,7 @@ from typing import Any
 from sqlalchemy import CheckConstraint
 
 from src.domain.entities.track_mapping import MAPPING_ORIGINS, MATCH_METHODS
-from src.infrastructure.persistence.database.models import (
-    DBMatchReview,
-    DBTrackMapping,
-)
+from src.infrastructure.persistence.database.models import DBTrackMapping
 
 _MIGRATION_PATH = (
     Path(__file__).resolve().parents[3]
@@ -53,8 +56,11 @@ def _orm_check(model: Any, name: str) -> str:
 
 
 class TestVocabulariesAgree:
-    def test_match_methods_match_the_domain(self) -> None:
-        assert set(migration.MATCH_METHODS) == set(MATCH_METHODS)
+    def test_match_methods_are_a_subset_of_the_domain(self) -> None:
+        # Not equality: 062 widened this vocabulary, and a frozen record of an
+        # earlier revision is expected to lag. A member *removed* from the
+        # domain still fails here.
+        assert set(migration.MATCH_METHODS) <= set(MATCH_METHODS)
 
     def test_mapping_origins_match_the_domain(self) -> None:
         assert set(migration.MAPPING_ORIGINS) == set(MAPPING_ORIGINS)
@@ -65,17 +71,9 @@ class TestVocabulariesAgree:
 
 
 class TestConstraintTextAgrees:
-    def test_track_mappings_match_method(self) -> None:
-        assert _orm_check(
-            DBTrackMapping, "ck_track_mappings_match_method_vocabulary"
-        ) == migration._in_list("match_method", migration.MATCH_METHODS)
+    """Only ``origin`` — 062 owns the ``match_method`` renderings now."""
 
     def test_track_mappings_origin(self) -> None:
         assert _orm_check(
             DBTrackMapping, "ck_track_mappings_origin_vocabulary"
         ) == migration._in_list("origin", migration.MAPPING_ORIGINS)
-
-    def test_match_reviews_match_method(self) -> None:
-        assert _orm_check(
-            DBMatchReview, "ck_match_reviews_match_method_vocabulary"
-        ) == migration._in_list("match_method", migration.MATCH_METHODS)

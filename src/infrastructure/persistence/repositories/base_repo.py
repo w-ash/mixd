@@ -197,17 +197,23 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         offset: int = 0,
         after_value: object = None,
         after_id: UUID | None = None,
+        column: ColumnElement[object] | None = None,
     ) -> Select[tuple[TDBModel]]:
         """Apply ORDER BY, keyset/offset pagination, and LIMIT to ``stmt``.
 
         ``sort`` is a domain declaration, never a request string, so resolving
         its column by name is safe; the unit suite checks every declared column
-        exists on its model. Keyset seeking engages whenever ``after_id`` is
-        present; a None ``after_value`` with a nullable sort column means the
-        cursor sits in the NULL tail. No cursor falls back to OFFSET. The
-        tie-breaker is always ``id``.
+        exists on its model. A sort whose column is *not* on the model — an
+        artist listing ordered by its track count — passes the expression as
+        ``column`` instead, and the repository that owns the expression is the
+        one that resolves the declared name to it. Keyset seeking engages
+        whenever ``after_id`` is present; a None ``after_value`` with a
+        nullable sort column means the cursor sits in the NULL tail. No cursor
+        falls back to OFFSET. The tie-breaker is always ``id``.
         """
-        col: ColumnElement[object] = getattr(self.model_class, sort.column)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
+        col: ColumnElement[object] = (
+            column if column is not None else getattr(self.model_class, sort.column)
+        )
         nullable = sort.nullable
         desc = sort.desc
         id_col = self.model_class.id
@@ -257,6 +263,37 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return stmt.order_by(leading, *ordering).limit(limit)
         return stmt.order_by(*ordering).limit(limit)
 
+    async def _fetch_page_rows(
+        self,
+        stmt: Select[tuple[TDBModel]],
+        *,
+        sort: KeysetSort,
+        limit: int,
+        offset: int = 0,
+        after_value: object = None,
+        after_id: UUID | None = None,
+        column: ColumnElement[object] | None = None,
+    ) -> tuple[list[TDBModel], bool]:
+        """Fetch one page of ``stmt`` and whether a further row exists.
+
+        Probes ``limit + 1`` rows so the last page is known without a second
+        query. Split out of :meth:`_fetch_page` for the listing whose sort
+        value is not a column on the row — it builds the cursor from a side
+        map it computes over the page — so the probe arithmetic has one home.
+        """
+        stmt = self._apply_sort_and_page(
+            stmt,
+            sort=sort,
+            limit=limit + 1,
+            offset=offset,
+            after_value=after_value,
+            after_id=after_id,
+            column=column,
+        )
+        rows = list((await self.session.execute(stmt)).scalars().all())
+        page = rows[:limit]
+        return page, len(rows) > limit and bool(page)
+
     async def _fetch_page(
         self,
         stmt: Select[tuple[TDBModel]],
@@ -269,23 +306,20 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     ) -> tuple[list[TDBModel], tuple[object, UUID] | None]:
         """Fetch one page of ``stmt`` under ``sort`` and the key to the next.
 
-        Probes ``limit + 1`` rows so the last page is known without a second
-        query: the next-page key is the trimmed page's last ``(sort value,
-        id)`` when the probe row exists, else None — an exactly-full last page
-        emits no key, and so does an empty page (``limit=0`` fetches only the
-        probe row). Loader options already on ``stmt`` are kept.
+        The next-page key is the trimmed page's last ``(sort value, id)`` when
+        the probe row exists, else None — an exactly-full last page emits no
+        key, and so does an empty page (``limit=0`` fetches only the probe
+        row). Loader options already on ``stmt`` are kept.
         """
-        stmt = self._apply_sort_and_page(
+        page, has_more = await self._fetch_page_rows(
             stmt,
             sort=sort,
-            limit=limit + 1,
+            limit=limit,
             offset=offset,
             after_value=after_value,
             after_id=after_id,
         )
-        rows = list((await self.session.execute(stmt)).scalars().all())
-        page = rows[:limit]
-        if len(rows) <= limit or not page:
+        if not has_more:
             return page, None
         last = page[-1]
         next_value = cast("object", getattr(last, sort.column))

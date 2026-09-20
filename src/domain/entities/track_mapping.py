@@ -59,6 +59,11 @@ type MatchMethod = Literal[
     # ISRC collision with a suspect duration delta — routed to review, not merged.
     "isrc_suspect",
     "mbid_match",
+    # Artist mapping seeded from a MusicBrainz ``url-rels`` response: once an
+    # artist has an MBID, its Spotify/Discogs/Apple/Tidal ids arrive in the
+    # same lookup. MusicBrainz asserts the link, so it is an id match, not a
+    # name match.
+    "mb_url_rel",
     "direct_import_stale_id",
     "search_fallback_stale_id",
     "isrc_match_stale_id",
@@ -121,6 +126,7 @@ MATCH_METHOD_CATEGORIES: Final[Mapping[MatchMethod, str]] = {
     "isrc_match": "Identity Resolution",
     "isrc_suspect": "Identity Resolution",
     "mbid_match": "Identity Resolution",
+    "mb_url_rel": "Identity Resolution",
     "lastfm_discovery": "Cross-Service Discovery",
     "spotify_connector_play_resolver": "Cross-Service Discovery",
     "search_fallback": "Error Recovery",
@@ -142,6 +148,7 @@ MATCH_METHOD_DESCRIPTIONS: Final[Mapping[MatchMethod, str]] = {
     "isrc_match": "ISRC dedup across services",
     "isrc_suspect": "ISRC reuse suspected — queued for review",
     "mbid_match": "MusicBrainz ID bridging",
+    "mb_url_rel": "MusicBrainz url-rel seeded connector id",
     "lastfm_discovery": "Spotify found via Last.fm enrichment",
     "spotify_connector_play_resolver": "Spotify play context resolution",
     "search_fallback": "Dead Spotify ID → search fallback",

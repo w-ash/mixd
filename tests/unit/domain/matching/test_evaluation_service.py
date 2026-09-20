@@ -1,4 +1,4 @@
-"""Tests for TrackMatchEvaluationService — three-zone classification.
+"""Tests for MatchEvaluationService — three-zone classification.
 
 Validates auto-accept, review, and auto-reject business rules,
 single match evaluation, and batch evaluation of raw provider matches.
@@ -6,7 +6,7 @@ single match evaluation, and batch evaluation of raw provider matches.
 
 from src.config import create_matching_config
 from src.domain.entities import ArtistCredit, Track
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.types import RawProviderMatch
 from tests.fixtures import TEST_USER_ID, make_track
 
@@ -36,7 +36,7 @@ class TestThreeZoneClassification:
     """Test three-zone match classification: accept, review, reject."""
 
     def setup_method(self) -> None:
-        self.service = TrackMatchEvaluationService(config=config)
+        self.service = MatchEvaluationService(config=config)
 
     def test_above_auto_accept_is_accepted(self):
         assert self.service.should_accept_match(config.auto_accept_threshold, "isrc")
@@ -80,7 +80,7 @@ class TestEvaluateSingleMatch:
     """Test single-match evaluation with confidence scoring and track updates."""
 
     def setup_method(self) -> None:
-        self.service = TrackMatchEvaluationService(config=config)
+        self.service = MatchEvaluationService(config=config)
 
     def test_successful_isrc_match_returns_high_confidence(self):
         """High-quality ISRC match should succeed with high confidence."""
@@ -208,7 +208,7 @@ class TestEvaluateRawMatches:
     """Test batch evaluation with three-zone classification."""
 
     def setup_method(self) -> None:
-        self.service = TrackMatchEvaluationService(config=config)
+        self.service = MatchEvaluationService(config=config)
 
     def test_accepted_and_rejected_are_separated(self):
         """Batch evaluation separates accepted from rejected."""

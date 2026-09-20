@@ -38,7 +38,7 @@ from src.config import get_logger
 from src.config.telemetry import phase
 from src.domain.entities import Track
 from src.domain.matching.content_digest import DigestSide
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.recording_identity import describe_recording
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
@@ -83,7 +83,7 @@ class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
     def __init__(
         self,
         client: AppleMusicAPIClient,
-        match_evaluation_service: TrackMatchEvaluationService | None = None,
+        match_evaluation_service: MatchEvaluationService | None = None,
     ):
         super().__init__(match_evaluation_service)
         self._client = client

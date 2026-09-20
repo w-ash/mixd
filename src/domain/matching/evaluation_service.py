@@ -31,7 +31,7 @@ from src.domain.matching.types import (
 
 
 @define(frozen=True, slots=True)
-class TrackMatchEvaluationService:
+class MatchEvaluationService:
     """Pure business logic for track matching and confidence scoring.
 
     This service encapsulates ALL business rules around track matching:
@@ -42,6 +42,10 @@ class TrackMatchEvaluationService:
 
     It operates ONLY on domain entities and contains NO infrastructure concerns.
     Zero external dependencies - this is the heart of the matching domain.
+
+    Named for matches rather than for tracks because the two threshold rules
+    read nothing but ``confidence``: artist resolution zones its decisions
+    through the same instance instead of re-deriving the bands from config.
     """
 
     config: MatchingConfig

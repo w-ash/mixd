@@ -12,6 +12,7 @@ from rapidfuzz import fuzz
 
 from src.domain.entities.track_mapping import MatchMethod
 
+from .artist_equivalence import ArtistEquivalence
 from .config import MatchingConfig
 from .isrc_validation import assess_isrc_match_reliability, compute_duration_diff_ms
 from .probabilistic import (
@@ -160,6 +161,8 @@ def calculate_confidence(
     service_track_data: ServiceTrackData,
     match_method: MatchMethod,
     config: MatchingConfig,
+    *,
+    artist_equivalence: ArtistEquivalence | None = None,
 ) -> tuple[int, ConfidenceEvidence]:
     """Calculate confidence score using Fellegi-Sunter probabilistic model.
 
@@ -172,6 +175,9 @@ def calculate_confidence(
         service_track_data: Data from external service.
         match_method: How the track was matched ("isrc", "mbid", "artist_title").
         config: Matching configuration.
+        artist_equivalence: Known alias groups for the artist comparison. A
+            hit scores as an exact artist agreement. ``None`` (the default)
+            compares names as before.
 
     Returns:
         Tuple of (confidence_score, evidence).
@@ -217,6 +223,13 @@ def calculate_confidence(
         service_artist_norm = normalize_for_comparison(service_artist)
 
         if internal_artist_norm == service_artist_norm:
+            artist_similarity = 1.0
+        elif artist_equivalence is not None and artist_equivalence.same(
+            internal_artists[0], service_artist
+        ):
+            # An alias link is identity-grade evidence, not a fuzzy near-miss:
+            # "TEED" and the full name are the same act, and the pair scores
+            # the same as if the two services had spelled it identically.
             artist_similarity = 1.0
         elif are_phonetic_matches(internal_artists[0], service_artist):
             artist_similarity = config.phonetic_similarity_score

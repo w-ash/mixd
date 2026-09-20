@@ -7,6 +7,12 @@ from contextlib import AbstractAsyncContextManager
 from typing import Protocol, Self
 
 from src.domain.repositories.admin import AdminRepositoryProtocol
+from src.domain.repositories.artist import (
+    ArtistAliasRepositoryProtocol,
+    ArtistConnectorRepositoryProtocol,
+    ArtistFavoriteRepositoryProtocol,
+    ArtistRepositoryProtocol,
+)
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
 from src.domain.repositories.connector import (
@@ -105,6 +111,22 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_like_repository(self) -> LikeRepositoryProtocol:
         """Get like repository using this unit of work's transaction."""
+        ...
+
+    def get_artist_repository(self) -> ArtistRepositoryProtocol:
+        """Get canonical artist repository using this unit of work's transaction."""
+        ...
+
+    def get_artist_connector_repository(self) -> ArtistConnectorRepositoryProtocol:
+        """Get the connector-artist cache and artist mapping seam."""
+        ...
+
+    def get_artist_favorite_repository(self) -> ArtistFavoriteRepositoryProtocol:
+        """Get the artist-favorites presence store."""
+        ...
+
+    def get_artist_alias_repository(self) -> ArtistAliasRepositoryProtocol:
+        """Get the connector-artist alias cache."""
         ...
 
     def get_checkpoint_repository(self) -> CheckpointRepositoryProtocol:

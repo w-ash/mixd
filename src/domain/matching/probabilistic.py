@@ -121,6 +121,37 @@ ARTIST_MISSING = ComparisonLevel(
     "artist_missing", m_probability=0.50, u_probability=0.50
 )  # Neutral — mirrors DURATION_MISSING
 
+# ── Artist identity levels ──────────────────────────────────────────────
+#
+# These price artist-to-artist resolution, where the evidence is an
+# identifier rather than a title/duration/ISRC tuple. They are the same
+# Fellegi-Sunter currency as the levels above, so an artist decision and a
+# track decision are comparable rather than each inventing a scale.
+
+ARTIST_ID_CONNECTOR = ComparisonLevel(
+    "artist_id_connector", m_probability=0.99, u_probability=0.0001
+)
+# Marginally weaker than a connector's own id: a service id is asserted by the
+# service that owns the row, while an MBID is asserted by an external editor
+# community, and a MusicBrainz merge can leave two artists on one MBID.
+ARTIST_ID_MBID = ComparisonLevel(
+    "artist_id_mbid", m_probability=0.99, u_probability=0.0002
+)
+# A curated alias link ("TEED" ↔ the full name) is identity-grade, on a par
+# with the two services having spelled the name identically.
+ARTIST_ALIAS_NAME = ComparisonLevel(
+    "artist_alias_name", m_probability=0.95, u_probability=0.002
+)
+# The Last.fm cap. Last.fm shares one page per name string, so same-name
+# artists co-mingle and its ``mbid`` flips with ``autocorrect`` — a name
+# agreement there is evidence, never identity. The cap is a u-probability, not
+# a literal score: a common agreement simply is not discriminating, and the
+# sigmoid lands the resulting weight inside the review band (≈70) instead of a
+# clamp bolted on after scoring.
+ARTIST_NAME_LASTFM = ComparisonLevel(
+    "artist_name_lastfm", m_probability=0.70, u_probability=0.30
+)
+
 # ── Duration comparison levels ──────────────────────────────────────────
 
 DURATION_CLOSE = ComparisonLevel(

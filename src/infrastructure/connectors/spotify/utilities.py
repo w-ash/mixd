@@ -15,7 +15,7 @@ from attrs import define
 from src.config.constants import SpotifyConstants
 from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.algorithms import select_best_by_title_similarity
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.types import MatchResult, RawProviderMatch
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.spotify.client import (
@@ -159,7 +159,7 @@ def create_track_from_spotify_data(
 
 async def search_and_evaluate_attempt(
     connector: SpotifyConnector,
-    evaluation_service: TrackMatchEvaluationService,
+    evaluation_service: MatchEvaluationService,
     track: Track,
     artist_name: str,
     track_name: str,
@@ -264,7 +264,7 @@ def _clears_minimum_duration(candidate: SpotifyTrack, minimum_ms: int | None) ->
 
 def _rank_and_evaluate(
     connector: SpotifyConnector,
-    evaluation_service: TrackMatchEvaluationService,
+    evaluation_service: MatchEvaluationService,
     track: Track,
     track_name: str,
     candidates: list[SpotifyTrack],

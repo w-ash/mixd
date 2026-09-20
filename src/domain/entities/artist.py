@@ -23,8 +23,8 @@ from .shared import JsonDict
 from .track_mapping import MappingOrigin, MatchMethod
 
 # What kind of entity an artist is, from MusicBrainz ``type``. Kept to the
-# three buckets a detail page acts on: MusicBrainz's finer values (orchestra,
-# choir, character) all read as "other" here.
+# three buckets a detail page acts on: an orchestra or choir is a group of
+# people and reads as "group"; character and the rest read as "other".
 type ArtistKind = Literal["person", "group", "other"]
 
 # ``cast("object", ...)`` keeps the PEP 695 ``__value__`` (typed Any) out of

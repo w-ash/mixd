@@ -53,7 +53,7 @@ from src.config.telemetry import phase
 from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.canonical_resolution import ResolutionEvidence
 from src.domain.matching.content_digest import DigestSide
-from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.recording_identity import (
     RecordingDescription,
     describe_recording,
@@ -197,7 +197,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
     def __init__(
         self,
         spotify_connector: SpotifyConnector,
-        match_evaluation_service: TrackMatchEvaluationService | None = None,
+        match_evaluation_service: MatchEvaluationService | None = None,
     ):
         super().__init__(match_evaluation_service)
         self._spotify_connector = spotify_connector

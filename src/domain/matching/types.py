@@ -121,6 +121,47 @@ class ConfidenceEvidence:
         return result
 
 
+type ArtistEvidenceLevel = Literal["connector_id", "mbid", "alias_name", "name"]
+"""What an artist match was decided on, strongest first.
+
+``connector_id`` — the service's own artist id, carried in track metadata or a
+MusicBrainz ``url-rel``. ``mbid`` — a MusicBrainz artist id. ``alias_name`` — a
+curated alias links the two spellings. ``name`` — nothing but the name string.
+"""
+
+
+@define(frozen=True, slots=True)
+class ArtistEvidence:
+    """Evidence behind an artist match decision.
+
+    The artist twin of :class:`ConfidenceEvidence`: a concrete frozen record,
+    not an implementation of a shared ``Evidence`` protocol. Track evidence is
+    title/duration/ISRC and artist evidence is identifiers — there is no third
+    shape yet for an abstraction to serve.
+    """
+
+    level: ArtistEvidenceLevel
+    name_similarity: float | None = None
+    # Whether Last.fm supplied the agreement — capped evidence, never identity.
+    lastfm: bool = False
+    final_score: int = field(kw_only=True)
+    match_weight: float = field(kw_only=True)
+
+    def as_dict(self) -> dict[str, object]:
+        """Convert to dictionary for storage in artist_mappings.confidence_evidence."""
+        result: dict[str, object] = {
+            "level": self.level,
+            "final_score": self.final_score,
+        }
+        if self.name_similarity is not None:
+            result["name_similarity"] = round(self.name_similarity, 2)
+        if self.lastfm:
+            result["lastfm"] = True
+        if self.match_weight:
+            result["match_weight"] = round(self.match_weight, 4)
+        return result
+
+
 def evidence_number(evidence: Mapping[str, object] | None, key: str) -> float | None:
     """A number out of stored ``as_dict`` evidence, or None when it holds none."""
     value = evidence.get(key) if evidence else None

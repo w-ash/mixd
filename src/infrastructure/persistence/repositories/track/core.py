@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     and_,
     bindparam,
+    case,
     cast as sa_cast,
     column as sa_column,
     delete,
@@ -57,6 +58,7 @@ from src.infrastructure.persistence.database.live_rows import (
 )
 from src.infrastructure.persistence.database.models import (
     DBTrack,
+    DBTrackArtist,
     DBTrackLike,
     DBTrackMapping,
     DBTrackPreference,
@@ -64,8 +66,12 @@ from src.infrastructure.persistence.database.models import (
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     build_canonical_track_row,
+    build_track_artist_rows,
 )
-from src.infrastructure.persistence.repositories.base_repo import BaseRepository
+from src.infrastructure.persistence.repositories.base_repo import (
+    BaseRepository,
+    rows_affected,
+)
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.track.ingest_lock import (
     acquire_user_track_ingest_lock,
@@ -496,6 +502,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if not updated:
             raise OptimisticLockError(track.id, track.version)
 
+        await self._write_track_artists([(track.id, track)])
         await self._load_relationships_via_identity_map([updated])
         return await TrackMapper.to_domain(updated)
 
@@ -577,11 +584,122 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                     inserted[cast("UUID", row["id"])]
                 )
 
+            await self._write_track_artists([
+                (cast("UUID", row["id"]), tracks[index])
+                for index, row in zip(row_indexes, rows, strict=True)
+            ])
+
         for index, track in enumerate(tracks):
             if track.version > 0:
                 saved[index] = await self.save_track(track)
 
         return [saved[index] for index in range(len(tracks))]
+
+    async def _write_track_artists(self, pairs: Sequence[tuple[UUID, Track]]) -> None:
+        """Keep ``track_artists`` current for the tracks just written.
+
+        The single dual-write seam while the JSONB ``artists`` column is still
+        authoritative: both ``tracks`` writers land here, so a credit row can
+        never be left describing a track's previous line-up.
+
+        Two statements. The upsert conflicts on ``(track_id, position)`` and
+        takes the incoming credit — except for ``artist_id``, where a credit
+        whose *name is unchanged* keeps the id it already has if the incoming
+        row has none. A ``Track`` rebuilt from a connector payload carries
+        ``artist_id=None`` on every credit, and a re-save must not erase the
+        ids the minter assigned; a changed name at that position is a
+        different credit, so its id goes with the old name. The delete then
+        shrinks a track whose credit count fell.
+        """
+        if not pairs:
+            return
+
+        now = datetime.now(UTC)
+        rows: list[dict[str, object]] = []
+        extents: list[tuple[UUID, int]] = []
+        for track_id, track in pairs:
+            rows.extend(
+                {**row, "id": uuid7(), "created_at": now, "updated_at": now}
+                for row in build_track_artist_rows(
+                    track_id, track.user_id, track.artists
+                )
+            )
+            extents.append((track_id, len(track.artists)))
+
+        if rows:
+            stmt = pg_insert(DBTrackArtist).values(rows)
+            excluded = stmt.excluded
+            await self.session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["track_id", "position"],
+                    set_={
+                        "user_id": excluded.user_id,
+                        "credited_name": excluded.credited_name,
+                        "join_phrase": excluded.join_phrase,
+                        "role": excluded.role,
+                        "artist_id": case(
+                            (
+                                DBTrackArtist.credited_name == excluded.credited_name,
+                                func.coalesce(
+                                    excluded.artist_id, DBTrackArtist.artist_id
+                                ),
+                            ),
+                            else_=excluded.artist_id,
+                        ),
+                        "updated_at": now,
+                    },
+                )
+            )
+
+        # One statement for the whole batch: every track's surviving credit
+        # count travels in the VALUES list rather than one DELETE per track.
+        extent_values = sa_values(
+            sa_column("track_id", PGUUID(as_uuid=True)),
+            sa_column("credit_count", Integer),
+            name="credit_extents",
+        ).data(extents)
+        await self.session.execute(
+            delete(DBTrackArtist).where(
+                DBTrackArtist.track_id == extent_values.c.track_id,
+                DBTrackArtist.position >= extent_values.c.credit_count,
+            )
+        )
+
+    @db_operation("set_credit_artist_ids")
+    async def set_credit_artist_ids(
+        self, assignments: Sequence[tuple[UUID, int, UUID]], *, user_id: str
+    ) -> int:
+        """Resolve credits to canonical artists, filling only the empty ones.
+
+        One ``UPDATE … FROM (VALUES …)`` over ``(track_id, position,
+        artist_id)`` triples. ``artist_id IS NULL`` is part of the predicate:
+        the minter proposes an identity for a credit that has none, and never
+        re-points a credit somebody — a user's manual link, an earlier and
+        better-evidenced pass — already resolved. Returns the rows filled.
+        """
+        if not assignments:
+            return 0
+        assignment_values = sa_values(
+            sa_column("track_id", PGUUID(as_uuid=True)),
+            sa_column("position", Integer()),
+            sa_column("artist_id", PGUUID(as_uuid=True)),
+            name="credit_assignments",
+        ).data(list(assignments))
+        result = await self.session.execute(
+            update(DBTrackArtist)
+            .where(
+                DBTrackArtist.track_id == assignment_values.c.track_id,
+                DBTrackArtist.position == assignment_values.c.position,
+                DBTrackArtist.user_id == user_id,
+                DBTrackArtist.artist_id.is_(None),
+            )
+            .values(
+                artist_id=assignment_values.c.artist_id,
+                updated_at=datetime.now(UTC),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return rows_affected(result)
 
     @db_operation("fill_blank_metadata")
     async def fill_blank_metadata(self, fills: Sequence[Track]) -> list[Track]:
@@ -680,6 +798,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         query: str | None = None,
         liked: bool | None = None,
         connector: str | None = None,
+        artist_id: UUID | None = None,
         preference: str | None = None,
         tags: Sequence[str] | None = None,
         tag_mode: Literal["and", "or"] = "and",
@@ -707,6 +826,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             query=query,
             liked=liked,
             connector=connector,
+            artist_id=artist_id,
             preference=preference,
             tags=tags,
             tag_mode=tag_mode,
@@ -784,6 +904,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         query: str | None,
         liked: bool | None,
         connector: str | None,
+        artist_id: UUID | None,
         preference: str | None,
         tags: Sequence[str] | None,
         tag_mode: Literal["and", "or"],
@@ -832,6 +953,19 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 .distinct()
             )
             conditions.append(DBTrack.id.in_(connector_subq))
+
+        if artist_id:
+            # The artist detail page's track table: any credit on the track
+            # resolved to this artist, at any position.
+            credit_subq = (
+                select(DBTrackArtist.track_id)
+                .where(
+                    DBTrackArtist.artist_id == artist_id,
+                    DBTrackArtist.user_id == user_id,
+                )
+                .distinct()
+            )
+            conditions.append(DBTrack.id.in_(credit_subq))
 
         if preference:
             pref_subq = select(DBTrackPreference.track_id).where(
@@ -1000,6 +1134,13 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         merge rather than merely stranded, and the canonical history stops
         being replayable. See the arm's own comment for why it needs no
         conflict resolution, leaves ``resolved_at`` alone, and is unscoped.
+
+        ``track_artists`` is deliberately *not* an arm: credits describe the
+        record, and the winner already carries its own at its own positions.
+        Moving the loser's would collide on ``(track_id, position)`` and, where
+        it did not, append a second spelling of the same line-up. The loser's
+        credit rows go with it — the FK is ON DELETE CASCADE — when
+        ``hard_delete_track`` removes the row after this call.
         """
         result = await self.session.execute(
             text(_MOVE_REFERENCES_SQL),

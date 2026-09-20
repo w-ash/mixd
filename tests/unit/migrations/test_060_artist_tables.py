@@ -5,6 +5,9 @@ at that revision; this is what notices drift. A vocabulary member added in the
 domain without a follow-up migration fails here, and so does a constraint whose
 rendered text differs between the ORM (which ``metadata.create_all`` gives
 integration tests) and the migration (which production runs).
+
+``match_method`` is the exception: migration 062 recreated that constraint, so
+``test_062_mb_url_rel_match_method.py`` holds its exact-match assertions.
 """
 
 import importlib.util
@@ -51,8 +54,11 @@ class TestVocabulariesAgree:
     def test_artist_kinds_match_the_domain(self) -> None:
         assert set(migration.ARTIST_KINDS) == set(ARTIST_KINDS)
 
-    def test_match_methods_match_the_domain(self) -> None:
-        assert set(migration.MATCH_METHODS) == set(MATCH_METHODS)
+    def test_match_methods_are_a_subset_of_the_domain(self) -> None:
+        # Not equality: 062 widened this vocabulary, and a frozen record of an
+        # earlier revision is expected to lag. A member *removed* from the
+        # domain still fails here.
+        assert set(migration.MATCH_METHODS) <= set(MATCH_METHODS)
 
     def test_mapping_origins_match_the_domain(self) -> None:
         assert set(migration.MAPPING_ORIGINS) == set(MAPPING_ORIGINS)
@@ -71,11 +77,6 @@ class TestConstraintTextAgreesWithTheOrm:
         assert _orm_check(
             DBArtist.__table__, "ck_artists_kind_vocabulary"
         ) == migration._in_list("kind", migration.ARTIST_KINDS)
-
-    def test_match_method_check(self) -> None:
-        assert _orm_check(
-            DBArtistMapping.__table__, "ck_artist_mappings_match_method_vocabulary"
-        ) == migration._in_list("match_method", migration.MATCH_METHODS)
 
     def test_origin_check(self) -> None:
         assert _orm_check(
