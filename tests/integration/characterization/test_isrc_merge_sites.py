@@ -250,6 +250,9 @@ class TestCrossDiscoveryReusesIsrcOwner:
         # (non-suspect collision).
         artist_mock = MagicMock()
         artist_mock.name = "Radiohead"
+        # A string id, as Spotify sends: the mapping's metadata carries the
+        # positional ``artist_ids`` the artist minter reads.
+        artist_mock.id = "sp_radiohead"
         spotify_match = MagicMock()
         spotify_match.id = "sp_creep_b"
         spotify_match.name = "Creep"

@@ -21,7 +21,7 @@ export interface SseOperationTerminalEvent {
   operation_id: string;
   final_status: SseFinalStatus;
   run_id?: string | null;
-  touched?: ('assistant' | 'checkpoints' | 'connector-playlists' | 'connectors' | 'import-queue' | 'operation-runs' | 'playlist-assignments' | 'playlists' | 'plays' | 'reviews' | 'schedules' | 'settings' | 'stats' | 'tags' | 'tracks' | 'workflow-catalog' | 'workflow-runs' | 'workflows')[] | null;
+  touched?: ('artists' | 'assistant' | 'checkpoints' | 'connector-playlists' | 'connectors' | 'import-queue' | 'operation-runs' | 'playlist-assignments' | 'playlists' | 'plays' | 'reviews' | 'schedules' | 'settings' | 'stats' | 'tags' | 'tracks' | 'workflow-catalog' | 'workflow-runs' | 'workflows')[] | null;
   counts?: SseOperationTerminalEventCounts;
   output_track_count?: number | null;
   duration_ms?: number | null;

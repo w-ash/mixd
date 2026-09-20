@@ -171,6 +171,7 @@ def _register_commands() -> None:
     # Import command modules here to avoid circular imports
     from src.interface.cli import (
         admin_commands,
+        artist_commands,
         assistant_commands,
         connector_commands,
         discogs_commands,
@@ -230,6 +231,13 @@ def _register_commands() -> None:
         name="sync",
         help="Schedule recurring background data syncs",
         rich_help_panel="🔄 Track Data Sync",
+    )
+
+    app.add_typer(
+        artist_commands.app,
+        name="artists",
+        help="Browse, favorite and enrich the artists in your library",
+        rich_help_panel="🎵 Track Operations",
     )
 
     app.add_typer(

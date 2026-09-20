@@ -243,6 +243,7 @@ class TrackListMetadata(TypedDict, total=False):
     source_count: int  # number of tracklists combined
     source_playlist_name: str  # from Playlist → TrackList conversion
     added_at_dates: dict[UUID, str]  # track_id → ISO date (from PlaylistEntry.added_at)
+    favorite_artist_ids: frozenset[UUID]  # written by enricher.artist_favorites
 
 
 # Valid keys for TrackList.metadata — used to constrain with_metadata/get_metadata
@@ -256,6 +257,7 @@ type MetadataKey = Literal[
     "source_count",
     "source_playlist_name",
     "added_at_dates",
+    "favorite_artist_ids",
 ]
 
 
@@ -308,6 +310,10 @@ class TrackList:
     @overload
     def with_metadata(
         self, key: Literal["added_at_dates"], value: dict[UUID, str]
+    ) -> Self: ...
+    @overload
+    def with_metadata(
+        self, key: Literal["favorite_artist_ids"], value: frozenset[UUID]
     ) -> Self: ...
     def with_metadata(self, key: MetadataKey, value: object) -> Self:
         """Add metadata to the TrackList. Overloads enforce key-specific value types."""

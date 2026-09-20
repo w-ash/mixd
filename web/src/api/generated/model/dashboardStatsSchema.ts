@@ -19,6 +19,7 @@ export interface DashboardStatsSchema {
   total_plays: number;
   total_playlists: number;
   total_liked: number;
+  total_favorite_artists: number;
   tracks_by_connector: DashboardStatsSchemaTracksByConnector;
   liked_by_connector: DashboardStatsSchemaLikedByConnector;
   plays_by_connector: DashboardStatsSchemaPlaysByConnector;

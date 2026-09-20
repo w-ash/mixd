@@ -50,6 +50,7 @@ const UNTAGGED_PATHS = new Set([
   "/api/v1/playlist-assignments/apply-bulk",
   "/api/v1/playlists/{playlist_id}/links/{link_id}/sync",
   "/api/v1/operation-runs/{run_id}/retry-failed",
+  "/api/v1/artists/enrich",
 ]);
 
 /**

@@ -7,8 +7,13 @@
  */
 
 /**
- * Artist representation in API responses.
+ * One credited artist on a track.
+ *
+ * ``artist_id`` is the canonical artist the credit resolved to, or None while
+ * it is unresolved — it is what makes a credited name on a track table a link
+ * to that artist's page.
  */
 export interface ArtistSchema {
   name: string;
+  artist_id?: string | null;
 }

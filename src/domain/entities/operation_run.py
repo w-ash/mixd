@@ -36,7 +36,11 @@ FAILED_STATUSES: Final[frozenset[str]] = frozenset({"error", "partial"})
 # per-playlist ids in ``issues``. Domain business rule (per domain-purity): the
 # single place that decides what is retryable.
 _RETRYABLE_OPERATION_TYPES: Final[frozenset[str]] = frozenset({
-    "import_connector_playlists"
+    "import_connector_playlists",
+    # Artist enrichment is resumable rather than item-targeted: its resume
+    # marker is the artist's own ``updated_at``, so a retry is the same run
+    # again and it picks up where the last one stopped.
+    "artist_enrichment",
 })
 
 

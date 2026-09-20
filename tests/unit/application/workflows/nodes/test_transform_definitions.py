@@ -57,6 +57,7 @@ class TestTransformDefinitions:
             "by_first_played",
             "by_last_played",
             "reverse",
+            "by_artist_name",
         }
         assert set(TRANSFORM_REGISTRY["sorter"].keys()) == expected
 

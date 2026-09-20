@@ -50,6 +50,11 @@ from pydantic import ValidationError
 from src.config import get_logger, settings
 from src.domain.entities import ArtistCredit, Track
 from src.domain.entities.track_mapping import MatchMethod
+from src.domain.matching.artist_resolution import (
+    ArtistCreditSource,
+    credit_source,
+    dumped_credits,
+)
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.protocols import (
     CrossDiscoveryProvider,
@@ -69,6 +74,8 @@ from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     ReuseMetadata,
+    json_metadata,
+    mint_credit_artists,
     persist_bulk_with_item_fallback,
 )
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
@@ -226,7 +233,9 @@ class LastfmInwardResolver(InwardTrackResolver):
         resolved, _failed_ids = await persist_bulk_with_item_fallback(
             writes,
             uow,
-            persist=lambda chunk: self._persist_writes_bulk(chunk, uow),
+            persist=lambda chunk: self._persist_writes_bulk(
+                chunk, uow, user_id=user_id
+            ),
             write_key=lambda write: write.identifier,
             describe="resolved Last.fm tracks",
             on_item_failure=_log_failed_write,
@@ -464,6 +473,8 @@ class LastfmInwardResolver(InwardTrackResolver):
         self,
         writes: Sequence[_LastfmResolvedWrite],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> dict[str, Track]:
         """Write every resolution in the chunk through the batch primitives.
 
@@ -488,7 +499,55 @@ class LastfmInwardResolver(InwardTrackResolver):
         _ = await uow.get_connector_repository().map_tracks_to_connectors(
             self._mapping_batch(writes, canonicals)
         )
+        await self._mint_artists(writes, canonicals, uow, user_id=user_id)
         return canonicals
+
+    async def _mint_artists(
+        self,
+        writes: Sequence[_LastfmResolvedWrite],
+        canonicals: Mapping[str, Track],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> None:
+        """The artist records this chunk owes, after its mapping write.
+
+        Last.fm's artist identifier is the name string, so its connector
+        rows are cached but never minted from (a name is capped evidence,
+        never identity). A cross-discovered Spotify mapping carries real
+        artist ids in its dump and mints like any Spotify payload.
+        """
+        config = self._match_evaluation_service.config
+        await mint_credit_artists(
+            self.connector_name,
+            [
+                ArtistCreditSource(
+                    key=write.identifier,
+                    artists=write.probe.artists,
+                    artist_ids=[c.credited_name for c in write.probe.artists],
+                )
+                for write in writes
+            ],
+            canonicals,
+            uow,
+            user_id=user_id,
+            config=config,
+        )
+        spotify_sources = [
+            credit_source(write.identifier, dumped_credits(dump), dump)
+            for write in writes
+            if write.spotify_mapping is not None
+            for dump in (json_metadata(write.spotify_mapping.metadata),)
+        ]
+        if spotify_sources:
+            await mint_credit_artists(
+                "spotify",
+                spotify_sources,
+                canonicals,
+                uow,
+                user_id=user_id,
+                config=config,
+            )
 
     @staticmethod
     def _mapping_batch(

@@ -7,6 +7,7 @@ These tests lock down the current TrackList contract before refactoring:
 """
 
 from datetime import UTC, datetime
+from uuid import uuid7
 
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.track import TrackList
@@ -87,6 +88,22 @@ class TestTrackListMetadataRoundTrip:
         tl = tl.with_metadata("fresh_metric_ids", {"lastfm_user_playcount": [1]})
 
         assert tl.metadata["fresh_metric_ids"]["lastfm_user_playcount"] == [1]
+
+    def test_favorite_artist_ids_round_trip(self):
+        """enricher.artist_favorites writes a frozenset of favorited artist ids."""
+        tl = TrackList(tracks=make_tracks(2))
+        ids = frozenset({uuid7(), uuid7()})
+
+        enriched = tl.with_metadata("favorite_artist_ids", ids)
+
+        assert enriched.metadata["favorite_artist_ids"] == ids
+        assert tl.metadata == {}  # original untouched
+
+    def test_favorite_artist_ids_missing_defaults_via_get(self):
+        """filter_by_artist_ids reads this key with a frozenset() default."""
+        tl = TrackList(tracks=make_tracks(1))
+
+        assert tl.metadata.get("favorite_artist_ids", frozenset()) == frozenset()
 
 
 class TestPlaylistTrackListConversion:

@@ -21,13 +21,24 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Generator, Hashable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import UTC, datetime
+from typing import cast
 
 from attrs import Factory, define, evolve, field
 
 from src.config import create_evaluation_service, get_logger
 from src.domain.entities import Track
 from src.domain.entities.match_review import MatchReview
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track_mapping import MatchMethod
+from src.domain.matching.artist_resolution import (
+    ArtistCreditSource,
+    artist_writes,
+    credit_source,
+    credited_artists,
+    mapping_seam_of,
+    plan_artist_resolution,
+)
 from src.domain.matching.canonical_resolution import (
     Described,
     Outcome,
@@ -44,6 +55,7 @@ from src.domain.matching.canonical_resolution import (
     track_name_key,
     undecided_name_pairs,
 )
+from src.domain.matching.config import MatchingConfig
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.recording_identity import RecordingDescription, identity_key
 from src.domain.matching.types import evidence_number, final_score_of
@@ -697,6 +709,119 @@ def _leader_of(reuse: Reuse[str, Track]) -> str:
     return reuse.leader
 
 
+async def mint_credit_artists(
+    connector: str,
+    sources: Sequence[ArtistCreditSource],
+    canonicals: Mapping[str, Track],
+    uow: UnitOfWorkProtocol,
+    *,
+    user_id: str,
+    config: MatchingConfig,
+) -> None:
+    """Mint canonical artists from the ids the payloads carry, after the mapping write.
+
+    The inward resolvers' twin of the application ``ArtistResolutionService``
+    — the same domain halves (``credited_artists`` → ``plan_artist_resolution``
+    → ``artist_writes``) around the same repository calls in the same order —
+    here because a connector adapter may not import the application layer.
+    Best effort under its own savepoint: the tracks just resolved are the
+    import, and an artist-side failure must not cost them, so it is logged
+    and the chunk goes on. Transient contention still propagates.
+    """
+    try:
+        async with uow.savepoint():
+            created, assigned = await _mint(
+                connector, sources, canonicals, uow, user_id=user_id, config=config
+            )
+    except Exception as error:
+        if is_transient_contention(error):
+            raise
+        logger.error(
+            f"Artist minting failed for {len(sources)} {connector} payloads",
+            connector=connector,
+            track_count=len(sources),
+            exc_info=error,
+        )
+        return
+    if created or assigned:
+        logger.info(
+            "artists_minted",
+            connector=connector,
+            created=created,
+            credits_assigned=assigned,
+        )
+
+
+async def _mint(
+    connector: str,
+    sources: Sequence[ArtistCreditSource],
+    canonicals: Mapping[str, Track],
+    uow: UnitOfWorkProtocol,
+    *,
+    user_id: str,
+    config: MatchingConfig,
+) -> tuple[int, int]:
+    """(artists created, credits filled) — the repository walk, decisions the domain's."""
+    intake = credited_artists(connector, sources)
+    if not intake.connector_artists:
+        return 0, 0
+    artist_connectors = uow.get_artist_connector_repository()
+    stored = await artist_connectors.bulk_upsert_connector_artists(
+        connector, list(intake.connector_artists)
+    )
+    described = intake.described(stored)
+    if not described:
+        return 0, 0
+    owners = await artist_connectors.find_artists_by_connector_artist_ids(
+        [stored[item.key].id for item in described], user_id=user_id
+    )
+    plan = plan_artist_resolution(
+        described,
+        strong_owners={str(row_id): artist for row_id, artist in owners.items()},
+        config=config,
+    )
+    writes = artist_writes(
+        plan,
+        intake,
+        stored,
+        canonicals,
+        connector=connector,
+        user_id=user_id,
+        now=datetime.now(UTC),
+    )
+    artist_repo = uow.get_artist_repository()
+    if writes.artists:
+        _ = await artist_repo.save_artists(list(writes.artists))
+    if writes.mapping_rows:
+        seam = mapping_seam_of(artist_connectors)
+        assertion = await seam.assert_mappings(list(writes.mapping_rows))
+        _ = await artist_connectors.ensure_primaries(
+            list(writes.primaries), mode="fill"
+        )
+        await seam.record_assertion(assertion)
+    assigned = 0
+    if writes.assignments:
+        assigned = await uow.get_track_repository().set_credit_artist_ids(
+            list(writes.assignments), user_id=user_id
+        )
+    if writes.reused:
+        await artist_repo.touch(list(writes.reused), user_id=user_id)
+    if owners:
+        await artist_connectors.touch_last_seen(
+            connector, list(owners), user_id=user_id
+        )
+    return len(writes.artists), assigned
+
+
+def json_metadata(metadata: Mapping[str, object]) -> Mapping[str, JsonValue]:
+    """A mapping's JSON-able metadata as the domain's credit reader takes it.
+
+    ``_mapping_metadata`` is JSON-able by contract (it is what the mapping
+    row stores), so the view is a retyping, not a conversion.
+    """
+    return cast("Mapping[str, JsonValue]", metadata)
+
+
 class LeaderNotPersistedError(LookupError):
     """A write's leader was rolled back, so there is no row for it to depend on.
 
@@ -1128,6 +1253,25 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
 
         _ = await connector_repo.map_tracks_to_connectors(
             self._mapping_batch(writes, canonicals)
+        )
+
+        # Every write, held ones included: a re-encountered track heals the
+        # credits an earlier pass left without ids. The payload's own credits
+        # line up with its ``artist_ids``; the canonical's need not.
+        await mint_credit_artists(
+            self.connector_name,
+            [
+                credit_source(
+                    write.requested_id,
+                    self._canonical_payload(write, user_id=user_id).artists,
+                    json_metadata(self._mapping_metadata(write)),
+                )
+                for write in writes
+            ],
+            canonicals,
+            uow,
+            user_id=user_id,
+            config=self._rules.config,
         )
 
         # Reviews after the mappings: a review names the connector-track row

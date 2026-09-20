@@ -526,6 +526,7 @@ def _build_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
         "enricher.preferences": (),
         "enricher.tags": (),
         "enricher.spotify_liked_status": (),
+        "enricher.artist_favorites": (),
         # === FILTERS ===
         "filter.deduplicate": (),
         "filter.by_release_date": (
@@ -587,14 +588,47 @@ def _build_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 key="exclusion_source",
                 label="Exclude From",
                 field_type="task_ref",
-                required=True,
-                description="Upstream task whose artists will be removed from this list",
+                required=False,
+                description=(
+                    "Upstream task whose artists will be removed from this list "
+                    "(name-based match; combine with or use instead of Artist IDs)"
+                ),
             ),
             ConfigFieldDef(
                 key="exclude_all_artists",
                 label="Exclude All Artists",
                 field_type="boolean",
                 description="When enabled, excludes tracks if any artist matches (not just primary)",
+                default=False,
+            ),
+            ConfigFieldDef(
+                key="artist_ids",
+                label="Artist IDs",
+                field_type="string",
+                description=(
+                    "Comma-separated artist ids to match (id-based, stable across "
+                    "renames — the editor resolves artist names to ids on save)"
+                ),
+                placeholder="3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            ),
+            ConfigFieldDef(
+                key="exclude",
+                label="Exclude Matches",
+                field_type="boolean",
+                description=(
+                    "Applies to Artist IDs / Favorites Only: true removes matching "
+                    "tracks, false keeps only matching tracks"
+                ),
+                default=False,
+            ),
+            ConfigFieldDef(
+                key="favorites_only",
+                label="Favorites Only",
+                field_type="boolean",
+                description=(
+                    "Widen the Artist IDs match with the listener's favorited "
+                    "artists (requires enricher.artist_favorites upstream)"
+                ),
                 default=False,
             ),
         ),
@@ -783,6 +817,15 @@ def _build_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
         "sorter.by_first_played": (DATE_SORT_ORDER_FIELD,),
         "sorter.by_last_played": (DATE_SORT_ORDER_FIELD,),
         "sorter.reverse": (),
+        "sorter.by_artist_name": (
+            ConfigFieldDef(
+                key="reverse",
+                label="Reverse (Z-A)",
+                field_type="boolean",
+                description="true = Z-A by primary artist name, false = A-Z",
+                default=False,
+            ),
+        ),
         "sorter.weighted_shuffle": (
             ConfigFieldDef(
                 key="shuffle_strength",

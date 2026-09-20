@@ -7,12 +7,18 @@ compact projection shape (and the user-data wrapping of free text in
 """
 
 from datetime import UTC, datetime
+from uuid import uuid7
 
 import pytest
 
 from src.application.chat.dispatchers import library
 from src.application.chat.protocols import ToolContext
 from src.application.chat.user_data import wrap
+from src.application.use_cases.get_artist_detail import (
+    ArtistConnectorMappingInfo,
+    GetArtistDetailResult,
+    RelatedProject,
+)
 from src.application.use_cases.get_liked_tracks import GetLikedTracksResult
 from src.application.use_cases.get_played_tracks import GetPlayedTracksResult
 from src.application.use_cases.get_preferred_tracks import GetPreferredTracksResult
@@ -22,10 +28,11 @@ from src.application.use_cases.get_track_details import (
     PlaySummary,
     TrackDetailsResult,
 )
+from src.application.use_cases.list_artists import ListArtistsResult
 from src.application.use_cases.list_tracks import ListTracksResult
 from src.domain.entities.track import TrackList
-from src.domain.exceptions import ToolExecutionError
-from tests.fixtures import make_track, make_tracks
+from src.domain.exceptions import NotFoundError, ToolExecutionError
+from tests.fixtures import make_artist, make_track, make_tracks
 
 _CTX = ToolContext(user_id="default")
 
@@ -33,6 +40,13 @@ _CTX = ToolContext(user_id="default")
 def _fake_runner(result: object):
     async def _run(factory: object, user_id: str | None = None) -> object:
         return result
+
+    return _run
+
+
+def _raising_runner(error: Exception):
+    async def _run(factory: object, user_id: str | None = None) -> object:
+        raise error
 
     return _run
 
@@ -192,3 +206,80 @@ class TestScopeLikedAndPlayed:
         assert isinstance(out, dict)
         assert out["total"] == 1
         assert out["tracks"][0]["track_id"] == str(tracks[0].id)
+
+
+class TestEntityArtists:
+    """``entity='artists'`` — the listing and the artist_id detail view."""
+
+    async def test_lists_artists_with_side_maps(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        artist = make_artist("Caribou")
+        result = ListArtistsResult(
+            artists=[artist],
+            total=1,
+            limit=50,
+            offset=0,
+            track_counts={artist.id: 4},
+            favorited_ids={artist.id},
+            connector_names={artist.id: ["spotify"]},
+        )
+        monkeypatch.setattr(library, "execute_use_case", _fake_runner(result))
+
+        out = await library.handle_query_library(
+            {"entity": "artists", "query": "cari", "favorites_only": True}, _CTX
+        )
+
+        assert isinstance(out, dict)
+        assert out["total"] == 1
+        assert out["artists"][0]["artist_id"] == str(artist.id)
+        assert out["artists"][0]["name"] == wrap("Caribou")
+        assert out["artists"][0]["track_count"] == 4
+        assert out["artists"][0]["is_favorited"] is True
+        assert out["artists"][0]["connectors"] == ["spotify"]
+
+    async def test_artist_detail_projects_links_and_relations(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        artist = make_artist("Caribou")
+        result = GetArtistDetailResult(
+            artist=artist,
+            track_count=4,
+            is_favorited=False,
+            connector_mappings=[
+                ArtistConnectorMappingInfo(
+                    connector_name="spotify",
+                    connector_artist_identifier="abc",
+                    name="Caribou",
+                    is_primary=True,
+                    external_url="https://open.spotify.com/artist/abc",
+                )
+            ],
+            related=[
+                RelatedProject(
+                    name="Daphni", relation="alias", connector_name="discogs"
+                )
+            ],
+        )
+        monkeypatch.setattr(library, "execute_use_case", _fake_runner(result))
+
+        out = await library.handle_query_library(
+            {"entity": "artists", "artist_id": str(artist.id)}, _CTX
+        )
+
+        assert isinstance(out, dict)
+        assert out["track_count"] == 4
+        assert out["connectors"][0]["url"] == "https://open.spotify.com/artist/abc"
+        assert out["related"][0]["relation"] == "alias"
+
+    async def test_unknown_artist_is_an_actionable_tool_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            library, "execute_use_case", _raising_runner(NotFoundError("nope"))
+        )
+
+        with pytest.raises(ToolExecutionError, match="No artist with id"):
+            await library.handle_query_library(
+                {"entity": "artists", "artist_id": str(uuid7())}, _CTX
+            )

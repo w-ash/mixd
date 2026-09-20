@@ -38,6 +38,10 @@ tag_mode?: ListTracksApiV1TracksGetTagMode;
  */
 namespace?: string | null;
 /**
+ * Only tracks carrying a credit resolved to this canonical artist.
+ */
+artist_id?: string | null;
+/**
  * Only tracks with at least this many plays
  */
 min_plays?: number | null;

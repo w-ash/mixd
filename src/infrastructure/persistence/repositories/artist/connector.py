@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -158,6 +158,23 @@ class ArtistConnectorRepository:
         """Upsert connector artist records, keyed by connector identifier."""
         return await self.connector_repo.bulk_upsert_connector_artists(
             connector_name, artists
+        )
+
+    @db_operation("touch_artist_mappings_last_seen")
+    async def touch_last_seen(
+        self, connector: str, connector_artist_ids: Sequence[UUID], *, user_id: str
+    ) -> None:
+        """Stamp ``last_seen_at`` on the mappings of re-encountered connector artists."""
+        if not connector_artist_ids:
+            return
+        _ = await self.session.execute(
+            update(DBArtistMapping)
+            .where(
+                DBArtistMapping.user_id == user_id,
+                DBArtistMapping.connector_name == connector,
+                DBArtistMapping.connector_artist_id.in_(list(connector_artist_ids)),
+            )
+            .values(last_seen_at=datetime.now(UTC))
         )
 
     @db_operation("find_artists_by_connector_artist_ids")

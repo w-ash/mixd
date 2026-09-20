@@ -63,3 +63,33 @@ def sort_by_key_function(
         return result
 
     return dual_mode(transform, tracklist)
+
+
+def sort_by_artist_name(
+    reverse: bool = False,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """Sort tracks alphabetically by the primary artist's credited name.
+
+    Comparison is casefolded for locale-naive case-insensitive ordering.
+    Tracks with no artist credits sort last regardless of direction — they
+    are partitioned out before sorting rather than folded into the sort key,
+    so ``reverse`` never pulls them back to the front.
+
+    Args:
+        reverse: Whether to sort in descending order.
+
+    Returns:
+        Transformation function
+    """
+
+    def credited_name(track: Track) -> str:
+        return track.artists[0].credited_name.casefold()
+
+    def transform(t: TrackList) -> TrackList:
+        with_credit = [track for track in t.tracks if track.artists]
+        without_credit = [track for track in t.tracks if not track.artists]
+        sorted_tracks = sorted(with_credit, key=credited_name, reverse=reverse)
+        return t.with_tracks(sorted_tracks + without_credit)
+
+    return dual_mode(transform, tracklist)

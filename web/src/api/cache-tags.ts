@@ -71,8 +71,17 @@ const RULES: readonly Rule[] = [
   { match: /^\/api\/v1\/workflows\/[^/]+\/preview/ },
   { match: /^\/api\/v1\/connectors\/[^/]+\/auth-url/ },
   { match: /^\/api\/v1\/connectors\/apple_music\/musickit-config/ },
+  { match: /^\/api\/v1\/artists\/enrich/ },
 
   // ── resources ───────────────────────────────────────────────────────────
+  // The detail page renders the artist's library tracks, so an artist read
+  // depends on `tracks` too.
+  {
+    match: /^\/api\/v1\/artists/,
+    owns: "artists",
+    alsoReads: ["tracks"],
+    scoped: true,
+  },
   { match: /^\/api\/v1\/assistant\//, owns: "assistant" },
   { match: /^\/api\/v1\/imports\/checkpoints/, owns: "checkpoints" },
   // Proxies the live Spotify/Tidal API — split out of `connectors` so a play
@@ -102,7 +111,11 @@ const RULES: readonly Rule[] = [
   { match: /^\/api\/v1\/sync\/targets/, owns: "connectors" },
   { match: /^\/api\/v1\/(schedules|sync\/schedules)/, owns: "schedules" },
   { match: /^\/api\/v1\/settings/, owns: "settings" },
-  { match: /^\/api\/v1\/stats/, owns: "stats", alsoReads: ["tracks", "plays"] },
+  {
+    match: /^\/api\/v1\/stats/,
+    owns: "stats",
+    alsoReads: ["tracks", "plays", "artists"],
+  },
   { match: /^\/api\/v1\/tags/, owns: "tags", alsoReads: ["tracks"] },
   {
     match: /^\/api\/v1\/tracks/,

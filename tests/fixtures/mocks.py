@@ -295,6 +295,16 @@ def make_mock_artist_alias_repo(**overrides) -> AsyncMock:
     return repo
 
 
+def make_mock_artist_enrichment_provider(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`ArtistEnrichmentProviderProtocol`."""
+    provider = AsyncMock()
+    provider.search_artist.return_value = overrides.pop("search_artist", [])
+    provider.lookup_artist.return_value = overrides.pop("lookup_artist", None)
+    for k, v in overrides.items():
+        setattr(provider, k, v)
+    return provider
+
+
 def make_mock_plays_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`PlaysRepositoryProtocol`."""
     repo = AsyncMock()
@@ -643,6 +653,11 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     uow.get_artist_alias_repository = MagicMock(
         return_value=repo_overrides.get(
             "artist_alias_repo", make_mock_artist_alias_repo()
+        )
+    )
+    uow.get_artist_enrichment_provider = MagicMock(
+        return_value=repo_overrides.get(
+            "artist_enrichment_provider", make_mock_artist_enrichment_provider()
         )
     )
     uow.get_metrics_repository = MagicMock(

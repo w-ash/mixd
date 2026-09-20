@@ -10,7 +10,7 @@ internal plumbing). This table is generated from
 `src/application/tools/registry.py` and enforced by
 `tests/unit/application/tools/test_registry_parity.py`.
 
-**93 capabilities: 81 covered, 12 excluded.**
+**97 capabilities: 85 covered, 12 excluded.**
 
 | Capability (use case) | Chat tool | Disposition | Rationale |
 | --- | --- | --- | --- |
@@ -35,6 +35,9 @@ internal plumbing). This table is generated from
 | DeleteTagUseCase | manage_tags | covered | — |
 | DeleteWorkflowUseCase | manage_workflow | covered | — |
 | DuplicateWorkflowUseCase | manage_workflow | covered | — |
+| EnrichArtistsUseCase | enrich_artists | covered | — |
+| FavoriteArtistUseCase | favorite_artist | covered | — |
+| GetArtistDetailUseCase | query_library | covered | — |
 | GetDashboardStatsUseCase | query_stats | covered | — |
 | GetDiscogsSnapshotUseCase | get_discogs_snapshot | covered | — |
 | GetLatestWorkflowRunsUseCase | query_workflow_history | covered | — |
@@ -57,6 +60,7 @@ internal plumbing). This table is generated from
 | ImportTracksUseCase | import_data | covered | — |
 | InstantiateWorkflowUseCase | manage_workflow | covered | — |
 | ListActiveRunsUseCase | query_workflow_history | covered | — |
+| ListArtistsUseCase | query_library | covered | — |
 | ListConnectorPlaylistsUseCase | query_playlists | covered | — |
 | ListMatchReviewsUseCase | query_stats | covered | — |
 | ListOperationRunsUseCase | query_operations | covered | — |
@@ -125,7 +129,7 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | generate_workflow_def | read | exposed | Call this with a complete workflow definition whenever you build or refine a workflow for the user — it validates the definition against the node catalog and DAG rules and renders a graph preview the user sees. |
 | validate_workflow_def | read | exposed | Use this to check a workflow definition you did not just generate — one the user pasted, or a saved workflow fetched via get_workflow — against the node catalog and DAG rules. |
 | save_workflow | write | exposed | Call this to persist a workflow definition after a successful generate_workflow_def — pass the exact definition it accepted, plus workflow_id when updating an existing workflow (omit it to create). |
-| query_library | read | exposed | Call this to read the user's track library: search or list tracks (scope 'all'), inspect one track's full detail (scope 'all' with track_id), or pull the liked, preferred, or recently played slices (scope 'liked'/'preferred'/'played'). |
+| query_library | read | exposed | Call this to read the user's library. |
 | query_plays | read | exposed | Call this to read the user's raw play history: individual play events (when each track was played, from which service), filterable by track, service, and date range, newest first — or set histogram=true for binned plays-over-time counts. |
 | list_tags | read | exposed | Call this to see the user's tags with how many tracks carry each and when each was last used. |
 | query_playlists | read | exposed | Call this to read the user's playlists before answering questions about them, referencing one, or proposing changes — so names and ids are real, never guessed. |
@@ -146,12 +150,14 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | manage_playlist_assignments | write | exposed | Call this to propose a metadata-assignment change on a cached connector playlist — declaring an assignment, declaring and applying it to every track at once, or deleting one. |
 | manage_workflow | write | exposed | Call this to propose a change to the user's saved workflows — creating one from a complete definition, cloning an existing one, deleting one, or reverting it to a saved version. |
 | manage_schedule | write | exposed | Call this to propose a change to a workflow's or sync's automated schedule — creating or replacing it, enabling or disabling it, or removing it. |
+| favorite_artist | write | exposed | Call this to propose favoriting (or unfavoriting) one of the user's artists. |
 | run_workflow | write | chat-only (pending Tasks) | Call this to run one of the user's saved workflows now — pass its workflow_id. |
 | import_connector_playlists | write | chat-only (pending Tasks) | Call this to import external connector playlists (e.g. |
 | apply_playlist_assignments | write | chat-only (pending Tasks) | Call this to apply tag/preference assignment rules across the library, populating playlists in bulk — omit assignment_ids to apply all, or pass specific ones. |
 | sync_playlist_link | write | chat-only (pending Tasks) | Call this to run a playlist sync link now — pass its link_id from query_playlist_links. |
 | import_data | write | chat-only (pending Tasks) | Call this to import listening data from a connector — Last.fm play history, Spotify likes, or the ~50 most recent Spotify plays (use that one for today's listening). |
 | rebuild_play_history | write | chat-only (pending Tasks) | Call this to re-derive the user's entire canonical play history from the imported observation ledger — converging duplicates and refreshing merged fields. |
+| enrich_artists | write | chat-only (pending Tasks) | Call this to resolve the user's artists against MusicBrainz — filling in MBIDs, alternate names and per-service links so artist pages and cross-service matching work. |
 | get_discogs_snapshot | read | exposed | Call this to see the user's Discogs record collection as Discogs reports it: the total number of collected releases and the most recently added items (title, artist credits, year, physical formats, date added). |
 | get_tidal_snapshot | read | exposed | Call this to see the user's Tidal favorites as Tidal reports them: the total number of favorited tracks and the most recently added ones (title, artists, date favorited). |
 | code_execution | agentic | chat-only (agentic) | Server-side Python sandbox for batch computation over the user's library. |

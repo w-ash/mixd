@@ -19,6 +19,7 @@ from src.domain.entities.preference import PreferenceState
 from src.domain.repositories.stats import DashboardAggregates
 from src.infrastructure.persistence.database.live_rows import live_only
 from src.infrastructure.persistence.database.models import (
+    DBArtistFavorite,
     DBPlaylist,
     DBPlaylistMapping,
     DBTrack,
@@ -65,10 +66,18 @@ class StatsRepository:
             .where(DBTrackLike.user_id == user_id)
             .scalar_subquery()
             .label("total_liked"),
+            select(func.count(DBArtistFavorite.artist_id))
+            .where(DBArtistFavorite.user_id == user_id)
+            .scalar_subquery()
+            .label("total_favorite_artists"),
         )
-        total_tracks, total_plays, total_playlists, total_liked = (
-            (await self._session.execute(totals_stmt)).tuples().one()
-        )
+        (
+            total_tracks,
+            total_plays,
+            total_playlists,
+            total_liked,
+            total_favorite_artists,
+        ) = (await self._session.execute(totals_stmt)).tuples().one()
 
         # --- Query 2: service breakdowns (plays + likes) ---------------------
         plays_by_svc_stmt = (
@@ -155,6 +164,7 @@ class StatsRepository:
             total_plays=total_plays,
             total_playlists=total_playlists,
             total_liked=total_liked,
+            total_favorite_artists=total_favorite_artists,
             tracks_by_connector=tracks_by_connector,
             liked_by_connector=liked_by_connector,
             plays_by_connector=plays_by_connector,

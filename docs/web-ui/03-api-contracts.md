@@ -153,6 +153,7 @@ GET    /tracks
        ?never_played=<true>           zero plays (v0.10.4)
        ?played_within=<days>          played in the last N days (v0.10.4)
        ?not_played_within=<days>      has plays, none in the last N days (v0.10.4)
+       ?artist_id=<uuid>              credits resolved to one canonical artist (v0.12.1)
        ?limit=&offset=
        → { data: LibraryTrackSchema[], total, limit, offset }
 ```
@@ -222,7 +223,7 @@ Defined in `src/interface/api/schemas/tracks.py`.
 {
   "id": 42,
   "title": "string",
-  "artists": [{ "name": "string" }],
+  "artists": [{ "name": "string", "artist_id": "uuid | null" }],
   "album": "string | null",
   "duration_ms": 180000,
   "isrc": "string | null",
@@ -234,7 +235,7 @@ Defined in `src/interface/api/schemas/tracks.py`.
 {
   "id": 42,
   "title": "string",
-  "artists": [{ "name": "string" }],
+  "artists": [{ "name": "string", "artist_id": "uuid | null" }],
   "album": "string | null",
   "duration_ms": 180000,
   "release_date": "YYYY-MM-DD | null",
@@ -446,7 +447,7 @@ Defined in `src/interface/api/schemas/playlists.py`.
   "track": {
     "id": 42,
     "title": "string",
-    "artists": [{ "name": "string" }],
+    "artists": [{ "name": "string", "artist_id": "uuid | null" }],
     "album": "string | null",
     "duration_ms": 180000
   },
@@ -883,6 +884,53 @@ A maximum of 3 concurrent import operations are allowed (configurable via `SSECo
 
 ---
 
+## 4b. Artists (v0.12.1)
+
+Canonical artists are per-user entities; the credited name on a track carries
+`artist_id` once a credit resolves to one. Names are non-unique by design, so
+every artist route addresses an id, never a name.
+
+```
+GET    /artists
+       ?search=<substring>            match on artist name
+       ?favorites_only=<true|false>   only favorited artists
+       ?sort=<field_dir>              name_asc, name_desc, track_count_desc, track_count_asc, favorited_at_desc (default: name_asc)
+       ?limit=&offset=&cursor=
+       → { data: ArtistSummarySchema[], total, limit, offset, next_cursor }
+```
+- **Use case**: `ListArtistsUseCase` (merged search+list, keyset cursor like `/tracks`)
+- **Status**: ✅ Implemented (v0.12.1)
+- **Note**: `ArtistSummarySchema` = `{ id, name, mbid, kind, track_count, is_favorited, connectors[] }`. The three per-row values are batched over the page, one query each. A cursor page skips the count, so `total` is null on it.
+
+```
+GET    /artists/{id}
+       → ArtistDetailSchema
+```
+- **Use case**: `GetArtistDetailUseCase` — 404 when the artist is absent or another tenant's
+- **Status**: ✅ Implemented (v0.12.1)
+- **Note**: `ArtistDetailSchema` adds `connector_mappings[]` (`{ connector_name, connector_artist_identifier, name, is_primary, match_method, confidence, external_url }`) and `related[]` (`{ name, relation, connector_name, identifier }`). `external_url` is the service's own artist page, or null for a connector with none. `relation` is `alias`, `same_as` or `member`, read out of the connector payload — this cycle has no relations table.
+
+```
+POST   /artists/{id}/favorite
+       → { artist_id, is_favorited: true, changed: bool }
+DELETE /artists/{id}/favorite
+       → 204 No Content
+```
+- **Use case**: `FavoriteArtistUseCase` (both directions)
+- **Status**: ✅ Implemented (v0.12.1)
+- **Note**: Idempotent. A repeat POST answers 200 with `changed: false`; a DELETE on an unfavorited artist answers 204. Both 404 on an unknown artist. Favorites are Mixd-only curation and never sync to a service.
+
+```
+POST   /artists/enrich
+       { limit?: int, refresh_older_than_days?: int = 30 }
+       → { operation_id, run_id, ... }   (long operation → SSE)
+```
+- **Use case**: `EnrichArtistsUseCase` via `run_enrich_artists`, `operation_type="artist_enrichment"`
+- **Status**: ✅ Implemented (v0.12.1)
+- **Note**: Resolves artist identity against MusicBrainz. Subscribe to `/operations/{operation_id}/progress`; the terminal frame's `touched` carries `artists` + `tracks` + `operation-runs`.
+
+---
+
 ## 5. Stats (Dashboard)
 
 ```
@@ -893,7 +941,8 @@ GET    /stats/dashboard
            total_playlists: int,
            tracks_by_connector: { "spotify": int, "lastfm": int, ... },
            total_liked: int,
-           liked_by_connector: { "spotify": int, "lastfm": int, ... }
+           liked_by_connector: { "spotify": int, "lastfm": int, ... },
+           total_favorite_artists: int
          }
 ```
 - **Use case**: `GetDashboardStatsUseCase` (v0.3.3)

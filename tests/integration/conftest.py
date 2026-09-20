@@ -28,11 +28,11 @@ from tests.fixtures import TEST_USER_ID
 
 
 @pytest.fixture
-async def real_unit_of_work(db_session):
+def real_unit_of_work(db_session):
     """Real UnitOfWork with test database session for infrastructure tests."""
     from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
-    return await get_unit_of_work(db_session)
+    return get_unit_of_work(db_session)
 
 
 @pytest.fixture

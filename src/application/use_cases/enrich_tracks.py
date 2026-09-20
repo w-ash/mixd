@@ -29,7 +29,9 @@ from src.domain.repositories.uow import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 # Type definitions for enrichment configuration
-EnrichmentType = Literal["external_metadata", "play_history", "preferences", "tags"]
+EnrichmentType = Literal[
+    "external_metadata", "play_history", "preferences", "tags", "artist_favorites"
+]
 
 
 @define(frozen=True, slots=True)
@@ -221,6 +223,12 @@ class EnrichTracksUseCase:
                 )
             case "tags":
                 result = await self._enrich_tags(
+                    command.tracklist,
+                    uow,
+                    user_id=command.user_id,
+                )
+            case "artist_favorites":
+                result = await self._enrich_artist_favorites(
                     command.tracklist,
                     uow,
                     user_id=command.user_id,
@@ -449,6 +457,36 @@ class EnrichTracksUseCase:
 
         logger.info(f"Loaded tags for {len(tags)}/{len(track_ids)} tracks")
         enriched_tracklist = tracklist.with_metadata("tags", tags)
+
+        return enriched_tracklist, {}
+
+    async def _enrich_artist_favorites(
+        self,
+        tracklist: TrackList,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> tuple[TrackList, dict[str, dict[UUID, MetricValue]]]:
+        """Enriches the tracklist with the listener's favorited artist ids.
+
+        Writes the full favorite-artist-id set onto
+        ``tracklist.metadata["favorite_artist_ids"]`` so downstream
+        ``filter.by_artists`` nodes configured with ``favorites_only`` can
+        match against it. This is a tracklist-level flag, not per-track, so
+        it has no per-track metric to report.
+
+        Returns an empty metrics dict — the favorite set isn't a scalar
+        MetricValue and lives at a dedicated metadata key.
+        """
+        favorite_repo = uow.get_artist_favorite_repository()
+        favorite_artist_ids = await favorite_repo.get_favorite_artist_ids(
+            user_id=user_id
+        )
+
+        logger.info(f"Loaded {len(favorite_artist_ids)} favorite artist ids")
+        enriched_tracklist = tracklist.with_metadata(
+            "favorite_artist_ids", favorite_artist_ids
+        )
 
         return enriched_tracklist, {}
 

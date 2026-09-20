@@ -30,11 +30,17 @@ def direction_label(sync_direction: str, connector_name: str) -> str:
 
 
 class ArtistSchema(BaseModel):
-    """Artist representation in API responses."""
+    """One credited artist on a track.
+
+    ``artist_id`` is the canonical artist the credit resolved to, or None while
+    it is unresolved — it is what makes a credited name on a track table a link
+    to that artist's page.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     name: str
+    artist_id: UUID | None = None
 
 
 class TrackSummarySchema(BaseModel):
@@ -225,7 +231,7 @@ class ReorderEntriesRequest(BaseModel):
 
 
 def to_artist_schema(artist: ArtistCredit) -> ArtistSchema:
-    return ArtistSchema(name=artist.credited_name)
+    return ArtistSchema(name=artist.credited_name, artist_id=artist.artist_id)
 
 
 def _to_track_summary(track: Track) -> TrackSummarySchema:

@@ -18,6 +18,9 @@ class DashboardAggregates(TypedDict):
     total_plays: int
     total_playlists: int
     total_liked: int
+    # Artists the user favorited — Mixd-only curation, so it has no
+    # per-connector breakdown the way likes do.
+    total_favorite_artists: int
     tracks_by_connector: dict[str, int]
     liked_by_connector: dict[str, int]
     plays_by_connector: dict[str, int]

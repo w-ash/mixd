@@ -1,6 +1,9 @@
 """Read tool: query the user's track library.
 
-``query_library`` is the assistant's single window onto a user's tracks. It
+``query_library`` is the assistant's single window onto a user's library. An
+``entity`` discriminator picks tracks (the default) or artists — per the
+file-header parity contract, entities are added here rather than as a read tool
+each, because the upfront tool set caps at ten. Within tracks it then
 fans a ``scope`` discriminator over the existing library query paths — the
 paginated listing/search (``ListTracksUseCase``), the assembled per-track
 detail view (``GetTrackDetailsUseCase``), and the liked / preferred / played
@@ -15,6 +18,7 @@ from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
     iso,
+    opt_bool,
     opt_choice,
     opt_int,
     opt_str,
@@ -26,6 +30,10 @@ from src.application.chat.dispatchers._common import (
 )
 from src.application.chat.protocols import ToolContext
 from src.application.runner import execute_use_case
+from src.application.use_cases.get_artist_detail import (
+    GetArtistDetailCommand,
+    GetArtistDetailUseCase,
+)
 from src.application.use_cases.get_liked_tracks import (
     GetLikedTracksCommand,
     GetLikedTracksUseCase,
@@ -42,17 +50,51 @@ from src.application.use_cases.get_track_details import (
     GetTrackDetailsCommand,
     GetTrackDetailsUseCase,
 )
+from src.application.use_cases.list_artists import (
+    ListArtistsCommand,
+    ListArtistsUseCase,
+)
 from src.application.use_cases.list_tracks import ListTracksCommand, ListTracksUseCase
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import NotFoundError, ToolExecutionError
+from src.domain.repositories.artist import ARTIST_SORTS, DEFAULT_ARTIST_SORT
 
+_ENTITIES: tuple[str, ...] = ("tracks", "artists")
 _SCOPES: tuple[str, ...] = ("all", "liked", "preferred", "played")
+_ARTIST_SORTS: tuple[str, ...] = tuple(ARTIST_SORTS)
 _PREFERENCE_STATES: tuple[str, ...] = ("hmm", "nah", "yah", "star")
 
 QUERY_LIBRARY_INPUT_SCHEMA: JsonDict = {
     "type": "object",
     "properties": {
+        "entity": {
+            "type": "string",
+            "enum": list(_ENTITIES),
+            "description": (
+                "What to read (default 'tracks'). 'artists' lists the user's "
+                "canonical artists and accepts 'query', 'favorites_only', "
+                "'sort', 'limit', 'cursor' — or 'artist_id' for one artist's "
+                "detail (connector links, track count, related projects). "
+                "'scope' and the track-only filters are ignored for artists."
+            ),
+        },
+        "artist_id": {
+            "type": "string",
+            "description": (
+                "With entity 'artists', an artist UUID to fetch its detail view "
+                "instead of a listing."
+            ),
+        },
+        "favorites_only": {
+            "type": "boolean",
+            "description": "Entity 'artists' only: keep only favorited artists.",
+        },
+        "sort": {
+            "type": "string",
+            "enum": list(_ARTIST_SORTS),
+            "description": ("Entity 'artists' only: ordering (default 'name_asc')."),
+        },
         "scope": {
             "type": "string",
             "enum": list(_SCOPES),
@@ -75,7 +117,10 @@ QUERY_LIBRARY_INPUT_SCHEMA: JsonDict = {
         },
         "query": {
             "type": "string",
-            "description": "Scope 'all' only: free-text search over title/artist/album.",
+            "description": (
+                "Free-text search: over title/artist/album for tracks (scope "
+                "'all'), over the artist name for entity 'artists'."
+            ),
         },
         "connector": {
             "type": "string",
@@ -165,9 +210,17 @@ def _optional_days_back(args: Mapping[str, JsonValue], key: str) -> int | None:
 async def handle_query_library(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext
 ) -> JsonValue:
-    """Query the library, dispatching on ``scope`` to the matching use case."""
-    scope = opt_choice(tool_input, "scope", _SCOPES, "all")
+    """Query the library, dispatching on ``entity`` then ``scope``."""
+    entity = opt_choice(tool_input, "entity", _ENTITIES, "tracks")
     limit = opt_int(tool_input, "limit", default=50)
+
+    if entity == "artists":
+        artist_id = opt_uuid(tool_input, "artist_id")
+        if artist_id is not None:
+            return await _artist_detail(artist_id, ctx)
+        return await _list_artists(tool_input, ctx, limit)
+
+    scope = opt_choice(tool_input, "scope", _SCOPES, "all")
 
     if scope == "all":
         track_id = opt_uuid(tool_input, "track_id")
@@ -289,15 +342,93 @@ async def _played_tracks(
     return {"tracks": tracks, "total": result.total_available}
 
 
+async def _list_artists(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext, limit: int
+) -> JsonValue:
+    command = ListArtistsCommand(
+        user_id=ctx.user_id,
+        search=opt_str(tool_input, "query"),
+        favorites_only=opt_bool(tool_input, "favorites_only", default=False),
+        sort_by=opt_choice(tool_input, "sort", _ARTIST_SORTS, DEFAULT_ARTIST_SORT),
+        limit=limit,
+        cursor=opt_str(tool_input, "cursor"),
+    )
+    result = await execute_use_case(
+        lambda uow: ListArtistsUseCase().execute(command, uow),
+        user_id=ctx.user_id,
+    )
+    artists = [
+        {
+            "artist_id": str(artist.id),
+            "name": user_text(artist.name),
+            "mbid": artist.mbid,
+            "kind": artist.kind,
+            "track_count": result.track_counts.get(artist.id, 0),
+            "is_favorited": artist.id in result.favorited_ids,
+            "connectors": result.connector_names.get(artist.id, []),
+        }
+        for artist in result.artists
+    ]
+    return {
+        "artists": artists,
+        "total": result.total,
+        "next_cursor": result.next_cursor,
+    }
+
+
+async def _artist_detail(artist_id: UUID, ctx: ToolContext) -> JsonValue:
+    command = GetArtistDetailCommand(user_id=ctx.user_id, artist_id=artist_id)
+    try:
+        result = await execute_use_case(
+            lambda uow: GetArtistDetailUseCase().execute(command, uow),
+            user_id=ctx.user_id,
+        )
+    except NotFoundError as e:
+        raise ToolExecutionError(
+            f"No artist with id {artist_id} — call query_library with entity "
+            "'artists' to find real artist ids."
+        ) from e
+
+    return {
+        "artist_id": str(result.artist.id),
+        "name": user_text(result.artist.name),
+        "mbid": result.artist.mbid,
+        "kind": result.artist.kind,
+        "track_count": result.track_count,
+        "is_favorited": result.is_favorited,
+        "connectors": [
+            {
+                "connector": m.connector_name,
+                "identifier": m.connector_artist_identifier,
+                "name": user_text(m.name),
+                "is_primary": m.is_primary,
+                "url": m.external_url,
+            }
+            for m in result.connector_mappings
+        ],
+        "related": [
+            {
+                "name": user_text(r.name),
+                "relation": r.relation,
+                "connector": r.connector_name,
+            }
+            for r in result.related
+        ],
+    }
+
+
 SPECS: list[dict[str, object]] = [
     {
         "name": "query_library",
         "description": (
-            "Call this to read the user's track library: search or list tracks "
-            "(scope 'all'), inspect one track's full detail (scope 'all' with "
-            "track_id), or pull the liked, preferred, or recently played slices "
-            "(scope 'liked'/'preferred'/'played'). Use it whenever you need real "
-            "track ids, titles, or counts instead of guessing."
+            "Call this to read the user's library. entity 'tracks' (default): "
+            "search or list tracks (scope 'all'), inspect one track's full "
+            "detail (scope 'all' with track_id), or pull the liked, preferred, "
+            "or recently played slices (scope 'liked'/'preferred'/'played'). "
+            "entity 'artists': list or search artists, or inspect one artist "
+            "(artist_id) for its connector links, track count and related "
+            "projects. Use it whenever you need real track or artist ids, "
+            "names, or counts instead of guessing."
         ),
         "input_schema": QUERY_LIBRARY_INPUT_SCHEMA,
         "dispatch": handle_query_library,
@@ -310,6 +441,9 @@ SPECS: list[dict[str, object]] = [
             "GetLikedTracksUseCase",
             "GetPreferredTracksUseCase",
             "GetPlayedTracksUseCase",
+            # entity='artists' — the listing and the artist_id detail view.
+            "ListArtistsUseCase",
+            "GetArtistDetailUseCase",
         ),
         "kind": "read",
         # Hot set: library search is the most common read — loaded upfront rather

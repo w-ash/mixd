@@ -1571,9 +1571,10 @@ class TestWriteFailureIsolation:
         assert metrics.failed == 1
         assert metrics.write_failed == 1
         # One savepoint for the failed bulk attempt, then one per id for the
-        # retry — the isolation itself — and a fourth around the write-failure
-        # event, so recording the diagnostic cannot widen the failure.
-        assert uow.savepoint.call_count == 4
+        # retry — the isolation itself — a fourth around the write-failure
+        # event, so recording the diagnostic cannot widen the failure, and a
+        # fifth for the artist minter under the id that persisted.
+        assert uow.savepoint.call_count == 5
 
     async def test_a_failed_write_is_never_substituted_by_search(self):
         """A live id whose write failed must not be answered with another track."""
@@ -1754,9 +1755,10 @@ class TestFallbackSaveFailureIsolation:
         assert result == {good_id: found}
         assert resolver.fallback_resolved_ids == {good_id}
         assert metrics.failed == 1
-        # One savepoint for the failed bulk attempt, then one per id, then one
-        # around the write-failure event a rescue's refused write also earns.
-        assert uow.savepoint.call_count == 4
+        # One savepoint for the failed bulk attempt, then one per id, one
+        # around the write-failure event a rescue's refused write also earns,
+        # and one for the artist minter under the id that persisted.
+        assert uow.savepoint.call_count == 5
 
 
 class TestUnansweredIsNotDeath:
@@ -2524,8 +2526,9 @@ class TestChunkBulkPersistIsOneRoundTripGroup:
         connector_repo.map_tracks_to_connectors.assert_awaited_once()
         assert len(connector_repo.map_tracks_to_connectors.await_args.args[0]) == 10
         connector_repo.map_track_to_connector.assert_not_called()
-        # One savepoint for the chunk, not one per id.
-        assert uow.savepoint.call_count == 1
+        # One savepoint for the chunk, not one per id — plus the artist
+        # minter's own, which isolates the chunk's tracks from its failures.
+        assert uow.savepoint.call_count == 2
 
 
 class TestCanonicalPayloadTenancy:

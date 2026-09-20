@@ -48,6 +48,7 @@ from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.listenbrainz.lookup import ListenBrainzLookup
 from src.infrastructure.connectors.spotify import SpotifyConnector
+from src.infrastructure.connectors.spotify.conversions import spotify_artist_ids
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
 from src.infrastructure.connectors.spotify.utilities import search_and_evaluate_attempt
 
@@ -384,7 +385,13 @@ class SpotifyCrossDiscoveryProvider:
         if probe.best is None or probe.spotify_id is None or probe.match_result is None:
             return Nothing()
 
-        best_dict = probe.best.model_dump()
+        # Positional ``artist_ids`` beside the dump, as every Spotify
+        # conversion writes them: the mapping's metadata is what the artist
+        # minter reads after the Last.fm resolver persists this outcome.
+        best_dict: dict[str, object] = {
+            **probe.best.model_dump(),
+            "artist_ids": spotify_artist_ids(probe.best.artists),
+        }
         if probe.spotify_isrc:
             if isrc_owners is None:
                 # The batched ISRC read failed — the same failure a

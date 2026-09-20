@@ -74,6 +74,9 @@ class ListTracksCommand:
     tags: Sequence[str] | None = field(default=None, converter=_normalize_tags)
     tag_mode: Literal["and", "or"] = "and"
     namespace: str | None = None
+    # Every track carrying a credit resolved to this canonical artist — the
+    # artist detail page's track table, and ``GET /tracks?artist_id=``.
+    artist_id: UUID | None = None
     play_filters: PlayFilters = NO_PLAY_FILTERS
     sort_by: TrackSortBy = field(default=DEFAULT_TRACK_SORT, converter=_known_sort)
     limit: int = field(default=BusinessLimits.DEFAULT_PAGE_SIZE)
@@ -157,6 +160,7 @@ class ListTracksUseCase:
                 tags=command.tags,
                 tag_mode=command.tag_mode,
                 namespace=command.namespace,
+                artist_id=command.artist_id,
                 play_filters=command.play_filters,
                 sort_by=command.sort_by,
                 limit=command.limit,

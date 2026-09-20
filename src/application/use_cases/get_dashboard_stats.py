@@ -25,6 +25,7 @@ class DashboardStatsResult:
     total_plays: int
     total_playlists: int
     total_liked: int
+    total_favorite_artists: int
     tracks_by_connector: dict[str, int]
     liked_by_connector: dict[str, int]
     plays_by_connector: dict[str, int]

@@ -13,6 +13,7 @@ from uuid import UUID
 
 from attrs import Factory, define, evolve
 
+from src.application.services.artist_resolution import ArtistResolutionService
 from src.config import create_matching_config, get_logger
 from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.domain.entities.match_review import MatchReview
@@ -85,6 +86,9 @@ class TrackResolutionService:
     """
 
     evaluator_config: MatchingConfig = Factory(create_matching_config)
+    # The artist minter that follows every mapping write: the payloads'
+    # own artist ids become canonical artists and fill the credits.
+    artists: ArtistResolutionService = Factory(ArtistResolutionService)
 
     async def ingest(
         self,
@@ -141,6 +145,11 @@ class TrackResolutionService:
 
         pending = [identifier for identifier in payloads if identifier not in resolved]
         if not pending:
+            # Still worth a minting pass: a re-encountered track heals the
+            # credits an earlier import (or the backfill) left without ids.
+            await self._mint_artists(
+                connector, payloads, resolved, uow, user_id=user_id
+            )
             return [resolved[t.connector_track_identifier] for t in tracks]
 
         plan = await self._plan(pending, payloads, uow, user_id=user_id)
@@ -252,7 +261,56 @@ class TrackResolutionService:
         if reviews:
             _ = await uow.get_match_review_repository().create_reviews_batch(reviews)
 
+        # Over every payload, resolved and pending alike: the mapping write
+        # above is the one seam all of them pass through.
+        await self._mint_artists(connector, payloads, resolved, uow, user_id=user_id)
+
         return [resolved[t.connector_track_identifier] for t in tracks]
+
+    async def _mint_artists(
+        self,
+        connector: str,
+        payloads: Mapping[str, ConnectorTrack],
+        resolved: Mapping[str, Track],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> None:
+        """Mint canonical artists from the ids the payloads carry.
+
+        Under its own savepoint and best effort: the tracks just resolved
+        are the import, and an artist-side failure must not cost them, so
+        it is logged and the batch goes on. Transient contention still
+        propagates — the caller's retry policy owns that.
+        """
+        try:
+            async with uow.savepoint():
+                summary = await self.artists.ingest(
+                    connector,
+                    list(payloads.values()),
+                    uow,
+                    user_id=user_id,
+                    canonicals=resolved,
+                )
+        except Exception as error:
+            if is_transient_contention(error):
+                raise
+            logger.error(
+                f"Artist minting failed for {len(payloads)} {connector} payloads",
+                connector=connector,
+                track_count=len(payloads),
+                exc_info=error,
+            )
+            return
+        if not summary.empty:
+            logger.info(
+                "artists_minted",
+                connector=connector,
+                connector_artists=summary.connector_artists_upserted,
+                created=summary.artists_created,
+                reused=summary.artists_reused,
+                credits_assigned=summary.credits_assigned,
+            )
 
     async def ingest_isolating(
         self,

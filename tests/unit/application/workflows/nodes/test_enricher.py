@@ -5,9 +5,9 @@ DB persistence (saved tracks upserted via save_track_likes_batch, unsaved
 tracks removed via delete_track_likes_batch), and edge cases (no Spotify IDs,
 empty tracklist, all liked, API failure).
 
-Also covers enricher.preferences and enricher.tags registration + config
-builders — the execution path itself is covered at the use-case layer
-(test_enrich_tracks_use_case.py).
+Also covers enricher.preferences, enricher.tags, and enricher.artist_favorites
+registration + config builders — the execution path itself is covered at the
+use-case layer (test_enrich_tracks_use_case.py).
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -260,6 +260,12 @@ class TestPreferenceAndTagEnricherRegistration:
         assert meta["input_type"] == "tracklist"
         assert meta["output_type"] == "tracklist"
 
+    def test_artist_favorites_node_registered(self):
+        fn, meta = get_node("enricher.artist_favorites")
+        assert callable(fn)
+        assert meta["input_type"] == "tracklist"
+        assert meta["output_type"] == "tracklist"
+
     def test_preferences_config_builder_produces_correct_type(self):
         ctx = MagicMock()
         config = static_enrichment_config("preferences")(ctx, {})
@@ -272,12 +278,22 @@ class TestPreferenceAndTagEnricherRegistration:
         assert isinstance(config, EnrichmentConfig)
         assert config.enrichment_type == "tags"
 
+    def test_artist_favorites_config_builder_produces_correct_type(self):
+        ctx = MagicMock()
+        config = static_enrichment_config("artist_favorites")(ctx, {})
+        assert isinstance(config, EnrichmentConfig)
+        assert config.enrichment_type == "artist_favorites"
+
     def test_builders_ignore_user_config(self):
-        """Both builders take no user-facing config — any passed config is ignored."""
+        """Builders take no user-facing config — any passed config is ignored."""
         ctx = MagicMock()
         pref_config = static_enrichment_config("preferences")(
             ctx, {"anything": "ignored"}
         )
         tag_config = static_enrichment_config("tags")(ctx, {"anything": "ignored"})
+        favorites_config = static_enrichment_config("artist_favorites")(
+            ctx, {"anything": "ignored"}
+        )
         assert pref_config.enrichment_type == "preferences"
         assert tag_config.enrichment_type == "tags"
+        assert favorites_config.enrichment_type == "artist_favorites"

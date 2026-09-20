@@ -94,6 +94,14 @@ async def list_tracks(
     namespace: str | None = Query(
         default=None, description="Filter to tracks carrying any mood:*/energy:* tag."
     ),
+    artist_id: Annotated[
+        UUID | None,
+        Query(
+            description=(
+                "Only tracks carrying a credit resolved to this canonical artist."
+            )
+        ),
+    ] = None,
     min_plays: int | None = Query(
         default=None, ge=1, description="Only tracks with at least this many plays"
     ),
@@ -144,6 +152,7 @@ async def list_tracks(
         tags=tag,
         tag_mode=tag_mode,
         namespace=namespace,
+        artist_id=artist_id,
         play_filters=PlayFilters(
             min_plays=min_plays,
             played_within=played_within,

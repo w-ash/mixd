@@ -110,6 +110,18 @@ _ = node(
 )(create_enricher_node(static_enrichment_config("tags"), enricher_label="tags"))
 
 _ = node(
+    "enricher.artist_favorites",
+    description="Enriches the tracklist with the listener's favorited artist ids",
+    input_type="tracklist",
+    output_type="tracklist",
+)(
+    create_enricher_node(
+        static_enrichment_config("artist_favorites"),
+        enricher_label="artist_favorites",
+    )
+)
+
+_ = node(
     "enricher.spotify_liked_status",
     description="Checks which tracks are saved in the user's Spotify library and persists status",
     input_type="tracklist",

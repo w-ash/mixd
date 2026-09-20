@@ -10,6 +10,7 @@ export type OperationRunDetailSchemaTouchedItem = typeof OperationRunDetailSchem
 
 
 export const OperationRunDetailSchemaTouchedItem = {
+  artists: 'artists',
   assistant: 'assistant',
   checkpoints: 'checkpoints',
   'connector-playlists': 'connector-playlists',

@@ -21,5 +21,5 @@ export interface SseSubOperationCompletedEvent {
   final_status: SseFinalStatus;
   run_id?: string | null;
   counts?: SseSubOperationCompletedEventCounts;
-  touched?: ('assistant' | 'checkpoints' | 'connector-playlists' | 'connectors' | 'import-queue' | 'operation-runs' | 'playlist-assignments' | 'playlists' | 'plays' | 'reviews' | 'schedules' | 'settings' | 'stats' | 'tags' | 'tracks' | 'workflow-catalog' | 'workflow-runs' | 'workflows')[] | null;
+  touched?: ('artists' | 'assistant' | 'checkpoints' | 'connector-playlists' | 'connectors' | 'import-queue' | 'operation-runs' | 'playlist-assignments' | 'playlists' | 'plays' | 'reviews' | 'schedules' | 'settings' | 'stats' | 'tags' | 'tracks' | 'workflow-catalog' | 'workflow-runs' | 'workflows')[] | null;
 }

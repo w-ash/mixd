@@ -24,6 +24,7 @@ from attrs import define
 
 from src.application.chat import confirmed_actions, subagent, tool_executor
 from src.application.chat.dispatchers import (
+    artists_write,
     assignments_write,
     connector_playlists_write,
     connectors_read,
@@ -87,6 +88,9 @@ _DISPATCHER_SPECS_LISTS: tuple[list[dict[str, object]], ...] = (
     links_write.SPECS,
     assignments_write.SPECS,
     workflows_write.SPECS,
+    # Artist writes (v0.12.1 — appended at the end of the write list: order is
+    # load-bearing, and prepending would renumber every tool before it).
+    artists_write.SPECS,
     # Long-running operation tools (Epic 3 — launched via OperationLauncher)
     long_ops.SPECS,
     # Connector reads (v0.11.1 — appended last: order is load-bearing)

@@ -21,6 +21,7 @@ _STATS = DashboardStatsResult(
     total_plays=98765,
     total_playlists=12,
     total_liked=567,
+    total_favorite_artists=12,
     tracks_by_connector={"spotify": 4000, "lastfm": 3200},
     liked_by_connector={"spotify": 567},
     plays_by_connector={"lastfm": 98765},

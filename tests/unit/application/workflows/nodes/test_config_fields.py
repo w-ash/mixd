@@ -265,6 +265,7 @@ def test_enricher_metric_defs_covers_all_enrichers() -> None:
         "enricher.spotify_liked_status",
         "enricher.preferences",
         "enricher.tags",
+        "enricher.artist_favorites",
     }
     expected = registered_enrichers - non_metric_enrichers
 

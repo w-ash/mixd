@@ -10,6 +10,7 @@ export type OperationRunSummarySchemaTouchedItem = typeof OperationRunSummarySch
 
 
 export const OperationRunSummarySchemaTouchedItem = {
+  artists: 'artists',
   assistant: 'assistant',
   checkpoints: 'checkpoints',
   'connector-playlists': 'connector-playlists',

@@ -171,6 +171,54 @@ def exclude_artists(
     )
 
 
+def filter_by_artist_ids(
+    artist_ids: frozenset[UUID] = frozenset(),
+    *,
+    exclude: bool = False,
+    favorites_only: bool = False,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """
+    Filter tracks by artist id, optionally widened by the listener's favorites.
+
+    Unlike ``exclude_artists`` (name-based, case-insensitive), this matches on
+    ``ArtistCredit.artist_id`` — stable across renames and free of the
+    string-identity problem.
+
+    Args:
+        artist_ids: Artist ids to match against each track's credits.
+        exclude: If True, keep tracks whose credits do NOT match (inverts the
+            default include semantics).
+        favorites_only: If True, widen the match set with
+            ``tracklist.metadata["favorite_artist_ids"]``. Missing metadata is
+            treated as an empty set — a track with no matching credit is kept
+            in exclude mode and dropped in include mode.
+
+    Returns:
+        Transformation function
+    """
+
+    def transform(t: TrackList) -> TrackList:
+        effective_ids = artist_ids
+        if favorites_only:
+            effective_ids |= t.metadata.get("favorite_artist_ids", frozenset())
+
+        def has_matching_credit(track: Track) -> bool:
+            return any(
+                credit.artist_id is not None and credit.artist_id in effective_ids
+                for credit in track.artists
+            )
+
+        def keep(track: Track) -> bool:
+            matches = has_matching_credit(track)
+            return not matches if exclude else matches
+
+        filtered = [track for track in t.tracks if keep(track)]
+        return t.with_tracks(filtered)
+
+    return dual_mode(transform, tracklist)
+
+
 def filter_by_duration(
     min_ms: int | None = None,
     max_ms: int | None = None,

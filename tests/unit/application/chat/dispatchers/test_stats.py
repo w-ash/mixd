@@ -54,6 +54,7 @@ class TestDashboardView:
                 total_plays=200,
                 total_playlists=3,
                 total_liked=5,
+                total_favorite_artists=2,
                 tracks_by_connector={"spotify": 8, "lastfm": 2},
                 liked_by_connector={"spotify": 5},
                 plays_by_connector={"lastfm": 200},

@@ -15,7 +15,7 @@ import type { SsePreviewCompleteEventOutputTracksItem } from './ssePreviewComple
 export interface SsePreviewCompleteEvent {
   operation_id: string;
   final_status: SseFinalStatus;
-  touched?: ('assistant' | 'checkpoints' | 'connector-playlists' | 'connectors' | 'import-queue' | 'operation-runs' | 'playlist-assignments' | 'playlists' | 'plays' | 'reviews' | 'schedules' | 'settings' | 'stats' | 'tags' | 'tracks' | 'workflow-catalog' | 'workflow-runs' | 'workflows')[] | null;
+  touched?: ('artists' | 'assistant' | 'checkpoints' | 'connector-playlists' | 'connectors' | 'import-queue' | 'operation-runs' | 'playlist-assignments' | 'playlists' | 'plays' | 'reviews' | 'schedules' | 'settings' | 'stats' | 'tags' | 'tracks' | 'workflow-catalog' | 'workflow-runs' | 'workflows')[] | null;
   output_tracks: SsePreviewCompleteEventOutputTracksItem[];
   total_track_count: number;
   metric_columns: string[];

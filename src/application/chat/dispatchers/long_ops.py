@@ -1,7 +1,7 @@
 """Long-running operation tools (Epic 3) — propose half only.
 
-These five tools start background operations (imports, playlist sync, bulk
-assignment apply, workflow runs). Launching an operation is interface-layer work
+These tools start background operations (imports, playlist sync, bulk
+assignment apply, workflow runs, artist enrichment). Launching an operation is interface-layer work
 (``launch_sse_operation`` needs the operation registry, progress broker, and
 background dispatch), so these tools carry no application-layer ``executor``;
 they are ``launches_operation`` writes. Confirmation runs them through the
@@ -18,6 +18,7 @@ The ``details`` contract each propose stores (consumed by the interface launcher
 - ``sync_playlist_link`` — ``{operation, link_id, direction_override?, confirm_token?}``
 - ``import_data`` — ``{operation, source, limit?, username?, force?}``
 - ``rebuild_play_history`` — ``{operation, dry_run}``
+- ``enrich_artists`` — ``{operation, limit?, refresh_older_than_days}``
 """
 
 from collections.abc import Mapping
@@ -311,6 +312,52 @@ async def handle_rebuild_play_history(
     )
 
 
+# --- enrich_artists ---------------------------------------------------------
+
+ENRICH_ARTISTS_INPUT_SCHEMA: JsonDict = {
+    "type": "object",
+    "properties": {
+        "limit": {
+            "type": "integer",
+            "description": "Cap how many artists are processed (1-10000). Omit for all.",
+        },
+        "refresh_older_than_days": {
+            "type": "integer",
+            "description": (
+                "Also re-check artists whose identity was last resolved more "
+                "than N days ago (default 30)."
+            ),
+        },
+    },
+    "additionalProperties": False,
+}
+
+
+async def handle_enrich_artists(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
+    # 0 is the "no cap" sentinel -> None (enrich all); a real cap is 1-10000.
+    limit = opt_int(tool_input, "limit", default=0, minimum=1, maximum=10000)
+    refresh_days = opt_int(
+        tool_input, "refresh_older_than_days", default=30, minimum=0, maximum=3650
+    )
+    scope = f"{limit} artist(s)" if limit else "every artist"
+    details: JsonDict = {
+        "operation": "enrich_artists",
+        "limit": limit or None,
+        "refresh_older_than_days": refresh_days,
+        "changes": [
+            (
+                f"Resolve {scope} against MusicBrainz, writing identity, "
+                "aliases and connector mappings"
+            )
+        ],
+    }
+    return await propose_action(
+        ctx, "enrich_artists", tool_input, f"Enrich {scope}", details
+    )
+
+
 SPECS: list[dict[str, object]] = [
     {
         "name": "run_workflow",
@@ -392,6 +439,20 @@ SPECS: list[dict[str, object]] = [
         "input_schema": REBUILD_PLAY_HISTORY_INPUT_SCHEMA,
         "dispatch": handle_rebuild_play_history,
         "use_cases": ("RebuildPlayHistoryUseCase",),
+        "kind": "write",
+        "launches_operation": True,
+    },
+    {
+        "name": "enrich_artists",
+        "description": (
+            "Call this to resolve the user's artists against MusicBrainz — "
+            "filling in MBIDs, alternate names and per-service links so artist "
+            "pages and cross-service matching work. Pass a limit to do a slice "
+            "first. It runs in the background with progress."
+        ),
+        "input_schema": ENRICH_ARTISTS_INPUT_SCHEMA,
+        "dispatch": handle_enrich_artists,
+        "use_cases": ("EnrichArtistsUseCase",),
         "kind": "write",
         "launches_operation": True,
     },

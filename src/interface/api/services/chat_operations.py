@@ -295,6 +295,37 @@ async def _launch_rebuild_play_history(
     return resp.operation_id, resp.run_id
 
 
+async def _launch_enrich_artists(
+    details: JsonDict, user_id: str
+) -> tuple[str, str | None]:
+    """Mirror ``mixd artists enrich`` — MusicBrainz identity resolution."""
+    raw_limit = details.get("limit")
+    limit = int(raw_limit) if isinstance(raw_limit, int) else None
+    raw_days = details.get("refresh_older_than_days")
+    refresh_days = int(raw_days) if isinstance(raw_days, int) else 30
+
+    async def _enrich(emitter: OperationBoundEmitter) -> object:
+        from src.application.use_cases.enrich_artists import run_enrich_artists
+
+        # Unwrap to the OperationResult so the audit path records counts —
+        # same reason as the rebuild launcher above.
+        enriched = await run_enrich_artists(
+            user_id=user_id,
+            limit=limit,
+            refresh_older_than_days=refresh_days,
+            progress_emitter=emitter,
+        )
+        return enriched.result
+
+    resp = await launch_sse_operation(
+        user_id=user_id,
+        operation_type="artist_enrichment",
+        coro_factory=_enrich,
+        initiated_by="assistant",
+    )
+    return resp.operation_id, resp.run_id
+
+
 _LAUNCHERS: dict[str, _LaunchFn] = {
     "run_workflow": _launch_run_workflow,
     "sync_playlist_link": _launch_sync_playlist_link,
@@ -302,6 +333,7 @@ _LAUNCHERS: dict[str, _LaunchFn] = {
     "apply_playlist_assignments": _launch_apply_playlist_assignments,
     "import_data": _launch_import_data,
     "rebuild_play_history": _launch_rebuild_play_history,
+    "enrich_artists": _launch_enrich_artists,
 }
 
 

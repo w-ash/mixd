@@ -6,6 +6,7 @@ Split from the former monolithic ``interfaces.py``.
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol, Self
 
+from src.domain.matching.artist_enrichment import ArtistEnrichmentProviderProtocol
 from src.domain.repositories.admin import AdminRepositoryProtocol
 from src.domain.repositories.artist import (
     ArtistAliasRepositoryProtocol,
@@ -127,6 +128,14 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_artist_alias_repository(self) -> ArtistAliasRepositoryProtocol:
         """Get the connector-artist alias cache."""
+        ...
+
+    def get_artist_enrichment_provider(self) -> ArtistEnrichmentProviderProtocol:
+        """Get the source of artist aliases and external identifiers.
+
+        A provider port, not a repository: the enrichment operation asks it
+        for scored statements about an artist and decides what to store.
+        """
         ...
 
     def get_checkpoint_repository(self) -> CheckpointRepositoryProtocol:

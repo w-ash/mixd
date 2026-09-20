@@ -28,6 +28,7 @@ from .core import Transform, require_database_tracks
 from .filtering import (
     exclude_artists,
     exclude_tracks,
+    filter_by_artist_ids,
     filter_by_date_range,
     filter_by_duration,
     filter_by_liked_status,
@@ -51,7 +52,7 @@ from .selecting import (
     select_by_percentage,
 )
 from .shuffle import weighted_shuffle
-from .sorting import sort_by_key_function
+from .sorting import sort_by_artist_name, sort_by_key_function
 from .tag import filter_by_tag, filter_by_tag_namespace
 
 __all__ = [
@@ -59,6 +60,7 @@ __all__ = [
     "concatenate",
     "exclude_artists",
     "exclude_tracks",
+    "filter_by_artist_ids",
     "filter_by_date_range",
     "filter_by_duration",
     "filter_by_explicit",
@@ -79,6 +81,7 @@ __all__ = [
     "reverse_tracks",
     "select_by_method",
     "select_by_percentage",
+    "sort_by_artist_name",
     "sort_by_date",
     "sort_by_external_metrics",
     "sort_by_key_function",

@@ -292,6 +292,7 @@ def create_app() -> FastAPI:
 
     # Mount routers
     from src.interface.api.routes.apple_auth import router as apple_auth_router
+    from src.interface.api.routes.artists import router as artists_router
     from src.interface.api.routes.assistant import router as assistant_router
     from src.interface.api.routes.auth import router as auth_router
     from src.interface.api.routes.chat import router as chat_router
@@ -408,6 +409,7 @@ def create_app() -> FastAPI:
     app.include_router(playlists_router, prefix="/api/v1")
     app.include_router(playlist_assignments_router, prefix="/api/v1")
     app.include_router(tracks_router, prefix="/api/v1")
+    app.include_router(artists_router, prefix="/api/v1")
     app.include_router(plays_router, prefix="/api/v1")
     app.include_router(tags_router, prefix="/api/v1")
     app.include_router(workflows_router, prefix="/api/v1")

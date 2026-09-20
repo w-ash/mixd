@@ -7,6 +7,7 @@ Tests use UnitOfWork pattern for proper Clean Architecture compliance.
 
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
+from uuid import uuid7
 
 import pytest
 
@@ -417,6 +418,66 @@ class TestEnrichTracksUseCase:
         # the match statement's assert_never backstop still fails the operation.
         with pytest.raises(EnrichmentFailedError):
             await use_case.execute(command, mock_uow)
+
+
+class TestArtistFavoritesEnrichment:
+    """Test suite for the artist_favorites enrichment type.
+
+    Split out from TestEnrichTracksUseCase to stay under the
+    too-many-public-methods lint limit — it needs only its own
+    ``use_case`` fixture, unlike the fixture-heavy tests above.
+    """
+
+    @pytest.fixture
+    def use_case(self):
+        """Create EnrichTracksUseCase instance."""
+        return EnrichTracksUseCase(metric_config=Mock())
+
+    async def test_artist_favorites_enrichment_success(self, use_case):
+        """Artist favorites enrichment attaches the favorite id set to metadata."""
+        tracks = make_tracks(count=3)
+        tracklist = TrackList(tracks=tracks)
+        favorite_ids = frozenset({uuid7(), uuid7()})
+
+        mock_favorite_repo = AsyncMock()
+        mock_favorite_repo.get_favorite_artist_ids.return_value = favorite_ids
+        mock_uow = make_mock_uow(artist_favorite_repo=mock_favorite_repo)
+
+        config = EnrichmentConfig(enrichment_type="artist_favorites")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert isinstance(result, EnrichTracksResult)
+        assert result.enriched_tracklist.metadata["favorite_artist_ids"] == favorite_ids
+        assert len(result.errors) == 0
+
+        mock_favorite_repo.get_favorite_artist_ids.assert_called_once()
+        assert (
+            mock_favorite_repo.get_favorite_artist_ids.call_args.kwargs["user_id"]
+            == "test-user"
+        )
+
+    async def test_artist_favorites_enrichment_empty_result(self, use_case):
+        """No favorited artists → metadata["favorite_artist_ids"] is an empty frozenset."""
+        tracks = make_tracks(count=2)
+        tracklist = TrackList(tracks=tracks)
+
+        mock_favorite_repo = AsyncMock()
+        mock_favorite_repo.get_favorite_artist_ids.return_value = frozenset()
+        mock_uow = make_mock_uow(artist_favorite_repo=mock_favorite_repo)
+
+        config = EnrichmentConfig(enrichment_type="artist_favorites")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert result.enriched_tracklist.metadata["favorite_artist_ids"] == frozenset()
+        assert len(result.errors) == 0
 
 
 class TestEnrichmentConfig:

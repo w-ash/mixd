@@ -8,11 +8,12 @@ handling transaction management and repository creation using a shared database 
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Self
+from typing import Final, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.connector import ConnectorDescriptor
+from src.domain.matching.artist_enrichment import ArtistEnrichmentProviderProtocol
 from src.domain.repositories.admin import AdminRepositoryProtocol
 from src.domain.repositories.artist import (
     ArtistAliasRepositoryProtocol,
@@ -99,6 +100,11 @@ from src.infrastructure.services.resolution_recorder import ResolutionRecorder
 from src.infrastructure.services.track_identity_service_impl import (
     TrackIdentityServiceImpl,
 )
+
+# Cache slot for the MusicBrainz client the artist-enrichment provider wraps.
+# It lives beside the connectors so ``__aexit__`` closes it: a per-call client
+# would restart the 1 req/s pacing window on every artist.
+_ARTIST_ENRICHMENT_CLIENT_KEY: Final = "musicbrainz_artist_enrichment"
 
 
 class DatabaseUnitOfWork:
@@ -421,6 +427,27 @@ class DatabaseUnitOfWork:
         )
 
         return TokenStorageGrantProvider(get_token_storage())
+
+    def get_artist_enrichment_provider(self) -> ArtistEnrichmentProviderProtocol:
+        """Get MusicBrainz as the source of artist aliases and external ids.
+
+        The client is cached on the unit of work and closed by ``__aexit__``
+        with the connectors: it owns an httpx2 pool and the 1 req/s pacing
+        window, both of which have to survive a whole enrichment run rather
+        than be rebuilt per artist.
+        """
+        from src.infrastructure.connectors.musicbrainz.artist_enrichment import (
+            MusicBrainzArtistEnrichmentProvider,
+        )
+        from src.infrastructure.connectors.musicbrainz.client import (
+            MusicBrainzAPIClient,
+        )
+
+        client = self._connector_cache.get(_ARTIST_ENRICHMENT_CLIENT_KEY)
+        if not isinstance(client, MusicBrainzAPIClient):
+            client = MusicBrainzAPIClient()
+            self._connector_cache[_ARTIST_ENRICHMENT_CLIENT_KEY] = client
+        return MusicBrainzArtistEnrichmentProvider(client=client)
 
     def get_play_import_provider(self) -> PlayImportProvider:
         """Get the per-service importer/resolver lookup for play history."""

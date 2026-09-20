@@ -18,7 +18,7 @@ import type {
 } from '../model/matchMethodHealthSchema.ts';
 
 
-export const getGetDashboardStatsApiV1StatsDashboardGetResponseMock = (overrideResponse: Partial<Extract<DashboardStatsSchema, object>> = {}): DashboardStatsSchema => ({total_tracks: faker.number.int(), total_plays: faker.number.int(), total_playlists: faker.number.int(), total_liked: faker.number.int(), tracks_by_connector: {
+export const getGetDashboardStatsApiV1StatsDashboardGetResponseMock = (overrideResponse: Partial<Extract<DashboardStatsSchema, object>> = {}): DashboardStatsSchema => ({total_tracks: faker.number.int(), total_plays: faker.number.int(), total_playlists: faker.number.int(), total_liked: faker.number.int(), total_favorite_artists: faker.number.int(), tracks_by_connector: {
         [faker.string.alphanumeric(5)]: faker.number.int()
       }, liked_by_connector: {
         [faker.string.alphanumeric(5)]: faker.number.int()

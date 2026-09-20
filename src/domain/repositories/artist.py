@@ -234,6 +234,16 @@ class ArtistConnectorRepositoryProtocol(Protocol):
         """Which services each artist is mapped to — one query for a page of rows."""
         ...
 
+    def touch_last_seen(
+        self, connector: str, connector_artist_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[None]:
+        """Stamp ``last_seen_at`` on the mappings of re-encountered connector artists.
+
+        Re-encounter is freshness, not evidence: confidence and primacy are
+        never touched here, and manual overrides are stamped too.
+        """
+        ...
+
     def ensure_primaries(
         self, candidates: Sequence[PrimaryCandidate], *, mode: ElectionMode = "fill"
     ) -> Awaitable[list[PrimaryCandidate]]:

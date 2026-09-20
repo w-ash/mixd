@@ -1758,6 +1758,25 @@
             "description": "Filter to tracks carrying any mood:*/energy:* tag."
           },
           {
+            "name": "artist_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only tracks carrying a credit resolved to this canonical artist.",
+              "title": "Artist Id"
+            },
+            "description": "Only tracks carrying a credit resolved to this canonical artist."
+          },
+          {
             "name": "min_plays",
             "in": "query",
             "required": false,
@@ -2400,6 +2419,287 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artists": {
+      "get": {
+        "tags": [
+          "artists"
+        ],
+        "summary": "List Artists",
+        "description": "List artists with optional search, favorites filter, sorting, paging.",
+        "operationId": "list_artists_api_v1_artists_get",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring match on name",
+              "title": "Search"
+            },
+            "description": "Substring match on name"
+          },
+          {
+            "name": "favorites_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only artists the user favorited",
+              "default": false,
+              "title": "Favorites Only"
+            },
+            "description": "Only artists the user favorited"
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ArtistSortBy",
+              "description": "Sort field and direction",
+              "default": "name_asc"
+            },
+            "description": "Sort field and direction"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor for keyset pagination",
+              "title": "Cursor"
+            },
+            "description": "Opaque cursor for keyset pagination"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedArtistsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artists/enrich": {
+      "post": {
+        "tags": [
+          "artists"
+        ],
+        "summary": "Enrich Artists",
+        "description": "Resolve artist identity against MusicBrainz in the background.",
+        "operationId": "enrich_artists_api_v1_artists_enrich_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrichArtistsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artists/{artist_id}": {
+      "get": {
+        "tags": [
+          "artists"
+        ],
+        "summary": "Get Artist Detail",
+        "description": "Get one artist with connector mappings, track count and favorite state.",
+        "operationId": "get_artist_detail_api_v1_artists__artist_id__get",
+        "parameters": [
+          {
+            "name": "artist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Artist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artists/{artist_id}/favorite": {
+      "post": {
+        "tags": [
+          "artists"
+        ],
+        "summary": "Favorite Artist",
+        "description": "Favorite an artist. Repeat calls succeed with ``changed=false``.",
+        "operationId": "favorite_artist_api_v1_artists__artist_id__favorite_post",
+        "parameters": [
+          {
+            "name": "artist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Artist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteArtistResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "artists"
+        ],
+        "summary": "Unfavorite Artist",
+        "description": "Unfavorite an artist. Idempotent \u2014 204 even if it was not favorited.",
+        "operationId": "unfavorite_artist_api_v1_artists__artist_id__favorite_delete",
+        "parameters": [
+          {
+            "name": "artist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Artist Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -5524,11 +5824,153 @@
         "title": "ApplyResultSchema",
         "description": "Counts from one ApplyPlaylistAssignmentsUseCase run."
       },
+      "ArtistConnectorMappingSchema": {
+        "properties": {
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "connector_artist_identifier": {
+            "type": "string",
+            "title": "Connector Artist Identifier"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary",
+            "default": false
+          },
+          "match_method": {
+            "type": "string",
+            "title": "Match Method",
+            "default": ""
+          },
+          "confidence": {
+            "type": "integer",
+            "title": "Confidence",
+            "default": 0
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_name",
+          "connector_artist_identifier",
+          "name"
+        ],
+        "title": "ArtistConnectorMappingSchema",
+        "description": "One live mapping on an artist, with the service's own page for it."
+      },
+      "ArtistDetailSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "mbid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mbid"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtistKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "track_count": {
+            "type": "integer",
+            "title": "Track Count",
+            "default": 0
+          },
+          "is_favorited": {
+            "type": "boolean",
+            "title": "Is Favorited",
+            "default": false
+          },
+          "connectors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Connectors"
+          },
+          "connector_mappings": {
+            "items": {
+              "$ref": "#/components/schemas/ArtistConnectorMappingSchema"
+            },
+            "type": "array",
+            "title": "Connector Mappings"
+          },
+          "related": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedProjectSchema"
+            },
+            "type": "array",
+            "title": "Related"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ArtistDetailSchema",
+        "description": "Full artist detail: identity, mappings, counts, favorite state."
+      },
+      "ArtistKind": {
+        "type": "string",
+        "enum": [
+          "person",
+          "group",
+          "other"
+        ]
+      },
       "ArtistSchema": {
         "properties": {
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "artist_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist Id"
           }
         },
         "type": "object",
@@ -5536,7 +5978,75 @@
           "name"
         ],
         "title": "ArtistSchema",
-        "description": "Artist representation in API responses."
+        "description": "One credited artist on a track.\n\n``artist_id`` is the canonical artist the credit resolved to, or None while\nit is unresolved \u2014 it is what makes a credited name on a track table a link\nto that artist's page."
+      },
+      "ArtistSortBy": {
+        "type": "string",
+        "enum": [
+          "name_asc",
+          "name_desc",
+          "track_count_desc",
+          "track_count_asc",
+          "favorited_at_desc"
+        ]
+      },
+      "ArtistSummarySchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "mbid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mbid"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtistKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "track_count": {
+            "type": "integer",
+            "title": "Track Count",
+            "default": 0
+          },
+          "is_favorited": {
+            "type": "boolean",
+            "title": "Is Favorited",
+            "default": false
+          },
+          "connectors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Connectors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ArtistSummarySchema",
+        "description": "One canonical artist in list views."
       },
       "AssignmentActionType": {
         "type": "string",
@@ -6695,6 +7205,10 @@
             "type": "integer",
             "title": "Total Liked"
           },
+          "total_favorite_artists": {
+            "type": "integer",
+            "title": "Total Favorite Artists"
+          },
           "tracks_by_connector": {
             "additionalProperties": {
               "type": "integer"
@@ -6737,6 +7251,7 @@
           "total_plays",
           "total_playlists",
           "total_liked",
+          "total_favorite_artists",
           "tracks_by_connector",
           "liked_by_connector",
           "plays_by_connector",
@@ -6755,6 +7270,33 @@
           "xhigh",
           "max"
         ]
+      },
+      "EnrichArtistsRequest": {
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "refresh_older_than_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 0.0,
+            "title": "Refresh Older Than Days",
+            "default": 30
+          }
+        },
+        "type": "object",
+        "title": "EnrichArtistsRequest",
+        "description": "Body for ``POST /artists/enrich``."
       },
       "ExportLastfmLikesRequest": {
         "properties": {
@@ -6813,6 +7355,31 @@
         ],
         "title": "FallbackShareSchema",
         "description": "Recent search_fallback* share of total recent mappings for one connector."
+      },
+      "FavoriteArtistResponse": {
+        "properties": {
+          "artist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artist Id"
+          },
+          "is_favorited": {
+            "type": "boolean",
+            "title": "Is Favorited"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artist_id",
+          "is_favorited",
+          "changed"
+        ],
+        "title": "FavoriteArtistResponse",
+        "description": "Result of a favorite write \u2014 ``changed`` is False on a repeat."
       },
       "FieldType": {
         "type": "string",
@@ -7954,6 +8521,7 @@
             "items": {
               "type": "string",
               "enum": [
+                "artists",
                 "assistant",
                 "checkpoints",
                 "connector-playlists",
@@ -8111,6 +8679,7 @@
             "items": {
               "type": "string",
               "enum": [
+                "artists",
                 "assistant",
                 "checkpoints",
                 "connector-playlists",
@@ -8343,6 +8912,55 @@
           "error",
           "cancelled"
         ]
+      },
+      "PaginatedArtistsResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ArtistSummarySchema"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedArtistsResponse",
+        "description": "Standard paginated envelope for ``GET /artists``."
       },
       "PaginatedLibraryTracksResponse": {
         "properties": {
@@ -9138,6 +9756,41 @@
             "$ref": "#/components/schemas/OperationStatus"
           }
         ]
+      },
+      "RelatedProjectSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "relation": {
+            "type": "string",
+            "title": "Relation"
+          },
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "identifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identifier"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "relation",
+          "connector_name"
+        ],
+        "title": "RelatedProjectSchema",
+        "description": "A name a connector payload links to this artist.\n\n``relation`` is ``alias``, ``same_as`` or ``member`` \u2014 see\n``GetArtistDetailUseCase`` for where each comes from."
       },
       "RelinkMappingRequest": {
         "properties": {
@@ -11789,6 +12442,7 @@
               {
                 "items": {
                   "enum": [
+                    "artists",
                     "assistant",
                     "checkpoints",
                     "connector-playlists",
@@ -11867,6 +12521,7 @@
               {
                 "items": {
                   "enum": [
+                    "artists",
                     "assistant",
                     "checkpoints",
                     "connector-playlists",
@@ -12007,6 +12662,7 @@
               {
                 "items": {
                   "enum": [
+                    "artists",
                     "assistant",
                     "checkpoints",
                     "connector-playlists",

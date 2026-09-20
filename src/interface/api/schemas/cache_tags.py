@@ -29,6 +29,7 @@ from typing import Final, Literal
 from src.application.use_cases._shared.sync_targets import SYNC_TARGETS
 
 CacheTag = Literal[
+    "artists",
     "assistant",
     "checkpoints",
     "connector-playlists",
@@ -115,6 +116,11 @@ _LAUNCHED_TOUCHES: Final[Mapping[str, tuple[CacheTag, ...]]] = {
     # preview that pulls in new tracks moves the library and the dashboard. It
     # is a deliberate toolbar action, not a keystroke, so the refetch is cheap.
     "workflow_preview": ("tracks", "stats"),
+    # Artist enrichment writes MBIDs, aliases and connector mappings onto
+    # existing artist rows. It mints no artists and touches no favorite, so the
+    # dashboard totals hold — but every artist row's identity and service
+    # badges move, and a track's credits carry the same artist ids.
+    "artist_enrichment": (*_RUN_LOG, "artists", "tracks"),
 }
 
 # Scheduled fires (``sync_target_runner``) run the same imports but additionally
