@@ -14,7 +14,7 @@ from uuid import UUID
 from attrs import Factory, define, evolve
 
 from src.config import create_matching_config, get_logger
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.domain.entities.match_review import MatchReview
 from src.domain.matching.canonical_resolution import (
     Described,
@@ -42,7 +42,7 @@ logger = get_logger(__name__)
 def describe_connector_track(track: ConnectorTrack) -> RecordingDescription:
     """A connector payload as the same-recording question sees it."""
     return describe_recording(
-        track.title, [a.name for a in track.artists], track.duration_ms
+        track.title, [a.credited_name for a in track.artists], track.duration_ms
     )
 
 
@@ -61,9 +61,9 @@ def canonical_from_connector_track(
     leaves the credit list as the payload gave it. The caller attaches the
     connector id where the row should carry it.
     """
-    artists = [Artist(name=a.name) for a in ct.artists]
+    artists = [ArtistCredit(credited_name=a.credited_name) for a in ct.artists]
     if not artists and unknown_artist is not None:
-        artists = [Artist(name=unknown_artist)]
+        artists = [ArtistCredit(credited_name=unknown_artist)]
     return Track(
         title=ct.title,
         artists=artists,

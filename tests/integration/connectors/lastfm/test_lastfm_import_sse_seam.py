@@ -97,11 +97,11 @@ class TestWebImportPersistsBothPlayKinds:
         user_id = f"seam_user_{uuid4().hex[:8]}"
 
         # Seed a real track so the resolved TrackPlay's FK is satisfiable.
-        from src.domain.entities import Artist, Track
+        from src.domain.entities import ArtistCredit, Track
 
         track = Track(
             title="Seam Song",
-            artists=[Artist(name="Seam Artist")],
+            artists=[ArtistCredit(credited_name="Seam Artist")],
             user_id=TEST_USER_ID,
         )
         seeded = await unit_of_work.get_track_repository().save_track(track)

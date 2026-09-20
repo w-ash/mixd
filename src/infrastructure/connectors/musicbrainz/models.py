@@ -28,17 +28,45 @@ class MusicBrainzBaseModel(BaseModel):
     )
 
 
+class MusicBrainzAlias(MusicBrainzBaseModel):
+    """One entry of an artist's ``aliases`` array."""
+
+    name: str = Field(default="")
+    sort_name: str | None = Field(default=None, alias="sort-name")
+    type: str | None = Field(default=None)
+    locale: str | None = Field(default=None)
+    primary: bool | None = Field(default=None, alias="primary")
+
+
+class MusicBrainzUrl(MusicBrainzBaseModel):
+    """URL target of a ``url-rels`` relation."""
+
+    resource: str
+
+
+class MusicBrainzRelation(MusicBrainzBaseModel):
+    """One entry of an artist's ``relations`` array (``inc=url-rels``)."""
+
+    type: str | None = Field(default=None)
+    url: MusicBrainzUrl | None = Field(default=None)
+
+
 class MusicBrainzArtist(MusicBrainzBaseModel):
-    """Artist object nested inside artist-credit entries."""
+    """Artist object nested inside artist-credit entries and artist lookups."""
 
     id: str
     name: str = Field(default="")
+    type: str | None = Field(default=None)
+    disambiguation: str | None = Field(default=None)
+    aliases: list[MusicBrainzAlias] = Field(default_factory=list)
+    relations: list[MusicBrainzRelation] = Field(default_factory=list)
 
 
 class MusicBrainzArtistCredit(MusicBrainzBaseModel):
     """Single entry in the artist-credit array."""
 
     name: str = Field(default="")
+    joinphrase: str = Field(default="")
     artist: MusicBrainzArtist | None = Field(default=None)
 
 

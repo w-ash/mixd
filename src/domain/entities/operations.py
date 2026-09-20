@@ -616,7 +616,7 @@ class OperationResult:
                 {
                     "id": str(t.id),
                     "title": t.title,
-                    "artists": [a.name for a in t.artists],
+                    "artists": [a.credited_name for a in t.artists],
                     "metrics": {
                         name: values.get(t.id)
                         for name, values in self.metrics.items()

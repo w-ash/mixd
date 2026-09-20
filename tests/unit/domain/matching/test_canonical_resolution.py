@@ -11,7 +11,7 @@ from collections.abc import Hashable
 from attrs import define, evolve
 
 from src.config import create_matching_config
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.canonical_resolution import (
     Create,
@@ -67,7 +67,7 @@ def _canonical(
 ) -> Track:
     return Track(
         title=title,
-        artists=[Artist(name=artist)],
+        artists=[ArtistCredit(credited_name=artist)],
         duration_ms=duration_ms,
         isrc=isrc,
         user_id=TEST_USER_ID,

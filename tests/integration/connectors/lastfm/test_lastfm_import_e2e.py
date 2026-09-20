@@ -46,11 +46,11 @@ class TestLastfmImportE2E:
         """Test complete incremental import from use case to database."""
 
         # Create test track in database before starting the test
-        from src.domain.entities import Artist, Track
+        from src.domain.entities import ArtistCredit, Track
 
         track = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             album="Test Album",
             user_id=TEST_USER_ID,
         )
@@ -191,11 +191,11 @@ class TestLastfmImportE2E:
         """Test checkpoint creation and persistence through complete workflow."""
 
         # Create test track in database before starting the test
-        from src.domain.entities import Artist, Track
+        from src.domain.entities import ArtistCredit, Track
 
         track = Track(
             title="Checkpoint Test",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             user_id=TEST_USER_ID,
         )
         track_repo = unit_of_work.get_track_repository()

@@ -11,7 +11,7 @@ from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
 from src.domain.entities import (
-    Artist,
+    ArtistCredit,
     ConnectorPlaylist,
     ConnectorPlaylistItem,
     ConnectorTrackRef,
@@ -142,7 +142,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
                 version=track.version,
                 user_id=track.user_id,
                 title=track.title,
-                artists=[Artist(name=name) for name in artist_names],
+                artists=[ArtistCredit(credited_name=name) for name in artist_names],
                 album=track.album,
                 duration_ms=track.duration_ms,
                 release_date=ensure_utc(track.release_date),

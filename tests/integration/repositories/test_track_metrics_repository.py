@@ -13,7 +13,7 @@ from uuid import uuid7
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entities.track import Artist, Track, TrackMetric
+from src.domain.entities.track import ArtistCredit, Track, TrackMetric
 from src.infrastructure.persistence.database.models import DBTrackMetric
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID
@@ -26,7 +26,7 @@ async def _insert_track(db_session: AsyncSession, user_id: str) -> Track:
             id=None,
             user_id=user_id,
             title=f"Track_{uuid7()}",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
         )
     )
 

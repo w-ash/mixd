@@ -37,7 +37,7 @@ async def _load_and_show_track(uow: UnitOfWorkProtocol, track_id: int) -> Track:
     track = await track_repo.get_by_id(track_id)
 
     console.print(
-        f"✅ Found track: [green]{track.title}[/green] by [green]{', '.join(a.name for a in track.artists)}[/green]"
+        f"✅ Found track: [green]{track.title}[/green] by [green]{track.artists_display}[/green]"
     )
     if track.album:
         console.print(f"   Album: [dim]{track.album}[/dim]")

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import TEST_USER_ID
 
 
@@ -81,7 +81,7 @@ class TestCombinerNodeFactory:
             tracks=[
                 Track(
                     title="Track C",
-                    artists=[Artist(name="Artist 3")],
+                    artists=[ArtistCredit(credited_name="Artist 3")],
                     version=1,
                     user_id=TEST_USER_ID,
                 )

@@ -57,6 +57,9 @@ _MIGRATION_ONLY_INDEXES: Final[frozenset[str]] = frozenset({
     "ix_tracks_artists_gin",  # 002_pg_opt
     "ix_track_plays_played_at_brin",  # 002_pg_opt
     "ix_track_tags_tag_trgm",  # c602c5a08631 (track_tags)
+    "ix_artists_name_trgm",  # 060_artist_tables
+    "ix_connector_artists_name_trgm",  # 060_artist_tables
+    "ix_connector_artists_raw_metadata_gin",  # 060_artist_tables
 })
 
 

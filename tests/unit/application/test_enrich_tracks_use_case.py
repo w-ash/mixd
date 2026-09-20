@@ -16,7 +16,7 @@ from src.application.use_cases.enrich_tracks import (
     EnrichTracksResult,
     EnrichTracksUseCase,
 )
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from src.domain.exceptions import EnrichmentFailedError
 from tests.fixtures import TEST_USER_ID
 from tests.fixtures.factories import (
@@ -66,13 +66,13 @@ class TestEnrichTracksUseCase:
             Track(
                 id=1,
                 title="Test Song 1",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Test Song 2",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -487,7 +487,7 @@ class TestEnrichTracksCommand:
                 Track(
                     id=1,
                     title="Test",
-                    artists=[Artist(name="Artist")],
+                    artists=[ArtistCredit(credited_name="Artist")],
                     user_id=TEST_USER_ID,
                 )
             ]

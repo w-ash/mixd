@@ -332,5 +332,7 @@ class ConnectorPlaylistProcessingService:
             connector_name=connector_name,
             connector_track_identifier=identifier,
             title=source.title if source is not None else None,
-            artists=tuple(a.name for a in source.artists) if source is not None else (),
+            artists=tuple(a.credited_name for a in source.artists)
+            if source is not None
+            else (),
         )

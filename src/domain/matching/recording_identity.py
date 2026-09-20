@@ -67,7 +67,7 @@ def describe_track(track: Track) -> RecordingDescription:
     """
     return RecordingDescription(
         title=track.title,
-        artist=track.artists[0].name,
+        artist=track.artists[0].credited_name,
         duration_ms=track.duration_ms,
     )
 

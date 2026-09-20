@@ -9,7 +9,7 @@ the per-track service sets, and the source-minus-target anti-join.
 from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
@@ -19,7 +19,7 @@ def _new_track(user_id: str) -> Track:
         id=None,
         user_id=user_id,
         title=f"Track_{uuid7()}",
-        artists=[Artist(name="Test Artist")],
+        artists=[ArtistCredit(credited_name="Test Artist")],
     )
 
 

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     # Annotations are deferred (PEP 649), so at runtime SQLAlchemy sees only the
     # class name and resolves it through the shared declarative registry at
     # ``configure_mappers()`` time; the import here exists for the type checker.
+    from src.infrastructure.persistence.database.models.artist import DBTrackArtist
     from src.infrastructure.persistence.database.models.mapping import DBTrackMapping
     from src.infrastructure.persistence.database.models.play import (
         DBConnectorPlay,
@@ -112,6 +113,17 @@ class DBTrack(BaseEntity):
         back_populates="track",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        lazy="raise_on_sql",
+    )
+    # Read side of ``track_artists`` only. The credit rows are an association
+    # object written through Core ``ON CONFLICT`` by the canonical row-builder,
+    # so this relationship is ``viewonly``: the ORM must never flush, reorder
+    # or orphan a credit behind the writer's back.
+    # No ``passive_deletes``: SQLAlchemy warns that it is meaningless on a
+    # viewonly relationship. The FK's ON DELETE CASCADE does the work.
+    artist_credits: Mapped[list[DBTrackArtist]] = relationship(
+        viewonly=True,
+        order_by="DBTrackArtist.position",
         lazy="raise_on_sql",
     )
 

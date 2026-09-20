@@ -107,14 +107,16 @@ class TidalTrackDetail:
 
     ``artist_names`` come from side-loaded artist resources
     (``include=artists``), ordered by the track's ``artists`` relationship
-    linkage — track attributes themselves carry no artist. ``replacement_id``
-    is Tidal's platform-asserted successor pointer, ``None`` when the id is
-    current.
+    linkage — track attributes themselves carry no artist. ``artist_ids``
+    are the same resources' ids in the same order (empty when a caller built
+    the detail without them). ``replacement_id`` is Tidal's platform-asserted
+    successor pointer, ``None`` when the id is current.
     """
 
     track: TidalTrack
     artist_names: tuple[str, ...]
     replacement_id: str | None
+    artist_ids: tuple[str, ...] = ()
 
 
 def tidal_track_detail_from_document(
@@ -143,11 +145,10 @@ def tidal_track_detail_from_document(
         else None
     )
     if linkage:
-        artist_names = tuple(
-            names_by_id[ref.id] for ref in linkage if ref.id in names_by_id
-        )
+        artist_ids = tuple(ref.id for ref in linkage if ref.id in names_by_id)
     else:
-        artist_names = tuple(names_by_id.values())
+        artist_ids = tuple(names_by_id)
+    artist_names = tuple(names_by_id[aid] for aid in artist_ids)
 
     replacement = (
         relationships.replacement.data
@@ -158,4 +159,5 @@ def tidal_track_detail_from_document(
         track=tidal_track_from_resource(resource),
         artist_names=artist_names,
         replacement_id=replacement.id if replacement is not None else None,
+        artist_ids=artist_ids,
     )

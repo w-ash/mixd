@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
@@ -95,13 +95,13 @@ class TestBaseMatchingProviderTrackPartitioning:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         t2 = Track(
             title="Song 2",
             isrc="USRC22222222",
-            artists=[Artist(name="Artist 2")],
+            artists=[ArtistCredit(credited_name="Artist 2")],
             user_id=TEST_USER_ID,
         )
         tracks = [t1, t2]
@@ -119,10 +119,14 @@ class TestBaseMatchingProviderTrackPartitioning:
     def test_partition_tracks_with_artist_title_only(self):
         """Tracks with artist+title but no ISRC should be partitioned to artist/title group."""
         t1 = Track(
-            title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            title="Song 1",
+            artists=[ArtistCredit(credited_name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            title="Song 2",
+            artists=[ArtistCredit(credited_name="Artist 2")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2]
 
@@ -139,7 +143,11 @@ class TestBaseMatchingProviderTrackPartitioning:
     def test_partition_tracks_missing_title(self):
         """Tracks without title should be partitioned to unprocessable group."""
         tracks = [
-            Track(title="", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID),
+            Track(
+                title="",
+                artists=[ArtistCredit(credited_name="Artist 1")],
+                user_id=TEST_USER_ID,
+            ),
         ]
 
         isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
@@ -155,19 +163,23 @@ class TestBaseMatchingProviderTrackPartitioning:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )  # ISRC
         t2 = Track(
-            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            title="Song 2",
+            artists=[ArtistCredit(credited_name="Artist 2")],
+            user_id=TEST_USER_ID,
         )  # Artist/title
         t3 = Track(
-            title="", artists=[Artist(name="Artist 3")], user_id=TEST_USER_ID
+            title="",
+            artists=[ArtistCredit(credited_name="Artist 3")],
+            user_id=TEST_USER_ID,
         )  # Unprocessable (no title)
         t4 = Track(
             title="Song 4",
             isrc="USRC44444444",
-            artists=[Artist(name="Artist 4")],
+            artists=[ArtistCredit(credited_name="Artist 4")],
             user_id=TEST_USER_ID,
         )  # ISRC
         tracks = [t1, t2, t3, t4]
@@ -202,7 +214,7 @@ class TestBaseMatchingProviderTrackPartitioning:
             Track(
                 title="Song 1",
                 isrc="USRC11111111",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -225,7 +237,7 @@ class TestBaseMatchingProviderTemplateMethod:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         tracks = [t1]
@@ -242,7 +254,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """Template method should call _match_by_artist_title for tracks without ISRC."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            title="Song 1",
+            artists=[ArtistCredit(credited_name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1]
 
@@ -258,11 +272,13 @@ class TestBaseMatchingProviderTemplateMethod:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            title="Song 2",
+            artists=[ArtistCredit(credited_name="Artist 2")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2]
 
@@ -293,11 +309,13 @@ class TestBaseMatchingProviderTemplateMethod:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            title="Song 2",
+            artists=[ArtistCredit(credited_name="Artist 2")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2]
 
@@ -331,11 +349,13 @@ class TestBaseMatchingProviderTemplateMethod:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            title="Song 2",
+            artists=[ArtistCredit(credited_name="Artist 2")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2]
 
@@ -371,7 +391,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """Tracks without ISRC and without title should generate failures."""
         provider = ConcreteProvider()
         t1 = Track(
-            title="", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            title="",
+            artists=[ArtistCredit(credited_name="Artist 1")],
+            user_id=TEST_USER_ID,
         )  # No title
         tracks = [t1]
 
@@ -400,7 +422,9 @@ class TestBaseMatchingProviderTemplateMethod:
         provider = ConcreteProvider()
         tracks = [
             Track(
-                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+                title="Song 1",
+                artists=[ArtistCredit(credited_name="Artist 1")],
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -415,7 +439,7 @@ class TestBaseMatchingProviderTemplateMethod:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         tracks = [t1]
@@ -440,7 +464,7 @@ class TestBaseMatchingProviderTemplateMethod:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         tracks = [t1]
@@ -468,7 +492,7 @@ class TestBaseMatchingProviderValidation:
         track = Track(
             title="Song",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist")],
+            artists=[ArtistCredit(credited_name="Artist")],
             user_id=TEST_USER_ID,
         )
 
@@ -477,7 +501,9 @@ class TestBaseMatchingProviderValidation:
     def test_has_isrc_returns_false_for_track_without_isrc(self):
         """Track without ISRC should fail ISRC validation."""
         track = Track(
-            title="Song", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+            title="Song",
+            artists=[ArtistCredit(credited_name="Artist")],
+            user_id=TEST_USER_ID,
         )
 
         assert _has_isrc(track) is False
@@ -485,14 +511,20 @@ class TestBaseMatchingProviderValidation:
     def test_has_artist_and_title_returns_true_for_valid_track(self):
         """Track with artist and title should pass artist/title validation."""
         track = Track(
-            title="Song", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+            title="Song",
+            artists=[ArtistCredit(credited_name="Artist")],
+            user_id=TEST_USER_ID,
         )
 
         assert _has_artist_and_title(track) is True
 
     def test_has_artist_and_title_returns_false_without_title(self):
         """Track without title should fail artist/title validation."""
-        track = Track(title="", artists=[Artist(name="Artist")], user_id=TEST_USER_ID)
+        track = Track(
+            title="",
+            artists=[ArtistCredit(credited_name="Artist")],
+            user_id=TEST_USER_ID,
+        )
 
         assert _has_artist_and_title(track) is False
 
@@ -512,7 +544,9 @@ class TestIsrcOnlyStrategy:
         """A track without ISRC gets a NO_ISRC failure, not a fallback call."""
         provider = IsrcOnlyProvider()
         t1 = Track(
-            title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            title="Song 1",
+            artists=[ArtistCredit(credited_name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
 
         result = await provider.fetch_raw_matches_for_tracks([t1])
@@ -529,7 +563,7 @@ class TestIsrcOnlyStrategy:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         # No isrc_results configured → the track misses.
@@ -551,7 +585,7 @@ class TestIsrcOnlyStrategy:
             Track(
                 title=f"Song {i}",
                 isrc=f"USRC{i:08d}",
-                artists=[Artist(name="Artist")],
+                artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
             )
             for i in range(60)
@@ -559,7 +593,7 @@ class TestIsrcOnlyStrategy:
         no_isrc_tracks = [
             Track(
                 title=f"NoCode {i}",
-                artists=[Artist(name="Artist")],
+                artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
             )
             for i in range(40)
@@ -581,7 +615,7 @@ class TestIsrcOnlyStrategy:
         ghost = Track(
             id=None,
             title="Ghost",
-            artists=[Artist(name="Artist")],
+            artists=[ArtistCredit(credited_name="Artist")],
             user_id=TEST_USER_ID,
         )
 
@@ -599,7 +633,10 @@ class TestIsrcOnlyStrategy:
         vanish just because it cannot be addressed per-track."""
         provider = ConcreteProvider()
         ghost = Track(
-            id=None, title="", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+            id=None,
+            title="",
+            artists=[ArtistCredit(credited_name="Artist")],
+            user_id=TEST_USER_ID,
         )
 
         result = await provider.fetch_raw_matches_for_tracks([ghost])
@@ -616,7 +653,7 @@ class TestIsrcOnlyStrategy:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         provider.isrc_results = {
@@ -645,7 +682,7 @@ class TestBaseMatchingProviderProgressCallback:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         tracks = [t1]
@@ -674,7 +711,9 @@ class TestBaseMatchingProviderProgressCallback:
         provider = ConcreteProvider()
         callback = AsyncMock()
         t1 = Track(
-            title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+            title="Song 1",
+            artists=[ArtistCredit(credited_name="Artist 1")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1]
 
@@ -704,11 +743,13 @@ class TestBaseMatchingProviderProgressCallback:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+            title="Song 2",
+            artists=[ArtistCredit(credited_name="Artist 2")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2]
 
@@ -752,7 +793,7 @@ class TestBaseMatchingProviderProgressCallback:
             Track(
                 title=f"Song {i}",
                 isrc=f"USRC{i:08d}",
-                artists=[Artist(name="Artist")],
+                artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
             )
             for i in range(5)
@@ -774,7 +815,7 @@ class TestBaseMatchingProviderProgressCallback:
         t1 = Track(
             title="Song 1",
             isrc="USRC11111111",
-            artists=[Artist(name="Artist 1")],
+            artists=[ArtistCredit(credited_name="Artist 1")],
             user_id=TEST_USER_ID,
         )
         tracks = [t1]

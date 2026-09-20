@@ -16,7 +16,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.domain.matching.content_digest import DigestSide
 from src.domain.repositories.resolution import (
     RejectedPairRow,
@@ -112,7 +112,10 @@ async def _make_live_mapping(
 
 def _domain_track(track_id: UUID, title: str = "Candidate") -> Track:
     return Track(
-        id=track_id, title=title, artists=[Artist(name="Someone")], user_id=TEST_USER_ID
+        id=track_id,
+        title=title,
+        artists=[ArtistCredit(credited_name="Someone")],
+        user_id=TEST_USER_ID,
     )
 
 

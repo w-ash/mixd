@@ -19,6 +19,14 @@ import it for their to-one side, and ``track`` names their classes only under
 imports nothing but ``base``.
 """
 
+from src.infrastructure.persistence.database.models.artist import (
+    DBArtist,
+    DBArtistAlias,
+    DBArtistFavorite,
+    DBArtistMapping,
+    DBConnectorArtist,
+    DBTrackArtist,
+)
 from src.infrastructure.persistence.database.models.auth import (
     DBOAuthAuthorizationCode,
     DBOAuthAuthorizationRequest,
@@ -86,7 +94,12 @@ from src.infrastructure.persistence.database.models.workflow import (
 
 __all__ = [
     "BaseEntity",
+    "DBArtist",
+    "DBArtistAlias",
+    "DBArtistFavorite",
+    "DBArtistMapping",
     "DBChatFeedback",
+    "DBConnectorArtist",
     "DBConnectorPlay",
     "DBConnectorPlaylist",
     "DBConnectorTrack",
@@ -111,6 +124,7 @@ __all__ = [
     "DBSchedule",
     "DBSyncCheckpoint",
     "DBTrack",
+    "DBTrackArtist",
     "DBTrackLike",
     "DBTrackMapping",
     "DBTrackMetric",

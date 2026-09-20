@@ -5,6 +5,7 @@ Following TDD principles - write tests first, then implement domain services.
 """
 
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID, uuid7
 
 import pytest
@@ -18,10 +19,12 @@ from src.domain.entities import (
 )
 from src.domain.entities.operations import TrackContextFields
 from src.domain.entities.track import (
-    Artist,
+    ArtistCredit,
+    ConnectorTrack,
     Track,
     TrackLike,
     TrackList,
+    credits_display,
 )
 from tests.fixtures import TEST_USER_ID
 
@@ -31,7 +34,7 @@ class TestTrackEntity:
 
     def test_track_creation_with_valid_data(self):
         """Test creating a track with valid data."""
-        artist = Artist(name="Radiohead")
+        artist = ArtistCredit(credited_name="Radiohead")
         track = Track(
             title="Paranoid Android",
             artists=[artist],
@@ -42,7 +45,7 @@ class TestTrackEntity:
         )
 
         assert track.title == "Paranoid Android"
-        assert track.artists == [artist]
+        assert track.artists == (artist,)
         assert track.album == "OK Computer"
         assert track.duration_ms == 383000
         assert track.isrc == "GBUM71505078"
@@ -59,7 +62,7 @@ class TestTrackEntity:
         """Test adding connector track ID."""
         track = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             user_id=TEST_USER_ID,
         )
 
@@ -78,7 +81,7 @@ class TestTrackEntity:
         """Test adding multiple connector IDs."""
         track = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             user_id=TEST_USER_ID,
         )
 
@@ -92,7 +95,7 @@ class TestTrackEntity:
         """Test connector metadata business logic."""
         track = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             user_id=TEST_USER_ID,
         )
 
@@ -114,7 +117,7 @@ class TestTrackEntity:
         """Test that connector metadata merges correctly."""
         track = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             user_id=TEST_USER_ID,
         )
 
@@ -128,6 +131,125 @@ class TestTrackEntity:
         assert track.get_connector_attribute("spotify", "genres") == ["rock"]
 
 
+class TestArtistCredit:
+    """Credit value object: validation and the optional identity fields."""
+
+    def test_defaults_carry_no_identity(self):
+        credit = ArtistCredit(credited_name="Caribou")
+        assert credit.artist_id is None
+        assert credit.join_phrase is None
+        assert credit.role is None
+
+    def test_carries_identity_and_join_phrase(self):
+        artist_id = uuid7()
+        credit = ArtistCredit(
+            credited_name="Daphni",
+            artist_id=artist_id,
+            join_phrase=" & ",
+            role="remixer",
+        )
+        assert credit.artist_id == artist_id
+        assert credit.join_phrase == " & "
+        assert credit.role == "remixer"
+
+    def test_credited_name_must_be_str(self):
+        with pytest.raises(TypeError):
+            ArtistCredit(credited_name=cast(str, 123))
+
+    def test_artist_id_must_be_uuid(self):
+        with pytest.raises(TypeError):
+            ArtistCredit(credited_name="X", artist_id=cast(UUID, "not-a-uuid"))
+
+    def test_equal_by_value(self):
+        assert ArtistCredit(credited_name="X") == ArtistCredit(credited_name="X")
+        assert ArtistCredit(credited_name="X") != ArtistCredit(
+            credited_name="X", artist_id=uuid7()
+        )
+
+
+class TestCreditsDisplay:
+    """The display string is also the ``artists_text`` column value."""
+
+    def test_single_credit_is_its_name(self):
+        assert credits_display([ArtistCredit(credited_name="Radiohead")]) == "Radiohead"
+
+    def test_default_separator_is_comma_space(self):
+        credits = [ArtistCredit(credited_name="A"), ArtistCredit(credited_name="B")]
+        assert credits_display(credits) == "A, B"
+
+    def test_join_phrase_replaces_default_separator(self):
+        credits = [
+            ArtistCredit(credited_name="Thom Yorke", join_phrase=" & "),
+            ArtistCredit(credited_name="PJ Harvey"),
+        ]
+        assert credits_display(credits) == "Thom Yorke & PJ Harvey"
+
+    def test_join_phrases_mix_with_default(self):
+        credits = [
+            ArtistCredit(credited_name="A", join_phrase=" feat. "),
+            ArtistCredit(credited_name="B"),
+            ArtistCredit(credited_name="C"),
+        ]
+        assert credits_display(credits) == "A feat. B, C"
+
+    def test_last_credits_join_phrase_is_never_trailing(self):
+        credits = [
+            ArtistCredit(credited_name="A"),
+            ArtistCredit(credited_name="B", join_phrase=" & "),
+        ]
+        assert credits_display(credits) == "A, B"
+
+    def test_empty_join_phrase_falls_back_to_default(self):
+        credits = [
+            ArtistCredit(credited_name="A", join_phrase=""),
+            ArtistCredit(credited_name="B"),
+        ]
+        assert credits_display(credits) == "A, B"
+
+    def test_empty_sequence_is_empty_string(self):
+        assert credits_display(()) == ""
+
+    def test_track_and_connector_track_delegate(self):
+        credits = [
+            ArtistCredit(credited_name="A", join_phrase=" x "),
+            ArtistCredit(credited_name="B"),
+        ]
+        track = Track(title="T", artists=credits, user_id=TEST_USER_ID)
+        connector_track = ConnectorTrack("spotify", "sp1", "T", credits)
+        assert track.artists_display == "A x B"
+        assert connector_track.artists_display == "A x B"
+
+
+class TestTrackCredits:
+    """``Track.artists`` / ``ConnectorTrack.artists`` are tuples of credits."""
+
+    def test_list_literal_is_converted_to_tuple(self):
+        track = Track(
+            title="T", artists=[ArtistCredit(credited_name="A")], user_id=TEST_USER_ID
+        )
+        assert isinstance(track.artists, tuple)
+
+    def test_connector_track_list_literal_is_converted_to_tuple(self):
+        connector_track = ConnectorTrack(
+            "spotify", "sp1", "T", [ArtistCredit(credited_name="A")]
+        )
+        assert isinstance(connector_track.artists, tuple)
+
+    def test_credit_without_artist_id_is_valid(self):
+        track = Track(
+            title="T",
+            artists=[ArtistCredit(credited_name="Various", artist_id=None)],
+            user_id=TEST_USER_ID,
+        )
+        assert track.artists[0].artist_id is None
+
+    def test_non_credit_element_is_rejected(self):
+        with pytest.raises(TypeError, match="Expected ArtistCredit"):
+            Track(
+                title="T", artists=cast(list[ArtistCredit], ["A"]), user_id=TEST_USER_ID
+            )
+
+
 class TestTrackListEntity:
     """Test track list entity behavior for processing pipelines."""
 
@@ -135,10 +257,14 @@ class TestTrackListEntity:
         """Test creating a track list."""
         tracks = [
             Track(
-                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+                title="Song 1",
+                artists=[ArtistCredit(credited_name="Artist 1")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+                title="Song 2",
+                artists=[ArtistCredit(credited_name="Artist 2")],
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -151,12 +277,16 @@ class TestTrackListEntity:
         """Test creating new track list with different tracks."""
         original_tracks = [
             Track(
-                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+                title="Song 1",
+                artists=[ArtistCredit(credited_name="Artist 1")],
+                user_id=TEST_USER_ID,
             )
         ]
         new_tracks = [
             Track(
-                title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+                title="Song 2",
+                artists=[ArtistCredit(credited_name="Artist 2")],
+                user_id=TEST_USER_ID,
             )
         ]
 
@@ -304,7 +434,7 @@ class TestOperationResultEntity:
 
     def test_operation_result_per_track_metrics(self):
         """Test OperationResult per-track metric access."""
-        artist = Artist(name="Artist")
+        artist = ArtistCredit(credited_name="Artist")
         track1 = Track(title="Song 1", artists=[artist], user_id=TEST_USER_ID)
         track2 = Track(title="Song 2", artists=[artist], user_id=TEST_USER_ID)
         tracks = [track1, track2]

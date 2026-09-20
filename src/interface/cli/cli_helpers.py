@@ -384,7 +384,7 @@ def resolve_track_ref(ref: str, *, user_id: str) -> Track:
         raise typer.BadParameter(f"No track matching '{ref}'")
     if len(tracks) > 1:
         candidates = [
-            f"{t.title} — {', '.join(a.name for a in t.artists)} [{t.id}]"
+            f"{t.title} — {', '.join(a.credited_name for a in t.artists)} [{t.id}]"
             for t in tracks
         ]
         raise typer.BadParameter(
@@ -476,7 +476,7 @@ def render_tracks_table(
     for track in tracks:
         row = [
             track.title,
-            ", ".join(a.name for a in track.artists),
+            ", ".join(a.credited_name for a in track.artists),
             *[accessor(track) for _, accessor in extra_columns],
             str(track.id),
         ]

@@ -13,7 +13,7 @@ from attrs import evolve
 
 from src.application.services.track_resolution import TrackResolutionService
 from src.config import create_matching_config
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorMappingSpec
 from tests.fixtures import TEST_USER_ID, make_mock_uow, make_track
 
@@ -34,7 +34,7 @@ def _payload(
         connector_name=CONNECTOR,
         connector_track_identifier=identifier,
         title=title,
-        artists=[Artist(name=artist)],
+        artists=[ArtistCredit(credited_name=artist)],
         album=album,
         duration_ms=duration_ms,
         isrc=isrc,

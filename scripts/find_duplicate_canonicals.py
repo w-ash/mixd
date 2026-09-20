@@ -88,7 +88,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import setup_script_logger
 from src.config.constants import BusinessLimits
 from src.config.settings import settings
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.domain.matching.isrc_validation import SUSPECT_DURATION_DIFF_MS
 from src.domain.matching.recording_identity import (
     describe_track,
@@ -245,7 +245,7 @@ class _Candidate:
         """
         return Track(
             title=self.title,
-            artists=[Artist(name=self.primary_artist)],
+            artists=[ArtistCredit(credited_name=self.primary_artist)],
             duration_ms=self.duration_ms,
             isrc=self.isrc,
             id=self.track_id,

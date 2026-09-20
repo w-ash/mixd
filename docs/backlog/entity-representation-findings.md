@@ -24,6 +24,20 @@ Method: 51 artists resolved by search per service (exact normalized-name pick; r
 
 **Implication (§1)**: an MBID is obtainable for every sampled artist, but only if the lookup queries the alias index; a name-only Last.fm mapping carries no id at all.
 
+### 1a. Re-verify addendum (2026-09-19) — Apple and Spotify confirmed live
+
+Method: `GET /artists/{id}` ×5 + one `GET /artists?ids=` batch (Spotify, local dev-DB token); `lookup?id=` + `search?entity=musicArtist` (iTunes, no auth) — Radiohead, Caribou, Four Tet, Bonobo, Kanye West.
+
+Spotify `GET /artists/{id}` ×5 and the batch call (5/5) matched the census shape exactly — `id`, `name`, `genres`, `external_urls.spotify`, `images` (640/320/160px), plus `followers.total` and `popularity` (both present; PDR-003 flags them for import-path removal in dev mode, but this probe is one-off). The hosted Apple Music API `artists` relationship remains unreachable without the developer key, unchanged from the census. The keyless iTunes API confirms `artistId` matches the numeric suffix of `artistLinkUrl` exactly, the id/URL form MusicBrainz url-rels carry. Surprise: Kanye West's `search` also surfaces a separate "Ye" artist (`1714710847`) — the same rename split found on Spotify/MusicBrainz, not previously seen on Apple.
+
+| artist | Spotify genres | followers | popularity | Apple artistId | Apple artistLinkUrl | primaryGenreName | amgArtistId |
+|---|---|---|---|---|---|---|---|
+| Radiohead | art rock, alternative rock | 17,139,207 | 87 | 657515 | `.../artist/radiohead/657515` | Alternative | 41092 |
+| Caribou | idm | 750,267 | 56 | 45464574 | `.../artist/caribou/45464574` | Electronic | 683619 |
+| Four Tet | idm, electronica | 845,028 | 62 | 35888604 | `.../artist/four-tet/35888604` | Electronic | 362101 |
+| Bonobo | trip hop, downtempo, nu jazz, electronic | 1,535,668 | 68 | 416281071 | `.../artist/bonobo/416281071` | Electronic | 291709 |
+| Kanye West | rap | 34,657,121 | 94 | 2715720 | `.../artist/kanye-west/2715720` | Hip-Hop/Rap | 353484 |
+
 | artist | bucket | Spotify id | Last.fm mbid | Apple adamId | Discogs | MusicBrainz |
 |---|---|---|---|---|---|---|
 | Radiohead | band | `4Z8W4fKeB5YxbusRsdQVPb` | `a74b1b7f` | 657515 | 3840 · anv 11 · alias 3 · members | `a74b1b7f` Group · alias 5 |
@@ -215,4 +229,4 @@ Multiplicity: Caribou has 2 Spotify and 2 Discogs url-rels (the alias entities),
 5. **Various Artists is an album flag** (§4). Six unrelated sentinels, one unfetchable; DJ mixes are credited to the DJ on Spotify, Apple, Discogs and MusicBrainz. `album_artists` carries an `is_various` boolean and a nullable artist list; never a canonical "Various Artists" artist row.
 6. **Ordering is (disc, track) integers** (§7). Discogs positions need a parser that drops 14/381 heading rows; Last.fm has rank only.
 7. **Seed artist mappings from MusicBrainz url-rels** (§8). 51/51 Spotify and Discogs, 50/51 Apple and Tidal — an MBID resolves to every connector's artist id before any name matching runs, with multiplicity (alias ids) preserved. Album linkage is Discogs-only at RG level; barcode (`upc`) is present on 32/32 Spotify albums and is the cross-service album key.
-8. **Re-verify before implementation** ⚠︎: Apple Music API `artists` relationship shape and `isCompilation`; Tidal live behaviour of `replacement`, `version`, `numberOfVolumes`; MusicBrainz search under load (503s at 1 req/s forced retries on 8 queries).
+8. **Re-verify before implementation** ⚠︎: Tidal live behaviour of `replacement`, `version`, `numberOfVolumes`; MusicBrainz search under load (503s at 1 req/s forced retries on 8 queries). Apple and Spotify re-verified live 2026-09-19 ([§1a](#1a-re-verify-addendum-2026-09-19--apple-and-spotify-confirmed-live)) — Spotify matches the census; Apple's iTunes id/URL shape is confirmed, but the hosted `artists` relationship and `isCompilation` need the developer key.

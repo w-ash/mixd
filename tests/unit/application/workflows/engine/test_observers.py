@@ -17,7 +17,7 @@ from src.application.workflows.engine.observers import (
     RunHistoryObserver,
 )
 from src.domain.entities.progress import ProgressStatus
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from src.domain.entities.workflow import (
     NodeExecutionEvent,
     WorkflowTaskDef,
@@ -33,7 +33,13 @@ def task_def():
 @pytest.fixture
 def sample_result():
     tracklist = TrackList(
-        tracks=[Track(title="A", artists=[Artist(name="X")], user_id=TEST_USER_ID)]
+        tracks=[
+            Track(
+                title="A",
+                artists=[ArtistCredit(credited_name="X")],
+                user_id=TEST_USER_ID,
+            )
+        ]
     )
     return {"tracklist": tracklist}
 

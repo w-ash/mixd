@@ -339,7 +339,7 @@ def list_tracks(
                 {
                     "id": t.id,
                     "title": t.title,
-                    "artists": [a.name for a in t.artists],
+                    "artists": [a.credited_name for a in t.artists],
                     "album": t.album,
                     "liked": t.id in result.liked_track_ids if t.id else False,
                 }

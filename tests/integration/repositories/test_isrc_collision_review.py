@@ -18,7 +18,7 @@ from src.application.use_cases.resolve_match_review import (
     ResolveMatchReviewCommand,
     ResolveMatchReviewUseCase,
 )
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
 from src.infrastructure.connectors.spotify.models import SpotifyExternalIds
@@ -32,7 +32,7 @@ async def _seed_isrc_owner(uow, *, user_id: str = TEST_USER_ID) -> Track:
         Track(
             id=None,
             title="Gold Rush",
-            artists=[Artist(name="Neon Priest")],
+            artists=[ArtistCredit(credited_name="Neon Priest")],
             album="Debut",
             duration_ms=200_000,
             isrc="USNP12400001",
@@ -155,7 +155,7 @@ def _remaster_connector_track(identifier: str = "sp_remaster_001") -> ConnectorT
         connector_name="spotify",
         connector_track_identifier=identifier,
         title="Gold Rush (2024 Remaster)",
-        artists=[Artist(name="Neon Priest")],
+        artists=[ArtistCredit(credited_name="Neon Priest")],
         album="Remaster Compilation",
         duration_ms=215_000,  # 15s off the owner — suspect
         isrc="USNP12400001",

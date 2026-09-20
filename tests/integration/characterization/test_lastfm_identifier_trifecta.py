@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.protocols import ReuseExisting
 from src.infrastructure.connectors.lastfm.conversions import (
     convert_lastfm_track_to_connector,
@@ -91,7 +91,7 @@ class TestAllMintSchemesConvergeOnOneRow:
             Track(
                 id=None,
                 title="Gold Rush",
-                artists=[Artist(name="Neon Priest")],
+                artists=[ArtistCredit(credited_name="Neon Priest")],
                 duration_ms=200_000,
                 connector_track_identifiers={"spotify": "sp_lb_001"},
                 user_id=TEST_USER_ID,

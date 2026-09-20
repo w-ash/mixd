@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.infrastructure.connectors.lastfm import LastFMConnector, LastFMTrackInfo
 from tests.fixtures import TEST_USER_ID
 
@@ -23,7 +23,7 @@ def single_artist_track():
     return Track(
         id=1,
         title="Test Track",
-        artists=[Artist(name="Single Artist")],
+        artists=[ArtistCredit(credited_name="Single Artist")],
         user_id=TEST_USER_ID,
     )
 
@@ -35,9 +35,9 @@ def multi_artist_track():
         id=2,
         title="Unknown",
         artists=[
-            Artist(name="Versus GT"),
-            Artist(name="Nosaj Thing"),
-            Artist(name="Jacques Green"),
+            ArtistCredit(credited_name="Versus GT"),
+            ArtistCredit(credited_name="Nosaj Thing"),
+            ArtistCredit(credited_name="Jacques Green"),
         ],
         user_id=TEST_USER_ID,
     )
@@ -68,7 +68,7 @@ class TestLastFMMultiArtistFallback:
         # Simulate the process_track logic for single artist
         track = single_artist_track
         result = await mock_lastfm_connector.get_lastfm_track_info(
-            artist_name=track.artists[0].name,
+            artist_name=track.artists[0].credited_name,
             track_title=track.title,
             lastfm_username=None,
         )
@@ -97,7 +97,7 @@ class TestLastFMMultiArtistFallback:
 
         for artist in track.artists:
             result = await mock_lastfm_connector.get_lastfm_track_info(
-                artist_name=artist.name,
+                artist_name=artist.credited_name,
                 track_title=track.title,
                 lastfm_username=None,
             )
@@ -128,7 +128,7 @@ class TestLastFMMultiArtistFallback:
 
         for artist in track.artists:
             result = await mock_lastfm_connector.get_lastfm_track_info(
-                artist_name=artist.name,
+                artist_name=artist.credited_name,
                 track_title=track.title,
                 lastfm_username=None,
             )
@@ -156,7 +156,7 @@ class TestLastFMMultiArtistFallback:
 
         for artist in track.artists:
             result = await mock_lastfm_connector.get_lastfm_track_info(
-                artist_name=artist.name,
+                artist_name=artist.credited_name,
                 track_title=track.title,
                 lastfm_username=None,
             )

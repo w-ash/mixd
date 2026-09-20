@@ -15,7 +15,7 @@ from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistCommand,
     UpdateCanonicalPlaylistUseCase,
 )
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.entities.track import TrackList
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID, make_mock_metric_config
@@ -50,13 +50,19 @@ class TestPlaylistUpdateRecordIdentityBugs:
         """
         # Step 1: Create playlist [Track A, Track B, Track C]
         track_a = Track(
-            title="Track A", artists=[Artist(name="Artist A")], user_id=TEST_USER_ID
+            title="Track A",
+            artists=[ArtistCredit(credited_name="Artist A")],
+            user_id=TEST_USER_ID,
         )
         track_b = Track(
-            title="Track B", artists=[Artist(name="Artist B")], user_id=TEST_USER_ID
+            title="Track B",
+            artists=[ArtistCredit(credited_name="Artist B")],
+            user_id=TEST_USER_ID,
         )
         track_c = Track(
-            title="Track C", artists=[Artist(name="Artist C")], user_id=TEST_USER_ID
+            title="Track C",
+            artists=[ArtistCredit(credited_name="Artist C")],
+            user_id=TEST_USER_ID,
         )
 
         uow = get_unit_of_work(db_session)
@@ -212,12 +218,14 @@ class TestPlaylistUpdateRecordIdentityBugs:
         # Step 1: Create initial playlist [Track A, Track B]
         track_a = Track(
             title="Track A",
-            artists=[Artist(name="Artist A")],
+            artists=[ArtistCredit(credited_name="Artist A")],
             album="Album 1",
             user_id=TEST_USER_ID,
         )
         track_b = Track(
-            title="Track B", artists=[Artist(name="Artist B")], user_id=TEST_USER_ID
+            title="Track B",
+            artists=[ArtistCredit(credited_name="Artist B")],
+            user_id=TEST_USER_ID,
         )
 
         uow = get_unit_of_work(db_session)
@@ -355,13 +363,19 @@ class TestPlaylistUpdateRecordIdentityBugs:
         """
         # Create playlist [Track A, Track B, Track C]
         track_a = Track(
-            title="Track A", artists=[Artist(name="Artist A")], user_id=TEST_USER_ID
+            title="Track A",
+            artists=[ArtistCredit(credited_name="Artist A")],
+            user_id=TEST_USER_ID,
         )
         track_b = Track(
-            title="Track B", artists=[Artist(name="Artist B")], user_id=TEST_USER_ID
+            title="Track B",
+            artists=[ArtistCredit(credited_name="Artist B")],
+            user_id=TEST_USER_ID,
         )
         track_c = Track(
-            title="Track C", artists=[Artist(name="Artist C")], user_id=TEST_USER_ID
+            title="Track C",
+            artists=[ArtistCredit(credited_name="Artist C")],
+            user_id=TEST_USER_ID,
         )
 
         uow = get_unit_of_work(db_session)

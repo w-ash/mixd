@@ -40,7 +40,7 @@ class TestCreateTrackFromTidalDetail:
         track = create_track_from_tidal_detail("12345", detail, user_id="u1")
 
         assert track.title == "Test Song"
-        assert [a.name for a in track.artists] == ["Test Artist"]
+        assert [a.credited_name for a in track.artists] == ["Test Artist"]
         assert track.duration_ms == 200_000
         assert track.isrc == "USUM72309818"
         assert track.user_id == "u1"
@@ -49,7 +49,10 @@ class TestCreateTrackFromTidalDetail:
     def test_multiple_artists_preserve_order(self):
         detail = _detail(artist_names=("Main Artist", "Featured Artist"))
         track = create_track_from_tidal_detail("12345", detail, user_id="u1")
-        assert [a.name for a in track.artists] == ["Main Artist", "Featured Artist"]
+        assert [a.credited_name for a in track.artists] == [
+            "Main Artist",
+            "Featured Artist",
+        ]
 
     def test_isrc_is_normalized(self):
         detail = _detail(isrc="us-um7-23-09818")

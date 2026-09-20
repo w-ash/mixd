@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.domain.repositories.mapping import PrimaryCandidate
 from src.infrastructure.persistence.database.models import (
@@ -176,7 +176,7 @@ class TestPrimaryMappingQueries:
                 connector_name="spotify",
                 connector_track_identifier=f"bulk_sp_{i}",
                 title=f"Bulk Track {i}",
-                artists=[Artist(name=f"Bulk Artist {i}")],
+                artists=[ArtistCredit(credited_name=f"Bulk Artist {i}")],
                 raw_metadata={"explicit": i % 2 == 0},
             )
             for i in range(3)
@@ -218,7 +218,7 @@ class TestPrimaryMappingQueries:
         track = Track(
             id=None,
             title="Relink Test",
-            artists=[Artist(name="Relink Artist")],
+            artists=[ArtistCredit(credited_name="Relink Artist")],
             user_id=TEST_USER_ID,
         )
         saved_track = await track_repo.save_track(track)
@@ -274,7 +274,7 @@ class TestPrimaryMappingQueries:
             Track(
                 id=None,
                 title="Stale Reset Test",
-                artists=[Artist(name="Stale Artist")],
+                artists=[ArtistCredit(credited_name="Stale Artist")],
                 user_id=TEST_USER_ID,
             )
         )

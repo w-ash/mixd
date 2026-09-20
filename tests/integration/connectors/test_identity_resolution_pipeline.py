@@ -8,7 +8,7 @@ ISRC collision) correctly resolves tracks in realistic scenarios.
 
 from unittest.mock import AsyncMock, MagicMock
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
@@ -37,7 +37,7 @@ class TestLastfmCanonicalParentheticalReuse:
             Track(
                 id=None,
                 title="New Kind of Soft (feat. Neon Priest)",
-                artists=[Artist(name="Ultraviolet")],
+                artists=[ArtistCredit(credited_name="Ultraviolet")],
                 duration_ms=220000,
                 connector_track_identifiers={"spotify": "sp_123"},
                 user_id=TEST_USER_ID,
@@ -77,7 +77,7 @@ class TestLastfmCanonicalParentheticalReuse:
             Track(
                 id=None,
                 title="New Kind of Soft",
-                artists=[Artist(name="Ultraviolet")],
+                artists=[ArtistCredit(credited_name="Ultraviolet")],
                 duration_ms=220000,
                 user_id=TEST_USER_ID,
             )
@@ -110,7 +110,7 @@ class TestSpotifyISRCDedup:
             Track(
                 id=None,
                 title="Creep",
-                artists=[Artist(name="Radiohead")],
+                artists=[ArtistCredit(credited_name="Radiohead")],
                 isrc="GBAYE9300106",
                 duration_ms=238000,
                 user_id=TEST_USER_ID,
@@ -209,7 +209,7 @@ class TestCrossDiscoveryISRCCollision:
             Track(
                 id=None,
                 title="Creep",
-                artists=[Artist(name="Radiohead")],
+                artists=[ArtistCredit(credited_name="Radiohead")],
                 isrc="GBAYE9300106",
                 duration_ms=238000,
                 user_id=TEST_USER_ID,
@@ -222,7 +222,7 @@ class TestCrossDiscoveryISRCCollision:
         probe = Track(
             id=None,
             title="Creep",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             duration_ms=238000,
             user_id=TEST_USER_ID,
         )

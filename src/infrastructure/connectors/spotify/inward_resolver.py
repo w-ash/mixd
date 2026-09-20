@@ -50,7 +50,7 @@ from attrs import define, evolve
 from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.config.telemetry import phase
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.canonical_resolution import ResolutionEvidence
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
@@ -72,6 +72,7 @@ from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
 )
 from src.infrastructure.connectors.spotify import SpotifyConnector
+from src.infrastructure.connectors.spotify.conversions import spotify_artist_ids
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
 
 from .utilities import (
@@ -304,7 +305,14 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
 
     @override
     def _mapping_metadata(self, write: PlannedWrite[SpotifyTrack]) -> dict[str, object]:
-        return write.payload.model_dump()
+        # Credits come from create_track_from_spotify_data, which keeps only
+        # named artists; the ids cover the same artists so they stay aligned.
+        return {
+            **write.payload.model_dump(),
+            "artist_ids": spotify_artist_ids(
+                a for a in write.payload.artists if a.name
+            ),
+        }
 
     @override
     def _primary_mapping_id(self, write: PlannedWrite[SpotifyTrack]) -> str:
@@ -728,7 +736,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
             # candidate's, and as the floor below.
             hint_track = Track(
                 title=hint.track_name,
-                artists=[Artist(name=hint.artist_name)],
+                artists=[ArtistCredit(credited_name=hint.artist_name)],
                 duration_ms=hint.completed_play_ms_estimate,
                 user_id=user_id,
             )

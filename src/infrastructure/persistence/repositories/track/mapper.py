@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
-from src.domain.entities import Artist, Track, ensure_utc
+from src.domain.entities import ArtistCredit, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.shared import JsonDict
 from src.domain.entities.track_mapping import STALE_ID_FOR
@@ -153,7 +153,10 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             version=db_model.version,
             user_id=db_model.user_id,
             title=db_model.title,
-            artists=[Artist(name=n) for n in extract_db_artist_names(db_model.artists)],
+            artists=[
+                ArtistCredit(credited_name=n)
+                for n in extract_db_artist_names(db_model.artists)
+            ],
             album=db_model.album,
             duration_ms=db_model.duration_ms,
             release_date=ensure_utc(db_model.release_date),

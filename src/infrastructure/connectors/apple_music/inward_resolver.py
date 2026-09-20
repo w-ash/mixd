@@ -245,7 +245,13 @@ class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
     def _mapping_metadata(
         self, write: PlannedWrite[AppleMusicSong]
     ) -> dict[str, object]:
-        return write.payload.model_dump()
+        """The song dump plus positional ``artist_ids``.
+
+        A catalog song carries one ``artistName`` and no per-artist id
+        (artist resources arrive only via ``include=artists``, which the
+        lookup does not request), so the single credit's id is ``None``.
+        """
+        return {**write.payload.model_dump(), "artist_ids": [None]}
 
     @override
     def _successor_assertion(

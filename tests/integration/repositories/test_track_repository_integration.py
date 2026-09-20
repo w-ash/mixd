@@ -38,7 +38,9 @@ class TestTrackRepositoryIntegration:
 
         assert saved_track.id is not None
         assert saved_track.title == test_track.title
-        assert saved_track.artists[0].name == test_track.artists[0].name
+        assert (
+            saved_track.artists[0].credited_name == test_track.artists[0].credited_name
+        )
         assert saved_track.album == test_track.album
         assert saved_track.duration_ms == test_track.duration_ms
 
@@ -46,7 +48,10 @@ class TestTrackRepositoryIntegration:
         assert retrieved_track is not None
         assert retrieved_track.title == test_track.title
         assert len(retrieved_track.artists) == 1
-        assert retrieved_track.artists[0].name == test_track.artists[0].name
+        assert (
+            retrieved_track.artists[0].credited_name
+            == test_track.artists[0].credited_name
+        )
 
     async def test_find_tracks_by_ids_operations(self, db_session):
         """Test find_tracks_by_ids with empty list, single track, multiple tracks, and missing IDs."""

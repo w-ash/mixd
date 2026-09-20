@@ -12,10 +12,14 @@ Both are pure (no DB, no session).
 
 from datetime import UTC, datetime
 
+from src.domain.entities import ArtistCredit, Track
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
+    build_canonical_track_row,
     build_connector_track_row,
     extract_db_artist_names,
+    normalized_text_columns,
 )
+from tests.fixtures import TEST_USER_ID
 
 
 class TestExtractDbArtistNames:
@@ -41,6 +45,53 @@ class TestExtractDbArtistNames:
 
     def test_empty_names_list_returns_empty(self):
         assert extract_db_artist_names({"names": []}) == []
+
+
+class TestNormalizedTextColumns:
+    """Characterization: credits without join phrases write the pre-credit value."""
+
+    def test_artists_text_is_comma_joined_names(self):
+        names = ["Neon Priest", "Ada Vale", "Björk"]
+        track = Track(
+            title="Gold Rush",
+            artists=[ArtistCredit(credited_name=n) for n in names],
+            user_id=TEST_USER_ID,
+        )
+
+        columns = normalized_text_columns(track)
+
+        assert columns["artists_text"] == ", ".join(names)
+        assert columns["artist_normalized"] == "neon priest"
+
+    def test_join_phrase_changes_artists_text_only(self):
+        track = Track(
+            title="Gold Rush",
+            artists=[
+                ArtistCredit(credited_name="Neon Priest", join_phrase=" & "),
+                ArtistCredit(credited_name="Ada Vale"),
+            ],
+            user_id=TEST_USER_ID,
+        )
+
+        columns = normalized_text_columns(track)
+
+        assert columns["artists_text"] == "Neon Priest & Ada Vale"
+        assert columns["artist_normalized"] == "neon priest"
+
+    def test_canonical_row_artists_column_lists_credited_names(self):
+        track = Track(
+            title="Gold Rush",
+            artists=[
+                ArtistCredit(credited_name="Neon Priest"),
+                ArtistCredit(credited_name="Ada Vale"),
+            ],
+            user_id=TEST_USER_ID,
+        )
+
+        row = build_canonical_track_row(track)
+
+        assert row["artists"] == {"names": ["Neon Priest", "Ada Vale"]}
+        assert row["artists_text"] == "Neon Priest, Ada Vale"
 
 
 class TestBuildConnectorTrackRow:

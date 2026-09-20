@@ -26,6 +26,7 @@ from src.infrastructure.connectors.spotify.inward_resolver import (
     SpotifyInwardResolver,
 )
 from src.infrastructure.connectors.spotify.models import (
+    SpotifyArtist,
     SpotifyExternalIds,
     SpotifyRestrictions,
     SpotifyTrack,
@@ -79,6 +80,37 @@ def _promoted_ids(connector_repo) -> list[str]:
     return [
         spec.connector_id for spec in _mapping_specs(connector_repo) if spec.primary
     ]
+
+
+class TestMappingMetadataArtistIds:
+    """A creation's mapping metadata carries positional ``artist_ids``."""
+
+    async def test_artist_ids_align_with_the_saved_credits(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "id1": make_spotify_track(
+                    "id1",
+                    "Song",
+                    artists=[
+                        SpotifyArtist(id="a1", name="Alpha"),
+                        SpotifyArtist(id="ghost"),
+                        SpotifyArtist(name="NoId"),
+                    ],
+                )
+            }
+        )
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        await resolver.resolve_to_canonical_tracks(["id1"], uow, user_id="test-user")
+
+        saved = track_repo.save_track.await_args.args[0]
+        (spec,) = _mapping_specs(connector_repo)
+        assert spec.metadata is not None
+        assert [a.credited_name for a in saved.artists] == ["Alpha", "NoId"]
+        assert spec.metadata["artist_ids"] == ["a1", None]
+        assert spec.metadata["id"] == "id1"
 
 
 class TestBatchFetch:

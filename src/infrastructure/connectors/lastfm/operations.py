@@ -218,7 +218,7 @@ class LastFMOperations:
         # Fallback to artist/title matching - try all artists in order
         if track.artists and track.title:
             for idx, artist in enumerate(track.artists):
-                artist_name = artist.name
+                artist_name = artist.credited_name
                 logger.debug(
                     "Attempting Last.FM lookup via artist/title",
                     artist=artist_name,
@@ -249,7 +249,7 @@ class LastFMOperations:
             # All artists failed
             logger.warning(
                 "Last.FM lookup failed with all artists",
-                tried_artists=[a.name for a in track.artists],
+                tried_artists=[a.credited_name for a in track.artists],
                 title=track.title,
                 track_id=track.id,
             )

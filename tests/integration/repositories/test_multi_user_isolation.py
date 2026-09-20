@@ -14,7 +14,7 @@ from uuid import uuid7
 import pytest
 
 from src.domain.entities.operations import SyncCheckpoint, TrackPlay
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.domain.entities.workflow import Workflow
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
@@ -27,7 +27,7 @@ USER_B = "isolation-user-b"
 def _new_track(user_id: str, **kwargs) -> Track:
     """Track with id=None for DB insertion (repo assigns the ID)."""
     kwargs.setdefault("title", f"Track_{uuid7()}")
-    kwargs.setdefault("artists", [Artist(name="Test Artist")])
+    kwargs.setdefault("artists", [ArtistCredit(credited_name="Test Artist")])
     return Track(id=None, user_id=user_id, **kwargs)
 
 
@@ -87,7 +87,9 @@ class TestTrackIsolation:
         repo = uow.get_track_repository()
 
         await repo.save_track(
-            _new_track(USER_A, title="Creep", artists=[Artist(name="Radiohead")])
+            _new_track(
+                USER_A, title="Creep", artists=[ArtistCredit(credited_name="Radiohead")]
+            )
         )
 
         result = await repo.find_tracks_by_title_artist(

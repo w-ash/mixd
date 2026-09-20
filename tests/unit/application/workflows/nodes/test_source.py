@@ -23,7 +23,7 @@ from src.application.workflows.nodes.source import (
     source_liked_tracks,
     source_played_tracks,
 )
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import (
     TEST_USER_ID,
     make_connector_playlist,
@@ -37,8 +37,16 @@ _PLAYLIST_ID = str(uuid7())
 def sample_tracks():
     """Tracks with IDs for source mapping."""
     return [
-        Track(title="Song A", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID),
-        Track(title="Song B", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID),
+        Track(
+            title="Song A",
+            artists=[ArtistCredit(credited_name="Artist 1")],
+            user_id=TEST_USER_ID,
+        ),
+        Track(
+            title="Song B",
+            artists=[ArtistCredit(credited_name="Artist 2")],
+            user_id=TEST_USER_ID,
+        ),
     ]
 
 
@@ -83,8 +91,16 @@ class TestBuildSourceTracklist:
     def test_all_tracks_have_ids_in_source_map(self):
         """All tracks have UUIDs, so all appear in source map."""
         tracks = [
-            Track(title="Track A", artists=[Artist(name="A1")], user_id=TEST_USER_ID),
-            Track(title="Track B", artists=[Artist(name="A2")], user_id=TEST_USER_ID),
+            Track(
+                title="Track A",
+                artists=[ArtistCredit(credited_name="A1")],
+                user_id=TEST_USER_ID,
+            ),
+            Track(
+                title="Track B",
+                artists=[ArtistCredit(credited_name="A2")],
+                user_id=TEST_USER_ID,
+            ),
         ]
         result = _build_source_tracklist(tracks, "PL", "canonical", "id-1")
 
@@ -202,12 +218,12 @@ class TestPlaylistSourceConnector:
         return [
             Track(
                 title="Connector Song A",
-                artists=[Artist(name="Art 1")],
+                artists=[ArtistCredit(credited_name="Art 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 title="Connector Song B",
-                artists=[Artist(name="Art 2")],
+                artists=[ArtistCredit(credited_name="Art 2")],
                 user_id=TEST_USER_ID,
             ),
         ]

@@ -8,7 +8,7 @@ conflicts.
 import pytest
 
 from src.domain.entities.playlist import Playlist
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from src.domain.playlist.diff_engine import (
     PlaylistOperation,
     PlaylistOperationType,
@@ -29,19 +29,29 @@ class TestPositionShiftSimulation:
         """Create sample tracks for testing."""
         return [
             Track(
-                title="Track A", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+                title="Track A",
+                artists=[ArtistCredit(credited_name="Artist 1")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Track B", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+                title="Track B",
+                artists=[ArtistCredit(credited_name="Artist 2")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Track C", artists=[Artist(name="Artist 3")], user_id=TEST_USER_ID
+                title="Track C",
+                artists=[ArtistCredit(credited_name="Artist 3")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Track D", artists=[Artist(name="Artist 4")], user_id=TEST_USER_ID
+                title="Track D",
+                artists=[ArtistCredit(credited_name="Artist 4")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Track E", artists=[Artist(name="Artist 5")], user_id=TEST_USER_ID
+                title="Track E",
+                artists=[ArtistCredit(credited_name="Artist 5")],
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -171,7 +181,7 @@ class TestPositionShiftSimulation:
             Track(
                 id=i,
                 title=f"Track {i}",
-                artists=[Artist(name=f"Artist {i}")],
+                artists=[ArtistCredit(credited_name=f"Artist {i}")],
                 user_id=TEST_USER_ID,
             )
             for i in range(100)

@@ -4,7 +4,7 @@ Tests the core business rules for determining when two tracks represent the same
 which is critical for deduplication, merging, and cross-service track linking.
 """
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from tests.fixtures import TEST_USER_ID
 
 
@@ -21,14 +21,14 @@ class TestTrackIdentityResolution:
         # Real scenario: Same song from different releases/remasters
         original_release = Track(
             title="Paranoid Android",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             album="OK Computer",
             isrc="GBUM71505078",
             user_id=TEST_USER_ID,
         )
         remaster_release = Track(
             title="Paranoid Android - Remastered",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             album="OK Computer (2017 Remaster)",
             isrc="GBUM71505078",
             user_id=TEST_USER_ID,  # Same ISRC - same song!
@@ -43,7 +43,7 @@ class TestTrackIdentityResolution:
         # Real scenario: Track imported from Spotify, then found on Last.fm
         spotify_track = Track(
             title="Karma Police",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             connector_track_identifiers={
                 "spotify": "63OQupATfueTdZMWTxzEle",
                 "musicbrainz": "8b2b6471-7903-4f84-8b3f-d1d2e7c4b9a8",
@@ -52,7 +52,7 @@ class TestTrackIdentityResolution:
         )
         lastfm_track = Track(
             title="Karma Police",  # Same title
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             connector_track_identifiers={
                 "lastfm": "track_123456",
                 "musicbrainz": "8b2b6471-7903-4f84-8b3f-d1d2e7c4b9a8",  # Same MusicBrainz ID
@@ -67,14 +67,14 @@ class TestTrackIdentityResolution:
         """Test that tracks with no shared identifiers are not considered identical."""
         track1 = Track(
             title="Paranoid Android",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             isrc="GBUM71505078",
             connector_track_identifiers={"spotify": "63OQupATfueTdZMWTxzEle"},
             user_id=TEST_USER_ID,
         )
         track2 = Track(
             title="Yesterday",  # Different song entirely
-            artists=[Artist(name="The Beatles")],
+            artists=[ArtistCredit(credited_name="The Beatles")],
             isrc="USRC17607839",  # Different ISRC
             connector_track_identifiers={"spotify": "3BxWKCI06eQ5Od8TY2JBeA"},
             user_id=TEST_USER_ID,  # Different Spotify ID
@@ -88,7 +88,7 @@ class TestTrackIdentityResolution:
         # Real scenario: Track with multiple IDs, partial overlap should still match
         track_with_many_ids = Track(
             title="Creep",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             connector_track_identifiers={
                 "spotify": "70LcF31zb1H0PyJoS1Sx1r",
                 "lastfm": "track_789012",
@@ -99,7 +99,7 @@ class TestTrackIdentityResolution:
         )
         track_with_one_matching_id = Track(
             title="Creep (Radio Edit)",  # Different title variation
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             connector_track_identifiers={
                 "spotify": "70LcF31zb1H0PyJoS1Sx1r",  # Same Spotify ID - enough for match!
                 "tidal": "tidal_567890",  # Different other service
@@ -114,13 +114,13 @@ class TestTrackIdentityResolution:
         """Test edge case: empty ISRC string vs None should not match."""
         track_with_empty_isrc = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             isrc="",
             user_id=TEST_USER_ID,  # Empty string
         )
         track_with_none_isrc = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             isrc=None,
             user_id=TEST_USER_ID,  # None
         )
@@ -132,13 +132,13 @@ class TestTrackIdentityResolution:
         """Test that connector IDs are case-sensitive - important for exact matching."""
         track1 = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             connector_track_identifiers={"spotify": "4iV5W9uYEdYUVa79Axb7Rh"},
             user_id=TEST_USER_ID,
         )
         track2 = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             connector_track_identifiers={"spotify": "4iv5w9uyedyuva79axb7rh"},
             user_id=TEST_USER_ID,  # Different case
         )
@@ -151,14 +151,14 @@ class TestTrackIdentityResolution:
         # Edge case: Different connector IDs but same ISRC (data integrity issue)
         track1 = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             isrc="USUM71703861",  # Same ISRC
             connector_track_identifiers={"spotify": "different_id_1"},
             user_id=TEST_USER_ID,
         )
         track2 = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             isrc="USUM71703861",  # Same ISRC - this should win
             connector_track_identifiers={"spotify": "different_id_2"},
             user_id=TEST_USER_ID,  # Different Spotify ID
@@ -171,7 +171,7 @@ class TestTrackIdentityResolution:
         """Test robust handling of invalid comparison objects."""
         track = Track(
             title="Test Song",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             user_id=TEST_USER_ID,
         )
 
@@ -187,13 +187,13 @@ class TestTrackIdentityResolution:
         # Real scenario: Tracks from different imports with no external IDs
         track1 = Track(
             title="Unknown Song",
-            artists=[Artist(name="Unknown Artist")],
+            artists=[ArtistCredit(credited_name="Unknown Artist")],
             user_id=TEST_USER_ID,
             # No ISRC, no connector IDs
         )
         track2 = Track(
             title="Unknown Song",  # Same title/artist
-            artists=[Artist(name="Unknown Artist")],
+            artists=[ArtistCredit(credited_name="Unknown Artist")],
             user_id=TEST_USER_ID,
             # No ISRC, no connector IDs
         )
@@ -206,7 +206,7 @@ class TestTrackIdentityResolution:
         # User's Spotify liked song
         spotify_track = Track(
             title="No Surprises",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             album="OK Computer",
             duration_ms=228000,
             connector_track_identifiers={"spotify": "2p7phZwlioOIWR1Ztqe5Sy"},
@@ -216,7 +216,7 @@ class TestTrackIdentityResolution:
         # Same song scrobbled from Last.fm (slightly different metadata)
         lastfm_scrobble = Track(
             title="No Surprises",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             album="OK Computer (Collector's Edition)",  # Different album version
             duration_ms=None,  # Last.fm doesn't always have duration
             connector_track_identifiers={"spotify": "2p7phZwlioOIWR1Ztqe5Sy"},

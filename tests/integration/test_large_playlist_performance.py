@@ -9,7 +9,7 @@ import time
 import pytest
 
 from src.domain.entities.playlist import Playlist
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from src.domain.playlist.diff_engine import calculate_playlist_diff
 from src.domain.playlist.execution_strategies import plan_api_operations
 from tests.fixtures import TEST_USER_ID
@@ -37,7 +37,7 @@ class TestLargePlaylistPerformance:
             Track(
                 id=i,
                 title=f"Track {i:04d}",
-                artists=[Artist(name=f"Artist {i:04d}")],
+                artists=[ArtistCredit(credited_name=f"Artist {i:04d}")],
                 user_id=TEST_USER_ID,
             )
             for i in range(5000)
@@ -53,7 +53,7 @@ class TestLargePlaylistPerformance:
             Track(
                 id=i,
                 title=f"Track {i:05d}",
-                artists=[Artist(name=f"Artist {i:05d}")],
+                artists=[ArtistCredit(credited_name=f"Artist {i:05d}")],
                 user_id=TEST_USER_ID,
             )
             for i in range(10000)
@@ -185,7 +185,7 @@ class TestLargePlaylistPerformance:
             Track(
                 id=i,
                 title=f"Track {i}",
-                artists=[Artist(name=f"Artist {i}")],
+                artists=[ArtistCredit(credited_name=f"Artist {i}")],
                 user_id=TEST_USER_ID,
             )
             for i in range(100)  # Only 100 unique tracks

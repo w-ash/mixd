@@ -126,7 +126,7 @@ class SpotifyProvider(BaseMatchingProvider):
 
         Fetches multiple candidates and picks the best by title similarity.
         """
-        artist_name = track.artists[0].name if track.artists else ""
+        artist_name = track.artists[0].credited_name if track.artists else ""
         candidates = await self._candidates_with_widening(artist_name, track.title)
         if not candidates:
             return None, create_and_log_failure(

@@ -8,7 +8,7 @@ as API_ERROR, never NO_RESULTS).
 
 from unittest.mock import AsyncMock, patch
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.types import MatchFailureReason
 from src.infrastructure.connectors._shared.matching_provider import IsrcOnly
 from src.infrastructure.connectors.apple_music.client import CatalogSongsLookup
@@ -36,7 +36,7 @@ def _isrc_track(isrc: str = "USUM72309818", title: str = "Test Song") -> Track:
     return Track(
         title=title,
         isrc=isrc,
-        artists=[Artist(name="Test Artist")],
+        artists=[ArtistCredit(credited_name="Test Artist")],
         user_id=TEST_USER_ID,
     )
 
@@ -111,7 +111,9 @@ class TestIsrcMatching:
         """No ISRC → NO_ISRC failure from the IsrcOnly strategy, no lookup."""
         provider, client, _ = _make_provider()
         track = Track(
-            title="No Code", artists=[Artist(name="Someone")], user_id=TEST_USER_ID
+            title="No Code",
+            artists=[ArtistCredit(credited_name="Someone")],
+            user_id=TEST_USER_ID,
         )
 
         with patch(STOREFRONT_PATCH, AsyncMock(return_value="us")):

@@ -6,7 +6,7 @@ strictnesses are tested here rather than twice at the call sites: normalized
 *equality* (never similarity) and an unknown duration refusing reuse.
 """
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.isrc_validation import SUSPECT_DURATION_DIFF_MS
 from src.domain.matching.recording_identity import (
     RecordingDescription,
@@ -140,7 +140,10 @@ class TestDescribeTrack:
     def test_a_canonical_is_described_by_its_primary_artist(self):
         track = Track(
             title="Oh The Sunn!",
-            artists=[Artist(name="The Avalanches"), Artist(name="Perry Farrell")],
+            artists=[
+                ArtistCredit(credited_name="The Avalanches"),
+                ArtistCredit(credited_name="Perry Farrell"),
+            ],
             duration_ms=235_400,
             user_id=TEST_USER_ID,
         )
@@ -153,7 +156,7 @@ class TestDescribeTrack:
         """``Track`` guarantees an artist entry, never that it is named."""
         track = Track(
             title="Untitled",
-            artists=[Artist(name="")],
+            artists=[ArtistCredit(credited_name="")],
             duration_ms=100_000,
             user_id=TEST_USER_ID,
         )

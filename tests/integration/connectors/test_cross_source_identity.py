@@ -7,7 +7,7 @@ same canonical tracks. Uses real database + mocked API clients.
 
 from unittest.mock import AsyncMock, MagicMock
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
@@ -141,7 +141,7 @@ class TestLastfmThenSpotify:
             Track(
                 id=None,
                 title="Creep",
-                artists=[Artist(name="Radiohead")],
+                artists=[ArtistCredit(credited_name="Radiohead")],
                 isrc="GBAYE9300106",
                 duration_ms=238000,
                 user_id=TEST_USER_ID,
@@ -160,7 +160,7 @@ class TestLastfmThenSpotify:
             Track(
                 id=None,
                 title="Everything In Its Right Place",
-                artists=[Artist(name="Radiohead")],
+                artists=[ArtistCredit(credited_name="Radiohead")],
                 isrc="GBAYE0000289",
                 duration_ms=250000,
                 user_id=TEST_USER_ID,
@@ -263,7 +263,7 @@ class TestMixedResolutionPaths:
             Track(
                 id=None,
                 title="Already Mapped",
-                artists=[Artist(name="Band A")],
+                artists=[ArtistCredit(credited_name="Band A")],
                 user_id=TEST_USER_ID,
             )
         )
@@ -281,7 +281,7 @@ class TestMixedResolutionPaths:
             Track(
                 id=None,
                 title="Needs Reuse",
-                artists=[Artist(name="Band B")],
+                artists=[ArtistCredit(credited_name="Band B")],
                 duration_ms=200000,
                 user_id=TEST_USER_ID,
             )

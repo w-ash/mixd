@@ -155,7 +155,7 @@ def _render_track_details_table(result: OperationResult) -> Table:
 
     # Add track rows
     for i, track in enumerate(result.tracks, 1):
-        artist_name = track.artists[0].name if track.artists else "Unknown"
+        artist_name = track.artists[0].credited_name if track.artists else "Unknown"
 
         # Get source information from tracklist metadata
         source_info = "Unknown"

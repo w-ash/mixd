@@ -96,7 +96,7 @@ class TrackMatchEvaluationService:
         # Convert track to format expected by confidence algorithm
         internal_track_data: InternalTrackData = {
             "title": track.title,
-            "artists": [artist.name for artist in track.artists]
+            "artists": [artist.credited_name for artist in track.artists]
             if track.artists
             else [],
             "duration_ms": track.duration_ms,

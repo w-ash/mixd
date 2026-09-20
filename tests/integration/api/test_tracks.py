@@ -23,10 +23,13 @@ async def _create_track(
     # For API tests, we create them via the DB directly using the
     # application's own infrastructure.
     from src.application.runner import execute_use_case
-    from src.domain.entities.track import Artist, Track
+    from src.domain.entities.track import ArtistCredit, Track
 
     track = Track(
-        id=None, title=title, artists=[Artist(name=artist)], user_id=TEST_USER_ID
+        id=None,
+        title=title,
+        artists=[ArtistCredit(credited_name=artist)],
+        user_id=TEST_USER_ID,
     )
     return await execute_use_case(lambda uow: _save_track(uow, track))
 

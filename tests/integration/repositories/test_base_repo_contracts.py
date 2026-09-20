@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
@@ -31,7 +31,7 @@ class _PlainMapper(BaseModelMapper[DBTrack, Track]):
         return Track(
             id=db_model.id,
             title=db_model.title,
-            artists=[Artist(name="test")],
+            artists=[ArtistCredit(credited_name="test")],
             user_id=TEST_USER_ID,
         )
 

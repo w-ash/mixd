@@ -3,7 +3,7 @@
 Pure track representations and related value objects with zero external dependencies.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Literal, Self, TypedDict, cast, overload
 from uuid import UUID, uuid7
@@ -22,23 +22,54 @@ from .tag import TrackTag
 
 
 @define(frozen=True, slots=True)
-class Artist:
-    """Artist representation with normalized metadata."""
+class ArtistCredit:
+    """One artist credit on a track: the credited spelling plus optional identity.
 
-    name: str = field(validator=validators.instance_of(str))
+    ``credited_name`` keeps the spelling on the record; ``artist_id`` links the
+    credit to a canonical artist when one is resolved (``None`` is valid — a
+    compilation credit or an unresolved name keeps its row). ``join_phrase``
+    is the connective between this credit and the next (" & ", " feat. ");
+    ``role`` is set only when the source states one.
+    """
+
+    credited_name: str = field(validator=validators.instance_of(str))
+    artist_id: UUID | None = field(
+        default=None, validator=validators.optional(validators.instance_of(UUID))
+    )
+    join_phrase: str | None = field(
+        default=None, validator=validators.optional(validators.instance_of(str))
+    )
+    role: str | None = field(
+        default=None, validator=validators.optional(validators.instance_of(str))
+    )
+
+
+def credits_display(credits: Sequence[ArtistCredit]) -> str:
+    """Concatenate credited names, joined by each credit's join phrase or ", ".
+
+    The last credit's join phrase is never emitted — there is nothing after
+    it to join.
+    """
+    parts: list[str] = []
+    last = len(credits) - 1
+    for index, credit in enumerate(credits):
+        parts.append(credit.credited_name)
+        if index < last:
+            parts.append(credit.join_phrase or ", ")
+    return "".join(parts)
 
 
 def _validate_artists(
     _instance: object,
-    _attribute: attrs.Attribute[list[Artist]],
-    value: list[Artist],
+    _attribute: attrs.Attribute[tuple[ArtistCredit, ...]],
+    value: tuple[ArtistCredit, ...],
 ) -> None:
-    """Validate artists list: non-empty and all elements are Artist instances."""
+    """Validate credits: non-empty and all elements are ArtistCredit instances."""
     if not value:
         raise ValueError("Track must have at least one artist")
-    for artist in value:
-        if not isinstance(artist, Artist):  # pyright: ignore[reportUnnecessaryIsInstance]
-            raise TypeError(f"Expected Artist, got {type(artist).__name__}")
+    for credit in value:
+        if not isinstance(credit, ArtistCredit):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(f"Expected ArtistCredit, got {type(credit).__name__}")
 
 
 @define(frozen=True, slots=True)
@@ -51,8 +82,9 @@ class Track:
 
     # Core metadata
     title: str = field(validator=validators.instance_of(str))
-    artists: list[Artist] = field(
-        factory=list,
+    artists: tuple[ArtistCredit, ...] = field(
+        factory=tuple,
+        converter=tuple,
         validator=_validate_artists,
     )
     album: str | None = field(default=None)
@@ -77,8 +109,8 @@ class Track:
 
     @property
     def artists_display(self) -> str:
-        """Comma-separated artist names for display."""
-        return ", ".join(artist.name for artist in self.artists)
+        """Credited names joined for display; also the ``artists_text`` column value."""
+        return credits_display(self.artists)
 
     def with_connector_track_id(self, connector: str, sid: str) -> Self:
         """Create a new track with additional connector identifier."""
@@ -175,7 +207,7 @@ class ConnectorTrack:
     connector_name: str
     connector_track_identifier: str
     title: str
-    artists: list[Artist]
+    artists: tuple[ArtistCredit, ...] = field(converter=tuple)
     album: str | None = None
     duration_ms: int | None = None
     isrc: str | None = None
@@ -183,6 +215,11 @@ class ConnectorTrack:
     raw_metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
     last_updated: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)
+
+    @property
+    def artists_display(self) -> str:
+        """Credited names joined for display; also the ``artists_text`` column value."""
+        return credits_display(self.artists)
 
 
 class TrackListMetadata(TypedDict, total=False):

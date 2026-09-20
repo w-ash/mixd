@@ -11,7 +11,7 @@ from src.application.use_cases._shared.command_validators import (
     non_empty_string,
     validate_tracklist_has_tracks,
 )
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import TEST_USER_ID
 
 
@@ -63,7 +63,7 @@ class TestValidateTracklistHasTracks:
         class TestCommand:
             tracklist: TrackList = field(validator=validate_tracklist_has_tracks)
 
-        artist = Artist(name="Test Artist")
+        artist = ArtistCredit(credited_name="Test Artist")
         track = Track(title="Test", artists=[artist], user_id=TEST_USER_ID)
         cmd = TestCommand(tracklist=TrackList(tracks=[track]))
         assert len(cmd.tracklist.tracks) == 1

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from src.application.services.connector_playlist_processing_service import (
     ConnectorPlaylistProcessingService,
 )
-from src.domain.entities.track import Artist, ConnectorTrack, Track
+from src.domain.entities.track import ArtistCredit, ConnectorTrack, Track
 from tests.fixtures import (
     make_connector_playlist,
     make_connector_playlist_item,
@@ -40,7 +40,9 @@ def _fake_connector() -> MagicMock:
             connector_name="spotify",
             connector_track_identifier=data["id"],
             title=data.get("name") or "Untitled",
-            artists=[Artist(name=a["name"]) for a in data.get("artists", [])],
+            artists=[
+                ArtistCredit(credited_name=a["name"]) for a in data.get("artists", [])
+            ],
         )
 
     conn.convert_track_to_connector.side_effect = convert

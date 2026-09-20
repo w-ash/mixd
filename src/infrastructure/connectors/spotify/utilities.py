@@ -13,7 +13,7 @@ from typing import Protocol
 from attrs import define
 
 from src.config.constants import SpotifyConstants
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.algorithms import select_best_by_title_similarity
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import MatchResult, RawProviderMatch
@@ -135,7 +135,9 @@ def create_track_from_spotify_data(
         raise ValueError(f"Missing artists for Spotify ID {spotify_id}")
 
     # Create Artist objects
-    artists = [Artist(name=a.name) for a in spotify_track.artists if a.name]
+    artists = [
+        ArtistCredit(credited_name=a.name) for a in spotify_track.artists if a.name
+    ]
 
     if not artists:
         raise ValueError(f"No valid artist names found for Spotify ID {spotify_id}")

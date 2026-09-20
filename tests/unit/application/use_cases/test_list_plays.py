@@ -12,7 +12,7 @@ from src.application.use_cases.get_plays_histogram import (
 )
 from src.application.use_cases.list_plays import ListPlaysCommand, ListPlaysUseCase
 from src.domain.entities import Track, TrackPlay
-from src.domain.entities.track import Artist
+from src.domain.entities.track import ArtistCredit
 from tests.fixtures.mocks import (
     make_mock_plays_repo,
     make_mock_track_repo,
@@ -37,7 +37,10 @@ def _naive(moment: datetime) -> datetime:
 
 def _track(track_id, title="Song"):
     return Track(
-        id=track_id, title=title, artists=[Artist(name="Artist")], user_id="u1"
+        id=track_id,
+        title=title,
+        artists=[ArtistCredit(credited_name="Artist")],
+        user_id="u1",
     )
 
 

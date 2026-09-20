@@ -156,6 +156,23 @@ class TestIsrcReuse:
         assert spec.confidence == 100
         assert spec.primary is True
 
+    async def test_mapping_metadata_carries_positional_artist_ids(self):
+        """A catalog song has one credit and no per-artist id → ``[None]``."""
+        song = make_apple_song(song_id="101", isrc="USUM72309818")
+        resolver, _ = _make_resolver([song])
+        uow, track_repo, connector_repo, _ = _make_uow()
+
+        with patch(STOREFRONT_PATCH, AsyncMock(return_value="us")):
+            await resolver.resolve_to_canonical_tracks(
+                ["101"], uow, user_id="test-user"
+            )
+
+        saved = track_repo.save_track.await_args.args[0]
+        (spec,) = _mapping_specs(connector_repo)
+        assert spec.metadata is not None
+        assert spec.metadata["artist_ids"] == [None] * len(saved.artists)
+        assert spec.metadata["id"] == "101"
+
 
 class TestUnresolvable:
     async def test_song_without_isrc_mints_nothing_and_backs_off(self):

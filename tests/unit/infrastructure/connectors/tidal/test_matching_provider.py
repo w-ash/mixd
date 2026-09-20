@@ -9,7 +9,7 @@ NO_RESULTS).
 
 from unittest.mock import AsyncMock
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.types import MatchFailureReason
 from src.infrastructure.connectors._shared.matching_provider import IsrcOnly
 from src.infrastructure.connectors.tidal.client import TIDAL_COUNTRY_CODE
@@ -43,7 +43,7 @@ def _isrc_track(
         title=title,
         isrc=isrc,
         duration_ms=duration_ms,
-        artists=[Artist(name="Test Artist")],
+        artists=[ArtistCredit(credited_name="Test Artist")],
         user_id=TEST_USER_ID,
     )
 
@@ -159,7 +159,9 @@ class TestIsrcMatching:
         """No ISRC → NO_ISRC failure from the IsrcOnly strategy, no lookup."""
         provider, client = _make_provider()
         track = Track(
-            title="No Code", artists=[Artist(name="Someone")], user_id=TEST_USER_ID
+            title="No Code",
+            artists=[ArtistCredit(credited_name="Someone")],
+            user_id=TEST_USER_ID,
         )
 
         result = await provider.fetch_raw_matches_for_tracks([track])

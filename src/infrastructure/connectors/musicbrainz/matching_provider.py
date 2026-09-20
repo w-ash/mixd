@@ -123,7 +123,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
         self, track: Track
     ) -> tuple[RawProviderMatch | None, MatchFailure | None]:
         """Search MusicBrainz by artist/title for one track; return (match, failure)."""
-        artist = track.artists[0].name if track.artists else ""
+        artist = track.artists[0].credited_name if track.artists else ""
         recording = await self.connector_instance.search_recording(artist, track.title)
 
         if recording:

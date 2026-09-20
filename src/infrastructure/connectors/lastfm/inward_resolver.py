@@ -48,7 +48,7 @@ from attrs import define, evolve
 from pydantic import ValidationError
 
 from src.config import get_logger, settings
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.protocols import (
@@ -595,7 +595,7 @@ class LastfmInwardResolver(InwardTrackResolver):
 
         probe = Track(
             title=corrected_title,
-            artists=[Artist(name=corrected_artist)],
+            artists=[ArtistCredit(credited_name=corrected_artist)],
             user_id=user_id,
         )
         if not info:

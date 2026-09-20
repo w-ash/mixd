@@ -17,7 +17,7 @@ from src.application.services.playlist_reconciliation_engine import (
 )
 from src.domain.entities.playlist import ConnectorPlaylist, ConnectorPlaylistItem
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
-from src.domain.entities.track import Artist, ConnectorTrack
+from src.domain.entities.track import ArtistCredit, ConnectorTrack
 from src.domain.playlist.diff_engine import PlaylistOpsOutcome
 from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
@@ -105,7 +105,9 @@ def _fake_conversion_connector() -> MagicMock:
             connector_name="spotify",
             connector_track_identifier=data["id"],
             title=data.get("name") or "Untitled",
-            artists=[Artist(name=a["name"]) for a in data.get("artists", [])],
+            artists=[
+                ArtistCredit(credited_name=a["name"]) for a in data.get("artists", [])
+            ],
         )
 
     conn.convert_track_to_connector.side_effect = convert

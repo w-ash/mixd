@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.infrastructure.connectors.lastfm.conversions import (
     LastFMTrackInfo,
     convert_lastfm_to_domain_track,
@@ -23,7 +23,7 @@ class TestLastFMMetadataApplication:
         track = Track(
             id=1,
             title="Test Track",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             album="Test Album",
             user_id=TEST_USER_ID,
         )
@@ -72,7 +72,7 @@ class TestLastFMMetadataApplication:
         track = Track(
             id=1,
             title="Test Track",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             connector_metadata={
                 "lastfm": {
                     "lastfm_user_playcount": 42,
@@ -116,7 +116,7 @@ class TestLastFMMetadataApplication:
         track = Track(
             id=1,
             title="Test Track",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             user_id=TEST_USER_ID,
         )
 

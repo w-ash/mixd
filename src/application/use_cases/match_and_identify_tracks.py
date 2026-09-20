@@ -403,7 +403,7 @@ class MatchAndIdentifyTracksUseCase:
                 "connector_id": match.connector_id,
                 "title": match.service_data.get("title", match.track.title),
                 "artists": match.service_data.get(
-                    "artists", [a.name for a in match.track.artists]
+                    "artists", [a.credited_name for a in match.track.artists]
                 ),
                 "album": match.service_data.get("album"),
                 "duration_ms": match.service_data.get("duration_ms"),

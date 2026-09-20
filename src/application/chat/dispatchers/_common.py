@@ -255,7 +255,7 @@ def project_track(
     out: JsonDict = {
         "track_id": str(track.id),
         "title": user_text(track.title),
-        "artists": [user_text(a.name) for a in track.artists],
+        "artists": [user_text(a.credited_name) for a in track.artists],
     }
     if track.album:
         out["album"] = user_text(track.album)

@@ -17,7 +17,7 @@ import attrs
 from attrs import define, field
 
 from src.config import get_logger
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.domain.entities.shared import JsonDict
 from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
 from src.infrastructure.connectors.lastfm.models import (
@@ -125,8 +125,8 @@ def convert_lastfm_track_to_connector(track: LastFMTrackData) -> ConnectorTrack:
         ConnectorTrack with standardized fields and Last.fm metadata
     """
     # At most one artist survives the model's name extraction.
-    artists: list[Artist] = (
-        [Artist(name=track.artist_name)] if track.artist_name else []
+    artists: list[ArtistCredit] = (
+        [ArtistCredit(credited_name=track.artist_name)] if track.artist_name else []
     )
 
     # Metrics are presence-gated: emit a key only when the source provided it,
@@ -141,6 +141,8 @@ def convert_lastfm_track_to_connector(track: LastFMTrackData) -> ConnectorTrack:
         raw_metadata["lastfm_user_playcount"] = track.userplaycount
     if track.mbid:
         raw_metadata["lastfm_mbid"] = track.mbid
+    # The name is Last.fm's only artist identity; positional with the credits.
+    raw_metadata["artist_ids"] = [credit.credited_name for credit in artists]
 
     # Connector track ID: the normalized artist::title composite — the single
     # Last.fm connector identifier scheme shared by every mint site. The MBID

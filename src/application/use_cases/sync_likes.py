@@ -714,7 +714,7 @@ class ExportLovesUseCase:
 
         try:
             outcomes = await connector.love_tracks([
-                (track.artists[0].name, track.title) for track in lovable
+                (track.artists[0].credited_name, track.title) for track in lovable
             ])
             paired = list(zip(lovable, outcomes, strict=True))
         except Exception as e:

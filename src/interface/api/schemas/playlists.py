@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.interface.text import humanize_identifier
 
 
@@ -224,8 +224,8 @@ class ReorderEntriesRequest(BaseModel):
 # --- Domain-to-schema converters ---
 
 
-def to_artist_schema(artist: Artist) -> ArtistSchema:
-    return ArtistSchema(name=artist.name)
+def to_artist_schema(artist: ArtistCredit) -> ArtistSchema:
+    return ArtistSchema(name=artist.credited_name)
 
 
 def _to_track_summary(track: Track) -> TrackSummarySchema:

@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from src.config import get_logger
-from src.domain.entities import Artist, ConnectorTrack
+from src.domain.entities import ArtistCredit, ConnectorTrack
 from src.domain.entities.shared import JsonValue
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.musicbrainz.models import MusicBrainzRecording
@@ -97,13 +97,20 @@ def convert_musicbrainz_track_to_connector(
     if not recording.id:
         raise ValueError("MusicBrainz recording must have an ID (MBID)")
 
-    # Extract artists from artist-credit
-    artists: list[Artist] = []
+    # Extract artists from artist-credit; artist_ids stays positional with them
+    artists: list[ArtistCredit] = []
+    artist_ids: list[JsonValue] = []
     for credit in recording.artist_credit:
         if credit.artist and credit.artist.name:
-            artists.append(Artist(name=credit.artist.name))
+            name = credit.artist.name
         elif credit.name:
-            artists.append(Artist(name=credit.name))
+            name = credit.name
+        else:
+            continue
+        artists.append(
+            ArtistCredit(credited_name=name, join_phrase=credit.joinphrase or None)
+        )
+        artist_ids.append(credit.artist.id if credit.artist else None)
 
     # Album from first release
     album: str | None = None
@@ -122,6 +129,7 @@ def convert_musicbrainz_track_to_connector(
 
     # Metadata extraction
     raw_metadata = extract_recording_metadata(recording)
+    raw_metadata["artist_ids"] = artist_ids
 
     return ConnectorTrack(
         connector_name="musicbrainz",

@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.infrastructure.persistence.database.models import DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID
@@ -24,7 +24,7 @@ def _connector_track(identifier: str) -> ConnectorTrack:
         connector_name="spotify",
         connector_track_identifier=identifier,
         title="Gold Rush",
-        artists=[Artist(name="Neon Priest")],
+        artists=[ArtistCredit(credited_name="Neon Priest")],
         raw_metadata={},
         last_updated=datetime.now(UTC),
     )
@@ -101,7 +101,7 @@ class TestFastPathReturnsStoredProvenance:
             Track(
                 id=None,
                 title="Fast Path",
-                artists=[Artist(name="Neon Priest")],
+                artists=[ArtistCredit(credited_name="Neon Priest")],
                 user_id=TEST_USER_ID,
             )
         )
@@ -137,7 +137,7 @@ class TestFastPathReturnsStoredProvenance:
             Track(
                 id=None,
                 title="Direct",
-                artists=[Artist(name="A")],
+                artists=[ArtistCredit(credited_name="A")],
                 user_id=TEST_USER_ID,
             )
         )
@@ -148,7 +148,7 @@ class TestFastPathReturnsStoredProvenance:
             Track(
                 id=None,
                 title="Reviewed",
-                artists=[Artist(name="B")],
+                artists=[ArtistCredit(credited_name="B")],
                 user_id=TEST_USER_ID,
             )
         )

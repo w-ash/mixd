@@ -56,7 +56,7 @@ def normalized_text_columns(track: Track) -> dict[str, str | None]:
     Every ``tracks`` writer MUST include these — a row written without them
     is invisible to library search and to the title+artist reuse probe.
     """
-    first_artist = track.artists[0].name if track.artists else None
+    first_artist = track.artists[0].credited_name if track.artists else None
     return {
         "title_normalized": normalize_for_comparison(track.title),
         "artist_normalized": (
@@ -79,7 +79,9 @@ def build_canonical_track_row(track: Track) -> dict[str, object]:
     return {
         "user_id": track.user_id,
         "title": track.title,
-        "artists": artist_names_column(artist.name for artist in track.artists),
+        "artists": artist_names_column(
+            artist.credited_name for artist in track.artists
+        ),
         "album": track.album,
         "duration_ms": track.duration_ms,
         "release_date": track.release_date,

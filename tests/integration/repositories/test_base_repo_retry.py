@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.session import SessionTransactionState
 
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories._shared.retry_policies import (
     CONCURRENT_SESSION_MARKER,
@@ -65,7 +65,7 @@ class _PlainMapper(BaseModelMapper[DBTrack, Track]):
         return Track(
             id=db_model.id,
             title=db_model.title,
-            artists=[Artist(name="t")],
+            artists=[ArtistCredit(credited_name="t")],
             user_id=TEST_USER_ID,
         )
 

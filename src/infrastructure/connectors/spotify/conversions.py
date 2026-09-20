@@ -13,19 +13,23 @@ The conversion functions are stateless and can be used independently across
 different parts of the Spotify integration.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 
 from src.config import get_logger
 from src.domain.entities import (
-    Artist,
+    ArtistCredit,
     ConnectorPlaylist,
     ConnectorTrack,
     Track,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
-from src.infrastructure.connectors.spotify.models import SpotifyPlaylist, SpotifyTrack
+from src.infrastructure.connectors.spotify.models import (
+    SpotifyArtist,
+    SpotifyPlaylist,
+    SpotifyTrack,
+)
 
 # Get contextual logger for conversion operations
 logger = get_logger(__name__).bind(service="spotify_conversions")
@@ -38,6 +42,15 @@ def extract_spotify_track_uris(tracks: list[Track]) -> list[str]:
         for t in tracks
         if "spotify" in t.connector_track_identifiers
     ]
+
+
+def spotify_artist_ids(artists: Iterable[SpotifyArtist]) -> list[JsonValue]:
+    """Positional artist ids for the given artists, ``None`` where Spotify sent none.
+
+    Callers pass exactly the artists they turned into credits, so the list
+    stays aligned with the credits by construction.
+    """
+    return [a.id or None for a in artists]
 
 
 def validate_non_empty[T](items: Sequence[object], empty_result: T) -> T | None:
@@ -64,7 +77,7 @@ def convert_spotify_track_to_connector(
         else SpotifyTrack.model_validate(spotify_track)
     )
 
-    artists = [Artist(name=a.name) for a in track.artists]
+    artists = [ArtistCredit(credited_name=a.name) for a in track.artists]
 
     release_date = None
     if track.album and track.album.release_date:
@@ -78,8 +91,10 @@ def convert_spotify_track_to_connector(
     isrc = normalize_isrc(track.external_ids.isrc) if track.external_ids.isrc else None
 
     raw_metadata: JsonDict = {
+        **track.model_dump(),
         "album_id": track.album.id if track.album else None,
         "explicit": track.explicit,
+        "artist_ids": spotify_artist_ids(track.artists),
     }
 
     return ConnectorTrack(

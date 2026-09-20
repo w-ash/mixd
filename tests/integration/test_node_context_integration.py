@@ -7,7 +7,7 @@ and that workflow context injection works correctly.
 from sqlalchemy import text
 
 from src.application.workflows.context import create_workflow_context
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import TEST_USER_ID
 
 
@@ -93,7 +93,7 @@ class TestNodeContextIntegration:
             tracks=[
                 Track(
                     title="Context Test Track",
-                    artists=[Artist(name="Context Test Artist")],
+                    artists=[ArtistCredit(credited_name="Context Test Artist")],
                     album="Context Test Album",
                     duration_ms=180000,
                     user_id=TEST_USER_ID,

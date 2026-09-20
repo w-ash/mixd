@@ -9,14 +9,14 @@ from datetime import UTC, datetime
 import pytest
 
 from src.domain.entities.playlist import Playlist
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import TEST_USER_ID
 
 
 @pytest.fixture
 def artist():
     """Standard test artist for domain tests."""
-    return Artist(name="Test Artist")
+    return ArtistCredit(credited_name="Test Artist")
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def track():
     return Track(
         id=1,
         title="Test Track",
-        artists=[Artist(name="Test Artist")],
+        artists=[ArtistCredit(credited_name="Test Artist")],
         duration_ms=200000,
         user_id=TEST_USER_ID,
     )
@@ -38,7 +38,7 @@ def tracks():
         Track(
             id=i,
             title=f"Track {i}",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             duration_ms=200000,
             user_id=TEST_USER_ID,
         )
@@ -53,7 +53,7 @@ def tracks_with_metadata():
         Track(
             id=1,
             title="Popular Track",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             duration_ms=200000,
             release_date=datetime(2020, 1, 1, tzinfo=UTC),
             user_id=TEST_USER_ID,
@@ -61,7 +61,7 @@ def tracks_with_metadata():
         Track(
             id=2,
             title="New Track",
-            artists=[Artist(name="Test Artist")],
+            artists=[ArtistCredit(credited_name="Test Artist")],
             duration_ms=180000,
             release_date=datetime(2023, 6, 15, tzinfo=UTC),
             user_id=TEST_USER_ID,
@@ -69,7 +69,7 @@ def tracks_with_metadata():
         Track(
             id=3,
             title="Old Track",
-            artists=[Artist(name="Classic Artist")],
+            artists=[ArtistCredit(credited_name="Classic Artist")],
             duration_ms=250000,
             release_date=datetime(1995, 3, 10, tzinfo=UTC),
             user_id=TEST_USER_ID,

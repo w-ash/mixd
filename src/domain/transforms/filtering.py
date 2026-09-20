@@ -146,10 +146,12 @@ def exclude_artists(
 
         if exclude_all_artists:
             # Add all artists from the track
-            exclude_artists_set.update(artist.name.lower() for artist in track.artists)
+            exclude_artists_set.update(
+                artist.credited_name.lower() for artist in track.artists
+            )
         else:
             # Add only the primary artist
-            exclude_artists_set.add(track.artists[0].name.lower())
+            exclude_artists_set.add(track.artists[0].credited_name.lower())
 
     def not_artist_in_reference(track: Track) -> bool:
         if not track.artists:
@@ -158,10 +160,11 @@ def exclude_artists(
         if exclude_all_artists:
             # Check if any artist on the track is in the exclusion set
             return not any(
-                artist.name.lower() in exclude_artists_set for artist in track.artists
+                artist.credited_name.lower() in exclude_artists_set
+                for artist in track.artists
             )
         # Check only the primary artist
-        return track.artists[0].name.lower() not in exclude_artists_set
+        return track.artists[0].credited_name.lower() not in exclude_artists_set
 
     return dual_mode(
         cast(Transform, filter_by_predicate(not_artist_in_reference)), tracklist

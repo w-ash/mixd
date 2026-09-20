@@ -13,7 +13,7 @@ from src.application.use_cases.get_liked_tracks import (
     GetLikedTracksUseCase,
 )
 from src.domain.entities import Track, TrackLike
-from src.domain.entities.track import Artist
+from src.domain.entities.track import ArtistCredit
 from tests.fixtures import TEST_USER_ID
 from tests.fixtures.mocks import make_mock_uow
 
@@ -68,14 +68,14 @@ class TestGetLikedTracksUseCase:
             Track(
                 id=1,
                 title="Track 1",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 album="Album 1",
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Track 2",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 album="Album 2",
                 user_id=TEST_USER_ID,
             ),
@@ -191,7 +191,7 @@ class TestGetLikedTracksUseCase:
             1: Track(
                 id=1,
                 title="Track 1",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             )
         }

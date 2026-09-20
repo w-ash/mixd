@@ -27,7 +27,7 @@ from src.domain.entities.playlist import (
 )
 from src.domain.entities.preference import PreferenceEvent, TrackPreference
 from src.domain.entities.tag import TagEvent, TrackTag
-from src.domain.entities.track import Artist, ConnectorTrack, Track, TrackLike
+from src.domain.entities.track import ArtistCredit, ConnectorTrack, Track, TrackLike
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
 from src.infrastructure.connectors.apple_music.models import (
     AppleMusicPlayParams,
@@ -76,7 +76,7 @@ def make_track(
     """
     if id is None:
         id = uuid7()
-    kwargs.setdefault("artists", [Artist(name=artist)])
+    kwargs.setdefault("artists", [ArtistCredit(credited_name=artist)])
     return Track(id=id, title=title, user_id=user_id, **kwargs)
 
 
@@ -336,7 +336,7 @@ def make_connector_track(
         connector_name=connector_name,
         connector_track_identifier=identifier,
         title=title or f"Song {identifier}",
-        artists=[Artist(name=artist)],
+        artists=[ArtistCredit(credited_name=artist)],
         **kwargs,
     )
 

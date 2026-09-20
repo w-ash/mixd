@@ -164,7 +164,7 @@ class TestIsrcReuse:
         saved = track_repo.save_track.await_args.args[0]
         assert saved.isrc == "USUM72309818"
         assert saved.title == "Test Song"
-        assert [a.name for a in saved.artists] == ["Test Artist"]
+        assert [a.credited_name for a in saved.artists] == ["Test Artist"]
         assert saved.duration_ms == 200_000
         assert saved.user_id == "test-user"
         assert saved.connector_track_identifiers["tidal"] == "101"
@@ -172,6 +172,40 @@ class TestIsrcReuse:
         assert spec.match_method == "direct_import"
         assert spec.confidence == 100
         assert spec.primary is True
+
+    async def test_mapping_metadata_carries_positional_artist_ids(self):
+        doc = make_tidal_track_document(
+            track_id="101", isrc="USUM72309818", artists=("Main", "Featured")
+        )
+        resolver, _ = _make_resolver({"101": doc})
+        uow, track_repo, connector_repo, _ = _make_uow()
+
+        await resolver.resolve_to_canonical_tracks(["101"], uow, user_id="test-user")
+
+        saved = track_repo.save_track.await_args.args[0]
+        (spec,) = _mapping_specs(connector_repo)
+        assert spec.metadata is not None
+        assert [a.credited_name for a in saved.artists] == ["Main", "Featured"]
+        assert spec.metadata["artist_ids"] == ["artist-0", "artist-1"]
+        assert spec.metadata["artist_names"] == ["Main", "Featured"]
+
+    def test_mapping_metadata_without_ids_writes_nones(self):
+        """A detail built without ids still aligns one entry per credit."""
+        from src.infrastructure.connectors.tidal.models import (
+            TidalTrack,
+            TidalTrackDetail,
+        )
+
+        detail = TidalTrackDetail(
+            track=TidalTrack(id="1", title="T", isrc=None, duration_seconds=None),
+            artist_names=("Main", "Featured"),
+            replacement_id=None,
+        )
+        resolver, _ = _make_resolver()
+
+        metadata = resolver._mapping_metadata(MagicMock(payload=detail))
+
+        assert metadata["artist_ids"] == [None, None]
 
 
 class TestUnresolvable:

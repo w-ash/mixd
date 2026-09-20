@@ -684,7 +684,7 @@ class TestCanonicalDisplayCasing:
         assert "carwash::striptease" in result
         saved_probe = uow.get_track_repository().save_track.call_args.args[0]
         assert saved_probe.title == "Striptease"
-        assert [a.name for a in saved_probe.artists] == ["Carwash"]
+        assert [a.credited_name for a in saved_probe.artists] == ["Carwash"]
 
     async def test_probe_degrades_to_raw_names_when_correction_unavailable(self):
         """getInfo AND getCorrection failing leaves the raw lowercased names —
@@ -703,7 +703,7 @@ class TestCanonicalDisplayCasing:
 
         saved_probe = uow.get_track_repository().save_track.call_args.args[0]
         assert saved_probe.title == "striptease"
-        assert [a.name for a in saved_probe.artists] == ["carwash"]
+        assert [a.credited_name for a in saved_probe.artists] == ["carwash"]
 
 
 class TestConcurrentEnrichment:
@@ -764,7 +764,7 @@ class TestConcurrentEnrichment:
 
         # save_tracks receives the chunk's probes in identifier order.
         saved_probes = uow.get_track_repository().save_tracks.call_args.args[0]
-        assert [a.name for probe in saved_probes for a in probe.artists] == [
+        assert [a.credited_name for probe in saved_probes for a in probe.artists] == [
             "AA",
             "BB",
             "CC",

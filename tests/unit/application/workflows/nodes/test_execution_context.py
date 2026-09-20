@@ -13,7 +13,7 @@ from src.application.connector_protocols import (
     TrackMetadataConnector,
 )
 from src.application.workflows.nodes.execution_context import NodeContext
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import TEST_USER_ID
 
 
@@ -73,7 +73,11 @@ class TestCollectTracklists:
         """Collect tracklists from multiple task IDs."""
         tl2 = TrackList(
             tracks=[
-                Track(title="Song C", artists=[Artist(name="A3")], user_id=TEST_USER_ID)
+                Track(
+                    title="Song C",
+                    artists=[ArtistCredit(credited_name="A3")],
+                    user_id=TEST_USER_ID,
+                )
             ]
         )
         context = {

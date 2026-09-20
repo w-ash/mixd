@@ -21,7 +21,7 @@ async def _create_track_with_mapping(
 ) -> tuple[UUID, UUID]:
     """Create a track with a connector mapping. Returns (track_id, mapping_id)."""
     from src.application.runner import execute_use_case
-    from src.domain.entities.track import Artist, Track
+    from src.domain.entities.track import ArtistCredit, Track
 
     async def _create(uow):
         async with uow:
@@ -31,7 +31,7 @@ async def _create_track_with_mapping(
             track = Track(
                 id=None,
                 title=title,
-                artists=[Artist(name=artist)],
+                artists=[ArtistCredit(credited_name=artist)],
                 user_id=TEST_USER_ID,
             )
             saved = await track_repo.save_track(track)
@@ -90,7 +90,7 @@ async def _create_bare_track(
 ) -> UUID:
     """Create a track with no connector mappings."""
     from src.application.runner import execute_use_case
-    from src.domain.entities.track import Artist, Track
+    from src.domain.entities.track import ArtistCredit, Track
 
     async def _create(uow):
         async with uow:
@@ -98,7 +98,7 @@ async def _create_bare_track(
             track = Track(
                 id=None,
                 title=title,
-                artists=[Artist(name=artist)],
+                artists=[ArtistCredit(credited_name=artist)],
                 user_id=TEST_USER_ID,
             )
             saved = await track_repo.save_track(track)

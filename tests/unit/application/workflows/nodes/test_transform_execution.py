@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 import pytest
 
 from src.application.workflows.nodes.transform_definitions import TRANSFORM_REGISTRY
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import TEST_USER_ID
 
 
@@ -21,13 +21,19 @@ class TestTrackAttributeSorting:
         """Test sorting by track title using track attribute directly."""
         # Arrange: Create tracks with different titles
         t1 = Track(
-            title="Zebra", artists=[Artist(name="Artist1")], user_id=TEST_USER_ID
+            title="Zebra",
+            artists=[ArtistCredit(credited_name="Artist1")],
+            user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Apple", artists=[Artist(name="Artist2")], user_id=TEST_USER_ID
+            title="Apple",
+            artists=[ArtistCredit(credited_name="Artist2")],
+            user_id=TEST_USER_ID,
         )
         t3 = Track(
-            title="Banana", artists=[Artist(name="Artist3")], user_id=TEST_USER_ID
+            title="Banana",
+            artists=[ArtistCredit(credited_name="Artist3")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2, t3]
         tracklist = TrackList(tracks=tracks)
@@ -54,13 +60,19 @@ class TestTrackAttributeSorting:
         """The editor persists reverse as the string "false"; sort ascends."""
         tracks = [
             Track(
-                title="Zebra", artists=[Artist(name="Artist1")], user_id=TEST_USER_ID
+                title="Zebra",
+                artists=[ArtistCredit(credited_name="Artist1")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Apple", artists=[Artist(name="Artist2")], user_id=TEST_USER_ID
+                title="Apple",
+                artists=[ArtistCredit(credited_name="Artist2")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Banana", artists=[Artist(name="Artist3")], user_id=TEST_USER_ID
+                title="Banana",
+                artists=[ArtistCredit(credited_name="Artist3")],
+                user_id=TEST_USER_ID,
             ),
         ]
         tracklist = TrackList(tracks=tracks)
@@ -80,10 +92,14 @@ class TestTrackAttributeSorting:
         """The string "true" sorts descending, matching the bool form."""
         tracks = [
             Track(
-                title="Apple", artists=[Artist(name="Artist1")], user_id=TEST_USER_ID
+                title="Apple",
+                artists=[ArtistCredit(credited_name="Artist1")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Zebra", artists=[Artist(name="Artist2")], user_id=TEST_USER_ID
+                title="Zebra",
+                artists=[ArtistCredit(credited_name="Artist2")],
+                user_id=TEST_USER_ID,
             ),
         ]
         tracklist = TrackList(tracks=tracks)
@@ -100,14 +116,18 @@ class TestTrackAttributeSorting:
         # Arrange: Create tracks with different artists
         tracks = [
             Track(
-                title="Song1", artists=[Artist(name="Zebra Band")], user_id=TEST_USER_ID
+                title="Song1",
+                artists=[ArtistCredit(credited_name="Zebra Band")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Song2", artists=[Artist(name="Apple Band")], user_id=TEST_USER_ID
+                title="Song2",
+                artists=[ArtistCredit(credited_name="Apple Band")],
+                user_id=TEST_USER_ID,
             ),
             Track(
                 title="Song3",
-                artists=[Artist(name="Banana Band")],
+                artists=[ArtistCredit(credited_name="Banana Band")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -121,9 +141,9 @@ class TestTrackAttributeSorting:
 
         # Assert: Tracks should be sorted alphabetically by artist
         assert len(sorted_tracklist.tracks) == 3
-        assert sorted_tracklist.tracks[0].artists[0].name == "Apple Band"
-        assert sorted_tracklist.tracks[1].artists[0].name == "Banana Band"
-        assert sorted_tracklist.tracks[2].artists[0].name == "Zebra Band"
+        assert sorted_tracklist.tracks[0].artists[0].credited_name == "Apple Band"
+        assert sorted_tracklist.tracks[1].artists[0].credited_name == "Banana Band"
+        assert sorted_tracklist.tracks[2].artists[0].credited_name == "Zebra Band"
 
     def test_sort_by_release_date_attribute_directly(self):
         """Test sorting by release date using track attribute directly."""
@@ -135,19 +155,19 @@ class TestTrackAttributeSorting:
         tracks = [
             Track(
                 title="Song1",
-                artists=[Artist(name="Artist1")],
+                artists=[ArtistCredit(credited_name="Artist1")],
                 release_date=date1,
                 user_id=TEST_USER_ID,
             ),
             Track(
                 title="Song2",
-                artists=[Artist(name="Artist2")],
+                artists=[ArtistCredit(credited_name="Artist2")],
                 release_date=date2,
                 user_id=TEST_USER_ID,
             ),
             Track(
                 title="Song3",
-                artists=[Artist(name="Artist3")],
+                artists=[ArtistCredit(credited_name="Artist3")],
                 release_date=date3,
                 user_id=TEST_USER_ID,
             ),
@@ -170,13 +190,19 @@ class TestTrackAttributeSorting:
         """Test sorting by external metric (existing behavior should work)."""
         # Arrange: Create tracks with external metric values in metadata
         t1 = Track(
-            title="Song1", artists=[Artist(name="Artist1")], user_id=TEST_USER_ID
+            title="Song1",
+            artists=[ArtistCredit(credited_name="Artist1")],
+            user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Song2", artists=[Artist(name="Artist2")], user_id=TEST_USER_ID
+            title="Song2",
+            artists=[ArtistCredit(credited_name="Artist2")],
+            user_id=TEST_USER_ID,
         )
         t3 = Track(
-            title="Song3", artists=[Artist(name="Artist3")], user_id=TEST_USER_ID
+            title="Song3",
+            artists=[ArtistCredit(credited_name="Artist3")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2, t3]
 
@@ -215,13 +241,19 @@ class TestWeightedShuffleSorting:
 
         # Arrange: Create tracks in specific order
         t1 = Track(
-            title="First", artists=[Artist(name="Artist1")], user_id=TEST_USER_ID
+            title="First",
+            artists=[ArtistCredit(credited_name="Artist1")],
+            user_id=TEST_USER_ID,
         )
         t2 = Track(
-            title="Second", artists=[Artist(name="Artist2")], user_id=TEST_USER_ID
+            title="Second",
+            artists=[ArtistCredit(credited_name="Artist2")],
+            user_id=TEST_USER_ID,
         )
         t3 = Track(
-            title="Third", artists=[Artist(name="Artist3")], user_id=TEST_USER_ID
+            title="Third",
+            artists=[ArtistCredit(credited_name="Artist3")],
+            user_id=TEST_USER_ID,
         )
         tracks = [t1, t2, t3]
         original_order = [t.title for t in tracks]
@@ -255,7 +287,11 @@ class TestWeightedShuffleSorting:
     def test_weighted_shuffle_invalid_bounds(self):
         """Test weighted shuffle rejects invalid strength values."""
         tracks = [
-            Track(title="Test", artists=[Artist(name="Test")], user_id=TEST_USER_ID)
+            Track(
+                title="Test",
+                artists=[ArtistCredit(credited_name="Test")],
+                user_id=TEST_USER_ID,
+            )
         ]
         tracklist = TrackList(tracks=tracks)
 

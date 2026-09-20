@@ -28,7 +28,7 @@ class TestCreateTrackFromAppleSong:
         track = create_track_from_apple_song("1613600188", song, user_id="u1")
 
         assert track.title == "Test Song"
-        assert [a.name for a in track.artists] == ["Test Artist"]
+        assert [a.credited_name for a in track.artists] == ["Test Artist"]
         assert track.album == "Test Album"
         assert track.duration_ms == 200_000
         assert track.isrc == "USUM72309818"

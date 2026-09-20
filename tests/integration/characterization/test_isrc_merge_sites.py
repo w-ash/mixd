@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.cross_discovery import (
     SpotifyCrossDiscoveryProvider,
@@ -53,7 +53,7 @@ class TestSaveTrackIsrcGuard:
             Track(
                 id=None,
                 title="Gold Rush",
-                artists=[Artist(name="Neon Priest")],
+                artists=[ArtistCredit(credited_name="Neon Priest")],
                 album="Debut",
                 duration_ms=200_000,
                 isrc="USNP12400001",
@@ -69,7 +69,7 @@ class TestSaveTrackIsrcGuard:
                     connector_name="spotify",
                     connector_track_identifier="sp_gold_rush_remaster",
                     title="Gold Rush (2024 Remaster)",
-                    artists=[Artist(name="Neon Priest")],
+                    artists=[ArtistCredit(credited_name="Neon Priest")],
                     album="Remaster Compilation",
                     duration_ms=215_000,
                     isrc="USNP12400001",
@@ -108,7 +108,7 @@ class TestSaveTrackIsrcGuard:
             Track(
                 id=None,
                 title="Gold Rush",
-                artists=[Artist(name="Neon Priest")],
+                artists=[ArtistCredit(credited_name="Neon Priest")],
                 album="Debut",
                 duration_ms=200_000,
                 isrc="USNP12400001",
@@ -122,7 +122,7 @@ class TestSaveTrackIsrcGuard:
                     connector_name="spotify",
                     connector_track_identifier="sp_gold_rush_deluxe",
                     title="Gold Rush",
-                    artists=[Artist(name="Neon Priest")],
+                    artists=[ArtistCredit(credited_name="Neon Priest")],
                     album="Debut (Deluxe)",
                     duration_ms=200_500,  # within tolerance
                     isrc="USNP12400001",
@@ -228,7 +228,7 @@ class TestCrossDiscoveryReusesIsrcOwner:
             Track(
                 id=None,
                 title="Creep - Live",
-                artists=[Artist(name="Radiohead")],
+                artists=[ArtistCredit(credited_name="Radiohead")],
                 isrc="GBAYE9300106",
                 duration_ms=238_000,
                 user_id=TEST_USER_ID,

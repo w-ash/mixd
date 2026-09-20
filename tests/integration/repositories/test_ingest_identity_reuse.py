@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track
 from src.infrastructure.persistence.database.models import (
     DBMatchReview,
     DBTrack,
@@ -44,7 +44,7 @@ def _connector_track(
         connector_name=connector,
         connector_track_identifier=identifier,
         title=title,
-        artists=[Artist(name=artist)],
+        artists=[ArtistCredit(credited_name=artist)],
         album="Mixed",
         duration_ms=duration_ms,
         isrc=isrc,
@@ -68,7 +68,7 @@ async def _seed_original(
         return await uow.get_track_repository().save_track(
             Track(
                 title=title,
-                artists=[Artist(name=artist)],
+                artists=[ArtistCredit(credited_name=artist)],
                 duration_ms=duration_ms,
                 isrc=isrc,
                 user_id=TEST_USER_ID,
@@ -400,7 +400,7 @@ class TestIsrcReuseBackfillsBlankMetadata:
         owner = await uow.get_track_repository().save_track(
             Track(
                 title="Ibrik",
-                artists=[Artist(name="Bonobo")],
+                artists=[ArtistCredit(credited_name="Bonobo")],
                 album="Original Album",
                 duration_ms=None,
                 isrc=ORIGINAL_ISRC,
@@ -435,7 +435,7 @@ class TestIsrcReuseBackfillsBlankMetadata:
         owner = await uow.get_track_repository().save_track(
             Track(
                 title="Ibrik",
-                artists=[Artist(name="Bonobo")],
+                artists=[ArtistCredit(credited_name="Bonobo")],
                 duration_ms=None,
                 isrc=ORIGINAL_ISRC,
                 user_id=TEST_USER_ID,

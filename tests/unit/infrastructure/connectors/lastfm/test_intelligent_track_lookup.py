@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
@@ -32,7 +32,7 @@ def sample_track():
     return Track(
         id=1,
         title="Test Song",
-        artists=[Artist(name="Test Artist")],
+        artists=[ArtistCredit(credited_name="Test Artist")],
         user_id=TEST_USER_ID,
     )
 
@@ -44,9 +44,9 @@ def multi_artist_track():
         id=2,
         title="Collaboration",
         artists=[
-            Artist(name="Artist One"),
-            Artist(name="Artist Two"),
-            Artist(name="Artist Three"),
+            ArtistCredit(credited_name="Artist One"),
+            ArtistCredit(credited_name="Artist Two"),
+            ArtistCredit(credited_name="Artist Three"),
         ],
         user_id=TEST_USER_ID,
     )

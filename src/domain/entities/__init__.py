@@ -1,5 +1,17 @@
 """Core domain entities representing music concepts."""
 
+from .artist import (
+    ARTIST_KINDS,
+    VARIOUS_ARTISTS_SENTINELS,
+    Artist,
+    ArtistAlias,
+    ArtistFavorite,
+    ArtistKind,
+    ArtistMapping,
+    ConnectorArtist,
+    is_artist_kind,
+    is_various_artists,
+)
 from .connector import (
     Capability,
     ConnectorAuthError,
@@ -75,7 +87,7 @@ from .tag import (
     parse_tag,
 )
 from .track import (
-    Artist,
+    ArtistCredit,
     ConnectorTrack,
     MetadataKey,
     Track,
@@ -83,6 +95,7 @@ from .track import (
     TrackList,
     TrackListMetadata,
     TrackMetric,
+    credits_display,
 )
 
 # Track mapping entity
@@ -92,14 +105,22 @@ from .track_mapping import TrackMapping
 from .workflow import WorkflowDef, WorkflowTaskDef
 
 __all__ = [
+    "ARTIST_KINDS",
     "DB_PSEUDO_CONNECTOR",
     "MAX_TAG_LENGTH",
     "PLAY_EXCLUSION_REASONS",
     "PREFERENCE_ORDER",
     "SOURCE_PRIORITY",
+    "VARIOUS_ARTISTS_SENTINELS",
     "Artist",
+    "ArtistAlias",
+    "ArtistCredit",
+    "ArtistFavorite",
+    "ArtistKind",
+    "ArtistMapping",
     "Capability",
     "CheckStatus",
+    "ConnectorArtist",
     "ConnectorAuthError",
     "ConnectorAuthMethod",
     "ConnectorCategory",
@@ -150,8 +171,11 @@ __all__ = [
     "WorkflowDef",
     "WorkflowTaskDef",
     "create_lastfm_play_record",
+    "credits_display",
     "derive_status_state",
     "ensure_utc",
+    "is_artist_kind",
+    "is_various_artists",
     "normalize_tag",
     "parse_tag",
     "should_override",

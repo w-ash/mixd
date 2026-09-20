@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from src.domain.transforms.play_history import (
     filter_by_play_history,
     sort_by_play_history,
@@ -21,13 +21,13 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="Popular",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Unpopular",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -46,19 +46,19 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="Low",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Medium",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=3,
                 title="High",
-                artists=[Artist(name="Artist 3")],
+                artists=[ArtistCredit(credited_name="Artist 3")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -77,13 +77,13 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="Recent",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Old",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -112,13 +112,13 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="Winter Track",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Summer Track",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -152,19 +152,19 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="In Window",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Out of Window",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=3,
                 title="Never Played",
-                artists=[Artist(name="Artist 3")],
+                artists=[ArtistCredit(credited_name="Artist 3")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -195,7 +195,7 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="Test",
-                artists=[Artist(name="Artist")],
+                artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
             )
         ]
@@ -213,7 +213,7 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="Popular",
-                artists=[Artist(name="Artist")],
+                artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
             )
         ]
@@ -229,19 +229,19 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="Hidden Gem",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Current Favorite",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=3,
                 title="Rarely Played",
-                artists=[Artist(name="Artist 3")],
+                artists=[ArtistCredit(credited_name="Artist 3")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -275,13 +275,13 @@ class TestFilterByPlayHistory:
             Track(
                 id=1,
                 title="Current Obsession",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Old Favorite",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -322,13 +322,13 @@ class TestFilterByPlayHistoryFirstPlayed:
             Track(
                 id=1,
                 title="New Find",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Old Favorite",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -363,13 +363,13 @@ class TestFilterByPlayHistoryFirstPlayed:
             Track(
                 id=1,
                 title="Repeat Find",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="One-off Find",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -398,13 +398,13 @@ class TestFilterByPlayHistoryFirstPlayed:
             Track(
                 id=1,
                 title="Known",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="No Date",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -437,7 +437,7 @@ class TestFilterByPlayHistoryFirstPlayed:
             Track(
                 id=1,
                 title="Find",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             )
         ]
@@ -464,7 +464,12 @@ class TestGetPlayMetricsDateSource:
         last = {1: "2024-01-01T00:00:00+00:00"}
         tracklist = TrackList(
             tracks=[
-                Track(id=1, title="T", artists=[Artist(name="A")], user_id=TEST_USER_ID)
+                Track(
+                    id=1,
+                    title="T",
+                    artists=[ArtistCredit(credited_name="A")],
+                    user_id=TEST_USER_ID,
+                )
             ],
             metadata={
                 "metrics": {
@@ -492,19 +497,19 @@ class TestSortByPlayHistory:
             Track(
                 id=1,
                 title="Low Plays",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="High Plays",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=3,
                 title="Medium Plays",
-                artists=[Artist(name="Artist 3")],
+                artists=[ArtistCredit(credited_name="Artist 3")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -526,19 +531,19 @@ class TestSortByPlayHistory:
             Track(
                 id=1,
                 title="Low Plays",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="High Plays",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=3,
                 title="Medium Plays",
-                artists=[Artist(name="Artist 3")],
+                artists=[ArtistCredit(credited_name="Artist 3")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -560,19 +565,19 @@ class TestSortByPlayHistory:
             Track(
                 id=1,
                 title="Recent Track",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Old Track",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=3,
                 title="Another Recent",
-                artists=[Artist(name="Artist 3")],
+                artists=[ArtistCredit(credited_name="Artist 3")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -612,19 +617,19 @@ class TestSortByPlayHistory:
             Track(
                 id=1,
                 title="Summer Track",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Winter Track",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=3,
                 title="Spring Track",
-                artists=[Artist(name="Artist 3")],
+                artists=[ArtistCredit(credited_name="Artist 3")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -664,13 +669,13 @@ class TestSortByPlayHistory:
             Track(
                 id=1,
                 title="Low",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="High",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -688,19 +693,19 @@ class TestSortByPlayHistory:
             Track(
                 id=1,
                 title="With Plays",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="No Data",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=None,
                 title="No ID",
-                artists=[Artist(name="Artist 3")],
+                artists=[ArtistCredit(credited_name="Artist 3")],
                 user_id=TEST_USER_ID,
             ),
         ]

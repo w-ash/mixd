@@ -5,7 +5,7 @@ Transforms validated Apple Music song resources into domain models, mirroring
 Stateless; usable across the Apple Music connector architecture.
 """
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.apple_music.models import AppleMusicSong
 
@@ -45,7 +45,7 @@ def create_track_from_apple_song(
 
     return Track(
         title=attributes.name,
-        artists=[Artist(name=attributes.artist_name)],
+        artists=[ArtistCredit(credited_name=attributes.artist_name)],
         album=attributes.album_name or None,
         duration_ms=attributes.duration_in_millis or None,
         isrc=normalized_apple_isrc(song),

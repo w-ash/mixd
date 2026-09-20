@@ -9,7 +9,7 @@ Both planes are ``"tidal"`` here — unlike Apple, the data-plane service name
 and the package/control-plane key do not split.
 """
 
-from src.domain.entities import Artist, Track
+from src.domain.entities import ArtistCredit, Track
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.tidal.models import TidalTrack, TidalTrackDetail
 
@@ -63,7 +63,7 @@ def create_track_from_tidal_detail(
 
     return Track(
         title=track.title,
-        artists=[Artist(name=name) for name in detail.artist_names],
+        artists=[ArtistCredit(credited_name=name) for name in detail.artist_names],
         album=None,
         duration_ms=tidal_duration_ms(track),
         isrc=normalized_tidal_isrc(track),

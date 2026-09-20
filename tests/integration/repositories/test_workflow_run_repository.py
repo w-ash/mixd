@@ -649,7 +649,7 @@ class TestWorkflowRunJsonbWrites:
         from src.application.use_cases._shared.playlist_results import (
             build_playlist_changes,
         )
-        from src.domain.entities.track import Artist, Track
+        from src.domain.entities.track import ArtistCredit, Track
         from src.domain.playlist import (
             PlaylistDiff,
             PlaylistOperation,
@@ -661,10 +661,14 @@ class TestWorkflowRunJsonbWrites:
         saved = await repo.create_run(_make_run(workflow.id))
 
         added_track = Track(
-            title="Added", artists=[Artist(name="ArtistA")], user_id=TEST_USER_ID
+            title="Added",
+            artists=[ArtistCredit(credited_name="ArtistA")],
+            user_id=TEST_USER_ID,
         )
         removed_track = Track(
-            title="Removed", artists=[Artist(name="ArtistR")], user_id=TEST_USER_ID
+            title="Removed",
+            artists=[ArtistCredit(credited_name="ArtistR")],
+            user_id=TEST_USER_ID,
         )
         diff = PlaylistDiff(
             operations=[

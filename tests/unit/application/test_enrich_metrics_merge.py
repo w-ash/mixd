@@ -11,7 +11,7 @@ from src.application.use_cases.enrich_tracks import (
     EnrichTracksCommand,
     EnrichTracksUseCase,
 )
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import TEST_USER_ID
 
 
@@ -25,13 +25,13 @@ class TestEnrichmentMetricsMerge:
             Track(
                 id=1,
                 title="Song A",
-                artists=[Artist(name="Artist")],
+                artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
             ),
             Track(
                 id=2,
                 title="Song B",
-                artists=[Artist(name="Artist")],
+                artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -99,7 +99,7 @@ class TestEnrichmentMetricsMerge:
             Track(
                 id=1,
                 title="Song",
-                artists=[Artist(name="Artist")],
+                artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
             ),
         ]

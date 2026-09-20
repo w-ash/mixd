@@ -13,7 +13,7 @@ from src.domain.entities.playlist import (
     Playlist,
     PlaylistEntry,
 )
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from tests.fixtures import TEST_USER_ID
 
 
@@ -24,10 +24,14 @@ class TestPlaylistEntity:
         """Test creating a playlist with valid data."""
         tracks = [
             Track(
-                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+                title="Song 1",
+                artists=[ArtistCredit(credited_name="Artist 1")],
+                user_id=TEST_USER_ID,
             ),
             Track(
-                title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+                title="Song 2",
+                artists=[ArtistCredit(credited_name="Artist 2")],
+                user_id=TEST_USER_ID,
             ),
         ]
 
@@ -60,7 +64,9 @@ class TestPlaylistEntity:
         """Test creating playlist with connector identifiers in one step."""
         tracks = [
             Track(
-                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+                title="Song 1",
+                artists=[ArtistCredit(credited_name="Artist 1")],
+                user_id=TEST_USER_ID,
             )
         ]
 
@@ -91,12 +97,16 @@ class TestPlaylistEntity:
 
         original_tracks = [
             Track(
-                title="Song 1", artists=[Artist(name="Artist 1")], user_id=TEST_USER_ID
+                title="Song 1",
+                artists=[ArtistCredit(credited_name="Artist 1")],
+                user_id=TEST_USER_ID,
             )
         ]
         new_tracks = [
             Track(
-                title="Song 2", artists=[Artist(name="Artist 2")], user_id=TEST_USER_ID
+                title="Song 2",
+                artists=[ArtistCredit(credited_name="Artist 2")],
+                user_id=TEST_USER_ID,
             )
         ]
 
@@ -228,7 +238,9 @@ class TestPlaylistEntryEntity:
     def test_playlist_entry_creation(self):
         """Test creating a playlist entry."""
         test_track = Track(
-            title="Test", artists=[Artist(name="Test Artist")], user_id=TEST_USER_ID
+            title="Test",
+            artists=[ArtistCredit(credited_name="Test Artist")],
+            user_id=TEST_USER_ID,
         )
         entry = PlaylistEntry(
             track=test_track, added_at=datetime.now(UTC), added_by="user123"
@@ -241,7 +253,9 @@ class TestPlaylistEntryEntity:
     def test_playlist_entry_defaults(self):
         """Test playlist entry default values."""
         test_track = Track(
-            title="Test", artists=[Artist(name="Test Artist")], user_id=TEST_USER_ID
+            title="Test",
+            artists=[ArtistCredit(credited_name="Test Artist")],
+            user_id=TEST_USER_ID,
         )
         entry = PlaylistEntry(track=test_track)
 

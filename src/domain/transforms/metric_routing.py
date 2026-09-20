@@ -59,7 +59,7 @@ def resolve_sort_key_function(value_name: str) -> Callable[[Track], SortKey] | N
             track.release_date or datetime.min.replace(tzinfo=UTC)
         ),
         "duration_ms": lambda track: track.duration_ms or 0,
-        "artist": lambda track: track.artists[0].name if track.artists else "",
+        "artist": lambda track: track.artists[0].credited_name if track.artists else "",
     }
 
     return track_attribute_extractors.get(value_name)

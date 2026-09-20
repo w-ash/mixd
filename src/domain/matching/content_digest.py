@@ -55,7 +55,7 @@ def track_side(track: Track) -> DigestSide:
     return DigestSide(
         identifier=str(track.id) if track.id else "",
         title=track.title,
-        artists=tuple(artist.name for artist in track.artists),
+        artists=tuple(artist.credited_name for artist in track.artists),
         duration_ms=track.duration_ms,
     )
 
@@ -65,7 +65,7 @@ def connector_side(connector_track: ConnectorTrack) -> DigestSide:
     return DigestSide(
         identifier=connector_track.connector_track_identifier,
         title=connector_track.title,
-        artists=tuple(artist.name for artist in connector_track.artists),
+        artists=tuple(artist.credited_name for artist in connector_track.artists),
         duration_ms=connector_track.duration_ms,
     )
 

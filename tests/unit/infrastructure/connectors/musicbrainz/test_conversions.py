@@ -7,7 +7,7 @@ metadata extraction, artist/release selection, and ISRC normalization.
 
 import pytest
 
-from src.domain.entities import Artist, ConnectorTrack
+from src.domain.entities import ArtistCredit, ConnectorTrack
 from src.infrastructure.connectors.musicbrainz.conversions import (
     _ensure_recording,
     convert_musicbrainz_track_to_connector,
@@ -19,6 +19,8 @@ from src.infrastructure.connectors.musicbrainz.models import (
     MusicBrainzRecording,
     MusicBrainzRelease,
 )
+
+OTHER_ARTIST_MBID = "c9f8e7d6-5b4a-4c3d-9e2f-1a0b9c8d7e6f"
 
 RECORDING_MBID = "f5a1c4b7-9e3a-4a1e-8f7e-1d3c5a9b2c4d"
 ARTIST_MBID = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
@@ -161,7 +163,7 @@ class TestConvertMusicBrainzTrackToConnectorHappyPath:
         assert track.connector_name == "musicbrainz"
         assert track.connector_track_identifier == RECORDING_MBID
         assert track.title == "Paranoid Android"
-        assert track.artists == [Artist(name="Radiohead")]
+        assert track.artists == (ArtistCredit(credited_name="Radiohead"),)
         assert track.album == "OK Computer"
         assert track.duration_ms == 390000
         assert track.isrc == "GBAYE9600666"
@@ -184,7 +186,7 @@ class TestConvertMusicBrainzTrackToConnectorHappyPath:
 
         track = convert_musicbrainz_track_to_connector(recording)
 
-        assert [a.name for a in track.artists] == ["Thom Yorke", "PJ Harvey"]
+        assert [a.credited_name for a in track.artists] == ["Thom Yorke", "PJ Harvey"]
 
     def test_uses_only_first_release_for_album(self):
         recording = _make_recording(
@@ -205,7 +207,7 @@ class TestConvertMusicBrainzTrackToConnectorHappyPath:
 
         track = convert_musicbrainz_track_to_connector(recording)
 
-        assert track.artists == [Artist(name="Credited Name")]
+        assert track.artists == (ArtistCredit(credited_name="Credited Name"),)
 
     def test_skips_credits_with_no_usable_name(self):
         recording = _make_recording(
@@ -217,7 +219,105 @@ class TestConvertMusicBrainzTrackToConnectorHappyPath:
 
         track = convert_musicbrainz_track_to_connector(recording)
 
-        assert track.artists == [Artist(name="Valid")]
+        assert track.artists == (ArtistCredit(credited_name="Valid"),)
+
+
+class TestArtistCreditsAndIds:
+    """Join phrases land on the credit; MBIDs land positionally in metadata."""
+
+    def test_join_phrase_is_carried_and_empty_reads_as_none(self):
+        recording = _make_recording(
+            artist_credit=[
+                MusicBrainzArtistCredit(
+                    name="Thom Yorke",
+                    joinphrase=" & ",
+                    artist=MusicBrainzArtist(id=ARTIST_MBID, name="Thom Yorke"),
+                ),
+                MusicBrainzArtistCredit(
+                    name="PJ Harvey",
+                    artist=MusicBrainzArtist(id=OTHER_ARTIST_MBID, name="PJ Harvey"),
+                ),
+            ]
+        )
+
+        track = convert_musicbrainz_track_to_connector(recording)
+
+        assert track.artists == (
+            ArtistCredit(credited_name="Thom Yorke", join_phrase=" & "),
+            ArtistCredit(credited_name="PJ Harvey"),
+        )
+        assert track.artists_display == "Thom Yorke & PJ Harvey"
+
+    def test_artist_ids_are_positional_mbids(self):
+        recording = _make_recording(
+            artist_credit=[
+                MusicBrainzArtistCredit(
+                    name="Thom Yorke",
+                    artist=MusicBrainzArtist(id=ARTIST_MBID, name="Thom Yorke"),
+                ),
+                MusicBrainzArtistCredit(name="Credited Only", artist=None),
+                MusicBrainzArtistCredit(name="", artist=None),
+                MusicBrainzArtistCredit(
+                    name="PJ Harvey",
+                    artist=MusicBrainzArtist(id=OTHER_ARTIST_MBID, name="PJ Harvey"),
+                ),
+            ]
+        )
+
+        track = convert_musicbrainz_track_to_connector(recording)
+
+        assert [a.credited_name for a in track.artists] == [
+            "Thom Yorke",
+            "Credited Only",
+            "PJ Harvey",
+        ]
+        assert track.raw_metadata["artist_ids"] == [
+            ARTIST_MBID,
+            None,
+            OTHER_ARTIST_MBID,
+        ]
+
+    def test_raw_json_joinphrase_and_artist_extras_parse(self):
+        credit = MusicBrainzArtistCredit.model_validate({
+            "name": "Caribou",
+            "joinphrase": "",
+            "artist": {
+                "id": ARTIST_MBID,
+                "name": "Caribou",
+                "type": "Person",
+                "disambiguation": "Dan Snaith",
+                "aliases": [
+                    {
+                        "name": "Manitoba",
+                        "sort-name": "Manitoba",
+                        "type": "Artist name",
+                        "locale": None,
+                        "primary": None,
+                    }
+                ],
+                "relations": [
+                    {"type": "discogs", "url": {"resource": "https://discogs/1"}},
+                    {"type": "wikidata"},
+                ],
+            },
+        })
+
+        assert credit.joinphrase == ""
+        assert credit.artist is not None
+        assert credit.artist.type == "Person"
+        assert credit.artist.disambiguation == "Dan Snaith"
+        assert credit.artist.aliases[0].name == "Manitoba"
+        assert credit.artist.aliases[0].sort_name == "Manitoba"
+        assert credit.artist.relations[0].url is not None
+        assert credit.artist.relations[0].url.resource == "https://discogs/1"
+        assert credit.artist.relations[1].url is None
+
+    def test_artist_extras_default_empty(self):
+        artist = MusicBrainzArtist(id=ARTIST_MBID)
+        assert artist.type is None
+        assert artist.disambiguation is None
+        assert artist.aliases == []
+        assert artist.relations == []
 
 
 class TestConvertMusicBrainzTrackToConnectorEdgeCases:
@@ -278,7 +378,7 @@ class TestConvertMusicBrainzTrackToConnectorEdgeCases:
 
         assert track.connector_track_identifier == RECORDING_MBID
         assert track.title == "Creep"
-        assert track.artists == [Artist(name="Radiohead")]
+        assert track.artists == (ArtistCredit(credited_name="Radiohead"),)
 
 
 class TestConvertMusicBrainzTrackToConnectorValidation:

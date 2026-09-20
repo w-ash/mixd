@@ -3,7 +3,7 @@
 import json
 
 from src.application.use_cases._shared.playlist_results import build_playlist_changes
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.domain.playlist import (
     PlaylistDiff,
     PlaylistOperation,
@@ -22,10 +22,14 @@ class TestBuildPlaylistChanges:
         encoder for ``UUID``.
         """
         added_track = Track(
-            title="Added", artists=[Artist(name="A")], user_id=TEST_USER_ID
+            title="Added",
+            artists=[ArtistCredit(credited_name="A")],
+            user_id=TEST_USER_ID,
         )
         removed_track = Track(
-            title="Removed", artists=[Artist(name="R")], user_id=TEST_USER_ID
+            title="Removed",
+            artists=[ArtistCredit(credited_name="R")],
+            user_id=TEST_USER_ID,
         )
         diff = PlaylistDiff(
             operations=[

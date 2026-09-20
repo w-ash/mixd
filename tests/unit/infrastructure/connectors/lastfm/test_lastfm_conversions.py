@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.domain.entities import Artist, ConnectorTrack
+from src.domain.entities import ArtistCredit, ConnectorTrack
 from src.domain.entities.shared import JsonValue
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 
@@ -47,31 +47,31 @@ class TestArtistExtraction:
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({"name": "Song", "artist": {"name": "Radiohead"}})
-        assert ct.artists == [Artist(name="Radiohead")]
+        assert ct.artists == (ArtistCredit(credited_name="Radiohead"),)
 
     def test_str_artist(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({"name": "Song", "artist": "Radiohead"})
-        assert ct.artists == [Artist(name="Radiohead")]
+        assert ct.artists == (ArtistCredit(credited_name="Radiohead"),)
 
     def test_dict_artist_without_name_yields_no_artist(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({"name": "Song", "artist": {"foo": "bar"}, "url": "http://u"})
-        assert ct.artists == []
+        assert ct.artists == ()
 
     def test_missing_artist_yields_no_artist(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({"name": "Song", "url": "http://u"})
-        assert ct.artists == []
+        assert ct.artists == ()
 
     def test_empty_str_artist_yields_no_artist(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({"name": "Song", "artist": "", "url": "http://u"})
-        assert ct.artists == []
+        assert ct.artists == ()
 
 
 class TestAlbumExtraction:
@@ -189,13 +189,14 @@ class TestRawMetadata:
             "lastfm_listeners": 500,
             "lastfm_user_playcount": 3,
             "lastfm_mbid": "the-mbid",
+            "artist_ids": [],
         }
 
     def test_metrics_absent_yields_empty_metadata(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({"name": "Song", "url": "http://u"})
-        assert ct.raw_metadata == {}
+        assert ct.raw_metadata == {"artist_ids": []}
 
     def test_zero_metric_present_is_kept(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
@@ -203,13 +204,31 @@ class TestRawMetadata:
         # Presence-gated: a provided-but-zero playcount stays in metadata as 0,
         # distinct from an absent key.
         ct = convert({"name": "Song", "playcount": 0})
-        assert ct.raw_metadata == {"lastfm_global_playcount": 0}
+        assert ct.raw_metadata == {"lastfm_global_playcount": 0, "artist_ids": []}
 
     def test_mbid_only_added_when_truthy(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({"name": "Song", "mbid": "", "url": "http://u"})
-        assert ct.raw_metadata == {}
+        assert ct.raw_metadata == {"artist_ids": []}
+
+
+class TestArtistIds:
+    """The name is Last.fm's only artist identity; one entry per credit."""
+
+    def test_artist_ids_is_the_credited_name(
+        self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
+    ) -> None:
+        ct = convert({"name": "Creep", "artist": {"name": "Radiohead"}})
+        assert [a.credited_name for a in ct.artists] == ["Radiohead"]
+        assert ct.raw_metadata["artist_ids"] == ["Radiohead"]
+
+    def test_no_artist_yields_empty_ids(
+        self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
+    ) -> None:
+        ct = convert({"name": "Creep"})
+        assert ct.artists == ()
+        assert ct.raw_metadata["artist_ids"] == []
 
 
 class TestFullPayload:
@@ -230,7 +249,7 @@ class TestFullPayload:
         assert ct.connector_name == "lastfm"
         assert ct.connector_track_identifier == "radiohead::creep"
         assert ct.title == "Creep"
-        assert ct.artists == [Artist(name="Radiohead")]
+        assert ct.artists == (ArtistCredit(credited_name="Radiohead"),)
         assert ct.album == "Pablo Honey"
         assert ct.duration_ms == 238000
         assert ct.isrc is None
@@ -240,4 +259,5 @@ class TestFullPayload:
             "lastfm_listeners": 500,
             "lastfm_user_playcount": 3,
             "lastfm_mbid": "creep-mbid",
+            "artist_ids": ["Radiohead"],
         }

@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import ArtistCredit, Track, TrackList
 from tests.fixtures import TEST_USER_ID
 
 
@@ -13,13 +13,13 @@ def sample_tracklist():
         tracks=[
             Track(
                 title="Track A",
-                artists=[Artist(name="Artist 1")],
+                artists=[ArtistCredit(credited_name="Artist 1")],
                 version=1,
                 user_id=TEST_USER_ID,
             ),
             Track(
                 title="Track B",
-                artists=[Artist(name="Artist 2")],
+                artists=[ArtistCredit(credited_name="Artist 2")],
                 version=1,
                 user_id=TEST_USER_ID,
             ),

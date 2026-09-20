@@ -184,7 +184,7 @@ import typer
 
 from src.config import get_logger, setup_script_logger
 from src.config.constants import BusinessLimits
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.matching.isrc_validation import SUSPECT_DURATION_DIFF_MS
 from src.domain.matching.recording_identity import (
@@ -912,7 +912,7 @@ class Side:
         """
         return Track(
             title=self.title,
-            artists=[Artist(name=self.primary_artist)],
+            artists=[ArtistCredit(credited_name=self.primary_artist)],
             duration_ms=self.duration_ms,
             isrc=self.isrc,
             id=self.track_id,

@@ -1,7 +1,7 @@
 """Tests for OperationResult with summary metrics."""
 
 from src.domain.entities.operations import OperationResult
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from tests.fixtures import TEST_USER_ID
 
 
@@ -55,7 +55,9 @@ class TestOperationResultWithSummaryMetrics:
     def test_operation_result_preserves_tracks_list(self):
         """Test that tracks list remains unchanged."""
         track = Track(
-            title="Test", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+            title="Test",
+            artists=[ArtistCredit(credited_name="Artist")],
+            user_id=TEST_USER_ID,
         )
         result = OperationResult(
             operation_name="Test",

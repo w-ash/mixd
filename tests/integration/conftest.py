@@ -21,7 +21,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entities import Artist, Track, TrackList
+from src.domain.entities import ArtistCredit, Track, TrackList
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.persistence.database.models import DBPlaylist, DBTrack
 from tests.fixtures import TEST_USER_ID
@@ -141,7 +141,7 @@ def persisted_track():
     return Track(
         id=1,
         title="Home",
-        artists=[Artist(name="Mac DeMarco")],
+        artists=[ArtistCredit(credited_name="Mac DeMarco")],
         album="2",
         duration_ms=210000,
         isrc="USWB11300001",
@@ -160,7 +160,7 @@ def persisted_tracks():
         Track(
             id=1,
             title="Home",
-            artists=[Artist(name="Mac DeMarco")],
+            artists=[ArtistCredit(credited_name="Mac DeMarco")],
             album="2",
             duration_ms=210000,
             connector_track_identifiers={"spotify": "4jbmgIyjGoXjY01XxatOx6"},
@@ -169,7 +169,7 @@ def persisted_tracks():
         Track(
             id=2,
             title="Falling",
-            artists=[Artist(name="Chris Lake")],
+            artists=[ArtistCredit(credited_name="Chris Lake")],
             album="Falling EP",
             duration_ms=180000,
             connector_track_identifiers={"spotify": "5Z7ygHQo02SUrFmcgpwsKW"},
@@ -178,7 +178,7 @@ def persisted_tracks():
         Track(
             id=3,
             title="Unknown Track",
-            artists=[Artist(name="Unknown Artist")],
+            artists=[ArtistCredit(credited_name="Unknown Artist")],
             duration_ms=200000,
             user_id=TEST_USER_ID,
         ),
@@ -386,7 +386,7 @@ async def test_track(
     test_track = Track(
         id=None,
         title=f"TEST_Track_{unique_id}",
-        artists=[Artist(name=f"TEST_Artist_{unique_id}")],
+        artists=[ArtistCredit(credited_name=f"TEST_Artist_{unique_id}")],
         album=f"TEST_Album_{unique_id}",
         duration_ms=200000,
         connector_track_identifiers={},
@@ -427,7 +427,7 @@ async def test_tracks(
         test_track = Track(
             id=None,
             title=f"TEST_Track_{i}_{unique_id}",
-            artists=[Artist(name=f"TEST_Artist_{i}_{unique_id}")],
+            artists=[ArtistCredit(credited_name=f"TEST_Artist_{i}_{unique_id}")],
             album=f"TEST_Album_{i}_{unique_id}",
             duration_ms=200000 + (i * 10000),
             connector_track_identifiers={},

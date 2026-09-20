@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.domain.repositories.errors import LOCK_NOT_AVAILABLE, postgres_sqlstate
 from src.infrastructure.persistence.database.db_connection import create_session_factory
 from src.infrastructure.persistence.database.models import DBTrack
@@ -41,7 +41,7 @@ class _PlainMapper(BaseModelMapper[DBTrack, Track]):
         return Track(
             id=db_model.id,
             title=db_model.title,
-            artists=[Artist(name="t")],
+            artists=[ArtistCredit(credited_name="t")],
             user_id=TEST_USER_ID,
         )
 

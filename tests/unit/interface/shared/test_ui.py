@@ -1,7 +1,7 @@
 """Tests for UI display utilities with summary metrics."""
 
 from src.domain.entities.operations import OperationResult
-from src.domain.entities.track import Artist, Track
+from src.domain.entities.track import ArtistCredit, Track
 from src.interface.cli.ui import (
     _format_metric_value,
     console,
@@ -83,7 +83,9 @@ class TestOperationResultDisplay:
     def test_result_preserves_tracks_list(self):
         """Test that tracks list remains unchanged."""
         track = Track(
-            title="Test Track", artists=[Artist(name="Artist")], user_id=TEST_USER_ID
+            title="Test Track",
+            artists=[ArtistCredit(credited_name="Artist")],
+            user_id=TEST_USER_ID,
         )
         result = OperationResult(operation_name="Track Operation", tracks=[track])
 

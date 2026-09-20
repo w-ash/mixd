@@ -13,7 +13,7 @@ import pytest
 
 from src.config import create_matching_config
 from src.config.constants import SpotifyConstants
-from src.domain.entities import Artist
+from src.domain.entities import ArtistCredit
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.infrastructure.connectors.spotify.client import (
     field_filtered_search_query,
@@ -53,7 +53,7 @@ class TestCreateTrackFromSpotifyData:
         )
 
         assert track.title == "Test Song"
-        assert track.artists == [Artist(name="Test Artist")]
+        assert track.artists == (ArtistCredit(credited_name="Test Artist"),)
         assert track.album == "Test Album"
         assert track.duration_ms == 240000
         assert track.isrc == "USRC12345678"
@@ -105,8 +105,8 @@ class TestCreateTrackFromSpotifyData:
         )
 
         assert len(track.artists) == 2
-        assert track.artists[0].name == "Artist A"
-        assert track.artists[1].name == "Artist B"
+        assert track.artists[0].credited_name == "Artist A"
+        assert track.artists[1].credited_name == "Artist B"
 
     def test_no_album(self):
         spotify_track = SpotifyTrack(
@@ -227,7 +227,7 @@ class TestCreateTrackFromSpotifyDataValidation:
         )
 
         assert len(track.artists) == 1
-        assert track.artists[0].name == "Valid"
+        assert track.artists[0].credited_name == "Valid"
 
 
 # --- widening ladder + search_and_evaluate_attempt tests ---

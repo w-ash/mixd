@@ -5,7 +5,7 @@ a rejection must survive noise and must not survive a real edit to the fields
 the matcher scores on. Each test below pins one side of that line.
 """
 
-from src.domain.entities.track import Artist, ConnectorTrack, Track
+from src.domain.entities.track import ArtistCredit, ConnectorTrack, Track
 from src.domain.matching.content_digest import (
     DigestSide,
     connector_side,
@@ -95,7 +95,7 @@ class TestSideBuilders:
     def test_track_side_reads_the_match_relevant_fields(self):
         track = Track(
             title="Creep",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             duration_ms=238_000,
             user_id=TEST_USER_ID,
         )
@@ -109,7 +109,7 @@ class TestSideBuilders:
             connector_name="spotify",
             connector_track_identifier="sp_9",
             title="Creep",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             duration_ms=238_000,
         )
         side = connector_side(ct)
@@ -150,14 +150,14 @@ class TestBothProducersAgreeOnOnePair:
             connector_name="spotify",
             connector_track_identifier="sp_42",
             title=title,
-            artists=[Artist(name=name) for name in artists],
+            artists=[ArtistCredit(credited_name=name) for name in artists],
             duration_ms=duration_ms,
         )
 
     def test_the_two_paths_produce_the_same_digest_for_the_same_pair(self):
         candidate = Track(
             title="Creep",
-            artists=[Artist(name="Radiohead")],
+            artists=[ArtistCredit(credited_name="Radiohead")],
             duration_ms=238_000,
             user_id=TEST_USER_ID,
         )
@@ -184,7 +184,9 @@ class TestBothProducersAgreeOnOnePair:
             "sp_42", {"title": "Creep", "artist": "Radiohead", "duration_ms": None}
         )
         candidate = Track(
-            title="Creep", artists=[Artist(name="Radiohead")], user_id=TEST_USER_ID
+            title="Creep",
+            artists=[ArtistCredit(credited_name="Radiohead")],
+            user_id=TEST_USER_ID,
         )
 
         assert content_digest(pipeline_view, track_side(candidate)) != content_digest(

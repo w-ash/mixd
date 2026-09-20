@@ -32,7 +32,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
+from src.domain.entities import ArtistCredit, ConnectorTrack, Track, TrackMapping
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.track_mapping import (
     MappingOrigin,
@@ -146,7 +146,10 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
             connector_name=db_model.connector_name,
             connector_track_identifier=db_model.connector_track_identifier,
             title=db_model.title,
-            artists=[Artist(name=n) for n in extract_db_artist_names(db_model.artists)],
+            artists=[
+                ArtistCredit(credited_name=n)
+                for n in extract_db_artist_names(db_model.artists)
+            ],
             album=db_model.album,
             duration_ms=db_model.duration_ms,
             release_date=db_model.release_date,
@@ -170,7 +173,7 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
             connector_name=domain_model.connector_name,
             connector_track_identifier=domain_model.connector_track_identifier,
             title=domain_model.title,
-            artists=artist_names_column(a.name for a in domain_model.artists),
+            artists=artist_names_column(a.credited_name for a in domain_model.artists),
             album=domain_model.album,
             duration_ms=domain_model.duration_ms,
             release_date=domain_model.release_date,
@@ -608,7 +611,7 @@ class TrackConnectorRepository:
                     spec.connector,
                     spec.connector_id,
                     title=spec.track.title,
-                    artist_names=[a.name for a in spec.track.artists],
+                    artist_names=[a.credited_name for a in spec.track.artists],
                     album=spec.track.album,
                     duration_ms=spec.track.duration_ms,
                     release_date=spec.track.release_date,
@@ -808,7 +811,7 @@ class TrackConnectorRepository:
                 connector,
                 track.connector_track_identifier,
                 title=track.title,
-                artist_names=[a.name for a in track.artists],
+                artist_names=[a.credited_name for a in track.artists],
                 album=track.album,
                 duration_ms=track.duration_ms,
                 release_date=track.release_date,

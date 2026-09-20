@@ -23,7 +23,7 @@ from src.application.use_cases.sync_likes import (
     ImportLikesUseCase,
 )
 from src.domain.entities import ConnectorTrack, Track
-from src.domain.entities.track import Artist
+from src.domain.entities.track import ArtistCredit
 from tests.fixtures import (
     TEST_USER_ID,
     make_connector_track,
@@ -51,7 +51,7 @@ def _echo_ingest(id_offset: int = 1):
             Track(
                 id=i + id_offset,
                 title=t.title,
-                artists=[Artist(name="A")],
+                artists=[ArtistCredit(credited_name="A")],
                 connector_track_identifiers={"spotify": t.connector_track_identifier},
                 user_id=user_id,
             )
@@ -246,7 +246,7 @@ class TestImportLikesForceMode:
             ("spotify", ct.connector_track_identifier): Track(
                 id=i + 1000,
                 title=ct.title,
-                artists=[Artist(name="A")],
+                artists=[ArtistCredit(credited_name="A")],
                 user_id=TEST_USER_ID,
             )
             for i, ct in enumerate(dup_tracks)
@@ -302,7 +302,7 @@ class TestImportLikesForceMode:
             ("spotify", ct.connector_track_identifier): Track(
                 id=i + 1000,
                 title=ct.title,
-                artists=[Artist(name="A")],
+                artists=[ArtistCredit(credited_name="A")],
                 user_id=TEST_USER_ID,
             )
             for i, ct in enumerate(dup_tracks)
@@ -456,7 +456,7 @@ class TestImportLikesIngestFallback:
             ("spotify", ct.connector_track_identifier): Track(
                 id=i + 1000,
                 title=ct.title,
-                artists=[Artist(name="A")],
+                artists=[ArtistCredit(credited_name="A")],
                 user_id=TEST_USER_ID,
             )
             for i, ct in enumerate(dup_tracks)
@@ -546,7 +546,7 @@ class TestExportLovesIncrementalCommit:
             i: Track(
                 id=i,
                 title=f"Track {i}",
-                artists=[Artist(name="A")],
+                artists=[ArtistCredit(credited_name="A")],
                 user_id=TEST_USER_ID,
             )
             for i in range(1, 16)
@@ -602,7 +602,7 @@ class TestExportLovesPartialFailure:
                 i: Track(
                     id=i,
                     title=f"Track {i}",
-                    artists=[Artist(name="A")],
+                    artists=[ArtistCredit(credited_name="A")],
                     user_id=TEST_USER_ID,
                 )
                 for i in range(1, 3)
@@ -735,7 +735,7 @@ class TestExportBatching:
                 i: Track(
                     id=i,
                     title=f"Track {i}",
-                    artists=[Artist(name="A")],
+                    artists=[ArtistCredit(credited_name="A")],
                     user_id=TEST_USER_ID,
                 )
                 for i in range(1, 4)
@@ -816,7 +816,7 @@ class TestExportCheckpointWatermark:
                 i: Track(
                     id=i,
                     title=f"Track {i}",
-                    artists=[Artist(name="A")],
+                    artists=[ArtistCredit(credited_name="A")],
                     user_id=TEST_USER_ID,
                 )
                 for i in ids

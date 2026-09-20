@@ -149,6 +149,7 @@ class TestTrackDetailExtraction:
         assert detail.track.id == "12345"
         assert detail.track.isrc == "USUM72309818"
         assert detail.artist_names == ("Main Artist", "Featured Artist")
+        assert detail.artist_ids == ("artist-0", "artist-1")
         assert detail.replacement_id is None
 
     def test_replacement_pointer_surfaces_as_replacement_id(self):
@@ -176,3 +177,4 @@ class TestTrackDetailExtraction:
 
         assert detail is not None
         assert detail.artist_names == ()
+        assert detail.artist_ids == ()

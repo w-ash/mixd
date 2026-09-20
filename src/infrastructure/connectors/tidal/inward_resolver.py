@@ -339,11 +339,17 @@ class TidalInwardResolver(WritePlanningResolver[TidalTrackDetail]):
     ) -> dict[str, object]:
         """JSON-able mapping metadata from the domain-facing detail."""
         detail = write.payload
+        artist_ids: list[str | None] = (
+            list(detail.artist_ids)
+            if len(detail.artist_ids) == len(detail.artist_names)
+            else [None] * len(detail.artist_names)
+        )
         return {
             "title": detail.track.title,
             "isrc": detail.track.isrc,
             "duration_seconds": detail.track.duration_seconds,
             "artist_names": list(detail.artist_names),
+            "artist_ids": artist_ids,
         }
 
     @override
