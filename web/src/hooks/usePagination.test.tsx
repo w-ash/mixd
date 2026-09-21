@@ -171,4 +171,41 @@ describe("useKeysetPagination", () => {
     expect(result.current.totalPages).toBe(1);
     expect(result.current.page).toBe(1);
   });
+
+  // Regression: the backend only sends `total` on the first page of a result
+  // set (`include_total=not has_cursor`) — a cursor page reports `total:
+  // null`. That used to collapse totalPages to 1 and unmount the pagination
+  // controls on every page beyond the first.
+  it("keeps the last known total when a cursor page reports total: null", () => {
+    const { result } = renderHook(
+      () => useKeysetPagination({ defaultLimit: 50 }),
+      { wrapper: wrapper() },
+    );
+
+    act(() =>
+      result.current.rememberNextCursor({ total: 120, next_cursor: "c1" }),
+    );
+    expect(result.current.totalPages).toBe(3);
+
+    act(() => result.current.setPage(2));
+    act(() => result.current.rememberNextCursor({ total: null }));
+
+    expect(result.current.totalPages).toBe(3);
+  });
+
+  it("resetCursors clears the remembered total along with the cursors", () => {
+    const { result } = renderHook(
+      () => useKeysetPagination({ defaultLimit: 50 }),
+      { wrapper: wrapper() },
+    );
+
+    act(() =>
+      result.current.rememberNextCursor({ total: 120, next_cursor: "c1" }),
+    );
+    expect(result.current.totalPages).toBe(3);
+
+    act(() => result.current.resetCursors());
+
+    expect(result.current.totalPages).toBe(1);
+  });
 });

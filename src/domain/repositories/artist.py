@@ -189,6 +189,25 @@ class ArtistConnectorRepositoryProtocol(Protocol):
         A renamed artist is a *touch* of its row, never a new one: the service
         identifier is the identity, so ``name``, ``raw_metadata`` and
         ``last_updated`` are overwritten in place.
+
+        For a caller holding the connector's own payload. A caller that only
+        learned an identifier second-hand wants
+        :meth:`ensure_connector_artists`.
+        """
+        ...
+
+    def ensure_connector_artists(
+        self, connector_name: str, artists: Sequence[ConnectorArtist]
+    ) -> Awaitable[dict[str, ConnectorArtist]]:
+        """Insert the connector artists that are absent, touch the ones that exist.
+
+        Insert-or-touch: an existing row keeps its ``name`` and
+        ``raw_metadata`` and only moves ``last_updated``, and the row returned
+        is the stored one. ``connector_artists`` is a global cache every
+        tenant reads, so a caller that inferred an identifier without seeing
+        the service's own record — a MusicBrainz url-rel states an id and a
+        URL, nothing more — must not overwrite what a first-hand payload
+        wrote.
         """
         ...
 

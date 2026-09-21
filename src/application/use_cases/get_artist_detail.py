@@ -149,12 +149,28 @@ def _related_from_mapping(info: ArtistMappingInfo) -> list[RelatedProject]:
     return related
 
 
+def _dedupe_key(relation: RelatedProject) -> tuple[str, str, str]:
+    """Identify a relation for dedup purposes.
+
+    An entry with an identifier (MusicBrainz ``url_rels``, and any alias or
+    member entry that happens to carry an ``id``) is keyed on
+    ``(connector_name, identifier, relation)`` — the identifier distinguishes
+    same-service entries that share a display name, e.g. two Spotify
+    ``url_rels`` for an artist's alias projects. An entry with no identifier
+    (MusicBrainz ``is person`` / ``member of band``, Discogs aliases) falls
+    back to the original ``(name, relation)`` key.
+    """
+    if relation.identifier is not None:
+        return (relation.connector_name, relation.identifier, relation.relation)
+    return (relation.name.casefold(), "", relation.relation)
+
+
 def _dedupe(related: Sequence[RelatedProject]) -> list[RelatedProject]:
     """First occurrence wins — two services can state the same alias."""
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     unique: list[RelatedProject] = []
     for relation in related:
-        key = (relation.name.casefold(), relation.relation)
+        key = _dedupe_key(relation)
         if key not in seen:
             seen.add(key)
             unique.append(relation)

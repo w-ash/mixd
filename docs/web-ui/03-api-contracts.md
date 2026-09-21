@@ -72,6 +72,19 @@ All entity IDs are **integers** (matching the codebase -- `Track.id: int`, `Play
 
 Operation IDs are **UUID strings** (from `ProgressOperation.operation_id`).
 
+### HTTP Caching
+
+Every GET is treated as per-user and write-invalidated, so responses default to
+`Cache-Control: private, no-cache`: the browser revalidates each time, and the
+weak ETag turns an unchanged body into a `304`. Two runtime-static catalogs
+(`GET /workflows/nodes`, `GET /workflows/templates`) carry
+`max-age=86400, stale-while-revalidate=604800`. Secret-bearing responses (the
+MusicKit developer token) use `private, no-store`. Non-200 responses get no
+ETag and no `Cache-Control` at all — an error is not a representation of the
+resource. A new endpoint needs no change; an exception is one entry in
+`_CACHE_POLICIES` in `src/interface/api/caching.py`, with a comment saying why
+the response is neither user-scoped nor mutable.
+
 ---
 
 ## Shared Architecture

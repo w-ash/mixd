@@ -12,7 +12,16 @@ under the test's direct control.
 import hashlib
 from typing import Any
 
-from src.interface.api.caching import _MAX_ETAG_BODY_BYTES, CachingMiddleware
+import pytest
+
+from src.interface.api.caching import (
+    _DEFAULT_POLICY,
+    _MAX_ETAG_BODY_BYTES,
+    CachingMiddleware,
+    _get_cache_policy,
+)
+
+_STATIC_CATALOG_POLICY = "max-age=86400, stale-while-revalidate=604800"
 
 # ---------------------------------------------------------------------------
 # Test harness
@@ -23,15 +32,20 @@ class _ChunkedApp:
     """Inner ASGI app that emits a fixed sequence of body chunks."""
 
     def __init__(
-        self, chunks: list[bytes], *, content_type: str = "application/json"
+        self,
+        chunks: list[bytes],
+        *,
+        content_type: str = "application/json",
+        status: int = 200,
     ) -> None:
         self.chunks = chunks
         self.content_type = content_type
+        self.status = status
 
     async def __call__(self, scope: dict, receive: object, send: Any) -> None:
         await send({
             "type": "http.response.start",
-            "status": 200,
+            "status": self.status,
             "headers": [(b"content-type", self.content_type.encode())],
         })
         last = len(self.chunks) - 1
@@ -99,9 +113,12 @@ async def _run(
     *,
     scope: dict[str, Any] | None = None,
     content_type: str = "application/json",
+    status: int = 200,
 ) -> _ResponseCapture:
     """Drive CachingMiddleware over a chunked app and capture what it sends."""
-    middleware = CachingMiddleware(_ChunkedApp(chunks, content_type=content_type))
+    middleware = CachingMiddleware(
+        _ChunkedApp(chunks, content_type=content_type, status=status)
+    )
     capture = _ResponseCapture()
     await middleware(scope or _scope(), _noop_receive, capture)
     return capture
@@ -131,9 +148,7 @@ class TestSmallResponses:
         assert capture.status == 200
         assert capture.body == body
         assert capture.header("etag") == _weak_etag(body)
-        assert (
-            capture.header("cache-control") == "max-age=10, stale-while-revalidate=60"
-        )
+        assert capture.header("cache-control") == "private, no-cache"
         server_timing = capture.header("server-timing")
         assert server_timing is not None
         assert server_timing.startswith("total;dur=")
@@ -196,9 +211,7 @@ class TestOversizedResponses:
         body = b"y" * (_MAX_ETAG_BODY_BYTES + 1)
         capture = await _run([body], scope=_scope(path="/api/v1/playlists/1/tracks"))
 
-        assert (
-            capture.header("cache-control") == "max-age=10, stale-while-revalidate=60"
-        )
+        assert capture.header("cache-control") == "private, no-cache"
         server_timing = capture.header("server-timing")
         assert server_timing is not None
         assert server_timing.startswith("total;dur=")
@@ -271,76 +284,120 @@ class TestPassthrough:
         assert capture.body == b"<html>"
 
 
-class TestStateBearingPolicies:
-    """Connector status must never be served from the browser HTTP cache.
+# ---------------------------------------------------------------------------
+# Non-200 responses — no validator, no policy
+# ---------------------------------------------------------------------------
 
-    A connect/disconnect must show on the next fetch. ``no-cache`` forces
-    revalidation; the ETag turns unchanged responses into 304s.
+
+class TestNonSuccessResponses:
+    """An error body is not a representation of the resource.
+
+    Stamping it with an ETag would let a client revalidate its way back to the
+    failure, and a Cache-Control header would invite a cache to keep it.
     """
 
-    def test_connectors_policy_is_no_cache(self) -> None:
-        from src.interface.api.caching import _get_cache_policy
+    @pytest.mark.parametrize("status", [401, 404, 422, 500])
+    async def test_error_status_gets_timing_only(self, status: int) -> None:
+        body = b'{"error": {"code": "NOT_FOUND"}}'
+        capture = await _run([body], status=status)
 
-        assert _get_cache_policy("/api/v1/connectors") == "no-cache"
-        assert _get_cache_policy("/api/v1/connectors/spotify/token") == "no-cache"
+        assert capture.status == status
+        assert capture.body == body
+        assert capture.header("etag") is None
+        assert capture.header("cache-control") is None
+        assert capture.header("server-timing") is not None
+
+    async def test_if_none_match_is_ignored_on_error_status(self) -> None:
+        body = b'{"error": {"code": "NOT_FOUND"}}'
+        scope = _scope(headers=[(b"if-none-match", _weak_etag(body).encode())])
+
+        capture = await _run([body], scope=scope, status=404)
+
+        # No 304 shortcut off an error body — the client gets the error itself.
+        assert capture.status == 404
+        assert capture.body == body
+
+    async def test_success_still_gets_the_full_treatment(self) -> None:
+        body = b'{"data": []}'
+        capture = await _run([body], status=200)
+
+        assert capture.header("etag") == _weak_etag(body)
+        assert capture.header("cache-control") == _DEFAULT_POLICY
+
+
+# ---------------------------------------------------------------------------
+# Cache policy table
+# ---------------------------------------------------------------------------
+
+# Every user-scoped, write-invalidated GET family — i.e. everything the API
+# serves apart from the exceptions below. A regression here is the v0.11.3.2 /
+# v0.11.7 / v0.12.1 bug: a post-write refetch answered from the browser's disk
+# cache, defeating Tanstack Query's invalidation.
+_REVALIDATING_PATHS = [
+    "/api/v1/tracks",
+    "/api/v1/tracks/0193a2b4-1c2d-7e3f-8a9b-0c1d2e3f4a5b",
+    "/api/v1/playlists",
+    "/api/v1/playlists/12/tracks",
+    "/api/v1/playlist-assignments",
+    "/api/v1/tags",
+    "/api/v1/workflows",
+    "/api/v1/workflows/12",
+    "/api/v1/workflows/active-runs",
+    "/api/v1/workflows/12/runs/34",
+    "/api/v1/operation-runs",
+    "/api/v1/operations/0193a2b4-1c2d-7e3f-8a9b-0c1d2e3f4a5b/snapshot",
+    "/api/v1/reviews",
+    "/api/v1/schedules",
+    "/api/v1/sync/schedules/7",
+    "/api/v1/sync/likes",
+    "/api/v1/sync/targets",
+    "/api/v1/imports/checkpoints",
+    "/api/v1/imports/spotify/history/queue",
+    "/api/v1/assistant/status",
+    "/api/v1/assistant/key",
+    "/api/v1/connectors",
+    "/api/v1/connectors/spotify/token",
+    "/api/v1/settings",
+    "/api/v1/artists",
+    "/api/v1/artists/0193a2b4-1c2d-7e3f-8a9b-0c1d2e3f4a5b",
+    "/api/v1/stats/dashboard",
+    "/api/v1/plays",
+    "/api/v1/plays/histogram",
+]
+
+
+class TestCachePolicies:
+    @pytest.mark.parametrize("path", _REVALIDATING_PATHS)
+    def test_route_families_revalidate_and_stay_private(self, path: str) -> None:
+        assert _get_cache_policy(path) == "private, no-cache"
+        assert _DEFAULT_POLICY == "private, no-cache"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/workflows/nodes",
+            "/api/v1/workflows/templates",
+        ],
+    )
+    def test_runtime_static_catalogs_carry_a_long_ttl(self, path: str) -> None:
+        """The node and template catalogs only change on deploy."""
+        assert _get_cache_policy(path) == _STATIC_CATALOG_POLICY
 
     def test_musickit_config_is_private_no_store(self) -> None:
         """The MusicKit developer token rides this response — never cached.
 
-        The longer prefix must win over the generic ``/api/v1/connectors``
-        entry (longest-prefix-first sort), and sibling Apple routes keep the
-        connectors policy.
+        The longer prefix must win over the generic connectors family via the
+        longest-prefix-first sort, and sibling Apple routes keep revalidating.
         """
-        from src.interface.api.caching import _get_cache_policy
-
         assert (
             _get_cache_policy("/api/v1/connectors/apple_music/musickit-config")
             == "private, no-store"
         )
-        assert _get_cache_policy("/api/v1/connectors/apple_music/token") == "no-cache"
-
-    def test_settings_policy_is_no_cache(self) -> None:
-        """Settings has a PATCH route — a fresh GET after a write must not be
-        served stale from the browser cache (same class as the connectors bug).
-        """
-        from src.interface.api.caching import _get_cache_policy
-
-        assert _get_cache_policy("/api/v1/settings") == "no-cache"
-
-    def test_sync_targets_is_private_no_cache(self) -> None:
-        """The target list carries per-user availability, so it may never sit in
-        a shared cache and must revalidate after a connect/disconnect.
-        """
-        from src.interface.api.caching import _get_cache_policy
-
-        assert _get_cache_policy("/api/v1/sync/targets") == "private, no-cache"
-
-    def test_import_queue_is_private_no_cache(self) -> None:
-        """The queue GET is per user and is refetched right after an upload, so a
-        cached idle answer would hide the queue that upload just registered.
-        """
-        from src.interface.api.caching import _get_cache_policy
-
         assert (
-            _get_cache_policy("/api/v1/imports/spotify/history/queue")
+            _get_cache_policy("/api/v1/connectors/apple_music/token")
             == "private, no-cache"
         )
 
-    def test_artists_are_private_no_cache(self) -> None:
-        """Favorites are per user and the page refetches an artist right after a
-        favorite write, so the list and the detail must both revalidate.
-        """
-        from src.interface.api.caching import _get_cache_policy
-
-        assert _get_cache_policy("/api/v1/artists") == "private, no-cache"
-        assert (
-            _get_cache_policy("/api/v1/artists/0193a2b4-1c2d-7e3f-8a9b-0c1d2e3f4a5b")
-            == "private, no-cache"
-        )
-
-    def test_sibling_sync_paths_keep_the_default_policy(self) -> None:
-        # Only the target list is user-state-bearing; a longer sync path must
-        # not inherit the stricter policy by accident.
-        from src.interface.api.caching import _DEFAULT_POLICY, _get_cache_policy
-
-        assert _get_cache_policy("/api/v1/sync/likes") == _DEFAULT_POLICY
+    def test_health_is_no_cache_without_private(self) -> None:
+        """A probe answer is not user-scoped, so `private` would be noise."""
+        assert _get_cache_policy("/api/v1/health") == "no-cache"

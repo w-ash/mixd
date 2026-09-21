@@ -14,6 +14,7 @@ from src.domain.entities.artist import Artist, ConnectorArtist
 from src.domain.repositories.mapping import PrimaryCandidate
 from src.infrastructure.persistence.database.models import (
     DBArtistMapping,
+    DBConnectorArtist,
     DBResolutionEvent,
 )
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
@@ -85,6 +86,67 @@ class TestConnectorArtistCache:
         connectors = get_unit_of_work(db_session).get_artist_connector_repository()
 
         assert await connectors.bulk_upsert_connector_artists("spotify", []) == {}
+
+
+class TestEnsureConnectorArtists:
+    """Insert-or-touch, for a caller that inferred an id without the payload."""
+
+    async def test_an_existing_row_keeps_its_name_and_payload(self, db_session):
+        connectors = get_unit_of_work(db_session).get_artist_connector_repository()
+        first = await connectors.bulk_upsert_connector_artists(
+            "spotify",
+            [
+                ConnectorArtist(
+                    connector_name="spotify",
+                    connector_artist_identifier="sp-1",
+                    name="Tycho",
+                    raw_metadata={"popularity": 57},
+                )
+            ],
+        )
+
+        # What a MusicBrainz url-rel knows: an id and a URL, nothing more.
+        ensured = await connectors.ensure_connector_artists(
+            "spotify",
+            [
+                ConnectorArtist(
+                    connector_name="spotify",
+                    connector_artist_identifier="sp-1",
+                    name="Scott Hansen",
+                    raw_metadata={"url": "https://open.spotify.com/artist/sp-1"},
+                )
+            ],
+        )
+
+        assert ensured["sp-1"].id == first["sp-1"].id
+        assert ensured["sp-1"].name == "Tycho"
+        assert ensured["sp-1"].raw_metadata == {"popularity": 57}
+        assert ensured["sp-1"].last_updated > first["sp-1"].last_updated
+
+    async def test_an_absent_row_is_inserted_and_never_duplicated(self, db_session):
+        connectors = get_unit_of_work(db_session).get_artist_connector_repository()
+
+        inserted = await connectors.ensure_connector_artists(
+            "tidal", [make_connector_artist("td-1", name="Caribou")]
+        )
+        again = await connectors.ensure_connector_artists(
+            "tidal", [make_connector_artist("td-1", name="Daphni")]
+        )
+
+        assert inserted["td-1"].name == "Caribou"
+        assert again["td-1"].id == inserted["td-1"].id
+        rows = await db_session.execute(
+            select(DBConnectorArtist.name).where(
+                DBConnectorArtist.connector_name == "tidal",
+                DBConnectorArtist.connector_artist_identifier == "td-1",
+            )
+        )
+        assert rows.scalars().all() == ["Caribou"]
+
+    async def test_an_empty_batch_writes_nothing(self, db_session):
+        connectors = get_unit_of_work(db_session).get_artist_connector_repository()
+
+        assert await connectors.ensure_connector_artists("spotify", []) == {}
 
 
 class TestLookupsThroughMappings:

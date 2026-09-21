@@ -240,6 +240,43 @@ describe("Artists", () => {
     expect(screen.queryByText("No artists yet")).not.toBeInTheDocument();
   });
 
+  // Regression: a cursor page comes back with `total: null` (the backend only
+  // computes it on the first page). That used to collapse totalPages to 1 and
+  // unmount TablePagination — page 2 rendered with no way back or forward.
+  it("keeps pagination controls after paging to a cursor page reporting total: null", async () => {
+    const user = userEvent.setup();
+    const page1 = Array.from({ length: 50 }, (_, i) =>
+      makeArtistSummary({ id: `artist-${i + 1}`, name: `Artist ${i + 1}` }),
+    );
+    server.use(
+      http.get("*/api/v1/artists", ({ request }) => {
+        const hasCursor = new URL(request.url).searchParams.has("cursor");
+        return HttpResponse.json(
+          {
+            data: page1,
+            total: hasCursor ? null : 120,
+            limit: 50,
+            offset: hasCursor ? 50 : 0,
+            next_cursor: hasCursor ? null : "cursor-1",
+          },
+          { status: 200 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Artists />);
+
+    await waitFor(() => expect(screen.getByText("Artist 1")).toBeVisible());
+    await user.click(screen.getByLabelText("Go to next page"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { current: "page" })).toHaveTextContent(
+        "2",
+      );
+    });
+    expect(screen.getByLabelText("Go to next page")).toBeInTheDocument();
+  });
+
   it("renders an error state when the list fails", async () => {
     server.use(
       http.get("*/api/v1/artists", () =>

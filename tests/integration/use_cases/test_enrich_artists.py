@@ -297,3 +297,60 @@ class TestExistingMappingsSurvive:
         assert "Orlando Higginbottom" in str(issue["reason"])
         stored = await db_session.get(DBArtist, claimant.id)
         assert stored.mbid == MBID
+
+
+class TestSharedMbid:
+    """Two canonical artists resolving to one MBID.
+
+    Real: the same act imported from two services and never merged by name, or
+    a MusicBrainz merge behind an id Mixd already holds. Both keep the
+    identity — ``artists.mbid`` is a reference — and only one holds the
+    mapping, because ``artist_mappings`` is keyed live on the connector row.
+    """
+
+    async def test_both_carry_the_mbid_but_only_one_maps_it(self, db_session):
+        user_id = f"enrich-{uuid7()}"
+        # One is the lookup's primary name, the other its stated alias.
+        first = await seed_artist(
+            db_session, user_id, "Totally Enormous Extinct Dinosaurs"
+        )
+        second = await seed_artist(db_session, user_id, "TEED")
+        lookup = ArtistLookup(
+            mbid=MBID,
+            name="Totally Enormous Extinct Dinosaurs",
+            kind="person",
+            aliases=(ArtistAliasRecord(name="TEED", alias_type="Artist name"),),
+        )
+        provider = FakeEnrichmentProvider(lookup)
+
+        result = await EnrichArtistsUseCase(provider=provider).execute(
+            EnrichArtistsCommand(user_id=user_id), get_unit_of_work(db_session)
+        )
+
+        assert result.result.summary_metrics.get("resolved") == 2
+        assert result.result.summary_metrics.get("shared_mbid") == 1
+        assert result.result.summary_metrics.get("mappings_seeded") == 1
+        assert (
+            await count(db_session, DBArtistMapping, DBArtistMapping.user_id == user_id)
+            == 1
+        )
+        for artist in (first, second):
+            stored = await db_session.get(DBArtist, artist.id)
+            await db_session.refresh(stored)
+            assert stored.mbid == MBID
+        (issue,) = result.result.resolution_failures
+        assert "already maps to" in str(issue["reason"])
+
+        # Re-reading both changes nothing: the holder is stamped, the other is
+        # reported again, and the mapping never changes hands.
+        rerun = await EnrichArtistsUseCase(provider=provider).execute(
+            EnrichArtistsCommand(user_id=user_id, refresh_older_than_days=0),
+            get_unit_of_work(db_session),
+        )
+
+        assert rerun.result.summary_metrics.get("artists_processed") == 2
+        assert rerun.result.summary_metrics.get("mappings_seeded") == 0
+        assert (
+            await count(db_session, DBArtistMapping, DBArtistMapping.user_id == user_id)
+            == 1
+        )

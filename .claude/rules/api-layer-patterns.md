@@ -9,6 +9,7 @@ paths:
 - **Zero business logic** in route handlers — delegate everything to application use cases
 - Call `execute_use_case()` from `application/runner.py` directly (natively async, no `run_async()` bridge)
 - Return domain Result objects serialized to JSON — never return SQLAlchemy models or raw dicts
+- **Caching**: new GET routes revalidate by default (`private, no-cache` + ETag); `max-age` is only for runtime-static catalogs and must be added to `_CACHE_POLICIES` in `caching.py` with a comment justifying it
 
 ## Response Format
 - **List endpoints**: `{"data": [...], "total": int, "limit": int, "offset": int}`

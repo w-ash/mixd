@@ -19,7 +19,9 @@ resolves keeps the mapping it has — the import path's first-hand ``direct``
 outranks an inferred rel — and is merely stamped as seen. When the live
 mapping names a different canonical artist, the two disagree about who owns
 the id; the mapping still stands, and the disagreement is reported as an
-issue for its owner to settle.
+issue for its owner to settle. The MusicBrainz mapping is no exception: two
+canonical artists may share an MBID — it is a reference, not a key, and both
+keep the identity and the aliases — but only the first may map it.
 
 A name search never decides anything on its own. A hit counts only when one
 of its spellings — the artist's name or any alias MusicBrainz states — is
@@ -128,6 +130,7 @@ class _Tally:
     aliases: int = 0
     mappings: int = 0
     unresolved: int = 0
+    shared_mbid: int = 0
     issues: list[JsonDict] = field(factory=list)
     issues_dropped: int = 0
 
@@ -373,18 +376,21 @@ class EnrichArtistsUseCase:
             artist.id, user_id=artist.user_id, mbid=lookup.mbid, kind=lookup.kind
         )
 
-        batch.mapping_rows.append(
-            _mapping_row(artist, mb_row.id, MUSICBRAINZ, "mbid", evidence)
+        await self._stage_mbid_mapping(
+            artist, mb_row, evidence, connectors=connectors, batch=batch, tally=tally
         )
-        batch.primaries.append(PrimaryCandidate(artist.id, MUSICBRAINZ, mb_row.id))
 
         # One MusicBrainz response is four services' worth of ids. Several
         # rels for one service are normal (alias projects carry separate ids
         # and are linked, never merged), so every one is kept and the
         # election picks which the UI shows.
+        # Insert-or-touch, never overwrite: a rel states an id and a URL, and
+        # ``connector_artists`` is global. Writing this user's canonical name
+        # and ``{"url": …}`` over the row an import wrote from the service's
+        # own payload would degrade what every tenant's detail page reads.
         seeded: dict[str, list[tuple[ArtistUrlRel, ConnectorArtist]]] = {}
         for service, rels in _rels_by_service(lookup).items():
-            stored_rels = await connectors.bulk_upsert_connector_artists(
+            stored_rels = await connectors.ensure_connector_artists(
                 service,
                 [
                     ConnectorArtist(
@@ -402,7 +408,7 @@ class EnrichArtistsUseCase:
                 if (row := stored_rels.get(rel.identifier)) is not None
             ]
 
-        tally.mappings += 1 + await self._seed_rel_mappings(
+        tally.mappings += await self._seed_rel_mappings(
             artist,
             seeded,
             connectors=connectors,
@@ -410,6 +416,58 @@ class EnrichArtistsUseCase:
             tally=tally,
             evidence=id_evidence,
         )
+
+    async def _stage_mbid_mapping(
+        self,
+        artist: Artist,
+        mb_row: ConnectorArtist,
+        evidence: ArtistEvidence,
+        *,
+        connectors: ArtistConnectorRepositoryProtocol,
+        batch: _Batch,
+        tally: _Tally,
+    ) -> None:
+        """Claim the MusicBrainz row for this artist, unless someone else holds it.
+
+        ``artists.mbid`` is a reference, never a key: a MusicBrainz merge, or
+        one act imported from two services and never merged by name, leaves
+        two canonical artists legitimately on one MBID, and both keep the
+        identity and the alias cache. The *mapping* is a different matter —
+        ``artist_mappings`` is keyed live on ``(user_id,
+        connector_artist_id)``, so only one of them may hold it, and asserting
+        it unconditionally would hand the row back and forth between the two
+        on every pass.
+
+        So the owner is probed exactly as the url-rel path probes its own: the
+        first claimant keeps the mapping, a re-run by that same artist is a
+        freshness stamp, and the overlap is reported for its owner to settle —
+        merging or splitting two canonical artists is not a background pass's
+        decision.
+        """
+        owners = await connectors.find_artists_by_connector_artist_ids(
+            [mb_row.id], user_id=artist.user_id
+        )
+        owner = owners.get(mb_row.id) or batch.claimed.get(mb_row.id)
+        if owner is not None:
+            if owner.id == artist.id:
+                await connectors.touch_last_seen(
+                    MUSICBRAINZ, [mb_row.id], user_id=artist.user_id
+                )
+            else:
+                tally.shared_mbid += 1
+                tally.record_issue(
+                    artist,
+                    f"musicbrainz id {mb_row.connector_artist_identifier} already "
+                    f"maps to {owner.name} — mapping left as is",
+                )
+            return
+
+        batch.claimed[mb_row.id] = artist
+        batch.mapping_rows.append(
+            _mapping_row(artist, mb_row.id, MUSICBRAINZ, "mbid", evidence)
+        )
+        batch.primaries.append(PrimaryCandidate(artist.id, MUSICBRAINZ, mb_row.id))
+        tally.mappings += 1
 
     async def _seed_rel_mappings(
         self,
@@ -529,13 +587,22 @@ class EnrichArtistsUseCase:
         result.summary_metrics.add(
             "unresolved", tally.unresolved, "Unresolved", significance=4
         )
+        # Only when it happened: two canonical artists on one MBID is rare
+        # enough that a permanent zero row would be noise in every summary.
+        if tally.shared_mbid:
+            result.summary_metrics.add(
+                "shared_mbid",
+                tally.shared_mbid,
+                "Shared MBID (not mapped)",
+                significance=5,
+            )
         if tally.issues or tally.issues_dropped:
             failures: list[JsonValue] = [dict(issue) for issue in tally.issues]
             result.summary_metrics.add(
                 "errors",
                 len(tally.issues) + tally.issues_dropped,
                 "Errors",
-                significance=5,
+                significance=6,
             )
             result.metadata[RESOLUTION_FAILURES_KEY] = failures
             result.metadata[RESOLUTION_FAILURES_TRUNCATED_KEY] = tally.issues_dropped

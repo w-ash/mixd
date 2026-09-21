@@ -54,27 +54,50 @@ def make_connector_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def upsert_returns(repo: AsyncMock, ids: dict[str, UUID] | None = None) -> None:
-    """Echo each upserted batch back keyed by identifier, as the real one does.
+def upsert_returns(
+    repo: AsyncMock,
+    ids: dict[str, UUID] | None = None,
+    existing: dict[str, ConnectorArtist] | None = None,
+) -> None:
+    """Echo each written batch back keyed by identifier, as the real ones do.
 
     ``ids`` pins the row id a given connector identifier comes back with, so a
     test can hand the same id to ``find_artists_by_connector_artist_ids``.
+
+    ``existing`` are rows the cache already holds. ``ensure_connector_artists``
+    hands those back untouched — that is what insert-or-touch means — while
+    ``bulk_upsert_connector_artists`` overwrites them, so only the former
+    consults it.
     """
     pinned = ids or {}
+    stored = existing or {}
+
+    def _written(connector_name: str, artist: ConnectorArtist) -> ConnectorArtist:
+        return ConnectorArtist(
+            connector_name=connector_name,
+            connector_artist_identifier=artist.connector_artist_identifier,
+            name=artist.name,
+            raw_metadata=artist.raw_metadata,
+            id=pinned.get(artist.connector_artist_identifier, artist.id),
+        )
 
     async def _upsert(connector_name: str, artists) -> dict[str, ConnectorArtist]:
         return {
-            artist.connector_artist_identifier: ConnectorArtist(
-                connector_name=connector_name,
-                connector_artist_identifier=artist.connector_artist_identifier,
-                name=artist.name,
-                raw_metadata=artist.raw_metadata,
-                id=pinned.get(artist.connector_artist_identifier, artist.id),
+            artist.connector_artist_identifier: _written(connector_name, artist)
+            for artist in artists
+        }
+
+    async def _ensure(connector_name: str, artists) -> dict[str, ConnectorArtist]:
+        return {
+            artist.connector_artist_identifier: stored.get(
+                artist.connector_artist_identifier
             )
+            or _written(connector_name, artist)
             for artist in artists
         }
 
     repo.bulk_upsert_connector_artists.side_effect = _upsert
+    repo.ensure_connector_artists.side_effect = _ensure
 
 
 # "not given", as distinct from "the provider answers None".
@@ -484,3 +507,98 @@ class TestExistingMappingsSurvive:
         assert spotify_rows[0]["artist_id"] == first.id
         (issue,) = result.result.resolution_failures
         assert issue["artist"] == "Daphni"
+
+
+class TestSharedMbid:
+    """Two canonical artists on one MBID: both identified, one mapped."""
+
+    async def test_a_second_artist_on_one_mbid_is_reported_not_mapped(self):
+        # The same act imported from two services and never merged by name.
+        first = make_artist(name="Totally Enormous Extinct Dinosaurs")
+        second = make_artist(name="TEED")
+        mb_row_id = uuid7()
+        repo = make_connector_repo()
+        upsert_returns(repo, {MBID: mb_row_id})
+        uow, _, artist_repo, connector_repo, _ = build(
+            [first, second], hits=[make_lookup(url_rels=())], connector_repo=repo
+        )
+
+        result = await EnrichArtistsUseCase().execute(command(), uow)
+
+        # One mapping, held by whoever claimed the row first.
+        (rows,) = connector_repo.assert_mappings.call_args.args
+        assert [(row["connector_name"], row["artist_id"]) for row in rows] == [
+            ("musicbrainz", first.id)
+        ]
+        (candidates,) = connector_repo.ensure_primaries.call_args.args
+        assert [candidate.owner_id for candidate in candidates] == [first.id]
+        # The MBID is a reference, not a key: both artists still carry it.
+        assert artist_repo.set_identity.await_count == 2
+        assert {
+            call.kwargs["mbid"] for call in artist_repo.set_identity.call_args_list
+        } == {MBID}
+        assert result.result.summary_metrics.get("mappings_seeded") == 1
+        assert result.result.summary_metrics.get("shared_mbid") == 1
+        (issue,) = result.result.resolution_failures
+        assert issue["artist"] == "TEED"
+        assert "Totally Enormous Extinct Dinosaurs" in str(issue["reason"])
+
+    async def test_the_same_artist_re_run_on_its_mbid_is_only_touched(self):
+        artist = make_artist(name="TEED", mbid=MBID)
+        mb_row_id = uuid7()
+        repo = make_connector_repo(
+            find_artists_by_connector_artist_ids={mb_row_id: artist}
+        )
+        upsert_returns(repo, {MBID: mb_row_id})
+        uow, _, artist_repo, connector_repo, _ = build(
+            [artist], lookup=make_lookup(url_rels=()), connector_repo=repo
+        )
+
+        result = await EnrichArtistsUseCase().execute(command(), uow)
+
+        connector_repo.assert_mappings.assert_not_awaited()
+        connector_repo.touch_last_seen.assert_awaited_once_with(
+            "musicbrainz", [mb_row_id], user_id=artist.user_id
+        )
+        # Refreshed, not re-mapped: the identity and aliases still land.
+        artist_repo.set_identity.assert_awaited_once()
+        assert result.result.summary_metrics.get("mappings_seeded") == 0
+        assert result.result.summary_metrics.get("shared_mbid") == 0
+        assert not result.result.resolution_failures
+
+
+class TestSharedConnectorRows:
+    """``connector_artists`` is global — a rel may add a row, never rewrite one."""
+
+    async def test_a_rel_never_overwrites_the_services_own_record(self):
+        artist = make_artist(name="TEED")
+        # What an import wrote from Spotify's own payload.
+        sp_row = ConnectorArtist(
+            connector_name="spotify",
+            connector_artist_identifier="sp-1",
+            name="Totally Enormous Extinct Dinosaurs",
+            raw_metadata={"genres": ["indietronica"], "popularity": 57},
+            id=uuid7(),
+        )
+        repo = make_connector_repo()
+        upsert_returns(repo, existing={"sp-1": sp_row})
+        uow, _, _, connector_repo, _ = build(
+            [artist], hits=[make_lookup()], connector_repo=repo
+        )
+
+        _ = await EnrichArtistsUseCase().execute(command(), uow)
+
+        # Insert-or-touch for the rel; full overwrite only where MusicBrainz'
+        # own payload is the thing being written.
+        assert [
+            call.args[0]
+            for call in connector_repo.ensure_connector_artists.call_args_list
+        ] == ["spotify"]
+        assert [
+            call.args[0]
+            for call in connector_repo.bulk_upsert_connector_artists.call_args_list
+        ] == ["musicbrainz"]
+        # The kept row is the one the mapping names.
+        (rows,) = connector_repo.assert_mappings.call_args.args
+        spotify_row = next(row for row in rows if row["connector_name"] == "spotify")
+        assert spotify_row["connector_artist_id"] == sp_row.id

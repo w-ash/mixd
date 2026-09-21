@@ -175,6 +175,42 @@ describe("Library", () => {
     expect(screen.queryByLabelText("Go to next page")).not.toBeInTheDocument();
   });
 
+  // Regression: a cursor page comes back with `total: null` (the backend only
+  // computes it on the first page). That used to collapse totalPages to 1 and
+  // unmount TablePagination — page 2 rendered with no way back or forward.
+  it("keeps pagination controls after paging to a cursor page reporting total: null", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/v1/tracks", ({ request }) => {
+        const hasCursor = new URL(request.url).searchParams.has("cursor");
+        return HttpResponse.json(
+          {
+            data: hasCursor ? makeTracks(50) : makeTracks(50),
+            total: hasCursor ? null : 120,
+            limit: 50,
+            offset: hasCursor ? 50 : 0,
+            next_cursor: hasCursor ? null : "cursor-1",
+          },
+          { status: 200 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Library />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
+    });
+    await user.click(screen.getByLabelText("Go to next page"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { current: "page" })).toHaveTextContent(
+        "2",
+      );
+    });
+    expect(screen.getByLabelText("Go to next page")).toBeInTheDocument();
+  });
+
   it("displays duration formatted as m:ss", async () => {
     overrideTracks([
       {

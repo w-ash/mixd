@@ -131,16 +131,26 @@ export function useKeysetPagination({
       // discarded or StrictMode-doubled render changes nothing.
       const next = response?.next_cursor;
       if (next) cursorsRef.current.set(rawPage, next);
+      // The backend only sends `total` on the first page of a result set
+      // (`include_total=not has_cursor`) — a cursor page reports `total: null`.
+      // Keep the last known total rather than collapsing it to 0, or
+      // `totalPages` would drop to 1 and the pagination controls would unmount
+      // out from under a user who just paged forward.
       // Setting state during render: React re-runs this component with the new
       // total before committing, so the controls below never render a stale
       // page count.
-      const nextTotal = response?.total ?? 0;
-      if (nextTotal !== total) setTotal(nextTotal);
+      const nextTotal = response?.total;
+      if (nextTotal != null && nextTotal !== total) setTotal(nextTotal);
     },
     [rawPage, total],
   );
 
-  const resetCursors = useCallback(() => cursorsRef.current.clear(), []);
+  const resetCursors = useCallback(() => {
+    cursorsRef.current.clear();
+    // A new filter describes a new result set with its own total — the old
+    // one must not leak into it.
+    setTotal(0);
+  }, []);
 
   return {
     ...derive(rawPage, total, defaultLimit),

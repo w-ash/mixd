@@ -3,10 +3,17 @@
 Pure ASGI middleware (not BaseHTTPMiddleware) for better performance and
 correct contextvars propagation. Adds:
 
-- **Weak ETags** from MD5 of response body (GET only, small bodies only)
+- **Weak ETags** from MD5 of response body (200 GET only, small bodies only)
 - **304 Not Modified** when ``If-None-Match`` matches
 - **Cache-Control** headers based on endpoint path
 - **Server-Timing** header for API response time measurement
+
+**The rule**: every GET is per-user and mutable unless it is listed in
+``_CACHE_POLICIES``, so the default is ``private, no-cache`` — the browser
+revalidates on every request and the ETag still answers an unchanged body with
+a 304. A ``max-age`` entry is an explicit claim that a response is neither
+user-scoped nor invalidated by a write. Non-200 responses carry no validator
+and no policy at all.
 """
 
 import hashlib
@@ -16,46 +23,30 @@ from typing import Final, cast
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-# Path prefix → Cache-Control value (longest prefix first — first match wins)
+# Path prefix → Cache-Control value (longest prefix first — first match wins).
+# Exceptions only: anything absent revalidates under _DEFAULT_POLICY.
 _CACHE_POLICIES: tuple[tuple[str, str], ...] = tuple(
     sorted(
         [
+            # Runtime-static catalogs — the node and template definitions ship
+            # with the build and only change on deploy.
             ("/api/v1/workflows/nodes", "max-age=86400, stale-while-revalidate=604800"),
-            ("/api/v1/stats/", "max-age=30, stale-while-revalidate=300"),
-            # Connector status is state-bearing (connect/disconnect must show
-            # immediately); no-cache forces revalidation and the ETag turns
-            # unchanged responses into 304s.
-            ("/api/v1/connectors", "no-cache"),
-            # The MusicKit developer token rides this response — never store
-            # it in any cache, shared or private. The longer prefix wins over
-            # the generic connectors entry via the longest-prefix-first sort.
             (
-                "/api/v1/connectors/apple_music/musickit-config",
-                "private, no-store",
+                "/api/v1/workflows/templates",
+                "max-age=86400, stale-while-revalidate=604800",
             ),
-            # Settings has a PATCH route — a GET after a write must revalidate
-            # (same staleness class as the connectors bug).
-            ("/api/v1/settings", "no-cache"),
-            # Per-user availability rides this list (a connect must light the
-            # card up on the next fetch), so it may never sit in a shared cache
-            # and must revalidate every time.
-            ("/api/v1/sync/targets", "private, no-cache"),
-            # The import queue is the page's only description of a drain: a cached
-            # idle answer would hide a queue registered seconds later.
-            ("/api/v1/imports/spotify/history/queue", "private, no-cache"),
-            # Favorites are per user and the page refetches an artist right after
-            # a favorite write; a cached answer would show the old state.
-            ("/api/v1/artists", "private, no-cache"),
+            # The MusicKit developer token rides this response — never store it
+            # in any cache, shared or private.
+            ("/api/v1/connectors/apple_music/musickit-config", "private, no-store"),
+            # Liveness probe: not user-scoped, so it needs no `private`.
             ("/api/v1/health", "no-cache"),
-            ("/api/v1/tracks", "max-age=10, stale-while-revalidate=60"),
-            ("/api/v1/playlists", "max-age=10, stale-while-revalidate=60"),
-            ("/api/v1/workflows", "max-age=10, stale-while-revalidate=60"),
         ],
         key=lambda p: -len(p[0]),
     )
 )
 
-_DEFAULT_POLICY = "max-age=10, stale-while-revalidate=30"
+# Every route is user-scoped, and any of them may be invalidated by a write.
+_DEFAULT_POLICY = "private, no-cache"
 
 # Bodies larger than this skip the ETag entirely and stream through unbuffered.
 # Hashing needs the whole body in memory twice (the chunk list plus the join), and
@@ -65,6 +56,9 @@ _DEFAULT_POLICY = "max-age=10, stale-while-revalidate=30"
 # Everything clients actually revalidate is far below this — ``GET /tracks`` caps
 # at limit=200, and the stats/settings/connectors payloads are a few KB.
 _MAX_ETAG_BODY_BYTES: Final = 256 * 1024
+
+# Only a 200 carries a representation worth validating or caching.
+_CACHEABLE_STATUS: Final = 200
 
 
 def _get_cache_policy(path: str) -> str:
@@ -78,10 +72,14 @@ def _get_cache_policy(path: str) -> str:
 class CachingMiddleware:
     """Pure ASGI middleware for HTTP caching headers.
 
-    Adds ETag, Cache-Control, and Server-Timing to GET responses.
-    Skips SSE streams and non-GET requests. Bodies past
-    ``_MAX_ETAG_BODY_BYTES`` keep Cache-Control and Server-Timing but lose the
-    ETag — conditional requests are not worth buffering multi-MB payloads for.
+    Adds ETag, Cache-Control, and Server-Timing to 200 GET responses.
+    Skips SSE streams and non-GET requests. Any other status — a 404, a 422, or
+    the 401 the wrapped auth gate returns — gets Server-Timing only: an error
+    body is not a cacheable representation of the resource, and stamping one
+    with a validator lets a client revalidate its way back to the failure.
+    Bodies past ``_MAX_ETAG_BODY_BYTES`` keep Cache-Control and Server-Timing
+    but lose the ETag — conditional requests are not worth buffering multi-MB
+    payloads for.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -118,9 +116,11 @@ class CachingMiddleware:
                 initial_message = message
                 response_headers = MutableHeaders(scope=message)
 
-                # Detect SSE — skip caching for streaming responses
+                # Only a 200 is a cacheable representation. Errors (and the auth
+                # gate's 401) and SSE streams pass through with timing only.
                 content_type = response_headers.get("content-type", "")
-                if "text/event-stream" in content_type:
+                status = cast(int, message.get("status", 0))
+                if status != _CACHEABLE_STATUS or "text/event-stream" in content_type:
                     is_passthrough = True
                     _add_server_timing(response_headers, start)
                     await send(message)

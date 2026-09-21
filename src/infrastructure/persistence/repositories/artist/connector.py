@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -108,6 +109,60 @@ class ConnectorArtistRepository(BaseRepository[DBConnectorArtist, ConnectorArtis
         )
         return {row.connector_artist_identifier: row for row in stored}
 
+    @db_operation("ensure_connector_artists")
+    async def ensure_connector_artists(
+        self, connector_name: str, artists: Sequence[ConnectorArtist]
+    ) -> dict[str, ConnectorArtist]:
+        """Insert the absent rows, touch the present ones, return them all.
+
+        The conflict arm moves ``last_updated`` and nothing else, so an
+        existing row keeps the service's own spelling and payload. This table
+        has no ``user_id``: one tenant inferring an id from a MusicBrainz
+        url-rel would otherwise rewrite the record every other tenant reads.
+
+        Submitted rows are deduplicated by identifier first — PostgreSQL
+        refuses a DO UPDATE that would touch one row twice in a statement.
+        """
+        if not artists:
+            return {}
+
+        now = datetime.now(UTC)
+        rows = {
+            artist.connector_artist_identifier: {
+                "id": artist.id,
+                "connector_name": connector_name,
+                "connector_artist_identifier": artist.connector_artist_identifier,
+                "name": artist.name,
+                "raw_metadata": artist.raw_metadata,
+                "last_updated": artist.last_updated or now,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for artist in artists
+        }
+
+        async with self.session.begin_nested():
+            insert = pg_insert(DBConnectorArtist).values(list(rows.values()))
+            stored = await self.session.execute(
+                insert
+                .on_conflict_do_update(
+                    constraint="uq_connector_artists_identity",
+                    set_={"last_updated": insert.excluded.last_updated},
+                )
+                .returning(DBConnectorArtist)
+                # The caller reads the stored row back. Without this the ORM
+                # hands over whatever the identity map already holds, so a row
+                # this transaction loaded earlier comes back with a stale
+                # ``last_updated`` and the touch looks like it never happened.
+                .execution_options(populate_existing=True)
+            )
+            db_rows = list(stored.scalars().all())
+
+        return {
+            row.connector_artist_identifier: await ConnectorArtistMapper.to_domain(row)
+            for row in db_rows
+        }
+
 
 class ArtistConnectorRepository:
     """Connects canonical artists with the services that know them.
@@ -133,6 +188,14 @@ class ArtistConnectorRepository:
     ) -> dict[str, ConnectorArtist]:
         """Upsert connector artist records, keyed by connector identifier."""
         return await self.connector_repo.bulk_upsert_connector_artists(
+            connector_name, artists
+        )
+
+    async def ensure_connector_artists(
+        self, connector_name: str, artists: Sequence[ConnectorArtist]
+    ) -> dict[str, ConnectorArtist]:
+        """Insert the connector artists that are absent, touch the ones that exist."""
+        return await self.connector_repo.ensure_connector_artists(
             connector_name, artists
         )
 

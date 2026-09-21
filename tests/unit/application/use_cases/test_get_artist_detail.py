@@ -137,6 +137,88 @@ class TestGetArtistDetailUseCase:
         assert ("Dan Snaith", "member") in by_relation
         assert ("discogs", "same_as") in by_relation
 
+    async def test_same_as_url_rels_keep_distinct_identifiers(self, mock_uow) -> None:
+        """Two url_rels for one service (alias projects) must not collapse.
+
+        Caribou's MusicBrainz entry states two Spotify artist ids — one for
+        the Caribou alias, one for Daphni — via two ``url_rels`` entries that
+        both name the "spotify" service. Naming both entries the same
+        (``name=service``) must not dedupe them down to one.
+        """
+        artist = make_artist("Caribou")
+        mock_uow.get_artist_repository().get_artist_by_id.return_value = artist
+        mock_uow.get_artist_connector_repository().get_full_mappings_for_artist.return_value = [
+            _mapping(
+                "musicbrainz",
+                "mbid-1",
+                name="Caribou",
+                raw_metadata={
+                    "url_rels": [
+                        {
+                            "service": "spotify",
+                            "identifier": "caribou-id",
+                            "url": "http://x",
+                        },
+                        {
+                            "service": "spotify",
+                            "identifier": "daphni-id",
+                            "url": "http://y",
+                        },
+                    ],
+                },
+            ),
+        ]
+
+        result = await GetArtistDetailUseCase().execute(
+            GetArtistDetailCommand(user_id="test-user", artist_id=artist.id), mock_uow
+        )
+
+        identifiers = {r.identifier for r in result.related if r.relation == "same_as"}
+        assert identifiers == {"caribou-id", "daphni-id"}
+
+    async def test_identical_url_rels_still_dedupe(self, mock_uow) -> None:
+        """Two mappings stating the same service url_rel collapse to one."""
+        artist = make_artist("Caribou")
+        mock_uow.get_artist_repository().get_artist_by_id.return_value = artist
+        mock_uow.get_artist_connector_repository().get_full_mappings_for_artist.return_value = [
+            _mapping(
+                "musicbrainz",
+                "mbid-1",
+                name="Caribou",
+                raw_metadata={
+                    "url_rels": [
+                        {
+                            "service": "spotify",
+                            "identifier": "caribou-id",
+                            "url": "http://x",
+                        }
+                    ],
+                },
+            ),
+            _mapping(
+                "discogs",
+                "55",
+                name="Caribou",
+                is_primary=False,
+                raw_metadata={
+                    "url_rels": [
+                        {
+                            "service": "spotify",
+                            "identifier": "caribou-id",
+                            "url": "http://x",
+                        }
+                    ],
+                },
+            ),
+        ]
+
+        result = await GetArtistDetailUseCase().execute(
+            GetArtistDetailCommand(user_id="test-user", artist_id=artist.id), mock_uow
+        )
+
+        same_as = [r for r in result.related if r.relation == "same_as"]
+        assert len(same_as) == 1
+
     async def test_malformed_payload_is_ignored(self, mock_uow) -> None:
         artist = make_artist("Broken")
         mock_uow.get_artist_repository().get_artist_by_id.return_value = artist
