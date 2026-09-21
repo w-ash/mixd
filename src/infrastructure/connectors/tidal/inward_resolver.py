@@ -47,9 +47,8 @@ from attrs import define
 
 from src.config import get_logger, settings
 from src.config.telemetry import phase
-from src.domain.entities import Track
+from src.domain.entities import ConnectorArtistCredit, Track
 from src.domain.exceptions import TidalAuthRequiredError
-from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.recording_identity import describe_recording
@@ -340,18 +339,28 @@ class TidalInwardResolver(WritePlanningResolver[TidalTrackDetail]):
     ) -> dict[str, object]:
         """JSON-able mapping metadata from the domain-facing detail."""
         detail = write.payload
-        artist_ids: list[str | None] = (
-            list(detail.artist_ids)
-            if len(detail.artist_ids) == len(detail.artist_names)
-            else [None] * len(detail.artist_names)
-        )
         return {
             "title": detail.track.title,
             "isrc": detail.track.isrc,
             "duration_seconds": detail.track.duration_seconds,
             "artist_names": list(detail.artist_names),
-            ARTIST_IDS_KEY: artist_ids,
         }
+
+    @override
+    def _connector_credits(
+        self, write: PlannedWrite[TidalTrackDetail]
+    ) -> tuple[ConnectorArtistCredit, ...]:
+        """The side-loaded artists, each with its Tidal id where the ids line up."""
+        detail = write.payload
+        ids: tuple[str | None, ...] = (
+            detail.artist_ids
+            if len(detail.artist_ids) == len(detail.artist_names)
+            else (None,) * len(detail.artist_names)
+        )
+        return tuple(
+            ConnectorArtistCredit(credited_name=name, connector_artist_identifier=aid)
+            for name, aid in zip(detail.artist_names, ids, strict=True)
+        )
 
     @override
     def _primary_mapping_id(self, write: PlannedWrite[TidalTrackDetail]) -> str:

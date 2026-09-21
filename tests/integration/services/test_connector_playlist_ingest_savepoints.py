@@ -46,7 +46,7 @@ from src.application.services.connector_playlist_processing_service import (
     ConnectorPlaylistProcessingService,
 )
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import ArtistCredit, ConnectorTrack
+from src.domain.entities import ArtistCredit, ConnectorArtistCredit, ConnectorTrack
 from src.domain.entities.track import Track
 from src.domain.repositories.errors import LOCK_NOT_AVAILABLE, postgres_sqlstate
 from src.infrastructure.persistence.database.models import DBTrack
@@ -65,7 +65,7 @@ def _connector_track(identifier: str, title: str) -> ConnectorTrack:
         connector_name=CONNECTOR,
         connector_track_identifier=identifier,
         title=title,
-        artists=[ArtistCredit(credited_name="Mount Kimbie")],
+        artists=[ConnectorArtistCredit(credited_name="Mount Kimbie")],
         album="Cold Spring Fault Less Youth",
         duration_ms=216399,
         isrc=f"GBBPW13{identifier[-5:]}",
@@ -506,7 +506,9 @@ class TestTheTwoWritersSerialize:
                             connector_name=CONNECTOR,
                             connector_track_identifier="sp_serial1",
                             title="You Took Your Time",
-                            artists=[ArtistCredit(credited_name="Mount Kimbie")],
+                            artists=[
+                                ConnectorArtistCredit(credited_name="Mount Kimbie")
+                            ],
                             album="Cold Spring Fault Less Youth",
                             duration_ms=216399,
                             isrc=self._ISRC,

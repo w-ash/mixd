@@ -13,7 +13,12 @@ from attrs import evolve
 
 from src.application.services.track_resolution import TrackResolutionService
 from src.config import create_matching_config
-from src.domain.entities import ArtistCredit, ConnectorTrack, Track
+from src.domain.entities import (
+    ArtistCredit,
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    Track,
+)
 from src.domain.repositories.connector import ConnectorMappingSpec
 from tests.fixtures import TEST_USER_ID, make_mock_uow, make_track
 
@@ -34,7 +39,7 @@ def _payload(
         connector_name=CONNECTOR,
         connector_track_identifier=identifier,
         title=title,
-        artists=[ArtistCredit(credited_name=artist)],
+        artists=[ConnectorArtistCredit(credited_name=artist)],
         album=album,
         duration_ms=duration_ms,
         isrc=isrc,
@@ -146,7 +151,7 @@ class TestAlreadyMapped:
         )
 
         uow.get_artist_minter().mint.assert_not_awaited()
-        uow.get_artist_connector_repository().bulk_upsert_connector_artists.assert_not_awaited()
+        uow.get_artist_connector_repository().find_connector_artists.assert_not_awaited()
         uow.savepoint.assert_not_called()
 
     async def test_an_unlinked_credit_keeps_the_heal(self):

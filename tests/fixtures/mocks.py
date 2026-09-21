@@ -240,6 +240,9 @@ def make_mock_artist_connector_repo(**overrides) -> AsyncMock:
     repo.bulk_upsert_connector_artists.return_value = overrides.pop(
         "bulk_upsert_connector_artists", {}
     )
+    repo.find_connector_artists.return_value = overrides.pop(
+        "find_connector_artists", {}
+    )
     repo.ensure_connector_artists.return_value = overrides.pop(
         "ensure_connector_artists", {}
     )

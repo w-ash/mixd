@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.config import create_matching_config
-from src.domain.entities import Track
+from src.domain.entities import ConnectorArtistCredit, Track
 from src.domain.matching.canonical_resolution import (
     Create,
     DeferToReview,
@@ -721,6 +721,11 @@ class PipelineResolver(WritePlanningResolver[str]):
 
     def _mapping_metadata(self, write: PlannedWrite[str]) -> dict[str, object]:
         return {"payload": write.payload}
+
+    def _connector_credits(
+        self, write: PlannedWrite[str]
+    ) -> tuple[ConnectorArtistCredit, ...]:
+        return (ConnectorArtistCredit(credited_name=write.payload),)
 
     def _successor_assertion(
         self, write: PlannedWrite[str], track: Track

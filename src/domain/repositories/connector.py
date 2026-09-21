@@ -10,6 +10,7 @@ from uuid import UUID
 from attrs import define
 
 from src.domain.entities import (
+    ConnectorArtistCredit,
     ConnectorPlaylist,
     ConnectorTrack,
     Track,
@@ -44,6 +45,12 @@ class ConnectorMappingSpec:
     confidence: int
     metadata: dict[str, object] | None = None
     confidence_evidence: dict[str, object] | None = None
+    # The connector's own credits for the ``connector_tracks`` row this
+    # mapping names — the service's artist ids ride on them. ``None`` means
+    # the caller holds no service payload (a review stub, a Last.fm mapping
+    # written from a canonical) and the row's credits are the track's
+    # names with no ids.
+    credits: tuple[ConnectorArtistCredit, ...] | None = None
     # Part of the asserted decision rather than a follow-up UPDATE (v0.10.2):
     # origin is one of the four fields that decide whether a re-assertion
     # supersedes the incumbent, so setting it afterwards would write the
@@ -68,6 +75,7 @@ class ConnectorMappingSpec:
         *,
         metadata: dict[str, object] | None,
         primary: bool,
+        credits: tuple[ConnectorArtistCredit, ...] | None = None,
     ) -> Self:
         """A mapping asserting a planner decision, priced as the planner priced it."""
         return cls(
@@ -78,6 +86,7 @@ class ConnectorMappingSpec:
             confidence=evidence.confidence,
             metadata=metadata,
             confidence_evidence=evidence.evidence,
+            credits=credits,
             primary=primary,
         )
 

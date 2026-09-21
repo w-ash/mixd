@@ -156,8 +156,8 @@ class TestIsrcReuse:
         assert spec.confidence == 100
         assert spec.primary is True
 
-    async def test_mapping_metadata_carries_positional_artist_ids(self):
-        """A catalog song has one credit and no per-artist id → ``[None]``."""
+    async def test_mapping_credits_carry_the_name_and_no_id(self):
+        """A catalog song has one credit and no per-artist id."""
         song = make_apple_song(song_id="101", isrc="USUM72309818")
         resolver, _ = _make_resolver([song])
         uow, track_repo, connector_repo, _ = _make_uow()
@@ -170,8 +170,13 @@ class TestIsrcReuse:
         saved = track_repo.save_track.await_args.args[0]
         (spec,) = _mapping_specs(connector_repo)
         assert spec.metadata is not None
-        assert spec.metadata["artist_ids"] == [None] * len(saved.artists)
         assert spec.metadata["id"] == "101"
+        assert "artist_ids" not in spec.metadata
+        assert spec.credits is not None
+        assert [c.credited_name for c in spec.credits] == [
+            a.credited_name for a in saved.artists
+        ]
+        assert [c.connector_artist_identifier for c in spec.credits] == [None]
 
 
 class TestUnresolvable:

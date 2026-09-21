@@ -60,9 +60,16 @@ def canonical_from_connector_track(
     contested or deliberately withheld ISRC stays on the connector track.
     ``unknown_artist`` stands in when the payload credits nobody; ``None``
     leaves the credit list as the payload gave it. The caller attaches the
-    connector id where the row should carry it.
+    connector id where the row should carry it. Each credit keeps the join
+    phrase and role the service stated; the canonical artist id is the
+    minter's to fill.
     """
-    artists = [ArtistCredit(credited_name=a.credited_name) for a in ct.artists]
+    artists = [
+        ArtistCredit(
+            credited_name=a.credited_name, join_phrase=a.join_phrase, role=a.role
+        )
+        for a in ct.artists
+    ]
     if not artists and unknown_artist is not None:
         artists = [ArtistCredit(credited_name=unknown_artist)]
     return Track(
@@ -309,7 +316,6 @@ class TrackResolutionService:
             logger.info(
                 "artists_minted",
                 connector=connector,
-                connector_artists=summary.connector_artists_upserted,
                 created=summary.artists_created,
                 reused=summary.artists_reused,
                 credits_assigned=summary.credits_assigned,

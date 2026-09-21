@@ -27,7 +27,6 @@ from attrs import define, evolve
 
 from src.config import create_evaluation_service, get_logger, settings
 from src.domain.entities import Track
-from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.domain.matching.canonical_resolution import (
     DeferToReview,
     Described,
@@ -49,7 +48,7 @@ from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.listenbrainz.lookup import ListenBrainzLookup
 from src.infrastructure.connectors.spotify import SpotifyConnector
-from src.infrastructure.connectors.spotify.conversions import spotify_artist_ids
+from src.infrastructure.connectors.spotify.conversions import spotify_artist_credits
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
 from src.infrastructure.connectors.spotify.utilities import search_and_evaluate_attempt
 
@@ -386,13 +385,10 @@ class SpotifyCrossDiscoveryProvider:
         if probe.best is None or probe.spotify_id is None or probe.match_result is None:
             return Nothing()
 
-        # Positional ``artist_ids`` beside the dump, as every Spotify
-        # conversion writes them: the mapping's metadata is what the artist
-        # minter reads after the Last.fm resolver persists this outcome.
-        best_dict: dict[str, object] = {
-            **probe.best.model_dump(),
-            ARTIST_IDS_KEY: spotify_artist_ids(probe.best.artists),
-        }
+        # The dump is the mapping's metadata; the record's credits (artist
+        # ids on board) travel beside it for the connector-track row the
+        # Last.fm resolver writes when it persists this outcome.
+        best_dict: dict[str, object] = probe.best.model_dump()
         if probe.spotify_isrc:
             if isrc_owners is None:
                 # The batched ISRC read failed — the same failure a
@@ -422,6 +418,7 @@ class SpotifyCrossDiscoveryProvider:
             match_method="lastfm_discovery",
             metadata=best_dict,
             confidence_evidence=probe.match_result.evidence_dict,
+            credits=spotify_artist_credits(probe.best.artists),
             album=probe.best.album.name if probe.best.album else None,
             duration_ms=probe.best.duration_ms,
             isrc=probe.spotify_isrc,
@@ -478,6 +475,7 @@ class SpotifyCrossDiscoveryProvider:
                 match_method=outcome.evidence.method,
                 metadata=best_dict,
                 confidence_evidence=outcome.evidence.evidence,
+                credits=spotify_artist_credits(best.artists),
             )
 
         if outcome.kind == "defer_to_review":
@@ -490,6 +488,7 @@ class SpotifyCrossDiscoveryProvider:
             match_method="lastfm_discovery",
             metadata=best_dict,
             confidence_evidence=match_result.evidence_dict,
+            credits=spotify_artist_credits(best.artists),
             album=best.album.name if best.album else None,
             duration_ms=best.duration_ms,
             isrc=None,  # contested ISRC stripped — the new canonical won't claim it

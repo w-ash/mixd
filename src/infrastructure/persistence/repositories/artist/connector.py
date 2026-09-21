@@ -109,6 +109,24 @@ class ConnectorArtistRepository(BaseRepository[DBConnectorArtist, ConnectorArtis
         )
         return {row.connector_artist_identifier: row for row in stored}
 
+    @db_operation("find_connector_artists")
+    async def find_connector_artists(
+        self, connector_name: str, identifiers: Sequence[str]
+    ) -> dict[str, ConnectorArtist]:
+        """The stored rows for a connector's identifiers, keyed by identifier."""
+        if not identifiers:
+            return {}
+        result = await self.session.execute(
+            select(DBConnectorArtist).where(
+                DBConnectorArtist.connector_name == connector_name,
+                DBConnectorArtist.connector_artist_identifier.in_(list(identifiers)),
+            )
+        )
+        return {
+            row.connector_artist_identifier: await ConnectorArtistMapper.to_domain(row)
+            for row in result.scalars().all()
+        }
+
     @db_operation("ensure_connector_artists")
     async def ensure_connector_artists(
         self, connector_name: str, artists: Sequence[ConnectorArtist]
@@ -197,6 +215,14 @@ class ArtistConnectorRepository:
         """Insert the connector artists that are absent, touch the ones that exist."""
         return await self.connector_repo.ensure_connector_artists(
             connector_name, artists
+        )
+
+    async def find_connector_artists(
+        self, connector_name: str, identifiers: Sequence[str]
+    ) -> dict[str, ConnectorArtist]:
+        """The stored connector-artist rows for a connector's identifiers."""
+        return await self.connector_repo.find_connector_artists(
+            connector_name, identifiers
         )
 
     @db_operation("touch_artist_mappings_last_seen")

@@ -5,7 +5,7 @@ Pure track representations and related value objects with zero external dependen
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Literal, Self, TypedDict, cast, overload
+from typing import Literal, Protocol, Self, TypedDict, cast, overload
 from uuid import UUID, uuid7
 
 import attrs
@@ -44,11 +44,44 @@ class ArtistCredit:
     )
 
 
-def credits_display(credits: Sequence[ArtistCredit]) -> str:
+@define(frozen=True, slots=True)
+class ConnectorArtistCredit:
+    """One artist credit as a service states it on its own track record.
+
+    The connector twin of :class:`ArtistCredit`. ``connector_artist_identifier``
+    is the service's own artist id (a Spotify artist id, a MusicBrainz artist
+    MBID, a Last.fm name) and never a canonical ``artists.id`` — a connector
+    track is a global record and must not point into one tenant's library.
+    ``None`` is valid: Apple's song payload names its artist without an id.
+    """
+
+    credited_name: str = field(validator=validators.instance_of(str))
+    connector_artist_identifier: str | None = field(
+        default=None, validator=validators.optional(validators.instance_of(str))
+    )
+    join_phrase: str | None = field(
+        default=None, validator=validators.optional(validators.instance_of(str))
+    )
+    role: str | None = field(
+        default=None, validator=validators.optional(validators.instance_of(str))
+    )
+
+
+class Credited(Protocol):
+    """What a credit must expose to be displayed: its name and its connective."""
+
+    @property
+    def credited_name(self) -> str: ...
+
+    @property
+    def join_phrase(self) -> str | None: ...
+
+
+def credits_display(credits: Sequence[Credited]) -> str:
     """Concatenate credited names, joined by each credit's join phrase or ", ".
 
-    The last credit's join phrase is never emitted — there is nothing after
-    it to join.
+    One implementation for canonical and connector credits alike. The last
+    credit's join phrase is never emitted — there is nothing after it to join.
     """
     parts: list[str] = []
     last = len(credits) - 1
@@ -70,6 +103,23 @@ def _validate_artists(
     for credit in value:
         if not isinstance(credit, ArtistCredit):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(f"Expected ArtistCredit, got {type(credit).__name__}")
+
+
+def _validate_connector_credits(
+    _instance: object,
+    _attribute: attrs.Attribute[tuple[ConnectorArtistCredit, ...]],
+    value: tuple[object, ...],
+) -> None:
+    """A connector track's credits are connector credits, never canonical ones.
+
+    Typed over ``object`` on purpose: the converter accepts any iterable, so
+    what arrives at runtime is whatever the caller passed.
+    """
+    for credit in value:
+        if not isinstance(credit, ConnectorArtistCredit):
+            raise TypeError(
+                f"Expected ConnectorArtistCredit, got {type(credit).__name__}"
+            )
 
 
 @define(frozen=True, slots=True)
@@ -207,7 +257,9 @@ class ConnectorTrack:
     connector_name: str
     connector_track_identifier: str
     title: str
-    artists: tuple[ArtistCredit, ...] = field(converter=tuple)
+    artists: tuple[ConnectorArtistCredit, ...] = field(
+        converter=tuple, validator=_validate_connector_credits
+    )
     album: str | None = None
     duration_ms: int | None = None
     isrc: str | None = None

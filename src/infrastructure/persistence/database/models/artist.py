@@ -10,9 +10,10 @@ permanent, so a changed decision rewrites the row and the event log is the only
 history. The generic mapping repository reads that off its ``MappingShape``,
 so the capability can be switched on later as columns, not code.
 
-This module references ``tracks`` by name and imports nothing but ``base`` —
-``track`` names :class:`DBTrackArtist` only under ``TYPE_CHECKING`` for its
-view-only credit collection.
+This module references ``tracks`` and ``connector_tracks`` by name and imports
+nothing but ``base`` — ``track`` names :class:`DBTrackArtist` and
+:class:`DBConnectorTrackArtist` only under ``TYPE_CHECKING`` for its view-only
+credit collections.
 """
 
 from datetime import datetime
@@ -290,6 +291,54 @@ class DBTrackArtist(BaseEntity):
         Index("ix_track_artists_artist", "artist_id"),
         # "All tracks by artist X", which is always user-scoped.
         Index("ix_track_artists_user_artist", "user_id", "artist_id"),
+    )
+
+
+class DBConnectorTrackArtist(BaseEntity):
+    """One artist credit on one connector track, at one position.
+
+    The connector twin of :class:`DBTrackArtist`: a global record (no
+    ``user_id``, no RLS, like ``connector_tracks``) of what a service says
+    about a track's line-up, pointing at the service's own artist record.
+
+    ``connector_artist_id`` is nullable and ``ON DELETE SET NULL``: a credit
+    whose service gave no artist id (Apple's song payload) has no record to
+    point at and keeps its credited name. Writes go through Core
+    ``ON CONFLICT`` from the connector row-builder, so there is no writable
+    ``relationship()`` on the track side — ``DBConnectorTrack.artist_credits``
+    is ``viewonly``.
+    """
+
+    __tablename__: str = "connector_track_artists"
+
+    connector_track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey("connector_tracks.id", ondelete="CASCADE"),
+    )
+    connector_artist_id: Mapped[UuidType | None] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey("connector_artists.id", ondelete="SET NULL"),
+    )
+    # Zero-based; the credit order on the service's record.
+    position: Mapped[int] = mapped_column(nullable=False)
+    credited_name: Mapped[str] = mapped_column(String(), nullable=False)
+    join_phrase: Mapped[str | None] = mapped_column(String())
+    role: Mapped[str | None] = mapped_column(String())
+
+    # Many-to-one; the mapper reads the service identifier through it.
+    connector_artist: Mapped[DBConnectorArtist | None] = relationship(
+        lazy="raise_on_sql",
+    )
+
+    __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint(
+            "connector_track_id",
+            "position",
+            name="uq_connector_track_artists_track_position",
+        ),
+        CheckConstraint("position >= 0", name="position_nonneg"),
+        # The SET NULL FK needs its own index for the delete-time probe.
+        Index("ix_connector_track_artists_artist", "connector_artist_id"),
     )
 
 

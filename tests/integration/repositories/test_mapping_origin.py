@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import ArtistCredit, ConnectorTrack
+from src.domain.entities import ConnectorArtistCredit, ConnectorTrack
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.models import DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
@@ -35,7 +35,7 @@ async def _create_track_with_mapping(
         connector_name=connector,
         connector_track_identifier=connector_id,
         title=title,
-        artists=[ArtistCredit(credited_name="Test Artist")],
+        artists=[ConnectorArtistCredit(credited_name="Test Artist")],
         raw_metadata={},
         last_updated=datetime.now(UTC),
     )
@@ -93,7 +93,7 @@ class TestIngestSkipsManualOverride:
             connector_name="spotify",
             connector_track_identifier="sp_manual_001",
             title="Test Track",
-            artists=[ArtistCredit(credited_name="Test Artist")],
+            artists=[ConnectorArtistCredit(credited_name="Test Artist")],
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
@@ -126,7 +126,7 @@ class TestIngestSkipsManualOverride:
             connector_name="spotify",
             connector_track_identifier="sp_auto_001",
             title="Test Track",
-            artists=[ArtistCredit(credited_name="Test Artist")],
+            artists=[ConnectorArtistCredit(credited_name="Test Artist")],
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
@@ -158,7 +158,7 @@ class TestIngestSkipsManualOverride:
             connector_name="spotify",
             connector_track_identifier="sp_full_001",
             title="Test Track",
-            artists=[ArtistCredit(credited_name="Test Artist")],
+            artists=[ConnectorArtistCredit(credited_name="Test Artist")],
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
@@ -223,7 +223,7 @@ class TestMapTracksSkipsManualOverride:
                     connector_name="spotify",
                     connector_track_identifier="sp_shared_001",
                     title="Test Track",
-                    artists=[ArtistCredit(credited_name="Test Artist")],
+                    artists=[ConnectorArtistCredit(credited_name="Test Artist")],
                     raw_metadata={},
                     last_updated=datetime.now(UTC),
                 )

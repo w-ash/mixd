@@ -1,20 +1,24 @@
 """Tests for Spotify track conversion — ``convert_spotify_track_to_connector``.
 
-Pins the ``raw_metadata`` shape: the full model dump plus ``album_id``,
-``explicit`` and the positional ``artist_ids`` that stay aligned with the
-credits the connector track carries.
+Pins the credits: each carries the Spotify artist id on itself (``None``
+where Spotify sent none), and the ``raw_metadata`` shape stays the full model
+dump plus ``album_id`` and ``explicit``.
 """
 
 from src.infrastructure.connectors.spotify.conversions import (
     convert_spotify_track_to_connector,
-    spotify_artist_ids,
+    spotify_artist_credits,
 )
 from src.infrastructure.connectors.spotify.models import SpotifyAlbum, SpotifyArtist
 from tests.fixtures import make_spotify_track
 
 
-class TestArtistIds:
-    def test_artist_ids_are_positional_with_credits(self):
+def _credits(ct) -> list[tuple[str, str | None]]:
+    return [(a.credited_name, a.connector_artist_identifier) for a in ct.artists]
+
+
+class TestArtistCredits:
+    def test_each_credit_carries_its_artist_id(self):
         track = make_spotify_track(
             "sp1",
             "Song",
@@ -26,10 +30,9 @@ class TestArtistIds:
 
         ct = convert_spotify_track_to_connector(track)
 
-        assert [a.credited_name for a in ct.artists] == ["Alpha", "Beta"]
-        assert ct.raw_metadata["artist_ids"] == ["a1", "a2"]
+        assert _credits(ct) == [("Alpha", "a1"), ("Beta", "a2")]
 
-    def test_missing_id_is_none_and_keeps_alignment(self):
+    def test_missing_id_is_none_on_that_credit(self):
         track = make_spotify_track(
             "sp1",
             "Song",
@@ -38,8 +41,7 @@ class TestArtistIds:
 
         ct = convert_spotify_track_to_connector(track)
 
-        assert [a.credited_name for a in ct.artists] == ["NoId", "Beta"]
-        assert ct.raw_metadata["artist_ids"] == [None, "a2"]
+        assert _credits(ct) == [("NoId", None), ("Beta", "a2")]
 
     def test_every_artist_keeps_its_credit_and_id(self):
         track = make_spotify_track(
@@ -50,12 +52,18 @@ class TestArtistIds:
 
         ct = convert_spotify_track_to_connector(track)
 
-        assert [a.credited_name for a in ct.artists] == ["", "Beta"]
-        assert ct.raw_metadata["artist_ids"] == ["ghost", "a2"]
+        assert _credits(ct) == [("", "ghost"), ("Beta", "a2")]
 
-    def test_spotify_artist_ids_maps_missing_id_to_none(self):
+    def test_no_artist_ids_ride_in_the_raw_metadata(self):
+        ct = convert_spotify_track_to_connector(make_spotify_track("sp1", "Song"))
+        assert "artist_ids" not in ct.raw_metadata
+
+    def test_spotify_artist_credits_maps_missing_id_to_none(self):
         artists = [SpotifyArtist(name="NoId"), SpotifyArtist(id="a2", name="Beta")]
-        assert spotify_artist_ids(artists) == [None, "a2"]
+        assert [
+            (c.credited_name, c.connector_artist_identifier)
+            for c in spotify_artist_credits(artists)
+        ] == [("NoId", None), ("Beta", "a2")]
 
 
 class TestRawMetadataShape:

@@ -1,10 +1,17 @@
-"""Expand ``tracks.artists`` JSONB into ``track_artists`` rows.
+"""Expand ``tracks.artists`` and ``connector_tracks.artists`` JSONB into credit rows.
 
-The expand half of expand/contract. The JSONB column stays authoritative this
-cycle — the matching layer reads ``artist_normalized`` / ``artists_text``
-precomputed from it — so this migration only adds the relational copy. The
-contract migration that drops the JSONB ships separately, after the matching
-readers repoint and their characterization tests pass.
+The expand half of expand/contract, for both credit tables. The JSONB columns
+stay authoritative this cycle — the matching layer reads ``artist_normalized``
+/ ``artists_text`` precomputed from them — so this migration only adds the
+relational copies. The contract migration that drops the JSONB ships
+separately, after the matching readers repoint and their characterization
+tests pass.
+
+The connector side runs in three set-based steps: mint ``connector_artists``
+from the ``artists`` dumps the stored payloads carry, then expand each
+``connector_tracks.artists`` name into a ``connector_track_artists`` row that
+points at the record minted for the dump at the same position (NULL where the
+dump has no id there). Both tables are global, so no RLS bracket is needed.
 
 One set-based ``INSERT … SELECT``, no batching: production is ~82k tracks
 (~100k credit rows), which is seconds. The statement itself lives in
@@ -39,6 +46,8 @@ import sqlalchemy as sa
 
 from alembic import op
 from src.infrastructure.persistence.database.backfills import (
+    backfill_connector_artists_sql,
+    backfill_connector_track_artists_sql,
     backfill_track_artists_sql,
 )
 
@@ -61,9 +70,17 @@ def upgrade() -> None:
     finally:
         for table in _RLS_TABLES:
             op.execute(sa.text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
+    _ = op.get_bind().execute(sa.text(backfill_connector_artists_sql()))
+    _ = op.get_bind().execute(sa.text(backfill_connector_track_artists_sql()))
 
 
 def downgrade() -> None:
+    """Empty both credit tables; the JSONB columns rebuild them on the way up.
+
+    The ``connector_artists`` records minted on the way up stay: an import
+    since may have mapped them, and they are the service's facts either way.
+    """
+    op.execute(sa.text("DELETE FROM connector_track_artists"))
     op.execute(sa.text("ALTER TABLE track_artists NO FORCE ROW LEVEL SECURITY"))
     try:
         op.execute(sa.text("DELETE FROM track_artists"))

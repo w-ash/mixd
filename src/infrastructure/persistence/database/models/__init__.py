@@ -25,6 +25,7 @@ from src.infrastructure.persistence.database.models.artist import (
     DBArtistFavorite,
     DBArtistMapping,
     DBConnectorArtist,
+    DBConnectorTrackArtist,
     DBTrackArtist,
 )
 from src.infrastructure.persistence.database.models.auth import (
@@ -103,6 +104,7 @@ __all__ = [
     "DBConnectorPlay",
     "DBConnectorPlaylist",
     "DBConnectorTrack",
+    "DBConnectorTrackArtist",
     "DBMatchReview",
     "DBOAuthAuthorizationCode",
     "DBOAuthAuthorizationRequest",

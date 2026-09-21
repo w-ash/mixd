@@ -13,7 +13,12 @@ from src.application.use_cases.unlink_connector_track import (
     UnlinkConnectorTrackCommand,
     UnlinkConnectorTrackUseCase,
 )
-from src.domain.entities import ArtistCredit, ConnectorTrack, Track
+from src.domain.entities import (
+    ArtistCredit,
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    Track,
+)
 from src.domain.entities.track_mapping import TrackMapping
 from src.domain.exceptions import NotFoundError
 from tests.fixtures import (
@@ -54,7 +59,7 @@ def _make_connector_track(
         connector_name=connector_name,
         connector_track_identifier=external_id,
         title="Test Track",
-        artists=[ArtistCredit(credited_name="Test Artist")],
+        artists=[ConnectorArtistCredit(credited_name="Test Artist")],
     )
 
 

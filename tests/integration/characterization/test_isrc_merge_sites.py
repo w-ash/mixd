@@ -16,7 +16,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import ArtistCredit, ConnectorTrack, Track
+from src.domain.entities import (
+    ArtistCredit,
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    Track,
+)
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.spotify.cross_discovery import (
     SpotifyCrossDiscoveryProvider,
@@ -69,7 +74,7 @@ class TestSaveTrackIsrcGuard:
                     connector_name="spotify",
                     connector_track_identifier="sp_gold_rush_remaster",
                     title="Gold Rush (2024 Remaster)",
-                    artists=[ArtistCredit(credited_name="Neon Priest")],
+                    artists=[ConnectorArtistCredit(credited_name="Neon Priest")],
                     album="Remaster Compilation",
                     duration_ms=215_000,
                     isrc="USNP12400001",
@@ -122,7 +127,7 @@ class TestSaveTrackIsrcGuard:
                     connector_name="spotify",
                     connector_track_identifier="sp_gold_rush_deluxe",
                     title="Gold Rush",
-                    artists=[ArtistCredit(credited_name="Neon Priest")],
+                    artists=[ConnectorArtistCredit(credited_name="Neon Priest")],
                     album="Debut (Deluxe)",
                     duration_ms=200_500,  # within tolerance
                     isrc="USNP12400001",
@@ -250,8 +255,8 @@ class TestCrossDiscoveryReusesIsrcOwner:
         # (non-suspect collision).
         artist_mock = MagicMock()
         artist_mock.name = "Radiohead"
-        # A string id, as Spotify sends: the mapping's metadata carries the
-        # positional ``artist_ids`` the artist minter reads.
+        # A string id, as Spotify sends: it rides on the mapping's credits,
+        # which the artist minter reads.
         artist_mock.id = "sp_radiohead"
         spotify_match = MagicMock()
         spotify_match.id = "sp_creep_b"

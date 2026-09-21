@@ -1,11 +1,12 @@
 """The import-path artist minting walk: connector ids → canonical artists.
 
-Every connector track ingested brings positional ``artist_ids`` in its raw
-metadata. This walk turns them into ``connector_artists`` rows, canonical
-``artists`` where none holds the id yet, the mappings that say so, and the
-``track_artists.artist_id`` fills on the credits that named them. Same
-transaction as the track write, zero network, and every decision the
-domain's (``domain.matching.artist_resolution``): the minter does the
+Every connector track ingested carries the service's own artist ids on its
+credits, and the connector-track writer has already stored the
+``connector_artists`` records they name. This walk reads those records back,
+mints canonical ``artists`` where none holds the id yet, the mappings that
+say so, and the ``track_artists.artist_id`` fills on the credits that named
+them. Same transaction as the track write, zero network, and every decision
+the domain's (``domain.matching.artist_resolution``): the minter does the
 repository calls in the order ``ArtistWrites`` lists them.
 
 One home for both callers — the application ``ArtistResolutionService`` and
@@ -44,26 +45,25 @@ class ArtistMinter:
         user_id: str,
         config: MatchingConfig,
     ) -> ArtistMintSummary:
-        """Upsert connector records, probe owners, plan, and persist the writes.
+        """Read the connector records, probe owners, plan, and persist the writes.
 
-        Order matters and is the domain's: connector rows first (their ids
-        are the strong ids), then the owner probe, the planner, the new
-        artists, their mappings (with primaries elected and the accept
-        events recorded), the credit fills, and last the freshness touch on
-        every artist reused. Runs inside the caller's transaction.
+        Order matters and is the domain's: the stored connector rows first
+        (their ids are the strong ids), then the owner probe, the planner,
+        the new artists, their mappings (with primaries elected and the
+        accept events recorded), the credit fills, and last the freshness
+        touch on every artist reused. Runs inside the caller's transaction.
         """
         intake = credited_artists(connector, sources)
-        if not intake.connector_artists:
+        if not intake.claims:
             return ArtistMintSummary()
 
         artist_connectors = self.uow.get_artist_connector_repository()
-        stored = await artist_connectors.bulk_upsert_connector_artists(
-            connector, list(intake.connector_artists)
+        stored = await artist_connectors.find_connector_artists(
+            connector, intake.identifiers
         )
-        upserted = len(stored)
         described = intake.described(stored)
         if not described:
-            return ArtistMintSummary(connector_artists_upserted=upserted)
+            return ArtistMintSummary()
 
         owners = await artist_connectors.find_artists_by_connector_artist_ids(
             [stored[item.key].id for item in described], user_id=user_id
@@ -109,7 +109,6 @@ class ArtistMinter:
                 connector, list(owners), user_id=user_id
             )
         return ArtistMintSummary(
-            connector_artists_upserted=upserted,
             artists_created=len(writes.artists),
             artists_reused=len(writes.reused),
             credits_assigned=assigned,

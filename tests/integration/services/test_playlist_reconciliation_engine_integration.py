@@ -15,9 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
 )
+from src.domain.entities import ConnectorArtistCredit
 from src.domain.entities.playlist import ConnectorPlaylist, ConnectorPlaylistItem
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
-from src.domain.entities.track import ArtistCredit, ConnectorTrack
+from src.domain.entities.track import ConnectorTrack
 from src.domain.playlist.diff_engine import PlaylistOpsOutcome
 from src.infrastructure.persistence.database.models import (
     DBConnectorPlaylist,
@@ -106,7 +107,8 @@ def _fake_conversion_connector() -> MagicMock:
             connector_track_identifier=data["id"],
             title=data.get("name") or "Untitled",
             artists=[
-                ArtistCredit(credited_name=a["name"]) for a in data.get("artists", [])
+                ConnectorArtistCredit(credited_name=a["name"])
+                for a in data.get("artists", [])
             ],
         )
 

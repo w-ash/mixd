@@ -230,6 +230,7 @@ class TestCrossDiscoveryISRCCollision:
         # Mock Spotify search returning a match with Track A's ISRC
         artist_mock = MagicMock()
         artist_mock.name = "Radiohead"
+        artist_mock.id = "sp-radiohead"
         spotify_match = MagicMock()
         spotify_match.id = "sp_different_release"
         spotify_match.name = "Creep"

@@ -20,6 +20,7 @@ from src.domain.entities import (
 from src.domain.entities.operations import TrackContextFields
 from src.domain.entities.track import (
     ArtistCredit,
+    ConnectorArtistCredit,
     ConnectorTrack,
     Track,
     TrackLike,
@@ -210,14 +211,61 @@ class TestCreditsDisplay:
         assert credits_display(()) == ""
 
     def test_track_and_connector_track_delegate(self):
-        credits = [
-            ArtistCredit(credited_name="A", join_phrase=" x "),
-            ArtistCredit(credited_name="B"),
-        ]
-        track = Track(title="T", artists=credits, user_id=TEST_USER_ID)
-        connector_track = ConnectorTrack("spotify", "sp1", "T", credits)
+        """One implementation displays canonical and connector credits alike."""
+        track = Track(
+            title="T",
+            artists=[
+                ArtistCredit(credited_name="A", join_phrase=" x "),
+                ArtistCredit(credited_name="B"),
+            ],
+            user_id=TEST_USER_ID,
+        )
+        connector_track = ConnectorTrack(
+            "spotify",
+            "sp1",
+            "T",
+            [
+                ConnectorArtistCredit(credited_name="A", join_phrase=" x "),
+                ConnectorArtistCredit(credited_name="B"),
+            ],
+        )
         assert track.artists_display == "A x B"
         assert connector_track.artists_display == "A x B"
+
+    def test_connector_credits_display_through_the_same_function(self):
+        credits = [
+            ConnectorArtistCredit(
+                credited_name="Thom Yorke",
+                connector_artist_identifier="mb-1",
+                join_phrase=" & ",
+            ),
+            ConnectorArtistCredit(credited_name="PJ Harvey"),
+        ]
+        assert credits_display(credits) == "Thom Yorke & PJ Harvey"
+
+
+class TestConnectorArtistCredit:
+    """A service's own credit: its artist id is the service's, never a canonical one."""
+
+    def test_identifier_join_phrase_and_role_default_to_none(self):
+        credit = ConnectorArtistCredit(credited_name="Tycho")
+        assert credit.connector_artist_identifier is None
+        assert credit.join_phrase is None
+        assert credit.role is None
+
+    def test_carries_the_service_identifier(self):
+        credit = ConnectorArtistCredit(
+            credited_name="Tycho", connector_artist_identifier="sp-1", role="remixer"
+        )
+        assert credit.connector_artist_identifier == "sp-1"
+        assert credit.role == "remixer"
+
+    def test_has_no_canonical_artist_id_slot(self):
+        assert not hasattr(ConnectorArtistCredit(credited_name="Tycho"), "artist_id")
+
+    def test_connector_track_rejects_canonical_credits(self):
+        with pytest.raises(TypeError, match="Expected ConnectorArtistCredit"):
+            ConnectorTrack("spotify", "sp1", "T", [ArtistCredit(credited_name="A")])
 
 
 class TestTrackCredits:
@@ -231,7 +279,7 @@ class TestTrackCredits:
 
     def test_connector_track_list_literal_is_converted_to_tuple(self):
         connector_track = ConnectorTrack(
-            "spotify", "sp1", "T", [ArtistCredit(credited_name="A")]
+            "spotify", "sp1", "T", [ConnectorArtistCredit(credited_name="A")]
         )
         assert isinstance(connector_track.artists, tuple)
 

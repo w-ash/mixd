@@ -21,18 +21,15 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Generator, Hashable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import cast
 
 from attrs import Factory, define, evolve, field
 
 from src.config import create_evaluation_service, get_logger
-from src.domain.entities import Track
+from src.domain.entities import ConnectorArtistCredit, Track
 from src.domain.entities.match_review import MatchReview
-from src.domain.entities.shared import JsonValue
 from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.artist_resolution import (
     ArtistCreditSource,
-    credit_source,
     credited_artists,
 )
 from src.domain.matching.canonical_resolution import (
@@ -723,7 +720,7 @@ async def mint_credit_artists(
     goes on. Transient contention still propagates. A batch that names no
     connector artist never opens the savepoint.
     """
-    if not credited_artists(connector, sources).connector_artists:
+    if not credited_artists(connector, sources).claims:
         return
     try:
         async with uow.savepoint():
@@ -747,15 +744,6 @@ async def mint_credit_artists(
             created=summary.artists_created,
             credits_assigned=summary.credits_assigned,
         )
-
-
-def json_metadata(metadata: Mapping[str, object]) -> Mapping[str, JsonValue]:
-    """A mapping's JSON-able metadata as the domain's credit reader takes it.
-
-    ``_mapping_metadata`` is JSON-able by contract (it is what the mapping
-    row stores), so the view is a retyping, not a conversion.
-    """
-    return cast("Mapping[str, JsonValue]", metadata)
 
 
 class LeaderNotPersistedError(LookupError):
@@ -920,6 +908,16 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
     @abstractmethod
     def _mapping_metadata(self, write: PlannedWrite[TPayload]) -> dict[str, object]:
         """JSON-able metadata the main connector mapping stores."""
+
+    @abstractmethod
+    def _connector_credits(
+        self, write: PlannedWrite[TPayload]
+    ) -> tuple[ConnectorArtistCredit, ...]:
+        """The connector's own credits for the write's payload, service ids on board.
+
+        What the connector-track row stores as its credit rows, and what the
+        artist minter reads the ids from.
+        """
 
     @abstractmethod
     def _successor_assertion(
@@ -1193,15 +1191,11 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
 
         # Every write, held ones included: a re-encountered track heals the
         # credits an earlier pass left without ids. The payload's own credits
-        # line up with its ``artist_ids``; the canonical's need not.
+        # carry the ids; the canonical's line-up need not match them.
         await mint_credit_artists(
             self.connector_name,
             [
-                credit_source(
-                    write.requested_id,
-                    self._canonical_payload(write, user_id=user_id).artists,
-                    json_metadata(self._mapping_metadata(write)),
-                )
+                ArtistCreditSource(write.requested_id, self._connector_credits(write))
                 for write in writes
             ],
             canonicals,
@@ -1357,6 +1351,7 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
                             primary_method=write.match_method,
                             confidence=write.confidence,
                             metadata=self._mapping_metadata(write),
+                            credits=self._connector_credits(write),
                         )
                     )
                 continue
@@ -1369,6 +1364,7 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
                     confidence=write.confidence,
                     metadata=self._mapping_metadata(write),
                     confidence_evidence=write.evidence.evidence,
+                    credits=self._connector_credits(write),
                     primary=write.primary,
                 )
             )
@@ -1380,6 +1376,7 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
                         requested_id=write.requested_id,
                         primary_method=write.match_method,
                         confidence=write.confidence,
+                        credits=self._connector_credits(write),
                     )
                 )
         return specs

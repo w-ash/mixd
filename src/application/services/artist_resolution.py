@@ -1,10 +1,10 @@
 """Mint canonical artists from the ids a connector payload already carries.
 
 The import-path half of artist identity, as the application sees it: every
-connector track ingested brings positional ``artist_ids`` in its raw
-metadata, and this service reads them into credit sources and hands them to
-the unit of work's artist minter, which does the walk. Same transaction as
-the track write, zero network — an import never waits on MusicBrainz.
+connector track ingested carries the service's own artist ids on its
+credits, and this service hands those credits to the unit of work's artist
+minter, which does the walk. Same transaction as the track write, zero
+network — an import never waits on MusicBrainz.
 """
 
 from collections.abc import Mapping, Sequence
@@ -13,7 +13,7 @@ from attrs import Factory, define
 
 from src.config import create_matching_config
 from src.domain.entities import ConnectorTrack, Track
-from src.domain.matching.artist_resolution import ArtistCreditSource, credit_source
+from src.domain.matching.artist_resolution import ArtistCreditSource
 from src.domain.matching.config import MatchingConfig
 from src.domain.repositories.artist import ArtistMintSummary
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -48,9 +48,7 @@ class ArtistResolutionService:
         return await self.mint(
             connector,
             [
-                credit_source(
-                    track.connector_track_identifier, track.artists, track.raw_metadata
-                )
+                ArtistCreditSource(track.connector_track_identifier, track.artists)
                 for track in tracks
             ],
             uow,

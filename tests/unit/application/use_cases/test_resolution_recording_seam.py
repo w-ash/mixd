@@ -26,7 +26,11 @@ from src.application.use_cases.resolve_match_review import (
 )
 from src.config.constants import ReviewStatus
 from src.domain.entities.match_review import MatchReview
-from src.domain.entities.track import ArtistCredit, ConnectorTrack, TrackList
+from src.domain.entities.track import (
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    TrackList,
+)
 from src.domain.matching.types import ConfidenceEvidence, EvaluationResult, MatchResult
 from tests.fixtures import TEST_USER_ID, make_track
 from tests.fixtures.mocks import make_mock_uow
@@ -199,7 +203,7 @@ class TestReviewResolutionRouting:
             connector_name="spotify",
             connector_track_identifier="sp_gray",
             title=track.title,
-            artists=[ArtistCredit(credited_name="Someone")],
+            artists=[ConnectorArtistCredit(credited_name="Someone")],
         )
         uow.get_track_repository().get_track_by_id.return_value = track
 

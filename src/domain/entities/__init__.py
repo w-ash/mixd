@@ -88,6 +88,7 @@ from .tag import (
 )
 from .track import (
     ArtistCredit,
+    ConnectorArtistCredit,
     ConnectorTrack,
     MetadataKey,
     Track,
@@ -121,6 +122,7 @@ __all__ = [
     "Capability",
     "CheckStatus",
     "ConnectorArtist",
+    "ConnectorArtistCredit",
     "ConnectorAuthError",
     "ConnectorAuthMethod",
     "ConnectorCategory",

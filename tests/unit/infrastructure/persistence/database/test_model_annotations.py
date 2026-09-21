@@ -11,7 +11,11 @@ from annotationlib import Format, ForwardRef, get_annotations
 import pytest
 from sqlalchemy.orm import configure_mappers
 
-from src.infrastructure.persistence.database.models.artist import DBTrackArtist
+from src.infrastructure.persistence.database.models.artist import (
+    DBConnectorArtist,
+    DBConnectorTrackArtist,
+    DBTrackArtist,
+)
 from src.infrastructure.persistence.database.models.mapping import DBTrackMapping
 from src.infrastructure.persistence.database.models.play import (
     DBConnectorPlay,
@@ -31,6 +35,8 @@ from src.infrastructure.persistence.database.models.track import (
         (DBTrack, "connector_plays", DBConnectorPlay),
         (DBConnectorTrack, "mappings", DBTrackMapping),
         (DBTrack, "artist_credits", DBTrackArtist),
+        (DBConnectorTrack, "artist_credits", DBConnectorTrackArtist),
+        (DBConnectorTrackArtist, "connector_artist", DBConnectorArtist),
     ],
 )
 def test_reverse_relationship_resolves_through_the_registry(

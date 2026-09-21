@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 from src.config import create_matching_config
-from src.domain.entities import ArtistCredit, Track
+from src.domain.entities import ArtistCredit, ConnectorArtistCredit, Track
 from src.domain.entities.artist import Artist, ConnectorArtist
 from src.domain.matching.artist_resolution import (
     ArtistCreditSource,
@@ -18,9 +18,7 @@ from src.domain.matching.artist_resolution import (
     ArtistResolutionRules,
     artist_identity_key,
     artist_writes,
-    credit_source,
     credited_artists,
-    dumped_credits,
     plan_artist_resolution,
 )
 from src.domain.matching.canonical_resolution import Described
@@ -114,119 +112,79 @@ class TestPlan:
         assert {outcome.kind for outcome in plan.values()} == {"create"}
 
 
+def _credit(name: str, identifier: str | None) -> ConnectorArtistCredit:
+    return ConnectorArtistCredit(
+        credited_name=name, connector_artist_identifier=identifier
+    )
+
+
 class TestCreditedArtists:
-    def test_spotify_shaped_payload_yields_records_and_claims(self):
-        source = credit_source(
-            "t1",
-            [
-                ArtistCredit(credited_name="Caribou"),
-                ArtistCredit(credited_name="Koushik"),
-            ],
-            {
-                "artist_ids": ["sp-1", "sp-2"],
-                "artists": [
-                    {"id": "sp-1", "name": "Caribou", "uri": "spotify:artist:sp-1"},
-                    {"id": "sp-2", "name": "Koushik"},
-                ],
-            },
+    def test_spotify_shaped_payload_yields_one_claim_per_credited_id(self):
+        source = ArtistCreditSource(
+            "t1", [_credit("Caribou", "sp-1"), _credit("Koushik", "sp-2")]
         )
         intake = credited_artists("spotify", [source])
 
-        assert [a.connector_artist_identifier for a in intake.connector_artists] == [
-            "sp-1",
-            "sp-2",
-        ]
-        assert intake.connector_artists[0].raw_metadata == {
-            "id": "sp-1",
-            "name": "Caribou",
-            "uri": "spotify:artist:sp-1",
-        }
         assert [(c.key, c.credited_name, c.identifier) for c in intake.claims] == [
             ("t1", "Caribou", "sp-1"),
             ("t1", "Koushik", "sp-2"),
         ]
+        assert intake.identifiers == ["sp-1", "sp-2"]
+        assert intake.names == {"sp-1": "Caribou", "sp-2": "Koushik"}
 
     def test_none_ids_and_various_artists_are_skipped(self):
-        source = credit_source(
-            "t1",
-            [
-                ArtistCredit(credited_name="Various Artists"),
-                ArtistCredit(credited_name="Tycho"),
-            ],
-            {"artist_ids": [None, "sp-9"]},
+        source = ArtistCreditSource(
+            "t1", [_credit("Various Artists", None), _credit("Tycho", "sp-9")]
         )
-        apple = credit_source(
-            "t2", [ArtistCredit(credited_name="Tycho")], {"artist_ids": [None]}
-        )
+        apple = ArtistCreditSource("t2", [_credit("Tycho", None)])
         intake = credited_artists("spotify", [source, apple])
 
-        assert [a.connector_artist_identifier for a in intake.connector_artists] == [
-            "sp-9"
-        ]
-        assert [c.key for c in intake.claims] == ["t1"]
+        assert [(c.key, c.identifier) for c in intake.claims] == [("t1", "sp-9")]
 
-    def test_a_various_artists_id_is_never_a_record(self):
-        source = credit_source(
-            "t1", [ArtistCredit(credited_name="Various")], {"artist_ids": ["sp-va"]}
-        )
-        assert credited_artists("spotify", [source]).connector_artists == ()
+    def test_a_various_artists_id_is_never_a_claim(self):
+        source = ArtistCreditSource("t1", [_credit("Various", "sp-va")])
+        assert credited_artists("spotify", [source]).claims == ()
 
-    def test_a_name_keyed_connector_writes_records_but_no_claims(self):
-        source = ArtistCreditSource(
-            key="a::b",
-            artists=[ArtistCredit(credited_name="Bonobo")],
-            artist_ids=["Bonobo"],
-        )
+    def test_a_name_keyed_connector_claims_nothing(self):
+        source = ArtistCreditSource("a::b", [_credit("Bonobo", "Bonobo")])
         intake = credited_artists("lastfm", [source])
 
-        assert intake.connector_artists[0].connector_artist_identifier == "Bonobo"
         assert intake.claims == ()
-        assert intake.described({"Bonobo": intake.connector_artists[0]}) == []
+        assert intake.described(_stored("lastfm", "Bonobo")) == []
 
-    def test_a_misaligned_dump_is_not_attached(self):
-        source = credit_source(
-            "t1",
-            [ArtistCredit(credited_name="Caribou")],
-            {"artist_ids": ["sp-1"], "artists": [{"id": "sp-other", "name": "X"}]},
+    def test_the_first_sighting_names_a_repeated_identifier(self):
+        source = ArtistCreditSource(
+            "t1", [_credit("Caribou", "sp-1"), _credit("caribou", "sp-1")]
         )
-        assert (
-            credited_artists("spotify", [source]).connector_artists[0].raw_metadata
-            == {}
-        )
+        intake = credited_artists("spotify", [source])
 
-    def test_dumped_credits_read_names_out_of_a_spotify_dump(self):
-        assert dumped_credits({
-            "artists": [{"id": "sp-1", "name": "Caribou"}, {"id": "x"}]
-        }) == (ArtistCredit(credited_name="Caribou"),)
-        assert dumped_credits({"artists": "nope"}) == ()
+        assert intake.identifiers == ["sp-1"]
+        assert intake.names == {"sp-1": "Caribou"}
 
     def test_described_files_each_identifier_under_its_stored_row_id(self):
-        source = credit_source(
-            "t1",
-            [
-                ArtistCredit(credited_name="Caribou"),
-                ArtistCredit(credited_name="Caribou"),
-            ],
-            {"artist_ids": ["sp-1", "sp-1"]},
+        source = ArtistCreditSource(
+            "t1", [_credit("Caribou", "sp-1"), _credit("Caribou", "sp-1")]
         )
         intake = credited_artists("spotify", [source])
         stored = _stored("spotify", "sp-1")
 
         (item,) = intake.described(stored)
         assert item.key == "sp-1"
+        assert item.description == ArtistDescription(name="Caribou")
         assert item.strong_id == str(stored["sp-1"].id)
         assert item.name_key is None
+
+    def test_an_identifier_without_a_stored_row_is_not_described(self):
+        source = ArtistCreditSource("t1", [_credit("Caribou", "sp-1")])
+        intake = credited_artists("spotify", [source])
+
+        assert intake.described({}) == []
 
 
 class TestArtistWrites:
     def _intake_and_stored(self):
-        source = credit_source(
-            "t1",
-            [
-                ArtistCredit(credited_name="Caribou"),
-                ArtistCredit(credited_name="Koushik"),
-            ],
-            {"artist_ids": ["sp-1", "sp-2"]},
+        source = ArtistCreditSource(
+            "t1", [_credit("Caribou", "sp-1"), _credit("Koushik", "sp-2")]
         )
         return credited_artists("spotify", [source]), _stored("spotify", "sp-1", "sp-2")
 

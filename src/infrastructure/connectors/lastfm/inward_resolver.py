@@ -48,13 +48,9 @@ from attrs import define, evolve
 from pydantic import ValidationError
 
 from src.config import get_logger, settings
-from src.domain.entities import ArtistCredit, Track
+from src.domain.entities import ArtistCredit, ConnectorArtistCredit, Track
 from src.domain.entities.track_mapping import MatchMethod
-from src.domain.matching.artist_resolution import (
-    ArtistCreditSource,
-    credit_source,
-    dumped_credits,
-)
+from src.domain.matching.artist_resolution import ArtistCreditSource
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.protocols import (
     CrossDiscoveryProvider,
@@ -74,11 +70,11 @@ from src.infrastructure.connectors._shared.fan_out import bounded_fan_out
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     ReuseMetadata,
-    json_metadata,
     mint_credit_artists,
     persist_bulk_with_item_fallback,
 )
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
+from src.infrastructure.connectors.lastfm.conversions import lastfm_artist_credit
 from src.infrastructure.connectors.lastfm.identifiers import (
     make_lastfm_identifier,
     parse_lastfm_identifier,
@@ -138,6 +134,8 @@ class _PlannedSpotifyMapping:
     confidence: int
     metadata: dict[str, object]
     confidence_evidence: dict[str, object] | None
+    # The Spotify record's credits, artist ids on board.
+    credits: tuple[ConnectorArtistCredit, ...]
 
 
 @define(frozen=True, slots=True)
@@ -385,6 +383,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                     confidence=outcome.confidence,
                     metadata=outcome.metadata,
                     confidence_evidence=outcome.confidence_evidence,
+                    credits=outcome.credits,
                 )
             logger.info(
                 f"Cross-discovery reused canonical {outcome.track.id} for "
@@ -403,6 +402,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                 confidence=outcome.confidence,
                 metadata=outcome.metadata,
                 confidence_evidence=outcome.confidence_evidence,
+                credits=outcome.credits,
             )
 
         # Price against what the mappings will actually attach to: the
@@ -510,34 +510,18 @@ class LastfmInwardResolver(InwardTrackResolver):
         *,
         user_id: str,
     ) -> None:
-        """The artist records this chunk owes, after its mapping write.
+        """The artists this chunk owes, after its mapping write.
 
-        Last.fm's artist identifier is the name string, so its connector
-        rows are cached but never minted from (a name is capped evidence,
-        never identity). A cross-discovered Spotify mapping carries real
-        artist ids in its dump and mints like any Spotify payload.
+        Last.fm's artist identifier is the name string: the mapping write
+        cached its connector rows, and nothing is minted from them (a name
+        is capped evidence, never identity). A cross-discovered Spotify
+        mapping carries real artist ids on its credits and mints like any
+        Spotify payload.
         """
-        config = self._match_evaluation_service.config
-        await mint_credit_artists(
-            self.connector_name,
-            [
-                ArtistCreditSource(
-                    key=write.identifier,
-                    artists=write.probe.artists,
-                    artist_ids=[c.credited_name for c in write.probe.artists],
-                )
-                for write in writes
-            ],
-            canonicals,
-            uow,
-            user_id=user_id,
-            config=config,
-        )
         spotify_sources = [
-            credit_source(write.identifier, dumped_credits(dump), dump)
+            ArtistCreditSource(write.identifier, write.spotify_mapping.credits)
             for write in writes
             if write.spotify_mapping is not None
-            for dump in (json_metadata(write.spotify_mapping.metadata),)
         ]
         if spotify_sources:
             await mint_credit_artists(
@@ -546,7 +530,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                 canonicals,
                 uow,
                 user_id=user_id,
-                config=config,
+                config=self._match_evaluation_service.config,
             )
 
     @staticmethod
@@ -570,6 +554,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                         "track_name": planned.track_name,
                     },
                     confidence_evidence=planned.confidence_evidence,
+                    credits=(lastfm_artist_credit(planned.artist_name),),
                     primary=planned.primary,
                 )
                 for planned in write.lastfm_mappings
@@ -585,6 +570,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                         confidence=spotify.confidence,
                         metadata=spotify.metadata,
                         confidence_evidence=spotify.confidence_evidence,
+                        credits=spotify.credits,
                         primary=True,
                     )
                 )

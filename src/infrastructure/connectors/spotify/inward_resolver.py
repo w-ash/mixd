@@ -50,8 +50,7 @@ from attrs import define, evolve
 from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.config.telemetry import phase
-from src.domain.entities import ArtistCredit, Track
-from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
+from src.domain.entities import ArtistCredit, ConnectorArtistCredit, Track
 from src.domain.matching.canonical_resolution import ResolutionEvidence
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import MatchEvaluationService
@@ -73,7 +72,7 @@ from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
 )
 from src.infrastructure.connectors.spotify import SpotifyConnector
-from src.infrastructure.connectors.spotify.conversions import spotify_artist_ids
+from src.infrastructure.connectors.spotify.conversions import spotify_artist_credits
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
 
 from .utilities import (
@@ -306,14 +305,14 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
 
     @override
     def _mapping_metadata(self, write: PlannedWrite[SpotifyTrack]) -> dict[str, object]:
-        # Credits come from create_track_from_spotify_data, which keeps only
-        # named artists; the ids cover the same artists so they stay aligned.
-        return {
-            **write.payload.model_dump(),
-            ARTIST_IDS_KEY: spotify_artist_ids(
-                a for a in write.payload.artists if a.name
-            ),
-        }
+        return write.payload.model_dump()
+
+    @override
+    def _connector_credits(
+        self, write: PlannedWrite[SpotifyTrack]
+    ) -> tuple[ConnectorArtistCredit, ...]:
+        # The same named artists ``create_track_from_spotify_data`` credits.
+        return spotify_artist_credits(a for a in write.payload.artists if a.name)
 
     @override
     def _primary_mapping_id(self, write: PlannedWrite[SpotifyTrack]) -> str:

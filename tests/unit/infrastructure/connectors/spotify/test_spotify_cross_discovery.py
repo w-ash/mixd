@@ -56,6 +56,7 @@ def _spotify_track_mock(
     """A validated-SpotifyTrack stand-in shaped like the search results."""
     artist_mock = MagicMock()
     artist_mock.name = artist
+    artist_mock.id = "sp-artist"
     match = MagicMock()
     match.id = spotify_id
     match.name = name
@@ -88,6 +89,7 @@ class TestSuccessfulDiscovery:
     async def test_returns_new_mapping_for_matching_track(self):
         artist_mock = MagicMock()
         artist_mock.name = "Radiohead"
+        artist_mock.id = "sp-artist"
 
         album_mock = MagicMock()
         album_mock.name = "Pablo Honey"
@@ -165,7 +167,7 @@ class TestLowConfidence:
         spotify_match = MagicMock()
         spotify_match.id = "spotify456"
         spotify_match.name = "Completely Different Song"
-        spotify_match.artists = [MagicMock(name="Someone Else")]
+        spotify_match.artists = [MagicMock(name="Someone Else", id="sp-someone")]
         spotify_match.duration_ms = 120000
         spotify_match.album = None
         spotify_match.external_ids = None
@@ -217,6 +219,7 @@ class TestISRCCollision:
 
         artist_mock = MagicMock()
         artist_mock.name = "Same Artist"
+        artist_mock.id = "sp-artist"
 
         spotify_match = MagicMock()
         spotify_match.id = "spotify123"
@@ -262,6 +265,7 @@ class TestISRCCollision:
 
         artist_mock = MagicMock()
         artist_mock.name = "Neon Priest"
+        artist_mock.id = "sp-artist"
 
         spotify_match = MagicMock()
         spotify_match.id = "sp_remaster"
@@ -304,6 +308,7 @@ class TestISRCCollision:
         """When the ISRC is not in the DB, a normal NewMapping is returned."""
         artist_mock = MagicMock()
         artist_mock.name = "Radiohead"
+        artist_mock.id = "sp-artist"
 
         spotify_match = MagicMock()
         spotify_match.id = "spotify123"
@@ -386,6 +391,7 @@ class TestListenBrainzIntegration:
 
         artist_mock = MagicMock()
         artist_mock.name = "Artist"
+        artist_mock.id = "sp-artist"
         spotify_match = MagicMock()
         spotify_match.id = "spotify123"
         spotify_match.name = "Song"
@@ -421,6 +427,7 @@ class TestListenBrainzIntegration:
 
         artist_mock = MagicMock()
         artist_mock.name = "Artist"
+        artist_mock.id = "sp-artist"
         spotify_match = MagicMock()
         spotify_match.id = "spotify123"
         spotify_match.name = "Song"
@@ -458,6 +465,7 @@ class TestListenBrainzIntegration:
 
         artist_mock = MagicMock()
         artist_mock.name = "Artist"
+        artist_mock.id = "sp-artist"
         spotify_match = MagicMock()
         spotify_match.id = "spotify123"
         spotify_match.name = "Song"
@@ -496,6 +504,7 @@ class TestListenBrainzIntegration:
 
         artist_mock = MagicMock()
         artist_mock.name = "Artist"
+        artist_mock.id = "sp-artist"
         spotify_match = MagicMock()
         spotify_match.id = "spotify123"
         spotify_match.name = "Song"
@@ -530,6 +539,7 @@ class TestListenBrainzIntegration:
         """When no ListenBrainz lookup is configured, Spotify search is used directly."""
         artist_mock = MagicMock()
         artist_mock.name = "Radiohead"
+        artist_mock.id = "sp-artist"
         spotify_match = MagicMock()
         spotify_match.id = "spotify123"
         spotify_match.name = "Creep"

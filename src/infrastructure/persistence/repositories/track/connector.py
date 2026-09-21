@@ -16,23 +16,35 @@ instantiation, adding only what the generic cannot know about tracks: the
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import cast, overload, override
-from uuid import UUID
+from uuid import UUID, uuid7
 
-from attrs import define
+from attrs import define, evolve
 from sqlalchemy import (
     ColumnElement,
     Integer,
     Numeric,
     case,
+    column as sa_column,
+    delete,
     func,
     select,
     text,
     update,
+    values as sa_values,
 )
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
-from src.domain.entities import ArtistCredit, ConnectorTrack, Track, TrackMapping
+from src.domain.entities import (
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    Track,
+    TrackMapping,
+)
+from src.domain.entities.artist import ConnectorArtist
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.track_mapping import (
     MappingOrigin,
@@ -63,13 +75,17 @@ from src.infrastructure.persistence.database.live_rows import (
     live_only,
 )
 from src.infrastructure.persistence.database.models import (
+    DBConnectorArtist,
     DBConnectorTrack,
+    DBConnectorTrackArtist,
     DBResolutionNegative,
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     artist_names_column,
+    build_connector_credit_rows,
     build_connector_track_row,
+    connector_artist_records,
     extract_db_artist_names,
 )
 from src.infrastructure.persistence.repositories._shared.mapping import (
@@ -77,6 +93,9 @@ from src.infrastructure.persistence.repositories._shared.mapping import (
     MappingAssertion,
     MappingRepository,
     MappingShape,
+)
+from src.infrastructure.persistence.repositories.artist.connector import (
+    ConnectorArtistRepository,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
@@ -104,6 +123,20 @@ def _not_stale_id(model: type[DBTrackMapping]) -> ColumnElement[bool]:
     live-rows invariant itself (``test_live_rows_conformance`` reads for it).
     """
     return model.match_method.notin_(STALE_ID_METHODS)
+
+
+# The credits one ``connector_tracks`` row stores, keyed by the row's identity.
+type CreditsByKey = Mapping[tuple[str, str], tuple[ConnectorArtistCredit, ...]]
+
+
+def _name_credits(names: Sequence[str]) -> tuple[ConnectorArtistCredit, ...]:
+    """Credits for a writer that holds only names: no ids, no join phrases."""
+    return tuple(ConnectorArtistCredit(credited_name=name) for name in names)
+
+
+def _key_of(track: ConnectorTrack) -> tuple[str, str]:
+    """The ``(connector, external id)`` identity of a stored connector row."""
+    return (track.connector_name, track.connector_track_identifier)
 
 
 def _connector_id_map(stored: Sequence[ConnectorTrack]) -> dict[tuple[str, str], UUID]:
@@ -141,15 +174,19 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
         Returns:
             ConnectorTrack domain entity.
         """
+        credit_rows = db_model.loaded_list(
+            DBConnectorTrack.artist_credits, DBConnectorTrackArtist
+        )
         return ConnectorTrack(
             id=db_model.id,
             connector_name=db_model.connector_name,
             connector_track_identifier=db_model.connector_track_identifier,
             title=db_model.title,
-            artists=[
-                ArtistCredit(credited_name=n)
-                for n in extract_db_artist_names(db_model.artists)
-            ],
+            artists=(
+                [_credit_from_row(row) for row in credit_rows]
+                if credit_rows
+                else _name_credits(extract_db_artist_names(db_model.artists))
+            ),
             album=db_model.album,
             duration_ms=db_model.duration_ms,
             release_date=db_model.release_date,
@@ -184,9 +221,32 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
 
     @override
     @staticmethod
-    def get_default_relationships() -> list[str]:
-        """Get related entities to load when querying connector tracks."""
-        return ["mappings"]
+    def get_default_relationships() -> Sequence[str | ORMOption]:
+        """Get related entities to load when querying connector tracks.
+
+        The credit rows are what the mapper reads the service artist ids
+        from, through each row's connector-artist record: a to-one the
+        ``joinedload`` cannot multiply.
+        """
+        return [
+            "mappings",
+            selectinload(DBConnectorTrack.artist_credits).joinedload(
+                DBConnectorTrackArtist.connector_artist
+            ),
+        ]
+
+
+def _credit_from_row(row: DBConnectorTrackArtist) -> ConnectorArtistCredit:
+    """One stored credit row as the domain credit, identifier through its record."""
+    record = row.loaded_one(DBConnectorTrackArtist.connector_artist, DBConnectorArtist)
+    return ConnectorArtistCredit(
+        credited_name=row.credited_name,
+        connector_artist_identifier=(
+            record.connector_artist_identifier if record is not None else None
+        ),
+        join_phrase=row.join_phrase,
+        role=row.role,
+    )
 
 
 @define(frozen=True, slots=True)
@@ -323,6 +383,8 @@ class TrackConnectorRepository:
     connector_repo: ConnectorTrackRepository
     mapping_repo: TrackMappingRepository
     track_repo: TrackRepository
+    # The connector-artist cache the credit rows point into.
+    artist_repo: ConnectorArtistRepository
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session and dependent repositories."""
@@ -330,6 +392,7 @@ class TrackConnectorRepository:
         self.connector_repo = ConnectorTrackRepository(session)
         self.mapping_repo = TrackMappingRepository(session)
         self.track_repo = TrackRepository(session)
+        self.artist_repo = ConnectorArtistRepository(session)
 
     @db_operation("ensure_connector_tracks")
     async def ensure_connector_tracks(
@@ -347,25 +410,33 @@ class TrackConnectorRepository:
         now = datetime.now(UTC)
         # Application-layer rows are ``Mapping[str, object]`` — the casts state
         # what each key is known to hold; the shared builder types the columns.
-        upsert_data: list[dict[str, object]] = [
-            build_connector_track_row(
-                connector_name,
-                cast("str", td["connector_id"]),
-                title=cast("str", td.get("title", "")),
-                artist_names=cast("Sequence[str]", td.get("artists", [])),
-                album=cast("str | None", td.get("album")),
-                duration_ms=cast("int | None", td.get("duration_ms")),
-                release_date=cast("datetime | None", td.get("release_date")),
-                isrc=cast("str | None", td.get("isrc")),
-                raw_metadata=cast(
-                    "Mapping[str, object] | None", td.get("raw_metadata")
-                ),
-                last_updated=now,
+        # The caller holds names only, so the credits carry no ids.
+        upsert_data: list[dict[str, object]] = []
+        credits: dict[tuple[str, str], tuple[ConnectorArtistCredit, ...]] = {}
+        for td in tracks_data:
+            identifier = cast("str", td["connector_id"])
+            names = cast("Sequence[str]", td.get("artists", []))
+            upsert_data.append(
+                build_connector_track_row(
+                    connector_name,
+                    identifier,
+                    title=cast("str", td.get("title", "")),
+                    artist_names=names,
+                    album=cast("str | None", td.get("album")),
+                    duration_ms=cast("int | None", td.get("duration_ms")),
+                    release_date=cast("datetime | None", td.get("release_date")),
+                    isrc=cast("str | None", td.get("isrc")),
+                    raw_metadata=cast(
+                        "Mapping[str, object] | None", td.get("raw_metadata")
+                    ),
+                    last_updated=now,
+                )
             )
-            for td in tracks_data
-        ]
+            credits[connector_name, identifier] = _name_credits(names)
 
-        return _connector_id_map(await self._upsert_connector_tracks(upsert_data))
+        return _connector_id_map(
+            await self._upsert_connector_tracks(upsert_data, credits)
+        )
 
     @db_operation("get_full_mappings_for_track")
     async def get_full_mappings_for_track(
@@ -546,7 +617,7 @@ class TrackConnectorRepository:
             if connector_track_ids is not None
             else _connector_id_map(
                 await self._upsert_connector_tracks(
-                    self._build_connector_track_rows(mappings)
+                    *self._build_connector_track_rows(mappings)
                 )
             )
         )
@@ -596,22 +667,31 @@ class TrackConnectorRepository:
 
     def _build_connector_track_rows(
         self, mappings: list[ConnectorMappingSpec]
-    ) -> list[dict[str, object]]:
-        """Build deduplicated connector-track upsert rows (one per external id)."""
+    ) -> tuple[list[dict[str, object]], CreditsByKey]:
+        """Build deduplicated connector-track upsert rows (one per external id).
+
+        Beside the rows, the credits each row stores: the spec's own
+        connector credits where the caller held the service payload, else
+        the canonical's names with no ids.
+        """
         now = datetime.now(UTC)
         rows: list[dict[str, object]] = []
-        seen_keys: set[tuple[str, str]] = set()
+        credits: dict[tuple[str, str], tuple[ConnectorArtistCredit, ...]] = {}
         for spec in mappings:
             key = (spec.connector, spec.connector_id)
-            if key in seen_keys:
+            if key in credits:
                 continue
-            seen_keys.add(key)
+            credits[key] = (
+                spec.credits
+                if spec.credits is not None
+                else _name_credits([a.credited_name for a in spec.track.artists])
+            )
             rows.append(
                 build_connector_track_row(
                     spec.connector,
                     spec.connector_id,
                     title=spec.track.title,
-                    artist_names=[a.credited_name for a in spec.track.artists],
+                    artist_names=[c.credited_name for c in credits[key]],
                     album=spec.track.album,
                     duration_ms=spec.track.duration_ms,
                     release_date=spec.track.release_date,
@@ -620,7 +700,7 @@ class TrackConnectorRepository:
                     last_updated=now,
                 )
             )
-        return rows
+        return rows, credits
 
     @staticmethod
     def _build_updated_tracks(mappings: list[ConnectorMappingSpec]) -> list[Track]:
@@ -643,14 +723,94 @@ class TrackConnectorRepository:
         return updated_tracks
 
     async def _upsert_connector_tracks(
-        self, rows: list[dict[str, object]]
+        self, rows: list[dict[str, object]], credits: CreditsByKey
     ) -> list[ConnectorTrack]:
         """The one ``connector_tracks`` write: bulk upsert on the external id.
 
-        Intra-batch duplicates are last-wins inside ``bulk_upsert``.
+        Intra-batch duplicates are last-wins inside ``bulk_upsert``. The
+        credit rows follow once the connector rows exist, and the entities
+        returned carry the credits just written.
         """
-        return await self.connector_repo.bulk_upsert(
+        stored = await self.connector_repo.bulk_upsert(
             rows, lookup_keys=["connector_name", "connector_track_identifier"]
+        )
+        await self._write_connector_credits(stored, credits)
+        return [
+            evolve(ct, artists=credits.get(_key_of(ct), ct.artists)) for ct in stored
+        ]
+
+    async def _write_connector_credits(
+        self, stored: Sequence[ConnectorTrack], credits: CreditsByKey
+    ) -> None:
+        """Keep ``connector_track_artists`` current for the connector rows just written.
+
+        Connector artists first: the records the credits name are ensured
+        (insert-or-touch, one statement per connector) so the credit rows'
+        FK can point at them. Then one upsert on ``(connector_track_id,
+        position)`` taking every incoming column — a connector credit is the
+        service's own statement, so its latest one wins outright — and one
+        delete shrinking any row whose credit count fell.
+        """
+        if not stored:
+            return
+
+        records: dict[str, dict[str, ConnectorArtist]] = {}
+        for ct in stored:
+            for record in connector_artist_records(
+                ct.connector_name, credits.get(_key_of(ct), ()), ct.raw_metadata
+            ):
+                records.setdefault(ct.connector_name, {}).setdefault(
+                    record.connector_artist_identifier, record
+                )
+        artist_ids: dict[str, dict[str, UUID]] = {}
+        for connector_name, by_identifier in records.items():
+            ensured = await self.artist_repo.ensure_connector_artists(
+                connector_name, list(by_identifier.values())
+            )
+            artist_ids[connector_name] = {
+                identifier: row.id for identifier, row in ensured.items()
+            }
+
+        now = datetime.now(UTC)
+        rows: list[dict[str, object]] = []
+        extents: list[tuple[UUID, int]] = []
+        for ct in stored:
+            ct_credits = credits.get(_key_of(ct), ())
+            rows.extend(
+                {**row, "id": uuid7(), "created_at": now, "updated_at": now}
+                for row in build_connector_credit_rows(
+                    ct.id, ct_credits, artist_ids.get(ct.connector_name, {})
+                )
+            )
+            extents.append((ct.id, len(ct_credits)))
+
+        if rows:
+            stmt = pg_insert(DBConnectorTrackArtist).values(rows)
+            excluded = stmt.excluded
+            await self.session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["connector_track_id", "position"],
+                    set_={
+                        "connector_artist_id": excluded.connector_artist_id,
+                        "credited_name": excluded.credited_name,
+                        "join_phrase": excluded.join_phrase,
+                        "role": excluded.role,
+                        "updated_at": now,
+                    },
+                )
+            )
+
+        extent_values = sa_values(
+            sa_column("connector_track_id", PGUUID(as_uuid=True)),
+            sa_column("credit_count", Integer),
+            name="credit_extents",
+        ).data(extents)
+        await self.session.execute(
+            delete(DBConnectorTrackArtist).where(
+                DBConnectorTrackArtist.connector_track_id
+                == extent_values.c.connector_track_id,
+                DBConnectorTrackArtist.position >= extent_values.c.credit_count,
+            )
         )
 
     async def _restore_superseded_primaries(
@@ -821,7 +981,12 @@ class TrackConnectorRepository:
             )
             for track in tracks
         ]
-        stored = await self._upsert_connector_tracks(rows)
+        # Last occurrence wins here too, so the credits match the row stored.
+        credits = {
+            (connector, track.connector_track_identifier): track.artists
+            for track in tracks
+        }
+        stored = await self._upsert_connector_tracks(rows, credits)
         return {ct.connector_track_identifier: ct for ct in stored}
 
     @db_operation("touch_last_seen")
@@ -1103,9 +1268,17 @@ class TrackConnectorRepository:
     async def get_connector_track_by_id(
         self, connector_track_id: UUID
     ) -> ConnectorTrack | None:
-        """Get a connector track entity by its database ID."""
+        """Get a connector track entity by its database ID, credits loaded.
+
+        ``populate_existing``: the credit rows are written through Core, so an
+        instance the identity map already holds may carry a stale collection.
+        """
         result = await self.session.execute(
-            select(DBConnectorTrack).where(DBConnectorTrack.id == connector_track_id)
+            self.connector_repo.with_default_relationships(
+                select(DBConnectorTrack).where(
+                    DBConnectorTrack.id == connector_track_id
+                )
+            ).execution_options(populate_existing=True)
         )
         row = result.scalar_one_or_none()
         if row is None:

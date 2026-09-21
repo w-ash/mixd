@@ -15,7 +15,7 @@ from uuid import UUID, uuid7
 from sqlalchemy import func, select
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import ArtistCredit, ConnectorTrack
+from src.domain.entities import ConnectorArtistCredit, ConnectorTrack
 from src.infrastructure.persistence.database.models import (
     DBArtist,
     DBArtistMapping,
@@ -38,7 +38,10 @@ def _spotify_track(
         connector_name="spotify",
         connector_track_identifier=identifier,
         title=title,
-        artists=[ArtistCredit(credited_name=name) for name, _ in artists],
+        artists=[
+            ConnectorArtistCredit(credited_name=name, connector_artist_identifier=aid)
+            for name, aid in artists
+        ],
         duration_ms=240_000,
         raw_metadata={
             "id": identifier,
@@ -47,8 +50,29 @@ def _spotify_track(
                 {"id": artist_id, "name": name, "type": "artist"}
                 for name, artist_id in artists
             ],
-            "artist_ids": [artist_id for _, artist_id in artists],
         },
+        last_updated=datetime.now(UTC),
+    )
+
+
+def _musicbrainz_track(identifier: str, title: str) -> ConnectorTrack:
+    """A payload shaped like ``convert_musicbrainz_track_to_connector``'s output."""
+    return ConnectorTrack(
+        connector_name="musicbrainz",
+        connector_track_identifier=identifier,
+        title=title,
+        artists=[
+            ConnectorArtistCredit(
+                credited_name="Thom Yorke",
+                connector_artist_identifier="mb-thom",
+                join_phrase=" & ",
+            ),
+            ConnectorArtistCredit(
+                credited_name="PJ Harvey", connector_artist_identifier="mb-pj"
+            ),
+        ],
+        duration_ms=240_000,
+        raw_metadata={"id": identifier},
         last_updated=datetime.now(UTC),
     )
 
@@ -58,9 +82,9 @@ def _apple_track(identifier: str, title: str, artist: str) -> ConnectorTrack:
         connector_name="apple",
         connector_track_identifier=identifier,
         title=title,
-        artists=[ArtistCredit(credited_name=artist)],
+        artists=[ConnectorArtistCredit(credited_name=artist)],
         duration_ms=200_000,
-        raw_metadata={"id": identifier, "artistName": artist, "artist_ids": [None]},
+        raw_metadata={"id": identifier, "artistName": artist},
         last_updated=datetime.now(UTC),
     )
 
@@ -104,6 +128,24 @@ async def _credits(session, track_id: UUID) -> list[tuple[int, str, UUID | None]
     return [tuple(row) for row in rows.tuples()]
 
 
+async def _join_phrases(session, track_id: UUID) -> list[str | None]:
+    rows = await session.execute(
+        select(DBTrackArtist.join_phrase)
+        .where(DBTrackArtist.track_id == track_id)
+        .order_by(DBTrackArtist.position)
+    )
+    return list(rows.scalars().all())
+
+
+async def _connector_artist_ids(session, connector: str) -> set[str]:
+    rows = await session.execute(
+        select(DBConnectorArtist.connector_artist_identifier).where(
+            DBConnectorArtist.connector_name == connector
+        )
+    )
+    return set(rows.scalars().all())
+
+
 async def _artist_events(session, user_id: str) -> int:
     return (
         await session.execute(
@@ -145,6 +187,28 @@ class TestSpotifyIngestMints:
             (1, "Koushik", artists["Koushik"]),
         ]
         assert await _artist_events(db_session, user_id) == 2
+        # The connector-track writer stored the records the minter mapped.
+        assert {"sp-a1", "sp-a2"} <= await _connector_artist_ids(db_session, "spotify")
+
+    async def test_a_musicbrainz_join_phrase_reaches_the_canonical_credits(
+        self, db_session
+    ):
+        user_id = _user()
+
+        (track,) = await TrackResolutionService().ingest(
+            "musicbrainz",
+            [_musicbrainz_track("mb-r1", "Black Swan")],
+            get_unit_of_work(db_session),
+            user_id=user_id,
+        )
+
+        artists = await _artists(db_session, user_id)
+        assert set(artists) == {"Thom Yorke", "PJ Harvey"}
+        assert await _credits(db_session, track.id) == [
+            (0, "Thom Yorke", artists["Thom Yorke"]),
+            (1, "PJ Harvey", artists["PJ Harvey"]),
+        ]
+        assert await _join_phrases(db_session, track.id) == [" & ", None]
 
     async def test_reingest_is_zero_delta(self, db_session):
         user_id = _user()

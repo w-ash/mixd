@@ -173,7 +173,7 @@ class TestIsrcReuse:
         assert spec.confidence == 100
         assert spec.primary is True
 
-    async def test_mapping_metadata_carries_positional_artist_ids(self):
+    async def test_mapping_credits_carry_the_side_loaded_ids(self):
         doc = make_tidal_track_document(
             track_id="101", isrc="USUM72309818", artists=("Main", "Featured")
         )
@@ -186,11 +186,15 @@ class TestIsrcReuse:
         (spec,) = _mapping_specs(connector_repo)
         assert spec.metadata is not None
         assert [a.credited_name for a in saved.artists] == ["Main", "Featured"]
-        assert spec.metadata["artist_ids"] == ["artist-0", "artist-1"]
         assert spec.metadata["artist_names"] == ["Main", "Featured"]
+        assert "artist_ids" not in spec.metadata
+        assert spec.credits is not None
+        assert [
+            (c.credited_name, c.connector_artist_identifier) for c in spec.credits
+        ] == [("Main", "artist-0"), ("Featured", "artist-1")]
 
-    def test_mapping_metadata_without_ids_writes_nones(self):
-        """A detail built without ids still aligns one entry per credit."""
+    def test_credits_without_ids_keep_their_names(self):
+        """A detail built without ids still credits every name, id-less."""
         from src.infrastructure.connectors.tidal.models import (
             TidalTrack,
             TidalTrackDetail,
@@ -203,9 +207,12 @@ class TestIsrcReuse:
         )
         resolver, _ = _make_resolver()
 
-        metadata = resolver._mapping_metadata(MagicMock(payload=detail))
+        credits = resolver._connector_credits(MagicMock(payload=detail))
 
-        assert metadata["artist_ids"] == [None, None]
+        assert [(c.credited_name, c.connector_artist_identifier) for c in credits] == [
+            ("Main", None),
+            ("Featured", None),
+        ]
 
 
 class TestUnresolvable:

@@ -211,6 +211,15 @@ class ArtistConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    def find_connector_artists(
+        self, connector_name: str, identifiers: Sequence[str]
+    ) -> Awaitable[dict[str, ConnectorArtist]]:
+        """The stored connector-artist rows for a connector's identifiers, keyed by identifier.
+
+        Absent identifiers are simply missing from the result.
+        """
+        ...
+
     def find_artists_by_connector_artist_ids(
         self, connector_artist_ids: Sequence[UUID], *, user_id: str
     ) -> Awaitable[dict[UUID, Artist]]:
@@ -257,9 +266,12 @@ class ArtistConnectorRepositoryProtocol(Protocol):
 
 @define(frozen=True, slots=True)
 class ArtistMintSummary:
-    """What one minting pass wrote, for the caller's log line."""
+    """What one minting pass wrote, for the caller's log line.
 
-    connector_artists_upserted: int = 0
+    Connector-artist rows are not counted here: the connector-track writer
+    stores them with the credits, before the minter runs.
+    """
+
     artists_created: int = 0
     artists_reused: int = 0
     credits_assigned: int = 0
@@ -286,7 +298,7 @@ class ArtistMinterProtocol(Protocol):
         user_id: str,
         config: MatchingConfig,
     ) -> Awaitable[ArtistMintSummary]:
-        """Upsert connector records, probe owners, plan, and persist the writes.
+        """Read the connector records, probe owners, plan, and persist the writes.
 
         ``canonicals`` maps each source's key to the canonical track it
         resolved to, so the credits that named an artist can be filled on it.

@@ -4,7 +4,10 @@ from collections.abc import Mapping
 
 import pytest
 
-from src.domain.entities.track import ArtistCredit, ConnectorTrack
+from src.domain.entities.track import (
+    ConnectorArtistCredit,
+    ConnectorTrack,
+)
 from src.infrastructure.connectors.base import BaseAPIConnector
 
 
@@ -22,7 +25,9 @@ class MockConnector(BaseAPIConnector):
             connector_track_id=track_data.get("id", "mock_id"),
             title=track_data.get("title", "Mock Title"),
             artists=[
-                ArtistCredit(credited_name=track_data.get("artist", "Mock Artist"))
+                ConnectorArtistCredit(
+                    credited_name=track_data.get("artist", "Mock Artist")
+                )
             ],
         )
 

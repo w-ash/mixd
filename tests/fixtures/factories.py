@@ -28,7 +28,13 @@ from src.domain.entities.playlist import (
 )
 from src.domain.entities.preference import PreferenceEvent, TrackPreference
 from src.domain.entities.tag import TagEvent, TrackTag
-from src.domain.entities.track import ArtistCredit, ConnectorTrack, Track, TrackLike
+from src.domain.entities.track import (
+    ArtistCredit,
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    Track,
+    TrackLike,
+)
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
 from src.infrastructure.connectors.apple_music.models import (
     AppleMusicPlayParams,
@@ -330,14 +336,24 @@ def make_connector_track(
     *,
     title: str | None = None,
     artist: str = "Test Artist",
+    connector_artist_identifier: str | None = None,
     **kwargs,
 ) -> ConnectorTrack:
-    """Build a :class:`ConnectorTrack`."""
+    """Build a :class:`ConnectorTrack` with one credit.
+
+    ``connector_artist_identifier`` is the service's own id for that credit;
+    ``None`` is a credit the service named without an id.
+    """
     return ConnectorTrack(
         connector_name=connector_name,
         connector_track_identifier=identifier,
         title=title or f"Song {identifier}",
-        artists=[ArtistCredit(credited_name=artist)],
+        artists=[
+            ConnectorArtistCredit(
+                credited_name=artist,
+                connector_artist_identifier=connector_artist_identifier,
+            )
+        ],
         **kwargs,
     )
 

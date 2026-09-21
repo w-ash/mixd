@@ -18,7 +18,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import ArtistCredit, ConnectorTrack, Track
+from src.domain.entities import (
+    ArtistCredit,
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    Track,
+)
 from src.infrastructure.persistence.database.models import (
     DBMatchReview,
     DBTrack,
@@ -44,7 +49,7 @@ def _connector_track(
         connector_name=connector,
         connector_track_identifier=identifier,
         title=title,
-        artists=[ArtistCredit(credited_name=artist)],
+        artists=[ConnectorArtistCredit(credited_name=artist)],
         album="Mixed",
         duration_ms=duration_ms,
         isrc=isrc,

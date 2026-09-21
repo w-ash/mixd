@@ -36,8 +36,7 @@ from typing import override
 
 from src.config import get_logger
 from src.config.telemetry import phase
-from src.domain.entities import Track
-from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
+from src.domain.entities import ConnectorArtistCredit, Track
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.recording_identity import describe_recording
@@ -246,13 +245,21 @@ class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
     def _mapping_metadata(
         self, write: PlannedWrite[AppleMusicSong]
     ) -> dict[str, object]:
-        """The song dump plus positional ``artist_ids``.
+        """The song dump."""
+        return write.payload.model_dump()
+
+    @override
+    def _connector_credits(
+        self, write: PlannedWrite[AppleMusicSong]
+    ) -> tuple[ConnectorArtistCredit, ...]:
+        """One credit with no id.
 
         A catalog song carries one ``artistName`` and no per-artist id
         (artist resources arrive only via ``include=artists``, which the
-        lookup does not request), so the single credit's id is ``None``.
+        lookup does not request).
         """
-        return {**write.payload.model_dump(), ARTIST_IDS_KEY: [None]}
+        name = write.payload.attributes.artist_name
+        return (ConnectorArtistCredit(credited_name=name),) if name else ()
 
     @override
     def _successor_assertion(

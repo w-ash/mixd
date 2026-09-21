@@ -13,7 +13,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import ArtistCredit, ConnectorTrack, Track
+from src.domain.entities import (
+    ArtistCredit,
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    Track,
+)
 from src.infrastructure.persistence.database.models import DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID
@@ -24,7 +29,7 @@ def _connector_track(identifier: str) -> ConnectorTrack:
         connector_name="spotify",
         connector_track_identifier=identifier,
         title="Gold Rush",
-        artists=[ArtistCredit(credited_name="Neon Priest")],
+        artists=[ConnectorArtistCredit(credited_name="Neon Priest")],
         raw_metadata={},
         last_updated=datetime.now(UTC),
     )

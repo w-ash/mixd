@@ -19,10 +19,12 @@ recorder could only get at it through a function-scoped import.
 
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
+from typing import cast
 from uuid import UUID
 
+from src.domain.entities.artist import ConnectorArtist
 from src.domain.entities.shared import JsonDict
-from src.domain.entities.track import ArtistCredit, Track
+from src.domain.entities.track import ArtistCredit, ConnectorArtistCredit, Track
 from src.domain.matching.text_normalization import (
     normalize_for_comparison,
     strip_parentheticals,
@@ -115,6 +117,74 @@ def build_canonical_track_row(track: Track) -> dict[str, object]:
     }
 
 
+def build_connector_credit_rows(
+    connector_track_id: UUID,
+    credits: Sequence[ConnectorArtistCredit],
+    connector_artist_ids: Mapping[str, UUID],
+) -> list[dict[str, object]]:
+    """The ``connector_track_artists`` rows one connector track's credits write.
+
+    The connector twin of :func:`build_track_artist_rows`: ``position`` is the
+    credit's index and the row identity is ``(connector_track_id, position)``.
+    ``connector_artist_ids`` maps a service artist identifier to the stored
+    ``connector_artists`` row id; a credit whose identifier has no row (or no
+    identifier at all) points at nothing and keeps its name. Insert plumbing
+    (``id``, timestamps) is the writer's.
+    """
+    return [
+        {
+            "connector_track_id": connector_track_id,
+            "connector_artist_id": (
+                connector_artist_ids.get(credit.connector_artist_identifier)
+                if credit.connector_artist_identifier is not None
+                else None
+            ),
+            "position": position,
+            "credited_name": credit.credited_name,
+            "join_phrase": credit.join_phrase,
+            "role": credit.role,
+        }
+        for position, credit in enumerate(credits)
+    ]
+
+
+def connector_artist_records(
+    connector_name: str,
+    credits: Sequence[ConnectorArtistCredit],
+    raw_metadata: Mapping[str, object] | None,
+) -> list[ConnectorArtist]:
+    """The ``connector_artists`` records one payload's credits name.
+
+    One record per credit with an identifier, in credit order. Its
+    ``raw_metadata`` is the payload's own per-artist dump where the service
+    provides one — an ``artists`` list of objects whose ``id`` is the
+    credit's identifier (Spotify) — else empty.
+    """
+    dumps: dict[str, JsonDict] = {}
+    artists = raw_metadata.get("artists") if raw_metadata else None
+    if isinstance(artists, list):
+        for item in cast("list[object]", artists):
+            if isinstance(item, dict):
+                dump = cast("JsonDict", item)
+                identifier = dump.get("id")
+                if isinstance(identifier, str):
+                    dumps.setdefault(identifier, dump)
+    records: list[ConnectorArtist] = []
+    for credit in credits:
+        identifier = credit.connector_artist_identifier
+        if identifier is None:
+            continue
+        records.append(
+            ConnectorArtist(
+                connector_name=connector_name,
+                connector_artist_identifier=identifier,
+                name=credit.credited_name,
+                raw_metadata=dumps.get(identifier, {}),
+            )
+        )
+    return records
+
+
 def build_connector_track_row(
     connector_name: str,
     identifier: str,
@@ -155,8 +225,10 @@ def build_connector_track_row(
 __all__ = [
     "artist_names_column",
     "build_canonical_track_row",
+    "build_connector_credit_rows",
     "build_connector_track_row",
     "build_track_artist_rows",
+    "connector_artist_records",
     "extract_db_artist_names",
     "normalized_text_columns",
 ]

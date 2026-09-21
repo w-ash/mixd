@@ -31,7 +31,10 @@ if TYPE_CHECKING:
     # Annotations are deferred (PEP 649), so at runtime SQLAlchemy sees only the
     # class name and resolves it through the shared declarative registry at
     # ``configure_mappers()`` time; the import here exists for the type checker.
-    from src.infrastructure.persistence.database.models.artist import DBTrackArtist
+    from src.infrastructure.persistence.database.models.artist import (
+        DBConnectorTrackArtist,
+        DBTrackArtist,
+    )
     from src.infrastructure.persistence.database.models.mapping import DBTrackMapping
     from src.infrastructure.persistence.database.models.play import (
         DBConnectorPlay,
@@ -226,6 +229,14 @@ class DBConnectorTrack(BaseEntity):
     mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="connector_track",
         passive_deletes=True,
+        lazy="raise_on_sql",
+    )
+    # Read side of ``connector_track_artists`` only, as ``DBTrack.artist_credits``
+    # is of ``track_artists``: the rows are written through Core ``ON CONFLICT``
+    # by the connector row-builder, never flushed by the ORM.
+    artist_credits: Mapped[list[DBConnectorTrackArtist]] = relationship(
+        viewonly=True,
+        order_by="DBConnectorTrackArtist.position",
         lazy="raise_on_sql",
     )
 

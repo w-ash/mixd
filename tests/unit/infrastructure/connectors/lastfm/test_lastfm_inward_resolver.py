@@ -851,9 +851,9 @@ class TestCreationFailureIsolation:
         assert metrics.created == 1
         assert metrics.failed == 1
         # One savepoint for the failed bulk attempt, then one per identifier —
-        # the isolation itself — and one for the artist minter under the
-        # identifier that persisted.
-        assert uow.savepoint.call_count == 4
+        # the isolation itself. Last.fm names no artist ids, so the minter
+        # never opens its own.
+        assert uow.savepoint.call_count == 3
 
     async def test_failed_reuse_mapping_does_not_create_a_duplicate_canonical(self):
         """The matcher already accepted an existing canonical for this
@@ -909,10 +909,9 @@ class TestChunkBulkPersistIsOneRoundTripGroup:
         connector_repo.map_tracks_to_connectors.assert_awaited_once()
         assert len(connector_repo.map_tracks_to_connectors.await_args.args[0]) == 5
         connector_repo.map_track_to_connector.assert_not_called()
-        # One savepoint for the chunk, not one per identifier — plus the
-        # artist minter's own, which isolates the chunk's tracks from its
-        # failures.
-        assert uow.savepoint.call_count == 2
+        # One savepoint for the chunk, not one per identifier. Last.fm names
+        # no artist ids, so the minter never opens its own.
+        assert uow.savepoint.call_count == 1
 
 
 class TestCanonicalPayloadTenancy:

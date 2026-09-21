@@ -19,7 +19,7 @@ from uuid import UUID
 
 from attrs import define, field
 
-from src.domain.entities import Track
+from src.domain.entities import ConnectorArtistCredit, Track
 from src.domain.entities.shared import JsonValue, empty_json_map
 from src.domain.entities.track_mapping import STALE_ID_FOR, MatchMethod
 from src.domain.repositories.connector import ConnectorMappingSpec
@@ -124,6 +124,7 @@ def stale_id_mapping_spec(
     primary_method: MatchMethod,
     confidence: int,
     metadata: dict[str, object] | None = None,
+    credits: tuple[ConnectorArtistCredit, ...] | None = None,
 ) -> ConnectorMappingSpec:
     """The non-primary mapping a substitution owes the *requested* id.
 
@@ -139,4 +140,5 @@ def stale_id_mapping_spec(
         match_method=STALE_ID_FOR[primary_method],
         confidence=confidence,
         metadata=metadata,
+        credits=credits,
     )

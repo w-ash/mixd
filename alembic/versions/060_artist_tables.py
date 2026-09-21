@@ -1,13 +1,16 @@
 """Artists become first-class: canonical rows, connector records, credits, favorites.
 
-Six tables, mirroring the track stack one level up. ``artists`` is the
+Seven tables, mirroring the track stack one level up. ``artists`` is the
 per-user canonical (cross-user identity is deferred to v1.1.0, so a global
 table would smuggle in merge rights this cycle has not earned);
 ``connector_artists`` is the global service-record cache with no ``user_id``
 and no RLS, exactly like ``connector_tracks``; ``artist_mappings`` joins them
 per user; ``artist_favorites`` is a Mixd-only presence row; ``track_artists``
-is the credit association object the JSONB expands into (061 fills it); and
-``artist_aliases`` holds each service's alternative names for its own record.
+is the credit association object the JSONB expands into (061 fills it);
+``connector_track_artists`` is its global twin — what a service says about a
+track's line-up, pointing at the service's own artist record, no ``user_id``
+and no RLS (061 fills it too); and ``artist_aliases`` holds each service's
+alternative names for its own record.
 
 Two rules the constraints encode:
 
@@ -80,9 +83,9 @@ MATCH_METHODS: tuple[str, ...] = (
 
 MAPPING_ORIGINS: tuple[str, ...] = ("automatic", "manual_override")
 
-# Tables carrying a ``user_id`` of their own. ``connector_artists`` and
-# ``artist_aliases`` are global service facts and stay outside RLS, like
-# ``connector_tracks``.
+# Tables carrying a ``user_id`` of their own. ``connector_artists``,
+# ``connector_track_artists`` and ``artist_aliases`` are global service facts
+# and stay outside RLS, like ``connector_tracks``.
 _RLS_TABLES: tuple[str, ...] = (
     "artists",
     "artist_mappings",
@@ -298,6 +301,52 @@ def _create_track_artists() -> None:
     _enable_rls("track_artists")
 
 
+def _create_connector_track_artists() -> None:
+    op.create_table(
+        "connector_track_artists",
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("connector_track_id", postgresql.UUID(as_uuid=True), nullable=False),
+        # Nullable and SET NULL: a credit whose service gave no artist id
+        # (Apple's song payload) has no record to point at and keeps its name.
+        sa.Column("connector_artist_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.Column("credited_name", sa.String(), nullable=False),
+        sa.Column("join_phrase", sa.String(), nullable=True),
+        sa.Column("role", sa.String(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_connector_track_artists")),
+        sa.ForeignKeyConstraint(
+            ["connector_track_id"],
+            ["connector_tracks.id"],
+            name=op.f("fk_connector_track_artists_connector_track_id_connector_tracks"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["connector_artist_id"],
+            ["connector_artists.id"],
+            name=op.f(
+                "fk_connector_track_artists_connector_artist_id_connector_artists"
+            ),
+            ondelete="SET NULL",
+        ),
+        # Also the writer's and the backfill's ON CONFLICT arbiter.
+        sa.UniqueConstraint(
+            "connector_track_id",
+            "position",
+            name="uq_connector_track_artists_track_position",
+        ),
+        sa.CheckConstraint(
+            "position >= 0", name=op.f("ck_connector_track_artists_position_nonneg")
+        ),
+    )
+    op.create_index(
+        "ix_connector_track_artists_artist",
+        "connector_track_artists",
+        ["connector_artist_id"],
+    )
+
+
 def _create_artist_aliases() -> None:
     op.create_table(
         "artist_aliases",
@@ -367,6 +416,7 @@ def upgrade() -> None:
     _create_artist_mappings()
     _create_artist_favorites()
     _create_track_artists()
+    _create_connector_track_artists()
     _create_artist_aliases()
     _create_migration_only_indexes()
 
@@ -381,6 +431,7 @@ def downgrade() -> None:
     for index_name, _table in _MIGRATION_ONLY_INDEXES:
         op.execute(sa.text(f"DROP INDEX IF EXISTS {index_name}"))
     op.drop_table("artist_aliases")
+    op.drop_table("connector_track_artists")
     for table in reversed(_RLS_TABLES):
         _disable_rls(table)
     op.drop_table("track_artists")

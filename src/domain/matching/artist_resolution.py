@@ -1,18 +1,19 @@
 """Is a credited artist an existing canonical artist, or a new one?
 
 The artist instantiation of ``plan_resolution``, plus the pure halves of
-the import-path minter around it: reading the credits a connector payload
-carries into connector-artist records and claims (``credited_artists``),
-and turning the planner's outcomes into the rows the batch persists
+the import-path minter around it: reading the connector credits a payload
+carries into the claims the planner decides (``credited_artists``), and
+turning the planner's outcomes into the rows the batch persists
 (``artist_writes``). The two callers — the application ingest service and
 the connector inward resolvers — do the repository calls in between and
 nothing else, so every identity decision is made here, once.
 
 Import mints from the ids it already holds and never from a name: a
 description is filed only under a connector artist id (``strong_id``) and
-``ArtistResolutionRules.same`` refuses every name comparison. A credit with
-no id — Apple's ``[None]``, a Last.fm name — writes its connector record
-where it has one and otherwise stays a pending credit for the enrichment
+``ArtistResolutionRules.same`` refuses every name comparison. The id is the
+credit's own ``connector_artist_identifier`` — the connector-track writer
+has already stored the ``connector_artists`` record it names. A credit with
+no id (Apple's song payload) stays a pending credit for the enrichment
 operation to resolve with alias evidence.
 """
 
@@ -24,8 +25,7 @@ from uuid import UUID
 from attrs import Factory, define, field
 
 from src.domain.entities.artist import Artist, ConnectorArtist, is_various_artists
-from src.domain.entities.shared import JsonDict, JsonValue
-from src.domain.entities.track import ArtistCredit, Track
+from src.domain.entities.track import ConnectorArtistCredit, Track
 from src.domain.matching.artist_confidence import calculate_artist_confidence
 from src.domain.matching.canonical_resolution import (
     Described,
@@ -45,10 +45,6 @@ from src.domain.repositories.mapping import PrimaryCandidate
 # identity) but never described to the planner: a Last.fm name is capped
 # evidence, never identity — one page serves every same-name artist.
 NAME_KEYED_CONNECTORS: Final[frozenset[str]] = frozenset({"lastfm"})
-
-# The raw-metadata key every connector writes its positional artist ids under
-# (``None`` where the service sent no id); ``credit_source`` reads it back.
-ARTIST_IDS_KEY: Final = "artist_ids"
 
 
 @define(frozen=True, slots=True)
@@ -147,59 +143,14 @@ def plan_artist_resolution[TKey](
 
 @define(frozen=True, slots=True)
 class ArtistCreditSource:
-    """One connector payload's credits, with the ids the payload carried for them.
+    """One connector payload's credits, keyed by the payload's track identifier.
 
-    ``artist_ids`` is positional with ``artists`` — ``None`` where the service
-    sent no id — and ``artist_dumps`` is the per-artist payload at the same
-    positions where the connector supplies one (Spotify's ``artists[i]``),
-    else empty.
+    Each credit carries the service's own artist id (or ``None``) on itself,
+    so nothing here is positional with anything else.
     """
 
     key: str
-    artists: tuple[ArtistCredit, ...] = field(converter=tuple)
-    artist_ids: tuple[str | None, ...] = field(converter=tuple)
-    artist_dumps: tuple[JsonDict | None, ...] = field(converter=tuple, default=())
-
-
-def credit_source(
-    key: str, artists: Sequence[ArtistCredit], raw_metadata: Mapping[str, JsonValue]
-) -> ArtistCreditSource:
-    """Read a payload's positional ``artist_ids`` (and ``artists`` dumps) into a source.
-
-    Defensive on shape: an ``artist_ids`` that is not a list reads as all
-    ``None``, and a dump is kept only where it is a mapping whose ``id`` is
-    the id at that position, so a misaligned payload never attaches one
-    artist's record to another.
-    """
-    ids_value = raw_metadata.get(ARTIST_IDS_KEY)
-    ids: list[str | None] = [None] * len(artists)
-    if isinstance(ids_value, list):
-        for position, item in enumerate(ids_value[: len(artists)]):
-            ids[position] = item if isinstance(item, str) and item else None
-
-    dumps: list[JsonDict | None] = [None] * len(artists)
-    dumps_value = raw_metadata.get("artists")
-    if isinstance(dumps_value, list):
-        for position, item in enumerate(dumps_value[: len(artists)]):
-            if isinstance(item, dict) and item.get("id") == ids[position]:
-                dumps[position] = dict(item)
-    return ArtistCreditSource(
-        key=key, artists=artists, artist_ids=ids, artist_dumps=dumps
-    )
-
-
-def dumped_credits(raw_metadata: Mapping[str, JsonValue]) -> tuple[ArtistCredit, ...]:
-    """The credits a payload's ``artists`` dumps name, for a mapping written
-    without a payload of its own (a cross-discovered Spotify match)."""
-    dumps = raw_metadata.get("artists")
-    if not isinstance(dumps, list):
-        return ()
-    names: list[str] = []
-    for item in dumps:
-        name = item.get("name") if isinstance(item, dict) else None
-        if isinstance(name, str) and name:
-            names.append(name)
-    return tuple(ArtistCredit(credited_name=name) for name in names)
+    credits: tuple[ConnectorArtistCredit, ...] = field(converter=tuple)
 
 
 @define(frozen=True, slots=True)
@@ -213,14 +164,14 @@ class CreditClaim:
 
 @define(frozen=True, slots=True)
 class ArtistIntake:
-    """What a batch of payloads says about artists, before any probe.
+    """What a batch of payloads claims about artists, before any probe.
 
-    ``connector_artists`` is one record per identifier (first sighting's
-    name and dump win); ``claims`` are the credits the planner decides,
-    which is none for a name-keyed connector.
+    ``claims`` are the credits the planner decides — none for a name-keyed
+    connector, none for a credit without an id. The connector-artist rows
+    they name were written with the connector tracks; the minter reads them
+    back by identifier.
     """
 
-    connector_artists: tuple[ConnectorArtist, ...]
     claims: tuple[CreditClaim, ...]
 
     @property
@@ -228,15 +179,23 @@ class ArtistIntake:
         """The identifiers the claims name, first sighting first."""
         return list(dict.fromkeys(claim.identifier for claim in self.claims))
 
+    @property
+    def names(self) -> dict[str, str]:
+        """The credited name per identifier — the first sighting's spelling."""
+        names: dict[str, str] = {}
+        for claim in self.claims:
+            names.setdefault(claim.identifier, claim.credited_name)
+        return names
+
     def described(
         self, stored: Mapping[str, ConnectorArtist]
     ) -> list[Described[str, ArtistDescription]]:
         """One description per claimed identifier, filed under its stored row id.
 
         ``name_key`` stays ``None``: a name never settles an artist on the
-        import path. An identifier the upsert did not return is not described.
+        import path. An identifier with no stored row is not described.
         """
-        names = {a.connector_artist_identifier: a.name for a in self.connector_artists}
+        names = self.names
         return [
             Described(
                 key=identifier,
@@ -252,38 +211,28 @@ class ArtistIntake:
 def credited_artists(
     connector: str, sources: Sequence[ArtistCreditSource]
 ) -> ArtistIntake:
-    """The connector-artist records and claims a batch of payloads carries.
+    """The claims a batch of payloads carries.
 
     A credit with no id is skipped outright; a Various Artists credit is never
-    a record (the sentinel is a compilation flag, not an artist). A name-keyed
-    connector's credits become records but no claims.
+    a claim (the sentinel is a compilation flag, not an artist). A name-keyed
+    connector's credits are never claims.
     """
-    records: dict[str, ConnectorArtist] = {}
+    if connector in NAME_KEYED_CONNECTORS:
+        return ArtistIntake(claims=())
     claims: list[CreditClaim] = []
-    describable = connector not in NAME_KEYED_CONNECTORS
     for source in sources:
-        dumps = source.artist_dumps or (None,) * len(source.artists)
-        for credit, identifier, dump in zip(
-            source.artists, source.artist_ids, dumps, strict=False
-        ):
+        for credit in source.credits:
+            identifier = credit.connector_artist_identifier
             if identifier is None or is_various_artists(credit.credited_name):
                 continue
-            if identifier not in records:
-                records[identifier] = ConnectorArtist(
-                    connector_name=connector,
-                    connector_artist_identifier=identifier,
-                    name=credit.credited_name,
-                    raw_metadata=dump if dump is not None else {},
+            claims.append(
+                CreditClaim(
+                    key=source.key,
+                    credited_name=credit.credited_name,
+                    identifier=identifier,
                 )
-            if describable:
-                claims.append(
-                    CreditClaim(
-                        key=source.key,
-                        credited_name=credit.credited_name,
-                        identifier=identifier,
-                    )
-                )
-    return ArtistIntake(connector_artists=tuple(records.values()), claims=tuple(claims))
+            )
+    return ArtistIntake(claims=tuple(claims))
 
 
 @define(frozen=True, slots=True)
@@ -320,7 +269,7 @@ def artist_writes(
     line-up need not be the payload's — and only where the canonical's
     credit has no artist yet.
     """
-    names = {a.connector_artist_identifier: a.name for a in intake.connector_artists}
+    names = intake.names
     artist_of: dict[str, Artist] = {}
     created: list[Artist] = []
     reused: dict[UUID, None] = {}
@@ -390,7 +339,6 @@ def _leader_of(leader: str | None) -> str:
 
 
 __all__ = [
-    "ARTIST_IDS_KEY",
     "NAME_KEYED_CONNECTORS",
     "ArtistCreditSource",
     "ArtistDescription",
@@ -400,8 +348,6 @@ __all__ = [
     "CreditClaim",
     "artist_identity_key",
     "artist_writes",
-    "credit_source",
     "credited_artists",
-    "dumped_credits",
     "plan_artist_resolution",
 ]

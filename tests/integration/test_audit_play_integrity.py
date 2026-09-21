@@ -18,7 +18,11 @@ from scripts.audit_play_integrity import (
     check_spotify_api_lastfm_delta,
 )
 from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import ArtistCredit, ConnectorTrack, ConnectorTrackPlay
+from src.domain.entities import (
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    ConnectorTrackPlay,
+)
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID
 
@@ -84,7 +88,7 @@ async def _seed_canonical_track(
                 connector_name="spotify",
                 connector_track_identifier=connector_id,
                 title=title,
-                artists=[ArtistCredit(credited_name=_ARTIST)],
+                artists=[ConnectorArtistCredit(credited_name=_ARTIST)],
                 duration_ms=duration_ms,
                 raw_metadata={},
                 last_updated=datetime.now(UTC),

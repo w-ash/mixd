@@ -18,13 +18,12 @@ from datetime import UTC, datetime
 
 from src.config import get_logger
 from src.domain.entities import (
-    ArtistCredit,
+    ConnectorArtistCredit,
     ConnectorPlaylist,
     ConnectorTrack,
     Track,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
-from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.spotify.models import (
     SpotifyArtist,
@@ -45,13 +44,20 @@ def extract_spotify_track_uris(tracks: list[Track]) -> list[str]:
     ]
 
 
-def spotify_artist_ids(artists: Iterable[SpotifyArtist]) -> list[JsonValue]:
-    """Positional artist ids for the given artists, ``None`` where Spotify sent none.
+def spotify_artist_credits(
+    artists: Iterable[SpotifyArtist],
+) -> tuple[ConnectorArtistCredit, ...]:
+    """The connector credits a Spotify track's ``artists`` state, ids on board.
 
-    Callers pass exactly the artists they turned into credits, so the list
-    stays aligned with the credits by construction.
+    Every Spotify conversion builds its credits here so the artist id lands
+    on the credit itself, never beside it.
     """
-    return [a.id or None for a in artists]
+    return tuple(
+        ConnectorArtistCredit(
+            credited_name=a.name, connector_artist_identifier=a.id or None
+        )
+        for a in artists
+    )
 
 
 def validate_non_empty[T](items: Sequence[object], empty_result: T) -> T | None:
@@ -78,7 +84,7 @@ def convert_spotify_track_to_connector(
         else SpotifyTrack.model_validate(spotify_track)
     )
 
-    artists = [ArtistCredit(credited_name=a.name) for a in track.artists]
+    artists = spotify_artist_credits(track.artists)
 
     release_date = None
     if track.album and track.album.release_date:
@@ -95,7 +101,6 @@ def convert_spotify_track_to_connector(
         **track.model_dump(),
         "album_id": track.album.id if track.album else None,
         "explicit": track.explicit,
-        ARTIST_IDS_KEY: spotify_artist_ids(track.artists),
     }
 
     return ConnectorTrack(

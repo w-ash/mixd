@@ -18,7 +18,12 @@ from src.application.use_cases.resolve_match_review import (
     ResolveMatchReviewCommand,
     ResolveMatchReviewUseCase,
 )
-from src.domain.entities import ArtistCredit, ConnectorTrack, Track
+from src.domain.entities import (
+    ArtistCredit,
+    ConnectorArtistCredit,
+    ConnectorTrack,
+    Track,
+)
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
 from src.infrastructure.connectors.spotify.models import SpotifyExternalIds
@@ -155,7 +160,7 @@ def _remaster_connector_track(identifier: str = "sp_remaster_001") -> ConnectorT
         connector_name="spotify",
         connector_track_identifier=identifier,
         title="Gold Rush (2024 Remaster)",
-        artists=[ArtistCredit(credited_name="Neon Priest")],
+        artists=[ConnectorArtistCredit(credited_name="Neon Priest")],
         album="Remaster Compilation",
         duration_ms=215_000,  # 15s off the owner — suspect
         isrc="USNP12400001",

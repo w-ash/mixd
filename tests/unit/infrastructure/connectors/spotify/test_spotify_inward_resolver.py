@@ -82,10 +82,10 @@ def _promoted_ids(connector_repo) -> list[str]:
     ]
 
 
-class TestMappingMetadataArtistIds:
-    """A creation's mapping metadata carries positional ``artist_ids``."""
+class TestMappingCredits:
+    """A creation's mapping spec carries the Spotify credits, ids on board."""
 
-    async def test_artist_ids_align_with_the_saved_credits(self):
+    async def test_credits_carry_the_ids_of_the_saved_credits(self):
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
             tracks={
@@ -109,8 +109,12 @@ class TestMappingMetadataArtistIds:
         (spec,) = _mapping_specs(connector_repo)
         assert spec.metadata is not None
         assert [a.credited_name for a in saved.artists] == ["Alpha", "NoId"]
-        assert spec.metadata["artist_ids"] == ["a1", None]
         assert spec.metadata["id"] == "id1"
+        assert "artist_ids" not in spec.metadata
+        assert spec.credits is not None
+        assert [
+            (c.credited_name, c.connector_artist_identifier) for c in spec.credits
+        ] == [("Alpha", "a1"), ("NoId", None)]
 
 
 class TestBatchFetch:
