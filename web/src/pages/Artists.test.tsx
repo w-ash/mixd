@@ -2,7 +2,6 @@ import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { makeArtistSummary } from "#/test/factories";
-import { installHttpCache } from "#/test/http-cache";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -54,12 +53,6 @@ const ARTISTS = [
 ];
 
 describe("Artists", () => {
-  let uninstallCache: (() => void) | undefined;
-  afterEach(() => {
-    uninstallCache?.();
-    uninstallCache = undefined;
-  });
-
   it("renders a row per artist with track counts and sources", async () => {
     overrideArtists(ARTISTS);
 
@@ -194,66 +187,6 @@ describe("Artists", () => {
     expect(
       await screen.findByRole("button", { name: "Favorite Brian Eno" }),
     ).toBeVisible();
-  });
-
-  it("keeps the heart flipped when the API caches its reads", async () => {
-    // `GET /artists` answers with `Cache-Control: max-age`, so the refetch a
-    // write triggers is a browser cache hit unless the read revalidates —
-    // which served the pre-write body and snapped the heart back.
-    const uninstall = installHttpCache();
-    uninstallCache = uninstall;
-    const user = userEvent.setup();
-    const calls: string[] = [];
-    const favorited = new Set<string>();
-    server.use(
-      http.get("*/api/v1/artists", () =>
-        HttpResponse.json(
-          {
-            data: ARTISTS.map((artist) => ({
-              ...artist,
-              is_favorited: favorited.has(artist.id),
-            })),
-            total: ARTISTS.length,
-            limit: 50,
-            offset: 0,
-          },
-          { status: 200, headers: { "Cache-Control": "max-age=10" } },
-        ),
-      ),
-      http.post("*/api/v1/artists/:id/favorite", ({ params }) => {
-        calls.push(`POST ${params.id}`);
-        favorited.add(String(params.id));
-        return HttpResponse.json({ id: params.id, is_favorited: true });
-      }),
-      http.delete("*/api/v1/artists/:id/favorite", ({ params }) => {
-        calls.push(`DELETE ${params.id}`);
-        favorited.delete(String(params.id));
-        return new HttpResponse(null, { status: 204 });
-      }),
-    );
-
-    renderWithProviders(<Artists />);
-    await waitFor(() => expect(screen.getByText("Brian Eno")).toBeVisible());
-
-    await user.click(
-      screen.getByRole("button", { name: "Favorite Brian Eno" }),
-    );
-
-    const pressed = await screen.findByRole("button", {
-      name: "Unfavorite Brian Eno",
-    });
-    expect(pressed).toHaveAttribute("aria-pressed", "true");
-    expect(calls).toEqual(["POST artist-1"]);
-
-    // The second click has to be the opposite write, not a repeat of the first.
-    await user.click(pressed);
-
-    await waitFor(() =>
-      expect(calls).toEqual(["POST artist-1", "DELETE artist-1"]),
-    );
-    expect(
-      await screen.findByRole("button", { name: "Favorite Brian Eno" }),
-    ).toHaveAttribute("aria-pressed", "false");
   });
 
   it("rolls the heart back when the favorite request fails", async () => {

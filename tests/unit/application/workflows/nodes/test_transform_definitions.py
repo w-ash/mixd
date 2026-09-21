@@ -29,6 +29,7 @@ class TestTransformDefinitions:
             "by_release_year",
             "by_tracks",
             "by_artists",
+            "by_artist_ids",
             "by_metric",
             "by_play_history",
             "by_first_played_date",

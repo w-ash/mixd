@@ -1,12 +1,10 @@
 import { Fragment } from "react";
 import { Link } from "react-router";
 
-import type { ArtistSchema } from "#/api/generated/model";
+import type { ArtistCreditSchema } from "#/api/generated/model";
 
 interface ArtistCreditsProps {
-  artists: ArtistSchema[];
-  /** Rendered in place of the list when a track carries no credits. */
-  fallback?: string;
+  artists: ArtistCreditSchema[];
 }
 
 /**
@@ -15,8 +13,8 @@ interface ArtistCreditsProps {
  * A credit without an ``artist_id`` has not resolved to a canonical artist
  * yet, so it renders as plain text rather than a link to nothing.
  */
-export function ArtistCredits({ artists, fallback = "" }: ArtistCreditsProps) {
-  if (artists.length === 0) return <>{fallback}</>;
+export function ArtistCredits({ artists }: ArtistCreditsProps) {
+  if (artists.length === 0) return null;
 
   return (
     <>

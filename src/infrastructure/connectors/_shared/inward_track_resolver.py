@@ -21,7 +21,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Generator, Hashable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import UTC, datetime
 from typing import cast
 
 from attrs import Factory, define, evolve, field
@@ -33,11 +32,8 @@ from src.domain.entities.shared import JsonValue
 from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.artist_resolution import (
     ArtistCreditSource,
-    artist_writes,
     credit_source,
     credited_artists,
-    mapping_seam_of,
-    plan_artist_resolution,
 )
 from src.domain.matching.canonical_resolution import (
     Described,
@@ -720,18 +716,19 @@ async def mint_credit_artists(
 ) -> None:
     """Mint canonical artists from the ids the payloads carry, after the mapping write.
 
-    The inward resolvers' twin of the application ``ArtistResolutionService``
-    — the same domain halves (``credited_artists`` → ``plan_artist_resolution``
-    → ``artist_writes``) around the same repository calls in the same order —
-    here because a connector adapter may not import the application layer.
-    Best effort under its own savepoint: the tracks just resolved are the
-    import, and an artist-side failure must not cost them, so it is logged
-    and the chunk goes on. Transient contention still propagates.
+    The walk is the unit of work's ``ArtistMinter`` — the same one the
+    application ``ArtistResolutionService`` delegates to. Best effort under
+    its own savepoint: the tracks just resolved are the import, and an
+    artist-side failure must not cost them, so it is logged and the chunk
+    goes on. Transient contention still propagates. A batch that names no
+    connector artist never opens the savepoint.
     """
+    if not credited_artists(connector, sources).connector_artists:
+        return
     try:
         async with uow.savepoint():
-            created, assigned = await _mint(
-                connector, sources, canonicals, uow, user_id=user_id, config=config
+            summary = await uow.get_artist_minter().mint(
+                connector, sources, canonicals, user_id=user_id, config=config
             )
     except Exception as error:
         if is_transient_contention(error):
@@ -743,74 +740,13 @@ async def mint_credit_artists(
             exc_info=error,
         )
         return
-    if created or assigned:
+    if summary.artists_created or summary.credits_assigned:
         logger.info(
             "artists_minted",
             connector=connector,
-            created=created,
-            credits_assigned=assigned,
+            created=summary.artists_created,
+            credits_assigned=summary.credits_assigned,
         )
-
-
-async def _mint(
-    connector: str,
-    sources: Sequence[ArtistCreditSource],
-    canonicals: Mapping[str, Track],
-    uow: UnitOfWorkProtocol,
-    *,
-    user_id: str,
-    config: MatchingConfig,
-) -> tuple[int, int]:
-    """(artists created, credits filled) — the repository walk, decisions the domain's."""
-    intake = credited_artists(connector, sources)
-    if not intake.connector_artists:
-        return 0, 0
-    artist_connectors = uow.get_artist_connector_repository()
-    stored = await artist_connectors.bulk_upsert_connector_artists(
-        connector, list(intake.connector_artists)
-    )
-    described = intake.described(stored)
-    if not described:
-        return 0, 0
-    owners = await artist_connectors.find_artists_by_connector_artist_ids(
-        [stored[item.key].id for item in described], user_id=user_id
-    )
-    plan = plan_artist_resolution(
-        described,
-        strong_owners={str(row_id): artist for row_id, artist in owners.items()},
-        config=config,
-    )
-    writes = artist_writes(
-        plan,
-        intake,
-        stored,
-        canonicals,
-        connector=connector,
-        user_id=user_id,
-        now=datetime.now(UTC),
-    )
-    artist_repo = uow.get_artist_repository()
-    if writes.artists:
-        _ = await artist_repo.save_artists(list(writes.artists))
-    if writes.mapping_rows:
-        seam = mapping_seam_of(artist_connectors)
-        assertion = await seam.assert_mappings(list(writes.mapping_rows))
-        _ = await artist_connectors.ensure_primaries(
-            list(writes.primaries), mode="fill"
-        )
-        await seam.record_assertion(assertion)
-    assigned = 0
-    if writes.assignments:
-        assigned = await uow.get_track_repository().set_credit_artist_ids(
-            list(writes.assignments), user_id=user_id
-        )
-    if writes.reused:
-        await artist_repo.touch(list(writes.reused), user_id=user_id)
-    if owners:
-        await artist_connectors.touch_last_seen(
-            connector, list(owners), user_id=user_id
-        )
-    return len(writes.artists), assigned
 
 
 def json_metadata(metadata: Mapping[str, object]) -> Mapping[str, JsonValue]:

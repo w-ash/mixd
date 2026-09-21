@@ -1,36 +1,26 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, HelpCircle } from "lucide-react";
-import { useRef } from "react";
 import { Link, useParams } from "react-router";
 
 import { ApiError } from "#/api/client";
-import type { getArtistDetailApiV1ArtistsArtistIdGetResponse } from "#/api/generated/artists/artists";
-import {
-  getGetArtistDetailApiV1ArtistsArtistIdGetQueryKey,
-  useFavoriteArtistApiV1ArtistsArtistIdFavoritePost,
-  useGetArtistDetailApiV1ArtistsArtistIdGet,
-  useUnfavoriteArtistApiV1ArtistsArtistIdFavoriteDelete,
-} from "#/api/generated/artists/artists";
+import { useGetArtistDetailApiV1ArtistsArtistIdGet } from "#/api/generated/artists/artists";
 import { ArtistTracksSection } from "#/components/artist/ArtistTracksSection";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
+import { DetailField, DetailSection } from "#/components/shared/detail";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { FavoriteToggle } from "#/components/shared/FavoriteToggle";
-import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import {
-  CardGridSkeleton,
-  DetailHeaderSkeleton,
-} from "#/components/shared/skeletons";
+  MatchMethodBadge,
+  PrimaryBadge,
+  SMALL_BADGE,
+} from "#/components/shared/MappingBadges";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { DetailSkeleton } from "#/components/shared/skeletons";
 import { Badge } from "#/components/ui/badge";
+import { useArtistFavorite } from "#/hooks/useArtistFavorite";
 import { formatCount } from "#/lib/format";
-import { matchMethodDescription, matchMethodLabel } from "#/lib/match-methods";
 import { pluralSuffix } from "#/lib/pluralize";
-
-/** The `{data, status, headers}` envelope the detail query caches. */
-type DetailEnvelope = getArtistDetailApiV1ArtistsArtistIdGetResponse;
-
-const smallBadge = "text-[10px] px-1.5 py-0";
 
 // Not keyed on the generated `ArtistKind` union: a kind written by a newer
 // backend renders its own name rather than failing to build.
@@ -40,119 +30,42 @@ const KIND_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-function DetailSkeleton() {
-  return (
-    <div className="space-y-6">
-      <DetailHeaderSkeleton subtitleWidth="w-48" />
-      <CardGridSkeleton count={2} gridClassName="grid-cols-2" />
-    </div>
-  );
-}
-
-/** Labeled metadata field */
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wider text-text-faint">
-        {label}
-      </dt>
-      <dd className="mt-0.5 text-sm text-text">{children}</dd>
-    </div>
-  );
-}
-
-/** Section card with heading */
-function Section({
-  title,
-  children,
-  className,
-}: {
-  title: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={`rounded-lg border-l-2 border-primary/30 bg-surface-sunken p-5${className ? ` ${className}` : ""}`}
-    >
-      <h2 className="mb-3 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
-
 /** Relations read off connector payloads — `same_as` reads as "same as". */
 function relationLabel(relation: string): string {
   return relation.replace(/_/g, " ");
+}
+
+/** The artist's library tracks — its own query, so it loads independently. */
+function TracksSection({ artistId }: { artistId: string }) {
+  return (
+    <DetailSection title="Tracks" className="md:col-span-2">
+      <ArtistTracksSection artistId={artistId} />
+    </DetailSection>
+  );
 }
 
 export function ArtistDetail() {
   const { id } = useParams<{ id: string }>();
   const artistId = id ?? "";
 
-  const queryClient = useQueryClient();
-  const detailKey = getGetArtistDetailApiV1ArtistsArtistIdGetQueryKey(artistId);
-
   const { data, isLoading, isError, error } =
     useGetArtistDetailApiV1ArtistsArtistIdGet(artistId, {
       query: { staleTime: 2 * 60_000 },
     });
 
-  // The heart flips before the request lands and flips back if it fails. The
-  // pre-write envelope is held here rather than in a mutation context so both
-  // mutations share one rollback without widening their generated generics.
-  const rollbackRef = useRef<DetailEnvelope | undefined>(undefined);
+  const { toggle } = useArtistFavorite();
 
-  const applyFavorite = async (next: boolean) => {
-    await queryClient.cancelQueries({ queryKey: detailKey });
-    rollbackRef.current = queryClient.getQueryData<DetailEnvelope>(detailKey);
-    queryClient.setQueryData<DetailEnvelope>(detailKey, (old) =>
-      old?.status === 200
-        ? { ...old, data: { ...old.data, is_favorited: next } }
-        : old,
+  // The tracks section mounts under the skeleton rather than after it: its
+  // query is independent of this one, so making it wait would serialize two
+  // requests that can run together.
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <DetailSkeleton cards={2} />
+        <TracksSection artistId={artistId} />
+      </div>
     );
-  };
-
-  const rollbackFavorite = () => {
-    if (rollbackRef.current) {
-      queryClient.setQueryData(detailKey, rollbackRef.current);
-    }
-  };
-
-  const settleFavorite = () => {
-    rollbackRef.current = undefined;
-    void queryClient.invalidateQueries({ queryKey: detailKey });
-    // The list page reads the same favorite flag.
-    void queryClient.invalidateQueries({ queryKey: ["/api/v1/artists"] });
-  };
-
-  const favorite = useFavoriteArtistApiV1ArtistsArtistIdFavoritePost({
-    mutation: {
-      onMutate: () => applyFavorite(true),
-      onError: rollbackFavorite,
-      onSettled: settleFavorite,
-      meta: { errorLabel: "Failed to favorite artist" },
-    },
-  });
-
-  const unfavorite = useUnfavoriteArtistApiV1ArtistsArtistIdFavoriteDelete({
-    mutation: {
-      onMutate: () => applyFavorite(false),
-      onError: rollbackFavorite,
-      onSettled: settleFavorite,
-      meta: { errorLabel: "Failed to remove favorite" },
-    },
-  });
-
-  if (isLoading) return <DetailSkeleton />;
+  }
 
   if (isError) {
     const is404 = error instanceof ApiError && error.status === 404;
@@ -188,21 +101,17 @@ export function ArtistDetail() {
           <FavoriteToggle
             isFavorited={isFavorited}
             label={artist.name}
-            onToggle={() =>
-              isFavorited
-                ? unfavorite.mutate({ artistId })
-                : favorite.mutate({ artistId })
-            }
+            onToggle={() => toggle(artistId, isFavorited)}
           />
         }
       />
 
       {/* Core metadata */}
       <dl className="mb-6 flex flex-wrap gap-x-4 gap-y-2 lg:gap-x-6">
-        <Field label="Kind">
+        <DetailField label="Kind">
           {artist.kind ? (KIND_LABELS[artist.kind] ?? artist.kind) : "—"}
-        </Field>
-        <Field label="MusicBrainz">
+        </DetailField>
+        <DetailField label="MusicBrainz">
           {artist.mbid ? (
             <a
               href={`https://musicbrainz.org/artist/${artist.mbid}`}
@@ -215,17 +124,17 @@ export function ArtistDetail() {
           ) : (
             "—"
           )}
-        </Field>
-        <Field label="Tracks">
+        </DetailField>
+        <DetailField label="Tracks">
           <span className="tabular-nums">
             {formatCount(trackCount)} track{pluralSuffix(trackCount)}
           </span>
-        </Field>
+        </DetailField>
       </dl>
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Connector mappings — one row per service that knows this artist */}
-        <Section title="Connectors">
+        <DetailSection title="Connectors">
           {mappings.length === 0 ? (
             <div className="space-y-1">
               <p className="text-sm text-text-muted">
@@ -267,32 +176,22 @@ export function ArtistDetail() {
                     {m.name}
                   </span>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    {m.is_primary && (
-                      <Badge variant="default" className={smallBadge}>
-                        Primary
-                      </Badge>
-                    )}
+                    {m.is_primary && <PrimaryBadge />}
                     {m.match_method && (
-                      <Badge
-                        variant="outline"
-                        className={smallBadge}
-                        title={matchMethodDescription(m.match_method)}
-                      >
-                        {matchMethodLabel(m.match_method)}
-                      </Badge>
+                      <MatchMethodBadge method={m.match_method} />
                     )}
                   </div>
                 </ConnectorListItem>
               ))}
             </div>
           )}
-        </Section>
+        </DetailSection>
 
         {/* Related projects — aliases, other spellings, band membership.
             Absent rather than empty: a connector that said nothing about an
             artist's relations is not the same as an artist who has none. */}
         {related.length > 0 && (
-          <Section title="Related Projects">
+          <DetailSection title="Related Projects">
             <ul className="space-y-2">
               {related.map((r) => (
                 <li
@@ -300,7 +199,7 @@ export function ArtistDetail() {
                   className="flex flex-wrap items-center gap-2"
                 >
                   <span className="text-sm text-text">{r.name}</span>
-                  <Badge variant="outline" className={smallBadge}>
+                  <Badge variant="outline" className={SMALL_BADGE}>
                     {relationLabel(r.relation)}
                   </Badge>
                   <span className="text-xs text-text-faint">
@@ -309,12 +208,10 @@ export function ArtistDetail() {
                 </li>
               ))}
             </ul>
-          </Section>
+          </DetailSection>
         )}
 
-        <Section title="Tracks" className="md:col-span-2">
-          <ArtistTracksSection artistId={artistId} />
-        </Section>
+        <TracksSection artistId={artistId} />
       </div>
     </div>
   );

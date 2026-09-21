@@ -5,7 +5,7 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.12.0.3
  */
-import type { ArtistSchema } from './artistSchema.ts';
+import type { ArtistCreditSchema } from './artistCreditSchema.ts';
 import type { PreferenceState } from './preferenceState.ts';
 
 /**
@@ -14,7 +14,7 @@ import type { PreferenceState } from './preferenceState.ts';
 export interface LibraryTrackSchema {
   id: string;
   title: string;
-  artists: ArtistSchema[];
+  artists: ArtistCreditSchema[];
   album?: string | null;
   duration_ms?: number | null;
   isrc?: string | null;

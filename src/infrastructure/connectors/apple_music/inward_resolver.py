@@ -37,6 +37,7 @@ from typing import override
 from src.config import get_logger
 from src.config.telemetry import phase
 from src.domain.entities import Track
+from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.recording_identity import describe_recording
@@ -251,7 +252,7 @@ class AppleMusicInwardResolver(WritePlanningResolver[AppleMusicSong]):
         (artist resources arrive only via ``include=artists``, which the
         lookup does not request), so the single credit's id is ``None``.
         """
-        return {**write.payload.model_dump(), "artist_ids": [None]}
+        return {**write.payload.model_dump(), ARTIST_IDS_KEY: [None]}
 
     @override
     def _successor_assertion(

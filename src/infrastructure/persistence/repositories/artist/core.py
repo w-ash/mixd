@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Final, cast
 from uuid import UUID
 
+from attrs import define
 from sqlalchemy import ColumnElement, Select, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,7 @@ from src.domain.repositories.artist import (
     ArtistListingPage,
     ArtistSortBy,
 )
+from src.domain.repositories.keyset import KeysetSort
 from src.infrastructure.persistence.database.models import (
     DBArtist,
     DBArtistFavorite,
@@ -77,12 +79,39 @@ def _favorited_at_column(user_id: str) -> ColumnElement[object]:
     )
 
 
-# The sort columns that are not columns. Keys must cover
-# ``COMPUTED_ARTIST_SORT_COLUMNS``; the keyset unit suite asserts that they do,
-# so a new computed sort cannot be declared without an expression to order by.
-COMPUTED_SORT_COLUMNS: Final[Mapping[str, Callable[[str], ColumnElement[object]]]] = {
-    "track_count": _track_count_column,
-    "favorited_at": _favorited_at_column,
+@define(frozen=True, slots=True)
+class PageSideMaps:
+    """The per-page side maps a computed sort reads its cursor value from."""
+
+    track_counts: Mapping[UUID, int]
+    favorited_at: Mapping[UUID, datetime | None]
+
+
+@define(frozen=True, slots=True)
+class ComputedSortColumn:
+    """A sort column ``artists`` does not store.
+
+    ``expression`` is what the page orders and seeks by (built per user, the
+    subqueries are user-scoped); ``value_of`` reads the last row's value from
+    the side maps the page already built, so the cursor costs no extra query.
+    """
+
+    expression: Callable[[str], ColumnElement[object]]
+    value_of: Callable[[PageSideMaps, UUID], object]
+
+
+# One entry per sort the domain declares ``computed``; the keyset unit suite
+# asserts the two agree, so a computed sort cannot be declared without an
+# expression to order by and a reader for its cursor value.
+COMPUTED_SORT_COLUMNS: Final[Mapping[str, ComputedSortColumn]] = {
+    "track_count": ComputedSortColumn(
+        _track_count_column,
+        lambda maps, artist_id: maps.track_counts.get(artist_id, 0),
+    ),
+    "favorited_at": ComputedSortColumn(
+        _favorited_at_column,
+        lambda maps, artist_id: maps.favorited_at.get(artist_id),
+    ),
 }
 
 
@@ -212,7 +241,6 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
                 )
 
         sort = ARTIST_SORTS[sort_by]
-        computed = COMPUTED_SORT_COLUMNS.get(sort.column)
         page, has_more = await self._fetch_page_rows(
             select(DBArtist).where(*conditions),
             sort=sort,
@@ -220,7 +248,11 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
             offset=offset,
             after_value=after_value,
             after_id=after_id,
-            column=None if computed is None else computed(user_id),
+            column=(
+                COMPUTED_SORT_COLUMNS[sort.column].expression(user_id)
+                if sort.computed
+                else None
+            ),
         )
 
         artists = [await self.mapper.to_domain(row) for row in page]
@@ -233,12 +265,7 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
         if has_more:
             last = page[-1]
             next_page_key = (
-                self._sort_value(
-                    last,
-                    sort.column,
-                    track_counts=track_counts,
-                    favorited_at=favorited_at,
-                ),
+                self._sort_value(last, sort, PageSideMaps(track_counts, favorited_at)),
                 last.id,
             )
 
@@ -272,23 +299,11 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
         return conditions
 
     @staticmethod
-    def _sort_value(
-        row: DBArtist,
-        column: str,
-        *,
-        track_counts: Mapping[UUID, int],
-        favorited_at: Mapping[UUID, datetime | None],
-    ) -> object:
-        """The cursor value for ``row`` under a stored or computed sort column.
-
-        A computed sort reads its value from the side map the page already
-        built, so ordering by it costs no extra query.
-        """
-        if column == "track_count":
-            return track_counts.get(row.id, 0)
-        if column == "favorited_at":
-            return favorited_at.get(row.id)
-        return getattr(row, column)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
+    def _sort_value(row: DBArtist, sort: KeysetSort, side_maps: PageSideMaps) -> object:
+        """The cursor value for ``row`` under a stored or computed sort column."""
+        if sort.computed:
+            return COMPUTED_SORT_COLUMNS[sort.column].value_of(side_maps, row.id)
+        return getattr(row, sort.column)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
 
     async def _favorited_at_batch(
         self, artist_ids: Sequence[UUID], *, user_id: str

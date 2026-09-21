@@ -60,6 +60,7 @@ _MIGRATION_ONLY_INDEXES: Final[frozenset[str]] = frozenset({
     "ix_artists_name_trgm",  # 060_artist_tables
     "ix_connector_artists_name_trgm",  # 060_artist_tables
     "ix_connector_artists_raw_metadata_gin",  # 060_artist_tables
+    "ix_artist_aliases_lower_name",  # 060_artist_tables
 })
 
 

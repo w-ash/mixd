@@ -49,6 +49,7 @@ from src.config import get_logger, settings
 from src.config.telemetry import phase
 from src.domain.entities import Track
 from src.domain.exceptions import TidalAuthRequiredError
+from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.recording_identity import describe_recording
@@ -349,7 +350,7 @@ class TidalInwardResolver(WritePlanningResolver[TidalTrackDetail]):
             "isrc": detail.track.isrc,
             "duration_seconds": detail.track.duration_seconds,
             "artist_names": list(detail.artist_names),
-            "artist_ids": artist_ids,
+            ARTIST_IDS_KEY: artist_ids,
         }
 
     @override

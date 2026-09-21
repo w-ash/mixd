@@ -24,14 +24,13 @@ import type {
   TrackSortBy,
 } from "#/api/generated/model";
 import type { PreferenceState } from "#/components/shared/PreferenceToggle";
+import type { SortState } from "#/hooks/sort-param";
+import { parseSortParam, toSortParam } from "#/hooks/sort-param";
 import { useFilterState } from "#/hooks/useFilterState";
-import { useTrackSearch } from "#/hooks/useTrackSearch";
+import { MIN_SEARCH_LENGTH, useTrackSearch } from "#/hooks/useTrackSearch";
 import type { TagMatchMode } from "#/lib/filters-to-workflow";
 import { parsePreferenceParam } from "#/lib/filters-to-workflow";
 import { countPlayFilters } from "#/lib/play-filters";
-
-/** Shortest input that reaches the API — below this the search is not applied. */
-const MIN_SEARCH_LENGTH = 2;
 
 // No artist sort until artists are first-class (v0.12.1) — `artists_text` is a
 // joined display string, so ordering by it sorts by "Bowie, Eno", not by artist.
@@ -41,7 +40,6 @@ export type SortField =
   | "added"
   | "plays"
   | "last_played";
-export type SortDir = "asc" | "desc";
 
 export const SORT_LABELS: Record<SortField, string> = {
   title: "Title",
@@ -51,10 +49,7 @@ export const SORT_LABELS: Record<SortField, string> = {
   last_played: "Last Played",
 };
 
-export interface LibrarySort {
-  field: SortField;
-  dir: SortDir;
-}
+export type LibrarySort = SortState<SortField>;
 
 const DEFAULT_SORT: LibrarySort = { field: "last_played", dir: "desc" };
 
@@ -127,21 +122,8 @@ function toNumber(raw: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function toSortParam({ field, dir }: LibrarySort): TrackSortBy {
-  return `${field}_${dir}`;
-}
-
-/** Parse `?sort=`, falling back to the default for anything unrecognized. */
-function parseSort(raw: string | null): LibrarySort {
-  if (raw === null) return DEFAULT_SORT;
-  const split = raw.lastIndexOf("_");
-  if (split === -1) return DEFAULT_SORT;
-  const field = raw.slice(0, split) as SortField;
-  const dir = raw.slice(split + 1) as SortDir;
-  if (!SORT_LABELS[field] || (dir !== "asc" && dir !== "desc")) {
-    return DEFAULT_SORT;
-  }
-  return { field, dir };
+function toApiSort(sort: LibrarySort): TrackSortBy {
+  return toSortParam(sort) as TrackSortBy;
 }
 
 type ScalarValue = ScalarFilters[keyof ScalarFilters];
@@ -154,7 +136,7 @@ function serialize(
   if (value === null || value === undefined) return null;
   switch (key) {
     case "sort":
-      return toSortParam(value as LibrarySort);
+      return toApiSort(value as LibrarySort);
     // "and" is the default match mode, so it carries no param.
     case "tagMode":
       return value === "or" ? "or" : null;
@@ -206,7 +188,7 @@ export interface UseLibraryFiltersResult {
   /** True while the applied search lags behind the input. */
   isSearching: boolean;
   toQueryParams: () => LibraryQueryParams;
-  /** Raw params, for page and cursor bookkeeping the caller owns. */
+  /** The URL as this hook projects it, for anything else reading the params. */
   searchParams: URLSearchParams;
 }
 
@@ -246,7 +228,11 @@ export function useLibraryFilters({
       neverPlayed: searchParams.get(PARAM.neverPlayed) === "true",
       playedWithin: toNumber(searchParams.get(PARAM.playedWithin)),
       notPlayedWithin: toNumber(searchParams.get(PARAM.notPlayedWithin)),
-      sort: parseSort(searchParams.get(PARAM.sort)),
+      sort: parseSortParam(
+        searchParams.get(PARAM.sort),
+        SORT_LABELS,
+        DEFAULT_SORT,
+      ),
     };
   }, [searchParams, tags, deferredSearch]);
 
@@ -304,7 +290,7 @@ export function useLibraryFilters({
       played_within: filters.playedWithin ?? undefined,
       not_played_within: filters.notPlayedWithin ?? undefined,
       never_played: filters.neverPlayed || undefined,
-      sort: toSortParam(filters.sort),
+      sort: toApiSort(filters.sort),
     }),
     [filters],
   );

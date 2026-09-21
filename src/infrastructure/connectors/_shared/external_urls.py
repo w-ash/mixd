@@ -1,7 +1,8 @@
 """Registry-declared links out to a connector's own web pages.
 
-Each connector declares ``track_url`` and ``playlist_url`` in its config; this
-module is the single reader, so no surface grows a URL switch of its own.
+Each connector declares ``track_url``, ``playlist_url`` and ``artist_url`` in
+its config; this module is the single reader, so no surface grows a URL switch
+of its own.
 
 Lookups arrive keyed either by the registry name (``apple_music``) or by the
 service name stored on a data row (``apple``), so a connector is matched on its
@@ -42,3 +43,15 @@ def connector_playlist_url(service: str, connector_playlist_id: str) -> str | No
     config = _config_for(service)
     hook = config.get("playlist_url") if config else None
     return hook(connector_playlist_id) if hook else None
+
+
+def connector_artist_url(service: str, connector_artist_id: str) -> str | None:
+    """Public page for a connector artist, or None when the connector has none.
+
+    A blank identifier yields None too: there is no page to link.
+    """
+    if not connector_artist_id.strip():
+        return None
+    config = _config_for(service)
+    hook = config.get("artist_url") if config else None
+    return hook(connector_artist_id) if hook else None

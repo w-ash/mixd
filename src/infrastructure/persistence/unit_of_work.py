@@ -19,6 +19,7 @@ from src.domain.repositories.artist import (
     ArtistAliasRepositoryProtocol,
     ArtistConnectorRepositoryProtocol,
     ArtistFavoriteRepositoryProtocol,
+    ArtistMinterProtocol,
     ArtistRepositoryProtocol,
 )
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
@@ -65,6 +66,7 @@ from src.domain.repositories.workflow import (
     WorkflowRunRepositoryProtocol,
     WorkflowVersionRepositoryProtocol,
 )
+from src.infrastructure.persistence.artist_minting import ArtistMinter
 from src.infrastructure.persistence.repositories.artist.aliases import (
     ArtistAliasRepository,
 )
@@ -231,6 +233,10 @@ class DatabaseUnitOfWork:
     def get_artist_alias_repository(self) -> ArtistAliasRepositoryProtocol:
         """Get the connector-artist alias cache."""
         return ArtistAliasRepository(self._session)
+
+    def get_artist_minter(self) -> ArtistMinterProtocol:
+        """Get the import-path artist minting walk over this unit of work."""
+        return ArtistMinter(self)
 
     def get_checkpoint_repository(self) -> CheckpointRepositoryProtocol:
         """Get checkpoint repository using this unit of work's transaction."""

@@ -123,3 +123,13 @@ export function DetailHeaderSkeleton({
     </div>
   );
 }
+
+/** An entity detail page while it loads: header stanza above its section cards. */
+export function DetailSkeleton({ cards }: { cards: number }) {
+  return (
+    <div className="space-y-6">
+      <DetailHeaderSkeleton subtitleWidth="w-48" />
+      <CardGridSkeleton count={cards} gridClassName="grid-cols-2" />
+    </div>
+  );
+}

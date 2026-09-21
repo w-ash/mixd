@@ -24,7 +24,7 @@ from src.domain.entities.tag import normalize_tag
 from src.domain.entities.track import Track
 from src.infrastructure.connectors._shared.external_urls import connector_track_url
 from src.interface.api.schemas.common import PaginatedResponse
-from src.interface.api.schemas.playlists import ArtistSchema, to_artist_schema
+from src.interface.api.schemas.playlists import ArtistCreditSchema, to_artist_schema
 
 # Raw tag strings are validated + normalized at the Pydantic layer so
 # invalid input surfaces as a 422 BEFORE hitting the use case or DB.
@@ -64,7 +64,7 @@ class LibraryTrackSchema(BaseModel):
 
     id: UUID
     title: str
-    artists: list[ArtistSchema]
+    artists: list[ArtistCreditSchema]
     album: str | None = None
     duration_ms: int | None = None
     isrc: str | None = None
@@ -217,7 +217,7 @@ class TrackDetailSchema(BaseModel):
 
     id: UUID
     title: str
-    artists: list[ArtistSchema]
+    artists: list[ArtistCreditSchema]
     album: str | None = None
     duration_ms: int | None = None
     release_date: datetime | None = None

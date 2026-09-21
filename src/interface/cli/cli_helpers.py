@@ -13,7 +13,7 @@ Prefer `typer.BadParameter` over ad-hoc `typer.Exit(1)` for argument validation
 leaks a stack trace.
 """
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Never
@@ -37,7 +37,7 @@ from src.domain.entities.preference import PREFERENCE_ORDER, PreferenceState
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.entities.schedule import Schedule, validate_time_of_day
 from src.domain.entities.tag import normalize_tag
-from src.domain.repositories.track import TRACK_SORTS, TrackSortBy, is_track_sort
+from src.domain.repositories.track import DEFAULT_TRACK_SORT, TRACK_SORTS, TrackSortBy
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import (
@@ -182,58 +182,60 @@ def validate_file_path(file_path: Path) -> None:
         raise typer.Exit(1)
 
 
+def run_with_progress[T](
+    factory: Callable[[ProgressEmitter], Awaitable[T]],
+    *,
+    fallback_emitter: ProgressEmitter | None = None,
+) -> T:
+    """Run one long operation under the live progress display.
+
+    Opens the progress coordination context, picks the emitter the operation
+    reports to — the context's broker, else ``fallback_emitter``, else a
+    null one — and runs ``factory`` with it on the CLI event loop. Every
+    command that shows a live progress bar goes through here.
+    """
+
+    async def _execute() -> T:
+        async with progress_coordination_context(show_live=True) as context:
+            emitter: ProgressEmitter = (
+                context.get_progress_broker()
+                or fallback_emitter
+                or NullProgressEmitter()
+            )
+            return await factory(emitter)
+
+    return run_async(_execute())
+
+
 def run_import_with_progress(
     spec: ImportProgressSpec,
     *,
     progress_emitter: ProgressEmitter | None = None,
 ) -> OperationResult:
-    """Execute an import with unified progress context and display.
+    """Execute a play-history import under the live progress display.
 
-    Consolidates the common pattern of:
-    1. Setting up progress coordination context
-    2. Creating progress adapter
-    3. Running import use case
-    4. Handling async execution
-
-    The caller-supplied ``progress_emitter`` is accepted for protocol
-    compatibility but not forwarded — this function creates its own
-    adapter from the progress coordination context.
-
-    Args:
-        spec: Import selectors (service, mode, file path, batch size, dates …).
-        progress_emitter: Fallback emitter when no progress manager is active in context.
-
-    Returns:
-        Operation result from import execution
+    ``progress_emitter`` is the fallback when no progress broker is active in
+    the context.
     """
 
-    async def _execute_with_progress() -> OperationResult:
+    async def _import(emitter: ProgressEmitter) -> OperationResult:
         from src.application.use_cases.import_play_history import run_import
 
-        async with progress_coordination_context(show_live=True) as context:
-            # Get progress manager from unified context
-            progress_broker = context.get_progress_broker()
+        return await run_import(
+            user_id=get_cli_user_id(),
+            service=spec.service,
+            mode=spec.mode,
+            limit=spec.limit,
+            username=spec.username,
+            file_path=spec.file_path,
+            confirm=spec.confirm,
+            from_date=spec.from_date,
+            to_date=spec.to_date,
+            progress_emitter=emitter,
+            batch_size=spec.batch_size,
+        )
 
-            # Prefer context manager, then caller-supplied emitter, then null
-            progress_adapter: ProgressEmitter = (
-                progress_broker or progress_emitter or NullProgressEmitter()
-            )
-
-            return await run_import(
-                user_id=get_cli_user_id(),
-                service=spec.service,
-                mode=spec.mode,
-                limit=spec.limit,
-                username=spec.username,
-                file_path=spec.file_path,
-                confirm=spec.confirm,
-                from_date=spec.from_date,
-                to_date=spec.to_date,
-                progress_emitter=progress_adapter,
-                batch_size=spec.batch_size,
-            )
-
-    return run_async(_execute_with_progress())
+    return run_with_progress(_import, fallback_emitter=progress_emitter)
 
 
 # ---------------------------------------------------------------------------
@@ -256,13 +258,28 @@ def validate_preference_state(raw: str) -> PreferenceState:
     return raw  # runtime-narrowed to PreferenceState
 
 
+def validate_sort[K: str](
+    raw: str | None, allowed: Mapping[K, object], *, default: K
+) -> K:
+    """Return the declared sort key ``raw`` names, or raise ``typer.BadParameter``.
+
+    ``default`` answers an absent option. Iterating the registry returns the
+    declared key itself, so the result is typed as the registry's literal
+    without a runtime narrowing helper per listing.
+    """
+    if not raw:
+        return default
+    for key in allowed:
+        if key == raw:
+            return key
+    raise typer.BadParameter(
+        f"'{raw}' is not a valid sort — expected one of: {', '.join(allowed)}."
+    )
+
+
 def validate_track_sort(raw: str) -> TrackSortBy:
     """Return a typed ``TrackSortBy`` or raise ``typer.BadParameter``."""
-    if not is_track_sort(raw):
-        raise typer.BadParameter(
-            f"'{raw}' is not a valid sort — expected one of: {', '.join(TRACK_SORTS)}."
-        )
-    return raw
+    return validate_sort(raw, TRACK_SORTS, default=DEFAULT_TRACK_SORT)
 
 
 def validate_tag(raw: str) -> str:

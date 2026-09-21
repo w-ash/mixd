@@ -12,6 +12,7 @@ from src.domain.repositories.artist import (
     ArtistAliasRepositoryProtocol,
     ArtistConnectorRepositoryProtocol,
     ArtistFavoriteRepositoryProtocol,
+    ArtistMinterProtocol,
     ArtistRepositoryProtocol,
 )
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
@@ -128,6 +129,10 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_artist_alias_repository(self) -> ArtistAliasRepositoryProtocol:
         """Get the connector-artist alias cache."""
+        ...
+
+    def get_artist_minter(self) -> ArtistMinterProtocol:
+        """Get the import-path artist minting walk over this unit of work."""
         ...
 
     def get_artist_enrichment_provider(self) -> ArtistEnrichmentProviderProtocol:

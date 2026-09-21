@@ -111,7 +111,12 @@ class TestConnectorArtist:
 
 class TestArtistMapping:
     def test_mapping_carries_no_supersession_fields(self) -> None:
-        mapping = ArtistMapping(user_id="u1", match_method="mbid_match")
+        mapping = ArtistMapping(
+            user_id="u1",
+            artist_id=uuid7(),
+            connector_artist_id=uuid7(),
+            match_method="mbid_match",
+        )
         for absent in (
             "superseded_by_id",
             "superseded_at",
@@ -126,7 +131,12 @@ class TestArtistMapping:
             ArtistMapping(user_id="u1")  # pyright: ignore[reportCallIssue]
 
     def test_defaults_are_automatic_and_non_primary(self) -> None:
-        mapping = ArtistMapping(user_id="u1", match_method="direct")
+        mapping = ArtistMapping(
+            user_id="u1",
+            artist_id=uuid7(),
+            connector_artist_id=uuid7(),
+            match_method="direct",
+        )
         assert mapping.origin == "automatic"
         assert not mapping.is_primary
         assert mapping.confidence == 0

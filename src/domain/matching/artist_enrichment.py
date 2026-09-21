@@ -64,10 +64,6 @@ class ArtistLookup:
     disambiguation: str | None = None
     aliases: tuple[ArtistAliasRecord, ...] = field(factory=tuple)
     url_rels: tuple[ArtistUrlRel, ...] = field(factory=tuple)
-    # Source relevance for a search hit (MusicBrainz Lucene score, 0-100);
-    # None for a direct lookup. Never a confidence: a name search never mints
-    # an artist on its own.
-    score: int | None = None
 
     def alias_names(self) -> tuple[str, ...]:
         """Every name this artist is known by, primary name first."""

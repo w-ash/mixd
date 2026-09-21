@@ -325,5 +325,6 @@ class DBArtistAlias(BaseEntity):
             name="uq_artist_aliases_identity",
             postgresql_nulls_not_distinct=True,
         ),
-        Index("ix_artist_aliases_name", "name"),
+        # The name lookup index is functional (``lower(name)``) and lives in
+        # migration 060 only.
     )

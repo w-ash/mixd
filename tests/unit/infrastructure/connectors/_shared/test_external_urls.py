@@ -1,6 +1,7 @@
 """Registry-declared connector links resolve by registry name or service alias."""
 
 from src.infrastructure.connectors._shared.external_urls import (
+    connector_artist_url,
     connector_playlist_url,
     connector_track_url,
 )
@@ -48,3 +49,29 @@ class TestConnectorPlaylistUrl:
         # page exists to link to under either name the connector answers to.
         assert connector_playlist_url("apple_music", "p.abc") is None
         assert connector_playlist_url("apple", "p.abc") is None
+
+
+class TestConnectorArtistUrl:
+    def test_declared_hook_builds_the_connectors_own_page(self):
+        assert (
+            connector_artist_url("spotify", "4tZwfgrHOc3mvqYlEYSvVi")
+            == "https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi"
+        )
+
+    def test_lastfm_encodes_the_name_it_is_keyed_by(self):
+        assert (
+            connector_artist_url("lastfm", "Sigur Rós")
+            == "https://www.last.fm/music/Sigur%20R%C3%B3s"
+        )
+
+    def test_apple_resolves_through_the_data_plane_alias(self):
+        assert (
+            connector_artist_url("apple", "123") == "https://music.apple.com/artist/123"
+        )
+        assert connector_artist_url("apple_music", "123") == (
+            connector_artist_url("apple", "123")
+        )
+
+    def test_unknown_service_and_blank_identifier_yield_none(self):
+        assert connector_artist_url("myspace", "123") is None
+        assert connector_artist_url("spotify", "  ") is None

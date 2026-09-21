@@ -39,3 +39,14 @@ class TestPlaylistUrl:
 
     def test_unregistered_connector_returns_none(self) -> None:
         assert default_connector_catalog().playlist_url("myspace", "1") is None
+
+
+class TestArtistUrl:
+    def test_declared_hook_returns_the_connectors_own_page(self) -> None:
+        assert (
+            default_connector_catalog().artist_url("musicbrainz", "abc")
+            == "https://musicbrainz.org/artist/abc"
+        )
+
+    def test_unregistered_connector_returns_none(self) -> None:
+        assert default_connector_catalog().artist_url("myspace", "1") is None

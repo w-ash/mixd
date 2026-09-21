@@ -1,4 +1,4 @@
-import { ArrowUp, Heart } from "lucide-react";
+import { Heart } from "lucide-react";
 import { Link } from "react-router";
 
 import type { LibraryTrackSchema } from "#/api/generated/model";
@@ -6,9 +6,15 @@ import { ArtistCredits } from "#/components/shared/ArtistCredits";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
+import type { TableSort } from "#/components/shared/SortableHead";
+import { SortableHead } from "#/components/shared/SortableHead";
 import { TableCard } from "#/components/shared/TableCard";
 import { TagChip } from "#/components/shared/TagChip";
 import { TitleLink } from "#/components/shared/TitleLink";
+import {
+  RowHoverAccent,
+  rowStaggerStyle,
+} from "#/components/shared/table-row-motion";
 import { Checkbox } from "#/components/ui/checkbox";
 import {
   Table,
@@ -18,14 +24,12 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table";
-import type { SortDir, SortField } from "#/hooks/useLibraryFilters";
+import type { SortField } from "#/hooks/useLibraryFilters";
 import { SORT_LABELS } from "#/hooks/useLibraryFilters";
 import type { SelectionSet } from "#/hooks/useSelectionSet";
 import { formatCount, formatDuration, formatRelativeTime } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
-import { cn } from "#/lib/utils";
 
-const STAGGER_CAP = 15;
 const TAGS_PREVIEW_CAP = 3;
 
 /** Inline tag list for a track row — shows first few chips, then "+N". */
@@ -115,58 +119,7 @@ function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
 }
 
 /** Sort state a caller owns, handed to the table so headers can drive it. */
-export interface TrackTableSort {
-  field: SortField;
-  dir: SortDir;
-  onSort: (field: SortField, dir: SortDir) => void;
-}
-
-/** Column header — sortable when the caller owns sort state, plain otherwise */
-function SortableHead({
-  field,
-  sort,
-  className,
-  children,
-}: {
-  field: SortField;
-  sort: TrackTableSort | undefined;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  if (!sort) {
-    return <TableHead className={className}>{children}</TableHead>;
-  }
-
-  const isActive = field === sort.field;
-  const nextDir = isActive && sort.dir === "asc" ? "desc" : "asc";
-
-  return (
-    <TableHead
-      className={className}
-      aria-sort={
-        isActive ? (sort.dir === "asc" ? "ascending" : "descending") : "none"
-      }
-    >
-      <button
-        type="button"
-        className="inline-flex items-center gap-1 hover:text-text transition-colors"
-        onClick={() => sort.onSort(field, nextDir)}
-        aria-label={`Sort by ${SORT_LABELS[field]} ${nextDir === "asc" ? "ascending" : "descending"}`}
-      >
-        {children}
-        {isActive && (
-          <ArrowUp
-            className={cn(
-              "size-3 transition-transform duration-150",
-              sort.dir === "desc" && "rotate-180",
-            )}
-            aria-hidden="true"
-          />
-        )}
-      </button>
-    </TableHead>
-  );
-}
+export type TrackTableSort = Omit<TableSort<SortField>, "labels">;
 
 interface TrackTableProps {
   tracks: LibraryTrackSchema[];
@@ -185,6 +138,8 @@ interface TrackTableProps {
  * a row reads the same wherever tracks are listed.
  */
 export function TrackTable({ tracks, selection, sort }: TrackTableProps) {
+  const headSort = sort ? { ...sort, labels: SORT_LABELS } : undefined;
+
   return (
     <ResponsiveTable
       cards={
@@ -219,7 +174,7 @@ export function TrackTable({ tracks, selection, sort }: TrackTableProps) {
               <TableHead className="w-8">
                 <span className="sr-only">Liked</span>
               </TableHead>
-              <SortableHead field="title" sort={sort}>
+              <SortableHead field="title" sort={headSort}>
                 Title
               </SortableHead>
               <TableHead>Artist</TableHead>
@@ -231,19 +186,23 @@ export function TrackTable({ tracks, selection, sort }: TrackTableProps) {
               </TableHead>
               <SortableHead
                 field="duration"
-                sort={sort}
+                sort={headSort}
                 className="w-20 text-right"
               >
                 Duration
               </SortableHead>
               <SortableHead
                 field="plays"
-                sort={sort}
+                sort={headSort}
                 className="w-16 text-right"
               >
                 Plays
               </SortableHead>
-              <SortableHead field="last_played" sort={sort} className="w-28">
+              <SortableHead
+                field="last_played"
+                sort={headSort}
+                className="w-28"
+              >
                 Last Played
               </SortableHead>
               <TableHead className="w-10 text-center">Pref</TableHead>
@@ -256,13 +215,7 @@ export function TrackTable({ tracks, selection, sort }: TrackTableProps) {
               <TableRow
                 key={track.id}
                 className="group relative"
-                style={
-                  index < STAGGER_CAP
-                    ? {
-                        animation: `fade-in-row 300ms ease-out ${index * 20}ms both`,
-                      }
-                    : undefined
-                }
+                style={rowStaggerStyle(index)}
               >
                 {/* Select */}
                 {selection && (
@@ -278,8 +231,7 @@ export function TrackTable({ tracks, selection, sort }: TrackTableProps) {
                 )}
                 {/* Liked */}
                 <TableCell className="relative w-8 text-center">
-                  {/* Gold hover accent bar */}
-                  <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <RowHoverAccent />
                   {track.is_liked && (
                     <Heart
                       className="mx-auto size-3.5 text-status-liked -translate-y-px"

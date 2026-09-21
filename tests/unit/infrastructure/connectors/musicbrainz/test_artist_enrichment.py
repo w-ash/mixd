@@ -189,7 +189,6 @@ class TestToArtistLookup:
         assert len(lookup.aliases) == 1
         alias = lookup.aliases[0]
         assert (alias.name, alias.locale, alias.is_primary) == ("STRFKR", "en", True)
-        assert lookup.score == 100
 
     def test_alias_names_lead_with_the_primary_name(self):
         lookup = to_artist_lookup(_artist(CARIBOU_BODY))

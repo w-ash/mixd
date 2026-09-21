@@ -13,7 +13,7 @@
  * it is unresolved — it is what makes a credited name on a track table a link
  * to that artist's page.
  */
-export interface ArtistSchema {
+export interface ArtistCreditSchema {
   name: string;
   artist_id?: string | null;
 }

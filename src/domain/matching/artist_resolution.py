@@ -16,9 +16,9 @@ where it has one and otherwise stays a pending credit for the enrichment
 operation to resolve with alias evidence.
 """
 
-from collections.abc import Awaitable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Final, Protocol, TypeIs, runtime_checkable
+from typing import Final
 from uuid import UUID
 
 from attrs import Factory, define, field
@@ -26,7 +26,6 @@ from attrs import Factory, define, field
 from src.domain.entities.artist import Artist, ConnectorArtist, is_various_artists
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.track import ArtistCredit, Track
-from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.matching.artist_confidence import calculate_artist_confidence
 from src.domain.matching.canonical_resolution import (
     Described,
@@ -46,6 +45,10 @@ from src.domain.repositories.mapping import PrimaryCandidate
 # identity) but never described to the planner: a Last.fm name is capped
 # evidence, never identity — one page serves every same-name artist.
 NAME_KEYED_CONNECTORS: Final[frozenset[str]] = frozenset({"lastfm"})
+
+# The raw-metadata key every connector writes its positional artist ids under
+# (``None`` where the service sent no id); ``credit_source`` reads it back.
+ARTIST_IDS_KEY: Final = "artist_ids"
 
 
 @define(frozen=True, slots=True)
@@ -168,7 +171,7 @@ def credit_source(
     the id at that position, so a misaligned payload never attaches one
     artist's record to another.
     """
-    ids_value = raw_metadata.get("artist_ids")
+    ids_value = raw_metadata.get(ARTIST_IDS_KEY)
     ids: list[str | None] = [None] * len(artists)
     if isinstance(ids_value, list):
         for position, item in enumerate(ids_value[: len(artists)]):
@@ -386,47 +389,12 @@ def _leader_of(leader: str | None) -> str:
     return leader
 
 
-@runtime_checkable
-class ArtistMappingSeam[TAssertion](Protocol):
-    """The batch assert and its event recording, as the concrete artist
-    connector repository exposes them.
-
-    Not on the repository protocol — the assertion's type is the generic
-    mapping mechanism's own — so a minter narrows to this seam at runtime
-    (``mapping_seam_of``) and passes the assertion back unchanged.
-    """
-
-    def assert_mappings(
-        self,
-        rows: Sequence[Mapping[str, object]],
-        *,
-        reason: SupersessionReason = "rematch",
-    ) -> Awaitable[TAssertion]: ...
-
-    def record_assertion(self, assertion: TAssertion) -> Awaitable[None]: ...
-
-
-def has_mapping_seam(repository: object) -> TypeIs[ArtistMappingSeam[object]]:
-    """Whether a repository exposes the assert-and-record seam."""
-    return isinstance(repository, ArtistMappingSeam)
-
-
-def mapping_seam_of(repository: object) -> ArtistMappingSeam[object]:
-    """The seam, or a ``TypeError`` naming the repository that lacks it."""
-    if not has_mapping_seam(repository):
-        raise TypeError(
-            f"{type(repository).__name__} does not expose assert_mappings/"
-            "record_assertion; artist minting needs the concrete mapping seam"
-        )
-    return repository
-
-
 __all__ = [
+    "ARTIST_IDS_KEY",
     "NAME_KEYED_CONNECTORS",
     "ArtistCreditSource",
     "ArtistDescription",
     "ArtistIntake",
-    "ArtistMappingSeam",
     "ArtistResolutionRules",
     "ArtistWrites",
     "CreditClaim",
@@ -435,7 +403,5 @@ __all__ = [
     "credit_source",
     "credited_artists",
     "dumped_credits",
-    "has_mapping_seam",
-    "mapping_seam_of",
     "plan_artist_resolution",
 ]

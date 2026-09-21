@@ -18,17 +18,15 @@ from uuid import UUID
 
 from attrs import define, field
 
-from src.application.use_cases._shared.artist_urls import connector_artist_url
+from src.application.use_cases._shared.connector_catalog import (
+    ConnectorCatalog,
+    default_connector_catalog,
+)
 from src.domain.entities.artist import Artist
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.artist import ArtistMappingInfo
 from src.domain.repositories.uow import UnitOfWorkProtocol
-
-# Which ``raw_metadata`` keys carry related projects, and the relation each
-# states. ``url_rels`` is the odd one: its entries name the *same* project on
-# another service, not a different project.
-type RelationKind = str
 
 
 @define(frozen=True, slots=True)
@@ -54,7 +52,7 @@ class RelatedProject:
     """
 
     name: str
-    relation: RelationKind
+    relation: str
     connector_name: str
     identifier: str | None = None
 
@@ -93,7 +91,7 @@ def _entries(raw: JsonDict, key: str) -> list[JsonValue]:
 
 
 def _named_relation(
-    entry: JsonValue, relation: RelationKind, connector_name: str
+    entry: JsonValue, relation: str, connector_name: str
 ) -> RelatedProject | None:
     """Build a relation from a ``{"name": …}`` object or a bare string."""
     if (name := _as_str(entry)) is not None:
@@ -163,7 +161,9 @@ def _dedupe(related: Sequence[RelatedProject]) -> list[RelatedProject]:
     return unique
 
 
-def _to_mapping_info(info: ArtistMappingInfo) -> ArtistConnectorMappingInfo:
+def _to_mapping_info(
+    info: ArtistMappingInfo, catalog: ConnectorCatalog
+) -> ArtistConnectorMappingInfo:
     identifier = info["connector_artist_identifier"]
     return ArtistConnectorMappingInfo(
         connector_name=info["connector_name"],
@@ -172,13 +172,19 @@ def _to_mapping_info(info: ArtistMappingInfo) -> ArtistConnectorMappingInfo:
         is_primary=info["is_primary"],
         match_method=info["match_method"],
         confidence=info["confidence"],
-        external_url=connector_artist_url(info["connector_name"], identifier),
+        external_url=catalog.artist_url(info["connector_name"], identifier),
     )
 
 
 @define(slots=True)
 class GetArtistDetailUseCase:
-    """Assemble one artist's detail view."""
+    """Assemble one artist's detail view.
+
+    ``catalog`` answers each mapping's "open on <service>" link from the
+    connector registry's ``artist_url`` hooks.
+    """
+
+    catalog: ConnectorCatalog = field(factory=default_connector_catalog)
 
     async def execute(
         self, command: GetArtistDetailCommand, uow: UnitOfWorkProtocol
@@ -216,7 +222,9 @@ class GetArtistDetailUseCase:
                 artist=artist,
                 track_count=counts.get(command.artist_id, 0),
                 is_favorited=command.artist_id in favorited,
-                connector_mappings=[_to_mapping_info(m) for m in mappings],
+                connector_mappings=[
+                    _to_mapping_info(m, self.catalog) for m in mappings
+                ],
                 related=_dedupe(related),
             )
 

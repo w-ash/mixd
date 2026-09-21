@@ -9,6 +9,7 @@ LastFMAPIClient, LastFMOperations, and conversion utilities.
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import cast, override
+from urllib.parse import quote
 from uuid import UUID
 
 import attrs
@@ -244,4 +245,7 @@ def get_connector_config() -> ConnectorConfig:
         "build_auth_url": build_auth_url,
         "play_importer_factories": {"api": play_factory.create_play_importer},
         "play_resolver_factory": play_factory.create_play_resolver,
+        # Last.fm addresses artists by name — the mapping identifier *is* the
+        # name — so the page path carries it URL-encoded.
+        "artist_url": lambda name: f"https://www.last.fm/music/{quote(name, safe='')}",
     }

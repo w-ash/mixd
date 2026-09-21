@@ -15,30 +15,25 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.domain.entities.artist import ArtistFavorite
 from src.infrastructure.persistence.database.models import DBArtistFavorite
-from src.infrastructure.persistence.repositories.artist.mapper import (
-    ArtistFavoriteMapper,
-)
-from src.infrastructure.persistence.repositories.base_repo import (
-    BaseRepository,
-    rows_affected,
-)
+from src.infrastructure.persistence.repositories.base_repo import rows_affected
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
 
 
-class ArtistFavoriteRepository(BaseRepository[DBArtistFavorite, ArtistFavorite]):
-    """Repository for the artists a user favorited."""
+class ArtistFavoriteRepository:
+    """Repository for the artists a user favorited.
+
+    Presence rows are never read back as entities, so there is no mapper and
+    no ``BaseRepository`` — every method is one statement on the session.
+    """
+
+    session: AsyncSession
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize with database session and data mapper."""
-        super().__init__(
-            session=session,
-            model_class=DBArtistFavorite,
-            mapper=ArtistFavoriteMapper(),
-        )
+        """Initialize with database session."""
+        self.session = session
 
     @db_operation("favorite_artist")
     async def favorite(self, artist_id: UUID, *, user_id: str) -> bool:

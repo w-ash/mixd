@@ -123,6 +123,7 @@ def get_connector_config() -> ConnectorConfig:
         "build_auth_url": build_auth_url,
         # Mappings store the numeric Tidal track id (conversions.py).
         "track_url": lambda track_id: f"https://tidal.com/browse/track/{track_id}",
+        "artist_url": lambda artist_id: f"https://tidal.com/browse/artist/{artist_id}",
         "playlist_url": lambda playlist_id: (
             f"https://tidal.com/browse/playlist/{playlist_id}"
         ),

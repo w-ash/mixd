@@ -8,7 +8,7 @@ reviews — and nothing else: every decision is the planner's
 seam that only persists what it is handed.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from uuid import UUID
 
 from attrs import Factory, define, evolve
@@ -145,11 +145,14 @@ class TrackResolutionService:
 
         pending = [identifier for identifier in payloads if identifier not in resolved]
         if not pending:
-            # Still worth a minting pass: a re-encountered track heals the
-            # credits an earlier import (or the backfill) left without ids.
-            await self._mint_artists(
-                connector, payloads, resolved, uow, user_id=user_id
-            )
+            # Still worth a minting pass when a credit is unlinked: a
+            # re-encountered track heals the credits an earlier import (or
+            # the backfill) left without ids. Fully linked, there is nothing
+            # to assign, so the batch never touches the artist repositories.
+            if _has_unlinked_credit(resolved.values()):
+                await self._mint_artists(
+                    connector, payloads, resolved, uow, user_id=user_id
+                )
             return [resolved[t.connector_track_identifier] for t in tracks]
 
         plan = await self._plan(pending, payloads, uow, user_id=user_id)
@@ -459,6 +462,11 @@ def _backfill(owner: Track, payload: ConnectorTrack) -> Track | None:
     if owner.release_date is None and payload.release_date is not None:
         changes["release_date"] = payload.release_date
     return evolve(owner, **changes) if changes else None
+
+
+def _has_unlinked_credit(tracks: Iterable[Track]) -> bool:
+    """Whether any canonical credit still lacks an ``artist_id``."""
+    return any(credit.artist_id is None for track in tracks for credit in track.artists)
 
 
 def _backfills(

@@ -322,6 +322,7 @@ def get_connector_config() -> ConnectorConfig:
         # policy (application-owned) still targets spotify:plays only.
         "supports_play_polling": True,
         "track_url": lambda track_id: f"https://open.spotify.com/track/{track_id}",
+        "artist_url": lambda artist_id: f"https://open.spotify.com/artist/{artist_id}",
         "playlist_url": lambda playlist_id: (
             f"https://open.spotify.com/playlist/{playlist_id}"
         ),

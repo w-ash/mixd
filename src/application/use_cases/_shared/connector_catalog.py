@@ -47,6 +47,15 @@ class ConnectorCatalog(Protocol):
         """
         ...
 
+    def artist_url(self, name: str, artist_id: str) -> str | None:
+        """Return the connector's own web page for one of its artists.
+
+        None when the connector is unregistered, declares no artist link, or
+        the identifier is blank — the detail page renders the mapping without
+        a link rather than a guessed URL.
+        """
+        ...
+
 
 class _DiscoveryConnectorCatalog:
     """Catalog backed by infrastructure connector discovery."""
@@ -88,6 +97,13 @@ class _DiscoveryConnectorCatalog:
         )
 
         return connector_playlist_url(name, playlist_id)
+
+    def artist_url(self, name: str, artist_id: str) -> str | None:
+        from src.infrastructure.connectors._shared.external_urls import (
+            connector_artist_url,
+        )
+
+        return connector_artist_url(name, artist_id)
 
 
 def default_connector_catalog() -> ConnectorCatalog:

@@ -19,7 +19,7 @@ own; an accessor's zero value is only reachable for undeclared keys.
 
 from collections.abc import Callable, Mapping, Sequence
 from operator import attrgetter
-from typing import NamedTuple, Protocol, TypedDict, cast
+from typing import NamedTuple, Protocol, TypedDict
 from uuid import UUID
 
 from src.config import get_logger
@@ -178,26 +178,41 @@ def _tf(
     )
 
 
-def _warn_when_metric_missing(
-    operation: str, metric_name: str, transform: Transform | TrackList
+def _warn_when_missing(
+    transform: Transform | TrackList,
+    *,
+    missing: Callable[[TrackList], bool],
+    message: str,
 ) -> Transform | TrackList:
-    """Wrap a metric transform so an unenriched metric warns once per execution.
+    """Wrap a transform so an unenriched input warns once per execution.
 
-    The transforms degrade gracefully on missing metrics, which hides a
-    misconfigured pipeline. This wrapper reports it when the node runs.
+    The transforms degrade gracefully on missing enrichment, which hides a
+    misconfigured pipeline. This wrapper reports it when the node runs on a
+    non-empty tracklist that ``missing`` says lacks the enrichment.
     """
     if isinstance(transform, TrackList):
         return transform
 
     def warn_then_apply(tracklist: TrackList) -> TrackList:
-        if tracklist.tracks and not has_metric_values(tracklist, metric_name):
-            logger.warning(
-                f"{operation} '{metric_name}' has no metric data — "
-                "ensure an upstream enricher for this metric is configured"
-            )
+        if tracklist.tracks and missing(tracklist):
+            logger.warning(message)
         return transform(tracklist)
 
     return warn_then_apply
+
+
+def _warn_when_metric_missing(
+    operation: str, metric_name: str, transform: Transform | TrackList
+) -> Transform | TrackList:
+    """Warn when a metric transform runs on a tracklist nobody enriched with it."""
+    return _warn_when_missing(
+        transform,
+        missing=lambda tracklist: not has_metric_values(tracklist, metric_name),
+        message=(
+            f"{operation} '{metric_name}' has no metric data — "
+            "ensure an upstream enricher for this metric is configured"
+        ),
+    )
 
 
 def _artist_ids_from_config(cfg: Mapping[str, JsonValue]) -> frozenset[UUID]:
@@ -216,70 +231,16 @@ def _artist_ids_from_config(cfg: Mapping[str, JsonValue]) -> frozenset[UUID]:
     return frozenset(ids)
 
 
-def _warn_when_favorites_missing(transform: Transform) -> Transform:
-    """Wrap the id-path transform so a missing favorites enrichment warns.
+def _favorites_missing(favorites_only: bool) -> Callable[[TrackList], bool]:
+    """Whether a ``favorites_only`` filter is about to run without its enrichment.
 
-    ``filter_by_artist_ids``'s ``favorites_only`` path treats missing
-    ``favorite_artist_ids`` metadata as an empty set — silent by design in the
-    domain. This node-layer wrapper reports the likely-misconfigured pipeline
-    (no ``enricher.artist_favorites`` upstream) when the node actually runs.
+    ``filter_by_artist_ids`` treats missing ``favorite_artist_ids`` metadata as
+    an empty set — silent by design in the domain — so the node reports the
+    likely-misconfigured pipeline (no ``enricher.artist_favorites`` upstream).
     """
-
-    def warn_then_apply(tracklist: TrackList) -> TrackList:
-        if tracklist.tracks and "favorite_artist_ids" not in tracklist.metadata:
-            logger.warning(
-                "Filter by artists (favorites_only) has no favorite_artist_ids "
-                "metadata — ensure enricher.artist_favorites runs upstream"
-            )
-        return transform(tracklist)
-
-    return warn_then_apply
-
-
-def _filter_by_artists(ctx: NodeContext, cfg: Mapping[str, JsonValue]) -> Transform:
-    """Chain the legacy name-based path with the id-based include/exclude path.
-
-    ``filter.by_artists`` predates first-class artist ids (v0.12.1) and now
-    carries both: ``exclusion_source`` for the original name-based comparison
-    against an upstream tracklist, and ``artist_ids``/``favorites_only`` for
-    the new id-based one. Either, both, or neither may be configured; each
-    configured path contributes one stage to the pipeline, applied in order.
-    An unconfigured node is a no-op rather than an error, since both paths
-    are optional.
-    """
-    stages: list[Transform] = []
-
-    exclusion_source = cfg_str_or_none(cfg, "exclusion_source")
-    if exclusion_source:
-        reference_tracks = ctx.collect_tracklists([exclusion_source])[0].tracks
-        stages.append(
-            cast(
-                Transform,
-                exclude_artists(reference_tracks, cfg_bool(cfg, "exclude_all_artists")),
-            )
-        )
-
-    artist_ids = _artist_ids_from_config(cfg)
-    favorites_only = cfg_bool(cfg, "favorites_only")
-    if artist_ids or favorites_only:
-        id_transform = cast(
-            Transform,
-            filter_by_artist_ids(
-                artist_ids,
-                exclude=cfg_bool(cfg, "exclude"),
-                favorites_only=favorites_only,
-            ),
-        )
-        if favorites_only:
-            id_transform = _warn_when_favorites_missing(id_transform)
-        stages.append(id_transform)
-
-    def chained(tracklist: TrackList) -> TrackList:
-        for stage in stages:
-            tracklist = stage(tracklist)
-        return tracklist
-
-    return chained
+    return lambda tracklist: (
+        favorites_only and "favorite_artist_ids" not in tracklist.metadata
+    )
 
 
 def _sort_by_metric(cfg: Mapping[str, JsonValue]) -> Transform | TrackList:
@@ -321,9 +282,27 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
             "Excludes tracks from input that are present in exclusion source",
         ),
         "by_artists": _tf(
-            _filter_by_artists,
-            "Excludes tracks whose artists appear in exclusion source, and/or "
-            "includes/excludes tracks by artist id (optionally widened to favorites)",
+            lambda ctx, cfg: exclude_artists(
+                ctx.collect_tracklists([cfg_str(cfg, "exclusion_source")])[0].tracks,
+                cfg_bool(cfg, "exclude_all_artists"),
+            ),
+            "Excludes tracks whose artists appear in exclusion source",
+        ),
+        "by_artist_ids": _tf(
+            lambda _ctx, cfg: _warn_when_missing(
+                filter_by_artist_ids(
+                    _artist_ids_from_config(cfg),
+                    exclude=cfg_bool(cfg, "exclude"),
+                    favorites_only=cfg_bool(cfg, "favorites_only"),
+                ),
+                missing=_favorites_missing(cfg_bool(cfg, "favorites_only")),
+                message=(
+                    "Filter by artist ids (favorites_only) has no favorite_artist_ids "
+                    "metadata — ensure enricher.artist_favorites runs upstream"
+                ),
+            ),
+            "Keeps (or, with exclude, drops) tracks credited to the given artist "
+            "ids, optionally widened to the listener's favorited artists",
         ),
         "by_metric": _tf(
             lambda _ctx, cfg: _warn_when_metric_missing(

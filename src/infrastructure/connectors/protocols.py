@@ -95,10 +95,10 @@ class ConnectorConfig(TypedDict):
     interface keys its enable/teardown calls off this flag — configs cannot
     reference application code.
 
-    ``track_url`` and ``playlist_url`` turn a stored identifier into the
-    connector's own web page for that track or playlist, so every surface that
-    offers an "open on <service>" link reads one declaration instead of a
-    switch of its own. ``validate_token`` is the live validator for a BYO credential: it
+    ``track_url``, ``playlist_url`` and ``artist_url`` turn a stored identifier
+    into the connector's own web page for that track, playlist or artist, so
+    every surface that offers an "open on <service>" link reads one
+    declaration instead of a switch of its own. ``validate_token`` is the live validator for a BYO credential: it
     proves the secret before it is stored, and declaring it is what makes a
     ``token`` connector reachable from ``PUT /connectors/{service}/token``.
     """
@@ -122,4 +122,5 @@ class ConnectorConfig(TypedDict):
     supports_play_polling: NotRequired[bool]
     track_url: NotRequired[ExternalUrlFn]
     playlist_url: NotRequired[ExternalUrlFn]
+    artist_url: NotRequired[ExternalUrlFn]
     validate_token: NotRequired[Callable[[str], Awaitable[StoredToken]]]

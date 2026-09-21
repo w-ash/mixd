@@ -326,6 +326,18 @@ class TestStateBearingPolicies:
             == "private, no-cache"
         )
 
+    def test_artists_are_private_no_cache(self) -> None:
+        """Favorites are per user and the page refetches an artist right after a
+        favorite write, so the list and the detail must both revalidate.
+        """
+        from src.interface.api.caching import _get_cache_policy
+
+        assert _get_cache_policy("/api/v1/artists") == "private, no-cache"
+        assert (
+            _get_cache_policy("/api/v1/artists/0193a2b4-1c2d-7e3f-8a9b-0c1d2e3f4a5b")
+            == "private, no-cache"
+        )
+
     def test_sibling_sync_paths_keep_the_default_policy(self) -> None:
         # Only the target list is user-state-bearing; a longer sync path must
         # not inherit the stricter policy by accident.

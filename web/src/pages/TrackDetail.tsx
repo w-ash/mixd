@@ -12,14 +12,12 @@ import { PageHeader } from "#/components/layout/PageHeader";
 import { TrackPlaysSection } from "#/components/plays/TrackPlaysSection";
 import { ArtistCredits } from "#/components/shared/ArtistCredits";
 import { BackLink } from "#/components/shared/BackLink";
+import { DetailField, DetailSection } from "#/components/shared/detail";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { MergeTrackDialog } from "#/components/shared/MergeTrackDialog";
 import { PreferenceToggle } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
-import {
-  CardGridSkeleton,
-  DetailHeaderSkeleton,
-} from "#/components/shared/skeletons";
+import { DetailSkeleton } from "#/components/shared/skeletons";
 import { TagEditor } from "#/components/shared/TagEditor";
 import { MappingList } from "#/components/track/MappingList";
 import { Badge } from "#/components/ui/badge";
@@ -30,51 +28,6 @@ import {
   formatDateTime,
   formatDuration,
 } from "#/lib/format";
-
-function DetailSkeleton() {
-  return (
-    <div className="space-y-6">
-      <DetailHeaderSkeleton subtitleWidth="w-48" />
-      <CardGridSkeleton count={4} gridClassName="grid-cols-2" />
-    </div>
-  );
-}
-
-/** Labeled metadata field */
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wider text-text-faint">
-        {label}
-      </dt>
-      <dd className="mt-0.5 text-sm text-text">{children}</dd>
-    </div>
-  );
-}
-
-/** Section card with heading */
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-lg border-l-2 border-primary/30 bg-surface-sunken p-5">
-      <h2 className="mb-3 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
@@ -121,7 +74,7 @@ export function TrackDetail() {
     },
   });
 
-  if (isLoading) return <DetailSkeleton />;
+  if (isLoading) return <DetailSkeleton cards={4} />;
 
   if (isError) {
     const is404 = error instanceof ApiError && error.status === 404;
@@ -157,15 +110,19 @@ export function TrackDetail() {
 
       {/* Core metadata */}
       <dl className="mb-6 flex flex-wrap gap-x-4 gap-y-2 lg:gap-x-6">
-        {track.album && <Field label="Album">{track.album}</Field>}
-        <Field label="Duration">{formatDuration(track.duration_ms)}</Field>
+        {track.album && <DetailField label="Album">{track.album}</DetailField>}
+        <DetailField label="Duration">
+          {formatDuration(track.duration_ms)}
+        </DetailField>
         {track.release_date && (
-          <Field label="Release Date">{formatDate(track.release_date)}</Field>
+          <DetailField label="Release Date">
+            {formatDate(track.release_date)}
+          </DetailField>
         )}
         {track.isrc && (
-          <Field label="ISRC">
+          <DetailField label="ISRC">
             <code className="font-mono text-xs">{track.isrc}</code>
-          </Field>
+          </DetailField>
         )}
       </dl>
 
@@ -199,7 +156,7 @@ export function TrackDetail() {
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Connector Mappings with Provenance */}
-        <Section title="Connectors">
+        <DetailSection title="Connectors">
           {track.connector_mappings.length === 0 ? (
             <p className="text-sm text-text-muted">No connector mappings.</p>
           ) : (
@@ -209,10 +166,10 @@ export function TrackDetail() {
               trackTitle={track.title}
             />
           )}
-        </Section>
+        </DetailSection>
 
         {/* Like Status */}
-        <Section title="Like Status">
+        <DetailSection title="Like Status">
           {likeEntries.length === 0 ? (
             <p className="text-sm text-text-muted">No like data.</p>
           ) : (
@@ -246,26 +203,26 @@ export function TrackDetail() {
               ))}
             </ul>
           )}
-        </Section>
+        </DetailSection>
 
         {/* Play Summary */}
-        <Section title="Play History">
+        <DetailSection title="Play History">
           {!hasPlays ? (
             <p className="text-sm text-text-muted">No play history recorded.</p>
           ) : (
             <>
               <dl className="space-y-2">
-                <Field label="Total Plays">
+                <DetailField label="Total Plays">
                   <span className="tabular-nums">
                     {formatCount(track.play_summary.total_plays)}
                   </span>
-                </Field>
-                <Field label="First Played">
+                </DetailField>
+                <DetailField label="First Played">
                   {formatDateTime(track.play_summary.first_played)}
-                </Field>
-                <Field label="Last Played">
+                </DetailField>
+                <DetailField label="Last Played">
                   {formatDateTime(track.play_summary.last_played)}
-                </Field>
+                </DetailField>
               </dl>
               <TrackPlaysSection
                 trackId={track.id}
@@ -273,10 +230,10 @@ export function TrackDetail() {
               />
             </>
           )}
-        </Section>
+        </DetailSection>
 
         {/* Playlists */}
-        <Section title="Playlists">
+        <DetailSection title="Playlists">
           {track.playlists.length === 0 ? (
             <p className="text-sm text-text-muted">Not in any playlists.</p>
           ) : (
@@ -298,7 +255,7 @@ export function TrackDetail() {
               ))}
             </ul>
           )}
-        </Section>
+        </DetailSection>
       </div>
     </div>
   );

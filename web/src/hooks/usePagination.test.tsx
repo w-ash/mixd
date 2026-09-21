@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
-import { usePagination } from "./usePagination";
+import { useKeysetPagination, usePagination } from "./usePagination";
 
 function wrapper(initialPath = "/") {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -108,5 +108,67 @@ describe("usePagination", () => {
 
     expect(result.current.page).toBe(1);
     expect(result.current.offset).toBe(0);
+  });
+});
+
+describe("useKeysetPagination", () => {
+  it("derives the controls from the recorded response total", () => {
+    const { result } = renderHook(
+      () => useKeysetPagination({ defaultLimit: 25 }),
+      { wrapper: wrapper("/?page=2") },
+    );
+
+    act(() => result.current.rememberNextCursor({ total: 100 }));
+
+    expect(result.current.page).toBe(2);
+    expect(result.current.offset).toBe(25);
+    expect(result.current.totalPages).toBe(4);
+  });
+
+  it("hands the next page the cursor the previous one reported", () => {
+    const { result, rerender } = renderHook(
+      () => useKeysetPagination({ defaultLimit: 25 }),
+      { wrapper: wrapper() },
+    );
+
+    // Page 1 has no cursor to follow — it is the start of the result set.
+    expect(result.current.cursor).toBeUndefined();
+
+    act(() =>
+      result.current.rememberNextCursor({ total: 100, next_cursor: "c1" }),
+    );
+    act(() => result.current.setPage(2));
+    rerender();
+
+    expect(result.current.cursor).toBe("c1");
+    // The offset still describes the same page, for a cold deep link.
+    expect(result.current.offset).toBe(25);
+  });
+
+  it("drops cached cursors on reset — they describe a stale result set", () => {
+    const { result, rerender } = renderHook(
+      () => useKeysetPagination({ defaultLimit: 25 }),
+      { wrapper: wrapper() },
+    );
+
+    act(() =>
+      result.current.rememberNextCursor({ total: 100, next_cursor: "c1" }),
+    );
+    act(() => result.current.resetCursors());
+    act(() => result.current.setPage(2));
+    rerender();
+
+    expect(result.current.cursor).toBeUndefined();
+  });
+
+  it("treats a missing response as no results", () => {
+    const { result } = renderHook(() => useKeysetPagination(), {
+      wrapper: wrapper(),
+    });
+
+    act(() => result.current.rememberNextCursor(undefined));
+
+    expect(result.current.totalPages).toBe(1);
+    expect(result.current.page).toBe(1);
   });
 });

@@ -486,6 +486,18 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if track.version == 0:
             return (await self.save_tracks([track]))[0]
 
+        updated = await self._update_track_row(track)
+        await self._write_track_artists([(track.id, track)])
+        await self._load_relationships_via_identity_map([updated])
+        return await TrackMapper.to_domain(updated)
+
+    async def _update_track_row(self, track: Track) -> DBTrack:
+        """The optimistic-locked UPDATE of one known track, credits untouched.
+
+        ``WHERE version = :expected`` detects a concurrent modification; the
+        caller writes the credit rows and loads the relationships the mapper
+        reads, so a batch can do both once for every row it updated.
+        """
         values = build_canonical_track_row(track)
         values["version"] = track.version + 1
         values["updated_at"] = datetime.now(UTC)
@@ -501,10 +513,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
         if not updated:
             raise OptimisticLockError(track.id, track.version)
-
-        await self._write_track_artists([(track.id, track)])
-        await self._load_relationships_via_identity_map([updated])
-        return await TrackMapper.to_domain(updated)
+        return updated
 
     @db_operation("save_tracks")
     async def save_tracks(self, tracks: Sequence[Track]) -> list[Track]:
@@ -527,7 +536,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         the caller's per-item savepoint isolates beats a silent upsert.
 
         A track with ``version > 0`` takes the optimistic-locking UPDATE:
-        that statement has no batch form, so it runs row-at-a-time.
+        that statement has no batch form, so it runs row-at-a-time — but the
+        credit rows of every updated track are written in one pass after it.
 
         Returns one Track per input, in input order.
         """
@@ -589,27 +599,35 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 for index, row in zip(row_indexes, rows, strict=True)
             ])
 
+        updated: dict[int, DBTrack] = {}
         for index, track in enumerate(tracks):
             if track.version > 0:
-                saved[index] = await self.save_track(track)
+                updated[index] = await self._update_track_row(track)
+        if updated:
+            await self._write_track_artists([
+                (tracks[index].id, tracks[index]) for index in updated
+            ])
+            await self._load_relationships_via_identity_map(list(updated.values()))
+            for index, db_track in updated.items():
+                saved[index] = await TrackMapper.to_domain(db_track)
 
         return [saved[index] for index in range(len(tracks))]
 
     async def _write_track_artists(self, pairs: Sequence[tuple[UUID, Track]]) -> None:
         """Keep ``track_artists`` current for the tracks just written.
 
-        The single dual-write seam while the JSONB ``artists`` column is still
-        authoritative: both ``tracks`` writers land here, so a credit row can
-        never be left describing a track's previous line-up.
+        The credit rows are what the mapper reads back; the JSONB ``artists``
+        column stays only for ``artists_text`` search and the first-artist
+        sort. Both ``tracks`` writers land here, so a credit row can never be
+        left describing a track's previous line-up.
 
         Two statements. The upsert conflicts on ``(track_id, position)`` and
-        takes the incoming credit — except for ``artist_id``, where a credit
-        whose *name is unchanged* keeps the id it already has if the incoming
-        row has none. A ``Track`` rebuilt from a connector payload carries
-        ``artist_id=None`` on every credit, and a re-save must not erase the
-        ids the minter assigned; a changed name at that position is a
-        different credit, so its id goes with the old name. The delete then
-        shrinks a track whose credit count fell.
+        takes the incoming credit — except for ``artist_id``, which this
+        writer never decides: a credit whose *name is unchanged* keeps the id
+        it already has, and a changed name at that position is a different
+        credit, so its id goes with the old name. ``set_credit_artist_ids``
+        is the one path that assigns an id to a credit row that has one to
+        keep. The delete then shrinks a track whose credit count fell.
         """
         if not pairs:
             return
@@ -640,11 +658,9 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                         "artist_id": case(
                             (
                                 DBTrackArtist.credited_name == excluded.credited_name,
-                                func.coalesce(
-                                    excluded.artist_id, DBTrackArtist.artist_id
-                                ),
+                                DBTrackArtist.artist_id,
                             ),
-                            else_=excluded.artist_id,
+                            else_=None,
                         ),
                         "updated_at": now,
                     },

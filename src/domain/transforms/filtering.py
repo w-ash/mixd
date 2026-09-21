@@ -203,18 +203,14 @@ def filter_by_artist_ids(
         if favorites_only:
             effective_ids |= t.metadata.get("favorite_artist_ids", frozenset())
 
-        def has_matching_credit(track: Track) -> bool:
-            return any(
+        def keep(track: Track) -> bool:
+            matches = any(
                 credit.artist_id is not None and credit.artist_id in effective_ids
                 for credit in track.artists
             )
-
-        def keep(track: Track) -> bool:
-            matches = has_matching_credit(track)
             return not matches if exclude else matches
 
-        filtered = [track for track in t.tracks if keep(track)]
-        return t.with_tracks(filtered)
+        return cast(Transform, filter_by_predicate(keep))(t)
 
     return dual_mode(transform, tracklist)
 

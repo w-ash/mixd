@@ -29,7 +29,7 @@ def direction_label(sync_direction: str, connector_name: str) -> str:
     return f"{connector} → Mixd (replaces Mixd)"
 
 
-class ArtistSchema(BaseModel):
+class ArtistCreditSchema(BaseModel):
     """One credited artist on a track.
 
     ``artist_id`` is the canonical artist the credit resolved to, or None while
@@ -50,7 +50,7 @@ class TrackSummarySchema(BaseModel):
 
     id: UUID | None = None
     title: str
-    artists: list[ArtistSchema]
+    artists: list[ArtistCreditSchema]
     album: str | None = None
     duration_ms: int | None = None
 
@@ -230,8 +230,8 @@ class ReorderEntriesRequest(BaseModel):
 # --- Domain-to-schema converters ---
 
 
-def to_artist_schema(artist: ArtistCredit) -> ArtistSchema:
-    return ArtistSchema(name=artist.credited_name, artist_id=artist.artist_id)
+def to_artist_schema(artist: ArtistCredit) -> ArtistCreditSchema:
+    return ArtistCreditSchema(name=artist.credited_name, artist_id=artist.artist_id)
 
 
 def _to_track_summary(track: Track) -> TrackSummarySchema:
@@ -262,7 +262,7 @@ def to_playlist_entry(entry: PlaylistEntry, position: int) -> PlaylistEntrySchem
         track=TrackSummarySchema(
             id=None,
             title=entry.display_title,
-            artists=[ArtistSchema(name=a) for a in (ref.artists if ref else ())],
+            artists=[ArtistCreditSchema(name=a) for a in (ref.artists if ref else ())],
         ),
         added_at=entry.added_at,
         is_resolved=entry.is_resolved,

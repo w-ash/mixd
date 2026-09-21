@@ -163,15 +163,9 @@ class TestSpotifyIngestMints:
         )
 
         assert await _artists(db_session, user_id) == before_artists
-        after_mappings = await _mappings(db_session, user_id)
-        assert [row[:4] for row in after_mappings] == [
-            row[:4] for row in before_mappings
-        ]
-        # Re-encounter is a freshness signal: only ``last_seen_at`` moves.
-        assert all(
-            after[4] > before[4]
-            for before, after in zip(before_mappings, after_mappings, strict=True)
-        )
+        # Every credit already carries its artist id, so the fast path never
+        # opens the minting pass: no row moves, ``last_seen_at`` included.
+        assert await _mappings(db_session, user_id) == before_mappings
         assert await _artist_events(db_session, user_id) == before_events
         assert await _credits(db_session, track.id) == [
             (0, "Caribou", before_artists["Caribou"])

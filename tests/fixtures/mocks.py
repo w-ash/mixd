@@ -283,6 +283,17 @@ def make_mock_artist_alias_repo(**overrides) -> AsyncMock:
     return repo
 
 
+def make_mock_artist_minter(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`ArtistMinterProtocol`."""
+    from src.domain.repositories.artist import ArtistMintSummary
+
+    minter = AsyncMock()
+    minter.mint.return_value = overrides.pop("mint", ArtistMintSummary())
+    for k, v in overrides.items():
+        setattr(minter, k, v)
+    return minter
+
+
 def make_mock_artist_enrichment_provider(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`ArtistEnrichmentProviderProtocol`."""
     provider = AsyncMock()
@@ -642,6 +653,9 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
         return_value=repo_overrides.get(
             "artist_alias_repo", make_mock_artist_alias_repo()
         )
+    )
+    uow.get_artist_minter = MagicMock(
+        return_value=repo_overrides.get("artist_minter", make_mock_artist_minter())
     )
     uow.get_artist_enrichment_provider = MagicMock(
         return_value=repo_overrides.get(

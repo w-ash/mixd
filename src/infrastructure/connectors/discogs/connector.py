@@ -108,4 +108,5 @@ def get_connector_config() -> ConnectorConfig:
         # BYO personal access token: proved live against the identity endpoint
         # before it is stored, which is what opens the generic token route.
         "validate_token": validate_and_build_token,
+        "artist_url": lambda artist_id: f"https://www.discogs.com/artist/{artist_id}",
     }

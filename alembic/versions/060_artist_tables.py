@@ -94,6 +94,7 @@ _MIGRATION_ONLY_INDEXES: tuple[tuple[str, str], ...] = (
     ("ix_artists_name_trgm", "artists"),
     ("ix_connector_artists_name_trgm", "connector_artists"),
     ("ix_connector_artists_raw_metadata_gin", "connector_artists"),
+    ("ix_artist_aliases_lower_name", "artist_aliases"),
 )
 
 
@@ -329,11 +330,10 @@ def _create_artist_aliases() -> None:
             postgresql_nulls_not_distinct=True,
         ),
     )
-    op.create_index("ix_artist_aliases_name", "artist_aliases", ["name"])
 
 
 def _create_migration_only_indexes() -> None:
-    """Fuzzy-search and JSONB indexes ``metadata.create_all`` cannot build."""
+    """Fuzzy-search, JSONB and functional indexes ``metadata.create_all`` cannot build."""
     op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
     op.execute(
         sa.text(
@@ -350,6 +350,13 @@ def _create_migration_only_indexes() -> None:
         sa.text(
             "CREATE INDEX ix_connector_artists_raw_metadata_gin "
             "ON connector_artists USING gin (raw_metadata)"
+        )
+    )
+    # The alias lookup filters on ``lower(name)``; a plain index on ``name``
+    # would never be used for it.
+    op.execute(
+        sa.text(
+            "CREATE INDEX ix_artist_aliases_lower_name ON artist_aliases (lower(name))"
         )
     )
 

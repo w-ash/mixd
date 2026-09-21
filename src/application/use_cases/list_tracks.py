@@ -6,7 +6,6 @@ plain listing. This avoids two nearly-identical use cases and maps cleanly to
 """
 
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -15,16 +14,14 @@ from attrs import define, field
 from src.application.pagination import (
     PageCursor,
     cursor_sort_value_from_row,
-    cursor_sort_value_to_query,
-    decode_cursor,
     encode_cursor,
+    resolve_cursor,
 )
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import Track
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.tag import normalize_tag
-from src.domain.repositories.keyset import KeysetSort
 from src.domain.repositories.track import (
     DEFAULT_TRACK_SORT,
     NO_PLAY_FILTERS,
@@ -104,29 +101,6 @@ class ListTracksResult:
 class ListTracksUseCase:
     """List and search tracks with server-side pagination, filtering, and sorting."""
 
-    @staticmethod
-    def _resolve_cursor(
-        cursor: str, sort: KeysetSort
-    ) -> tuple[str | int | float | datetime | None, UUID | None, bool]:
-        """Decode the cursor and resolve keyset bounds for the active sort.
-
-        Holds the fallible decode/convert so the caller's ``try``/``except
-        ValueError`` stays narrow while still covering both raising calls
-        (``decode_cursor`` and ``cursor_sort_value_to_query``); an invalid
-        cursor raises ``ValueError`` and the caller falls back to offset paging.
-        Returns ``(after_value, after_id, has_cursor)``; a cursor minted under
-        another sort key yields ``(None, None, False)``.
-        """
-        page_cursor = decode_cursor(cursor)
-        if page_cursor.sort_key != sort.key:
-            logger.debug(
-                "Cursor sort key mismatch: "
-                f"cursor={page_cursor.sort_key}, current={sort.key}"
-            )
-            return None, None, False
-        after_value = cursor_sort_value_to_query(sort, page_cursor.sort_value)
-        return after_value, page_cursor.last_id, True
-
     async def execute(
         self, command: ListTracksCommand, uow: UnitOfWorkProtocol
     ) -> ListTracksResult:
@@ -143,9 +117,7 @@ class ListTracksUseCase:
 
         if command.cursor:
             try:
-                after_value, after_id, has_cursor = self._resolve_cursor(
-                    command.cursor, sort
-                )
+                after_value, after_id, has_cursor = resolve_cursor(command.cursor, sort)
             except ValueError:
                 logger.debug("Invalid cursor, falling back to offset")
 

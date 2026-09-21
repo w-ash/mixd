@@ -14,7 +14,10 @@ from uuid import UUID
 
 from attrs import define
 
+from src.config import get_logger
 from src.domain.repositories.keyset import KeysetSort
+
+logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
@@ -137,3 +140,26 @@ def cursor_datetime_bound(sort: KeysetSort, sort_value: str | float | None) -> d
             return bound
         case _:
             raise ValueError(f"Cursor sort_value for {sort.column} must be a datetime")
+
+
+def resolve_cursor(
+    cursor: str, sort: KeysetSort
+) -> tuple[str | int | float | datetime | None, UUID | None, bool]:
+    """Decode a cursor and resolve the keyset bounds for the active sort.
+
+    Holds the fallible decode/convert so a caller's ``try``/``except
+    ValueError`` stays narrow while covering both raising calls
+    (``decode_cursor`` and ``cursor_sort_value_to_query``); on ``ValueError``
+    the caller falls back to offset paging. Returns ``(after_value, after_id,
+    has_cursor)``; a cursor minted under another sort key yields
+    ``(None, None, False)`` so the read falls back to page one rather than
+    seeking from the wrong end.
+    """
+    page_cursor = decode_cursor(cursor)
+    if page_cursor.sort_key != sort.key:
+        logger.debug(
+            f"Cursor sort key mismatch: cursor={page_cursor.sort_key}, current={sort.key}"
+        )
+        return None, None, False
+    after_value = cursor_sort_value_to_query(sort, page_cursor.sort_value)
+    return after_value, page_cursor.last_id, True

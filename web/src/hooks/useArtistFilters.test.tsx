@@ -98,21 +98,7 @@ describe("useArtistFilters — writes", () => {
 
     act(() => result.current.setFilter("sort", { field: "name", dir: "desc" }));
     act(() => result.current.setFilter("favorites", true));
-    act(() => result.current.clear());
 
-    expect(onMutate).toHaveBeenCalledTimes(3);
-  });
-
-  it("clears the search input alongside the params", () => {
-    const { result } = render("/artists?q=bowie&favorites=1");
-
-    act(() => result.current.clear());
-
-    expect(result.current.searchInput).toBe("");
-    expect(result.current.filters).toEqual({
-      search: null,
-      favorites: false,
-      sort: { field: "name", dir: "asc" },
-    });
+    expect(onMutate).toHaveBeenCalledTimes(2);
   });
 });

@@ -51,6 +51,7 @@ from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.config.telemetry import phase
 from src.domain.entities import ArtistCredit, Track
+from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.domain.matching.canonical_resolution import ResolutionEvidence
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import MatchEvaluationService
@@ -309,7 +310,7 @@ class SpotifyInwardResolver(WritePlanningResolver[SpotifyTrack, FallbackHint]):
         # named artists; the ids cover the same artists so they stay aligned.
         return {
             **write.payload.model_dump(),
-            "artist_ids": spotify_artist_ids(
+            ARTIST_IDS_KEY: spotify_artist_ids(
                 a for a in write.payload.artists if a.name
             ),
         }

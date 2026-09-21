@@ -129,8 +129,10 @@ class ArtistMapping:
 
     # Tenant is always explicit: no default at any layer (v0.12.0.2).
     user_id: str = field(kw_only=True)
-    artist_id: UUID = field(factory=uuid7)
-    connector_artist_id: UUID = field(factory=uuid7)
+    # The two ends of the mapping are always explicit: a minted default would
+    # point at rows that do not exist.
+    artist_id: UUID = field(kw_only=True)
+    connector_artist_id: UUID = field(kw_only=True)
     connector_name: str = ""
     match_method: MatchMethod = field(kw_only=True)
     confidence: int = 0

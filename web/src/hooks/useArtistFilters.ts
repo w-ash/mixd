@@ -17,18 +17,16 @@ import { useCallback, useMemo } from "react";
 // these come straight from their generated modules.
 import { ArtistSortBy } from "#/api/generated/model/artistSortBy";
 import type { ListArtistsApiV1ArtistsGetParams } from "#/api/generated/model/listArtistsApiV1ArtistsGetParams";
+import type { SortState } from "#/hooks/sort-param";
+import { parseSortParam, toSortParam } from "#/hooks/sort-param";
 import { useFilterState } from "#/hooks/useFilterState";
-import { useTrackSearch } from "#/hooks/useTrackSearch";
-
-/** Shortest input that reaches the API — below this the search is not applied. */
-const MIN_SEARCH_LENGTH = 2;
+import { MIN_SEARCH_LENGTH, useTrackSearch } from "#/hooks/useTrackSearch";
 
 /**
  * Sortable dimensions. `favorited_at` is descending-only on the backend and
  * has no column header; it is reachable from the URL alone.
  */
 export type ArtistSortField = "name" | "track_count" | "favorited_at";
-export type ArtistSortDir = "asc" | "desc";
 
 export const ARTIST_SORT_LABELS: Record<ArtistSortField, string> = {
   name: "Name",
@@ -36,10 +34,7 @@ export const ARTIST_SORT_LABELS: Record<ArtistSortField, string> = {
   favorited_at: "Recently Favorited",
 };
 
-export interface ArtistSort {
-  field: ArtistSortField;
-  dir: ArtistSortDir;
-}
+export type ArtistSort = SortState<ArtistSortField>;
 
 const DEFAULT_SORT: ArtistSort = { field: "name", dir: "asc" };
 
@@ -76,26 +71,13 @@ const TRUTHY = new Set(["1", "true"]);
 /** Every sort the API accepts — `favorited_at` is descending-only. */
 const SORT_VALUES: ReadonlySet<string> = new Set(Object.values(ArtistSortBy));
 
+/** `favorited_at_asc` parses cleanly but is not a value the API accepts. */
 function isSortable(sort: ArtistSort): boolean {
-  return SORT_VALUES.has(`${sort.field}_${sort.dir}`);
+  return SORT_VALUES.has(toSortParam(sort));
 }
 
-function toSortParam({ field, dir }: ArtistSort): ArtistSortBy {
-  return `${field}_${dir}` as ArtistSortBy;
-}
-
-/** Parse `?sort=`, falling back to the default for anything the API rejects. */
-function parseSort(raw: string | null): ArtistSort {
-  if (raw === null) return DEFAULT_SORT;
-  const split = raw.lastIndexOf("_");
-  if (split === -1) return DEFAULT_SORT;
-  const field = raw.slice(0, split) as ArtistSortField;
-  const dir = raw.slice(split + 1) as ArtistSortDir;
-  if (!ARTIST_SORT_LABELS[field] || (dir !== "asc" && dir !== "desc")) {
-    return DEFAULT_SORT;
-  }
-  // `favorited_at_asc` parses cleanly but is not a value the API accepts.
-  return isSortable({ field, dir }) ? { field, dir } : DEFAULT_SORT;
+function toApiSort(sort: ArtistSort): ArtistSortBy {
+  return toSortParam(sort) as ArtistSortBy;
 }
 
 export interface UseArtistFiltersOptions {
@@ -106,25 +88,19 @@ export interface UseArtistFiltersOptions {
 export interface UseArtistFiltersResult {
   filters: ArtistFilters;
   setFilter: SetArtistFilter;
-  /** Drop every filter, including the search input. */
-  clear: () => void;
   /** Live search input value — leads `filters.search` while typing. */
   searchInput: string;
   /** True while the applied search lags behind the input. */
   isSearching: boolean;
   toQueryParams: () => ArtistQueryParams;
-  /** Raw params, for page and cursor bookkeeping the caller owns. */
+  /** The URL as this hook projects it, for anything else reading the params. */
   searchParams: URLSearchParams;
 }
 
 export function useArtistFilters({
   onMutate,
 }: UseArtistFiltersOptions = {}): UseArtistFiltersResult {
-  const {
-    searchParams,
-    setFilter: setParam,
-    clearAll,
-  } = useFilterState({ onMutate });
+  const { searchParams, setFilter: setParam } = useFilterState({ onMutate });
 
   const {
     search: searchInput,
@@ -138,7 +114,12 @@ export function useArtistFilters({
       search:
         deferredSearch.length >= MIN_SEARCH_LENGTH ? deferredSearch : null,
       favorites: TRUTHY.has(searchParams.get(PARAM.favorites) ?? ""),
-      sort: parseSort(searchParams.get(PARAM.sort)),
+      sort: parseSortParam(
+        searchParams.get(PARAM.sort),
+        ARTIST_SORT_LABELS,
+        DEFAULT_SORT,
+        isSortable,
+      ),
     }),
     [searchParams, deferredSearch],
   );
@@ -156,21 +137,16 @@ export function useArtistFilters({
         setParam(PARAM.favorites, value ? "1" : null);
         return;
       }
-      setParam(PARAM.sort, value ? toSortParam(value as ArtistSort) : null);
+      setParam(PARAM.sort, value ? toApiSort(value as ArtistSort) : null);
     },
     [setParam, setSearch],
   );
-
-  const clear = useCallback(() => {
-    setSearch("");
-    clearAll();
-  }, [clearAll, setSearch]);
 
   const toQueryParams = useCallback(
     (): ArtistQueryParams => ({
       search: filters.search ?? undefined,
       favorites_only: filters.favorites || undefined,
-      sort: toSortParam(filters.sort),
+      sort: toApiSort(filters.sort),
     }),
     [filters],
   );
@@ -178,7 +154,6 @@ export function useArtistFilters({
   return {
     filters,
     setFilter,
-    clear,
     searchInput,
     isSearching,
     toQueryParams,

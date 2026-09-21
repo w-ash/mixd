@@ -1,10 +1,9 @@
 """Pydantic v2 schemas for artist API endpoints.
 
-Naming note: the credit schema on a track is already ``ArtistSchema``
+Naming note: the credit schema on a track is ``ArtistCreditSchema``
 (``schemas/playlists.py``) — a credited *name* on one track, not an entity. The
 canonical artist rows this module serves are ``ArtistSummarySchema`` and
-``ArtistDetailSchema`` so both survive in one OpenAPI component namespace
-without FastAPI module-qualifying either name.
+``ArtistDetailSchema``.
 """
 
 from uuid import UUID
@@ -64,18 +63,9 @@ class RelatedProjectSchema(BaseModel):
     identifier: str | None = None
 
 
-class ArtistDetailSchema(BaseModel):
-    """Full artist detail: identity, mappings, counts, favorite state."""
+class ArtistDetailSchema(ArtistSummarySchema):
+    """Full artist detail: the summary plus mappings and related names."""
 
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
-    mbid: str | None = None
-    kind: ArtistKind | None = None
-    track_count: int = 0
-    is_favorited: bool = False
-    connectors: list[str] = Field(default_factory=list)
     connector_mappings: list[ArtistConnectorMappingSchema] = Field(default_factory=list)
     related: list[RelatedProjectSchema] = Field(default_factory=list)
 

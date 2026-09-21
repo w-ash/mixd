@@ -36,6 +36,7 @@ from src.domain.entities.playlist import SPOTIFY_CONNECTOR
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonDict
 from src.domain.exceptions import ToolExecutionError
+from src.interface.api.services.artist_enrichment import launch_artist_enrichment
 from src.interface.api.services.playlist_sync import launch_playlist_link_sync
 from src.interface.api.services.progress import OperationBoundEmitter
 from src.interface.api.services.sse_operations import launch_sse_operation
@@ -304,23 +305,10 @@ async def _launch_enrich_artists(
     raw_days = details.get("refresh_older_than_days")
     refresh_days = int(raw_days) if isinstance(raw_days, int) else 30
 
-    async def _enrich(emitter: OperationBoundEmitter) -> object:
-        from src.application.use_cases.enrich_artists import run_enrich_artists
-
-        # Unwrap to the OperationResult so the audit path records counts —
-        # same reason as the rebuild launcher above.
-        enriched = await run_enrich_artists(
-            user_id=user_id,
-            limit=limit,
-            refresh_older_than_days=refresh_days,
-            progress_emitter=emitter,
-        )
-        return enriched.result
-
-    resp = await launch_sse_operation(
+    resp = await launch_artist_enrichment(
         user_id=user_id,
-        operation_type="artist_enrichment",
-        coro_factory=_enrich,
+        limit=limit,
+        refresh_older_than_days=refresh_days,
         initiated_by="assistant",
     )
     return resp.operation_id, resp.run_id

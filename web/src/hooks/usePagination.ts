@@ -1,5 +1,16 @@
-import { useCallback } from "react";
+/**
+ * URL-backed pagination.
+ *
+ * `?page=` is the single source of truth, so a paged view is shareable and
+ * survives a reload. {@link usePagination} covers plain offset paging;
+ * {@link useKeysetPagination} adds the cursor bookkeeping a keyset endpoint
+ * needs, so a list page does not reimplement it.
+ */
+
+import { useCallback, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
+
+const PAGE_PARAM = "page";
 
 interface UsePaginationOptions {
   defaultLimit?: number;
@@ -10,7 +21,11 @@ interface UsePaginationResult {
   page: number;
   /** Items per page */
   limit: number;
-  /** API offset — derived from raw URL page (not clamped), so queries fire correctly on cold load */
+  /**
+   * API offset, derived from the raw URL page and deliberately NOT clamped
+   * against `totalPages`: a deep link has to fire the right query on a cold
+   * load, before any total is known.
+   */
   offset: number;
   /** Total pages derived from total + limit, minimum 1 */
   totalPages: number;
@@ -18,24 +33,31 @@ interface UsePaginationResult {
   setPage: (page: number) => void;
 }
 
-export function usePagination(
-  total: number,
-  { defaultLimit = 50 }: UsePaginationOptions = {},
-): UsePaginationResult {
+/** The slice of a list response this module reads. */
+interface KeysetResponse {
+  total?: number | null;
+  next_cursor?: string | null;
+}
+
+interface UseKeysetPaginationResult extends UsePaginationResult {
+  /** Cursor for the requested page, once a previous response has supplied one. */
+  cursor: string | undefined;
+  /**
+   * Record the list response. Its `total` drives the controls; its
+   * `next_cursor` becomes the cursor for the page after the current one.
+   * Call it during render, right after the query.
+   */
+  rememberNextCursor: (response: KeysetResponse | undefined) => void;
+  /** Drop every cached cursor — they describe a result set that no longer exists. */
+  resetCursors: () => void;
+}
+
+/** The raw `?page=` value, coerced to a whole page at or above 1. */
+function usePageParam(): { rawPage: number; setPage: (page: number) => void } {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const limit = defaultLimit;
-  const totalPages = total > 0 ? Math.ceil(total / limit) : 1;
-
-  // Raw page from URL — used for offset (not clamped against totalPages)
-  const rawPage = Number(searchParams.get("page") ?? "1");
-  const sanitizedRaw = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
-
-  // Offset uses raw page so deep-links work before total is known
-  const offset = (sanitizedRaw - 1) * limit;
-
-  // Display page is clamped so UI controls are always valid
-  const page = Math.max(1, Math.min(sanitizedRaw, totalPages));
+  const raw = Number(searchParams.get(PAGE_PARAM) ?? "1");
+  const rawPage = Number.isFinite(raw) && raw >= 1 ? raw : 1;
 
   const setPage = useCallback(
     (nextPage: number) => {
@@ -43,9 +65,9 @@ export function usePagination(
         (prev) => {
           const next = new URLSearchParams(prev);
           if (nextPage <= 1) {
-            next.delete("page");
+            next.delete(PAGE_PARAM);
           } else {
-            next.set("page", String(nextPage));
+            next.set(PAGE_PARAM, String(nextPage));
           }
           return next;
         },
@@ -55,5 +77,77 @@ export function usePagination(
     [setSearchParams],
   );
 
-  return { page, limit, offset, totalPages, setPage };
+  return { rawPage, setPage };
+}
+
+function derive(
+  rawPage: number,
+  total: number,
+  limit: number,
+): Pick<UsePaginationResult, "page" | "offset" | "totalPages"> {
+  const totalPages = total > 0 ? Math.ceil(total / limit) : 1;
+  return {
+    // Display page is clamped so UI controls are always valid.
+    page: Math.max(1, Math.min(rawPage, totalPages)),
+    offset: (rawPage - 1) * limit,
+    totalPages,
+  };
+}
+
+export function usePagination(
+  total: number,
+  { defaultLimit = 50 }: UsePaginationOptions = {},
+): UsePaginationResult {
+  const { rawPage, setPage } = usePageParam();
+  return {
+    ...derive(rawPage, total, defaultLimit),
+    limit: defaultLimit,
+    setPage,
+  };
+}
+
+/**
+ * Pagination for a keyset endpoint.
+ *
+ * Sequential navigation follows the cursor each response hands back rather than
+ * a deepening offset scan; a page nobody has stepped through yet — a deep link,
+ * a jump — falls back to the offset. The cursors describe one result set, so a
+ * filter write must call {@link UseKeysetPaginationResult.resetCursors}.
+ *
+ * `total` arrives through `rememberNextCursor` rather than as an argument: the
+ * query that reports it needs this hook's `offset` and `cursor` to fire at all.
+ */
+export function useKeysetPagination({
+  defaultLimit = 50,
+}: UsePaginationOptions = {}): UseKeysetPaginationResult {
+  const { rawPage, setPage } = usePageParam();
+  // Page number → cursor for the page AFTER it.
+  const cursorsRef = useRef<Map<number, string>>(new Map());
+  const [total, setTotal] = useState(0);
+
+  const rememberNextCursor = useCallback(
+    (response: KeysetResponse | undefined) => {
+      // A same-value write to the memo of cursors, so repeating it on a
+      // discarded or StrictMode-doubled render changes nothing.
+      const next = response?.next_cursor;
+      if (next) cursorsRef.current.set(rawPage, next);
+      // Setting state during render: React re-runs this component with the new
+      // total before committing, so the controls below never render a stale
+      // page count.
+      const nextTotal = response?.total ?? 0;
+      if (nextTotal !== total) setTotal(nextTotal);
+    },
+    [rawPage, total],
+  );
+
+  const resetCursors = useCallback(() => cursorsRef.current.clear(), []);
+
+  return {
+    ...derive(rawPage, total, defaultLimit),
+    limit: defaultLimit,
+    cursor: cursorsRef.current.get(rawPage - 1),
+    setPage,
+    rememberNextCursor,
+    resetCursors,
+  };
 }

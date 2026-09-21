@@ -65,4 +65,5 @@ def get_connector_config() -> ConnectorConfig:
             "api": play_factory.create_recently_played_importer
         },
         "play_resolver_factory": play_factory.create_play_resolver,
+        "artist_url": lambda artist_id: f"https://music.apple.com/artist/{artist_id}",
     }

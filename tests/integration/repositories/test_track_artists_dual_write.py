@@ -1,7 +1,8 @@
 """The ``track_artists`` dual write, and the reader it feeds.
 
-While the JSONB ``artists`` column is still authoritative, every ``tracks``
-writer also keeps the credit rows current. What is pinned here: positions
+Every ``tracks`` writer keeps the credit rows current — they are what the
+mapper reads back; the JSONB column serves only search and the first-artist
+sort. What is pinned here: positions
 follow the credit order; a re-save from a connector payload (whose credits
 carry no ``artist_id``) keeps the ids a minter assigned; a changed name at a
 position drops that id; a shorter credit list shrinks the rows; and
@@ -129,6 +130,65 @@ class TestAssignedIdsSurviveARewrite:
         )
 
         assert await _credits(db_session, saved.id) == [(0, "Caribou", artist.id, None)]
+
+    async def test_an_incoming_id_on_a_conflict_is_not_taken(self, db_session):
+        # The writer never assigns: ``set_credit_artist_ids`` is the one path.
+        uow = get_unit_of_work(db_session)
+        track_repo, artist_repo = (
+            uow.get_track_repository(),
+            uow.get_artist_repository(),
+        )
+        user_id = _user()
+        (artist,) = await artist_repo.save_artists([
+            Artist(name="Caribou", user_id=user_id)
+        ])
+        (saved,) = await track_repo.save_tracks([
+            _track(user_id, ArtistCredit(credited_name="Caribou"))
+        ])
+
+        await track_repo.save_track(
+            evolve(
+                saved,
+                artists=[ArtistCredit(credited_name="Caribou", artist_id=artist.id)],
+            )
+        )
+
+        assert await _credits(db_session, saved.id) == [(0, "Caribou", None, None)]
+
+    async def test_the_batched_update_path_rewrites_every_tracks_credits(
+        self, db_session
+    ):
+        # ``save_tracks`` over already-known rows: one credit write for the
+        # batch, and each track reads back its own new line-up.
+        uow = get_unit_of_work(db_session)
+        track_repo, artist_repo = (
+            uow.get_track_repository(),
+            uow.get_artist_repository(),
+        )
+        user_id = _user()
+        (artist,) = await artist_repo.save_artists([
+            Artist(name="Caribou", user_id=user_id)
+        ])
+        first, second = await track_repo.save_tracks([
+            _track(user_id, ArtistCredit(credited_name="Caribou", artist_id=artist.id)),
+            _track(
+                user_id,
+                ArtistCredit(credited_name="Bonobo"),
+                ArtistCredit(credited_name="Kiara"),
+                title="Kiara",
+            ),
+        ])
+
+        resaved = await track_repo.save_tracks([
+            evolve(first, artists=[ArtistCredit(credited_name="Caribou")]),
+            evolve(second, artists=[ArtistCredit(credited_name="Bonobo")]),
+        ])
+
+        assert [t.version for t in resaved] == [2, 2]
+        assert [c.artist_id for c in resaved[0].artists] == [artist.id]
+        assert [c.credited_name for c in resaved[1].artists] == ["Bonobo"]
+        assert await _credits(db_session, first.id) == [(0, "Caribou", artist.id, None)]
+        assert await _credits(db_session, second.id) == [(0, "Bonobo", None, None)]
 
     async def test_a_changed_name_at_a_position_drops_the_id(self, db_session):
         uow = get_unit_of_work(db_session)

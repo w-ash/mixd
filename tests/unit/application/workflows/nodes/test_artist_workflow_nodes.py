@@ -1,11 +1,11 @@
 """Application-layer wiring tests for the artist workflow nodes.
 
-Covers ``filter.by_artists`` (chains the legacy name-based exclusion path with
-the new id-based include/exclude/favorites path) and ``sorter.by_artist_name``,
-both registered in ``TRANSFORM_REGISTRY``. Domain semantics for
-``filter_by_artist_ids`` / ``sort_by_artist_name`` are covered in
-``tests/unit/domain/transforms/``; these tests only check that config reaches
-the domain functions correctly.
+Covers ``filter.by_artists`` (name-based exclusion against an upstream
+tracklist), ``filter.by_artist_ids`` (id-based include/exclude, optionally
+widened to favorites) and ``sorter.by_artist_name``, all registered in
+``TRANSFORM_REGISTRY``. Domain semantics for ``filter_by_artist_ids`` /
+``sort_by_artist_name`` are covered in ``tests/unit/domain/transforms/``; these
+tests only check that config reaches the domain functions correctly.
 """
 
 from uuid import uuid4
@@ -22,8 +22,12 @@ def _by_artists(ctx: NodeContext, cfg: dict[str, object]) -> TrackList:
     return TRANSFORM_REGISTRY["filter"]["by_artists"].factory(ctx, cfg)
 
 
-class TestFilterByArtistsNamePath:
-    def test_exclusion_source_only_matches_legacy_behavior(self):
+def _by_artist_ids(cfg: dict[str, object]) -> TrackList:
+    return TRANSFORM_REGISTRY["filter"]["by_artist_ids"].factory(NodeContext({}), cfg)
+
+
+class TestFilterByArtists:
+    def test_excludes_by_name_against_the_exclusion_source(self):
         excluded = make_track(artists=[ArtistCredit("Bad Artist")])
         ctx = NodeContext({"excl": {"tracklist": TrackList(tracks=[excluded])}})
 
@@ -35,22 +39,29 @@ class TestFilterByArtistsNamePath:
 
         assert [t.id for t in result.tracks] == [kept.id]
 
-    def test_no_config_is_a_no_op(self):
-        transform = _by_artists(NodeContext({}), {})
+    def test_ignores_id_config_it_no_longer_carries(self):
+        # The id-based fields belong to ``filter.by_artist_ids``; here they
+        # are unknown keys and the name path runs alone.
+        excluded = make_track(artists=[ArtistCredit("Bad Artist")])
+        ctx = NodeContext({"excl": {"tracklist": TrackList(tracks=[excluded])}})
+        target = uuid4()
+        kept = make_track(artists=[ArtistCredit("Good", artist_id=target)])
 
-        track = make_track(artists=[ArtistCredit("Anyone")])
-        result = transform(TrackList(tracks=[track]))
+        transform = _by_artists(
+            ctx, {"exclusion_source": "excl", "artist_ids": str(uuid4())}
+        )
+        result = transform(TrackList(tracks=[kept]))
 
-        assert [t.id for t in result.tracks] == [track.id]
+        assert [t.id for t in result.tracks] == [kept.id]
 
 
-class TestFilterByArtistsIdPath:
+class TestFilterByArtistIds:
     def test_artist_ids_include_mode(self):
         target = uuid4()
         matching = make_track(artists=[ArtistCredit("Match", artist_id=target)])
         other = make_track(artists=[ArtistCredit("Other", artist_id=uuid4())])
 
-        transform = _by_artists(NodeContext({}), {"artist_ids": str(target)})
+        transform = _by_artist_ids({"artist_ids": str(target)})
         result = transform(TrackList(tracks=[matching, other]))
 
         assert [t.id for t in result.tracks] == [matching.id]
@@ -60,9 +71,7 @@ class TestFilterByArtistsIdPath:
         matching = make_track(artists=[ArtistCredit("Match", artist_id=target)])
         other = make_track(artists=[ArtistCredit("Other", artist_id=uuid4())])
 
-        transform = _by_artists(
-            NodeContext({}), {"artist_ids": str(target), "exclude": True}
-        )
+        transform = _by_artist_ids({"artist_ids": str(target), "exclude": True})
         result = transform(TrackList(tracks=[matching, other]))
 
         assert [t.id for t in result.tracks] == [other.id]
@@ -73,7 +82,7 @@ class TestFilterByArtistsIdPath:
         t2 = make_track(artists=[ArtistCredit("Two", artist_id=second)])
         t3 = make_track(artists=[ArtistCredit("Three", artist_id=uuid4())])
 
-        transform = _by_artists(NodeContext({}), {"artist_ids": f"{first}, {second}"})
+        transform = _by_artist_ids({"artist_ids": f"{first}, {second}"})
         result = transform(TrackList(tracks=[t1, t2, t3]))
 
         assert {t.id for t in result.tracks} == {t1.id, t2.id}
@@ -87,7 +96,7 @@ class TestFilterByArtistsIdPath:
             metadata={"favorite_artist_ids": frozenset({favorite})},
         )
 
-        transform = _by_artists(NodeContext({}), {"favorites_only": True})
+        transform = _by_artist_ids({"favorites_only": True})
         result = transform(tracklist)
 
         assert [t.id for t in result.tracks] == [track.id]
@@ -95,7 +104,7 @@ class TestFilterByArtistsIdPath:
     def test_favorites_only_missing_metadata_warns(self):
         track = make_track(artists=[ArtistCredit("Someone", artist_id=uuid4())])
 
-        transform = _by_artists(NodeContext({}), {"favorites_only": True})
+        transform = _by_artist_ids({"favorites_only": True})
         with structlog.testing.capture_logs() as captured:
             result = transform(TrackList(tracks=[track]))
 
@@ -110,54 +119,32 @@ class TestFilterByArtistsIdPath:
             tracks=[track], metadata={"favorite_artist_ids": frozenset({favorite})}
         )
 
-        transform = _by_artists(NodeContext({}), {"favorites_only": True})
+        transform = _by_artist_ids({"favorites_only": True})
         with structlog.testing.capture_logs() as captured:
             transform(tracklist)
 
         warnings = [e["event"] for e in captured if e.get("log_level") == "warning"]
         assert not any("favorite_artist_ids" in msg for msg in warnings)
 
-    def test_malformed_artist_id_is_dropped_leaving_a_no_op(self):
-        """An all-malformed artist_ids config parses to no ids and no
-        favorites_only, so the id stage is never added — a no-op, not an
-        empty-set include filter that would drop everything."""
+    def test_without_favorites_only_a_missing_enrichment_is_not_reported(self):
         track = make_track(artists=[ArtistCredit("Someone", artist_id=uuid4())])
 
-        transform = _by_artists(NodeContext({}), {"artist_ids": "not-a-uuid"})
-        result = transform(TrackList(tracks=[track]))
+        transform = _by_artist_ids({"artist_ids": str(uuid4()), "exclude": True})
+        with structlog.testing.capture_logs() as captured:
+            result = transform(TrackList(tracks=[track]))
 
         assert [t.id for t in result.tracks] == [track.id]
+        assert not [e for e in captured if e.get("log_level") == "warning"]
 
+    def test_malformed_artist_id_matches_nothing(self):
+        """A malformed id is dropped, so include mode keeps no track — an empty
+        result is a visible outcome, not a silent pass-through."""
+        track = make_track(artists=[ArtistCredit("Someone", artist_id=uuid4())])
 
-class TestFilterByArtistsChaining:
-    def test_name_path_then_id_path(self):
-        """Both configured: name exclusion applies first, then id filter."""
-        excluded_by_name = make_track(artists=[ArtistCredit("Bad Artist")])
-        ctx = NodeContext({"excl": {"tracklist": TrackList(tracks=[excluded_by_name])}})
+        transform = _by_artist_ids({"artist_ids": "not-a-uuid"})
+        result = transform(TrackList(tracks=[track]))
 
-        target = uuid4()
-        survives_name_matches_id = make_track(
-            artists=[ArtistCredit("Match", artist_id=target)]
-        )
-        survives_name_no_id_match = make_track(
-            artists=[ArtistCredit("NoMatch", artist_id=uuid4())]
-        )
-        matches_name_only = make_track(artists=[ArtistCredit("Bad Artist")])
-
-        transform = _by_artists(
-            ctx, {"exclusion_source": "excl", "artist_ids": str(target)}
-        )
-        result = transform(
-            TrackList(
-                tracks=[
-                    survives_name_matches_id,
-                    survives_name_no_id_match,
-                    matches_name_only,
-                ]
-            )
-        )
-
-        assert [t.id for t in result.tracks] == [survives_name_matches_id.id]
+        assert result.tracks == []
 
 
 class TestSorterByArtistName:

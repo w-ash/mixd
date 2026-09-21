@@ -27,6 +27,7 @@ from attrs import define, evolve
 
 from src.config import create_evaluation_service, get_logger, settings
 from src.domain.entities import Track
+from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.domain.matching.canonical_resolution import (
     DeferToReview,
     Described,
@@ -390,7 +391,7 @@ class SpotifyCrossDiscoveryProvider:
         # minter reads after the Last.fm resolver persists this outcome.
         best_dict: dict[str, object] = {
             **probe.best.model_dump(),
-            "artist_ids": spotify_artist_ids(probe.best.artists),
+            ARTIST_IDS_KEY: spotify_artist_ids(probe.best.artists),
         }
         if probe.spotify_isrc:
             if isrc_owners is None:

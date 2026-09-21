@@ -5,7 +5,7 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.12.0.3
  */
-import type { ArtistSchema } from './artistSchema.ts';
+import type { ArtistCreditSchema } from './artistCreditSchema.ts';
 
 /**
  * Minimal track data for playlist entry listings.
@@ -13,7 +13,7 @@ import type { ArtistSchema } from './artistSchema.ts';
 export interface TrackSummarySchema {
   id?: string | null;
   title: string;
-  artists: ArtistSchema[];
+  artists: ArtistCreditSchema[];
   album?: string | null;
   duration_ms?: number | null;
 }

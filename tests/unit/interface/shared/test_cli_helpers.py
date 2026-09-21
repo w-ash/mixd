@@ -7,6 +7,7 @@ Tests cover:
 - Progress context integration
 """
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -403,3 +404,78 @@ class TestBatchOperationResult:
         count_cells = list(table.columns[1]._cells)
         assert "3" in count_cells
         assert "1" in count_cells
+
+
+class TestValidateSort:
+    def test_a_declared_key_comes_back_as_itself(self):
+        from src.domain.repositories.artist import ARTIST_SORTS
+        from src.interface.cli.cli_helpers import validate_sort
+
+        assert validate_sort("name_desc", ARTIST_SORTS, default="name_asc") == (
+            "name_desc"
+        )
+
+    def test_an_absent_option_takes_the_default(self):
+        from src.domain.repositories.artist import ARTIST_SORTS
+        from src.interface.cli.cli_helpers import validate_sort
+
+        assert validate_sort(None, ARTIST_SORTS, default="name_asc") == "name_asc"
+
+    def test_an_unknown_key_is_a_bad_parameter_naming_the_choices(self):
+        import typer
+
+        from src.domain.repositories.artist import ARTIST_SORTS
+        from src.interface.cli.cli_helpers import validate_sort
+
+        with pytest.raises(typer.BadParameter, match="not a valid sort") as exc:
+            _ = validate_sort("loudest", ARTIST_SORTS, default="name_asc")
+        assert "name_asc" in str(exc.value)
+
+
+class TestRunWithProgress:
+    """``run_async`` is replaced by ``asyncio.run`` so the factory really runs."""
+
+    def test_the_factory_gets_the_context_broker(self):
+        from src.interface.cli.cli_helpers import run_with_progress
+
+        broker = MagicMock()
+        ctx = MagicMock()
+        ctx.get_progress_broker.return_value = broker
+        seen: list[object] = []
+
+        async def _factory(emitter):
+            seen.append(emitter)
+            return "done"
+
+        with (
+            patch(
+                "src.interface.cli.cli_helpers.progress_coordination_context"
+            ) as mock_context,
+            patch("src.interface.cli.cli_helpers.run_async", side_effect=asyncio.run),
+        ):
+            mock_context.return_value.__aenter__.return_value = ctx
+            assert run_with_progress(_factory) == "done"
+        assert seen == [broker]
+
+    def test_without_a_broker_the_fallback_emitter_is_used(self):
+        from src.domain.entities.progress import NullProgressEmitter
+        from src.interface.cli.cli_helpers import run_with_progress
+
+        ctx = MagicMock()
+        ctx.get_progress_broker.return_value = None
+        fallback = NullProgressEmitter()
+        seen: list[object] = []
+
+        async def _factory(emitter):
+            seen.append(emitter)
+            return 1
+
+        with (
+            patch(
+                "src.interface.cli.cli_helpers.progress_coordination_context"
+            ) as mock_context,
+            patch("src.interface.cli.cli_helpers.run_async", side_effect=asyncio.run),
+        ):
+            mock_context.return_value.__aenter__.return_value = ctx
+            assert run_with_progress(_factory, fallback_emitter=fallback) == 1
+        assert seen == [fallback]

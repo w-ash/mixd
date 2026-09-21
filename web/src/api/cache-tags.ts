@@ -74,14 +74,10 @@ const RULES: readonly Rule[] = [
   { match: /^\/api\/v1\/artists\/enrich/ },
 
   // ── resources ───────────────────────────────────────────────────────────
-  // The detail page renders the artist's library tracks, so an artist read
-  // depends on `tracks` too.
-  {
-    match: /^\/api\/v1\/artists/,
-    owns: "artists",
-    alsoReads: ["tracks"],
-    scoped: true,
-  },
+  // No `alsoReads: ["tracks"]`: a track write cannot change an artist's
+  // identity or mappings, and the artist page's track list is its own
+  // `tracks`-tagged query.
+  { match: /^\/api\/v1\/artists/, owns: "artists", scoped: true },
   { match: /^\/api\/v1\/assistant\//, owns: "assistant" },
   { match: /^\/api\/v1\/imports\/checkpoints/, owns: "checkpoints" },
   // Proxies the live Spotify/Tidal API — split out of `connectors` so a play

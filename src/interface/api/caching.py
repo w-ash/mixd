@@ -43,6 +43,9 @@ _CACHE_POLICIES: tuple[tuple[str, str], ...] = tuple(
             # The import queue is the page's only description of a drain: a cached
             # idle answer would hide a queue registered seconds later.
             ("/api/v1/imports/spotify/history/queue", "private, no-cache"),
+            # Favorites are per user and the page refetches an artist right after
+            # a favorite write; a cached answer would show the old state.
+            ("/api/v1/artists", "private, no-cache"),
             ("/api/v1/health", "no-cache"),
             ("/api/v1/tracks", "max-age=10, stale-while-revalidate=60"),
             ("/api/v1/playlists", "max-age=10, stale-while-revalidate=60"),

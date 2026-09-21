@@ -471,7 +471,7 @@ class EnrichTracksUseCase:
 
         Writes the full favorite-artist-id set onto
         ``tracklist.metadata["favorite_artist_ids"]`` so downstream
-        ``filter.by_artists`` nodes configured with ``favorites_only`` can
+        ``filter.by_artist_ids`` nodes configured with ``favorites_only`` can
         match against it. This is a tracklist-level flag, not per-track, so
         it has no per-track metric to report.
 

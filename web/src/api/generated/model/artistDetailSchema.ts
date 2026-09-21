@@ -10,7 +10,7 @@ import type { ArtistKind } from './artistKind.ts';
 import type { RelatedProjectSchema } from './relatedProjectSchema.ts';
 
 /**
- * Full artist detail: identity, mappings, counts, favorite state.
+ * Full artist detail: the summary plus mappings and related names.
  */
 export interface ArtistDetailSchema {
   id: string;

@@ -1,6 +1,4 @@
 import { Music } from "lucide-react";
-import { useEffect, useRef } from "react";
-import { useSearchParams } from "react-router";
 
 import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
 import { TrackTable } from "#/components/library/TrackTable";
@@ -8,7 +6,7 @@ import { EmptyState } from "#/components/shared/EmptyState";
 import { QueryStates } from "#/components/shared/QueryStates";
 import { ListRowsSkeleton } from "#/components/shared/skeletons";
 import { TablePagination } from "#/components/shared/TablePagination";
-import { usePagination } from "#/hooks/usePagination";
+import { useKeysetPagination } from "#/hooks/usePagination";
 
 const PAGE_SIZE = 25;
 
@@ -21,22 +19,23 @@ const PAGE_SIZE = 25;
  * navigation is keyset rather than a deepening offset scan.
  */
 export function ArtistTracksSection({ artistId }: { artistId: string }) {
-  const cursorMapRef = useRef<Map<number, string>>(new Map());
-  const [searchParams] = useSearchParams();
-
-  // Offset comes from the raw URL page, before `total` is known — a deep link
-  // has to fire the right query on a cold load.
-  const rawPage = Number(searchParams.get("page") ?? "1");
-  const pageParam = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
-  const cursorForPage = cursorMapRef.current.get(pageParam - 1);
+  const {
+    page,
+    limit,
+    offset,
+    cursor,
+    totalPages,
+    setPage,
+    rememberNextCursor,
+  } = useKeysetPagination({ defaultLimit: PAGE_SIZE });
 
   const { data, isLoading, isError, error, isPlaceholderData } =
     useListTracksApiV1TracksGet(
       {
         artist_id: artistId,
-        limit: PAGE_SIZE,
-        offset: (pageParam - 1) * PAGE_SIZE,
-        ...(cursorForPage ? { cursor: cursorForPage } : {}),
+        limit,
+        offset,
+        ...(cursor ? { cursor } : {}),
       },
       { query: { staleTime: 30_000, placeholderData: (prev) => prev } },
     );
@@ -44,15 +43,7 @@ export function ArtistTracksSection({ artistId }: { artistId: string }) {
   const response = data?.status === 200 ? data.data : undefined;
   const tracks = response?.data ?? [];
   const total = response?.total ?? 0;
-
-  const nextCursor = response?.next_cursor;
-  useEffect(() => {
-    if (nextCursor) cursorMapRef.current.set(pageParam, nextCursor);
-  }, [nextCursor, pageParam]);
-
-  const { page, totalPages, setPage } = usePagination(total, {
-    defaultLimit: PAGE_SIZE,
-  });
+  rememberNextCursor(response);
 
   return (
     <QueryStates
@@ -83,7 +74,7 @@ export function ArtistTracksSection({ artistId }: { artistId: string }) {
           page={page}
           totalPages={totalPages}
           total={total}
-          limit={PAGE_SIZE}
+          limit={limit}
           onPageChange={setPage}
         />
       </div>

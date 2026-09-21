@@ -9,13 +9,11 @@ display identifier from a relationship.
 from typing import cast, override
 
 from attrs import define
-from sqlalchemy.orm.interfaces import ORMOption
 
 from src.domain.entities import ensure_utc
 from src.domain.entities.artist import (
     Artist,
     ArtistAlias,
-    ArtistFavorite,
     ArtistMapping,
     ConnectorArtist,
     is_artist_kind,
@@ -24,13 +22,11 @@ from src.domain.entities.track_mapping import is_mapping_origin, is_match_method
 from src.infrastructure.persistence.database.models import (
     DBArtist,
     DBArtistAlias,
-    DBArtistFavorite,
     DBArtistMapping,
     DBConnectorArtist,
 )
 from src.infrastructure.persistence.repositories.mappers import (
     BaseModelMapper,
-    SimpleMapperFactory,
 )
 
 
@@ -167,12 +163,6 @@ class ArtistMappingMapper(BaseModelMapper[DBArtistMapping, ArtistMapping]):
             last_seen_at=domain_model.last_seen_at,
         )
 
-    @override
-    @staticmethod
-    def get_default_relationships() -> list[str | ORMOption]:
-        """Related entities to load when querying artist mappings."""
-        return ["artist", "connector_artist"]
-
 
 @define(frozen=True, slots=True)
 class ArtistAliasMapper(BaseModelMapper[DBArtistAlias, ArtistAlias]):
@@ -211,12 +201,10 @@ class ArtistAliasMapper(BaseModelMapper[DBArtistAlias, ArtistAlias]):
 
 # Straight 1:1 field copy in both directions — the composite primary key
 # changes nothing for the mapper, which never reads ``id``.
-ArtistFavoriteMapper = SimpleMapperFactory.create(DBArtistFavorite, ArtistFavorite)
 
 
 __all__ = [
     "ArtistAliasMapper",
-    "ArtistFavoriteMapper",
     "ArtistMapper",
     "ArtistMappingMapper",
     "ConnectorArtistMapper",

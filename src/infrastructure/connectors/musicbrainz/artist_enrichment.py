@@ -41,12 +41,15 @@ _ARTIST_KINDS: Final[Mapping[str, ArtistKind]] = {
     "choir": "group",
 }
 
-# Hosts that publish an artist id in a path segment after "artist".
-_SPOTIFY_HOSTS: Final[frozenset[str]] = frozenset({"open.spotify.com"})
-_DISCOGS_HOSTS: Final[frozenset[str]] = frozenset({"discogs.com"})
-_APPLE_HOSTS: Final[frozenset[str]] = frozenset({"music.apple.com"})
-_TIDAL_HOSTS: Final[frozenset[str]] = frozenset({"tidal.com", "listen.tidal.com"})
-_LASTFM_HOSTS: Final[frozenset[str]] = frozenset({"last.fm"})
+# Host (``www.`` stripped) → the service whose artist page it is.
+_SERVICE_BY_HOST: Final[Mapping[str, str]] = {
+    "open.spotify.com": "spotify",
+    "discogs.com": "discogs",
+    "music.apple.com": "apple",
+    "tidal.com": "tidal",
+    "listen.tidal.com": "tidal",
+    "last.fm": "lastfm",
+}
 
 
 def artist_kind_of(mb_type: str | None) -> ArtistKind | None:
@@ -69,27 +72,30 @@ def parse_url_rel(url: str) -> ArtistUrlRel | None:
     if not host or not segments:
         return None
 
-    if host in _SPOTIFY_HOSTS:
-        return _segment_after("artist", "spotify", url, segments)
-    if host in _DISCOGS_HOSTS:
-        # Discogs slugs the name onto the id ("/artist/1289-Aphex-Twin");
-        # the leading numeric run is the id.
-        rel = _segment_after("artist", "discogs", url, segments)
-        return _with_identifier(rel, _leading_digits(rel.identifier)) if rel else None
-    if host in _APPLE_HOSTS:
-        # /<cc>/artist/<slug>/<id> — the id is the trailing numeric segment,
-        # the slug before it is decoration.
-        if "artist" in segments and segments[-1].isdigit():
-            return ArtistUrlRel("apple", segments[-1], url)
-        return None
-    if host in _TIDAL_HOSTS:
-        return _segment_after("artist", "tidal", url, segments)
-    if host in _LASTFM_HOSTS:
-        # Last.fm's only identity is the name string, percent- and
-        # plus-encoded in the path.
-        rel = _segment_after("music", "lastfm", url, segments)
-        return _with_identifier(rel, unquote_plus(rel.identifier)) if rel else None
-    return None
+    service = _SERVICE_BY_HOST.get(host)
+    match service:
+        case "spotify" | "tidal":
+            return _segment_after("artist", service, url, segments)
+        case "discogs":
+            # Discogs slugs the name onto the id ("/artist/1289-Aphex-Twin");
+            # the leading numeric run is the id.
+            rel = _segment_after("artist", service, url, segments)
+            return (
+                _with_identifier(rel, _leading_digits(rel.identifier)) if rel else None
+            )
+        case "apple":
+            # /<cc>/artist/<slug>/<id> — the id is the trailing numeric
+            # segment, the slug before it is decoration.
+            if "artist" in segments and segments[-1].isdigit():
+                return ArtistUrlRel(service, segments[-1], url)
+            return None
+        case "lastfm":
+            # Last.fm's only identity is the name string, percent- and
+            # plus-encoded in the path.
+            rel = _segment_after("music", service, url, segments)
+            return _with_identifier(rel, unquote_plus(rel.identifier)) if rel else None
+        case _:
+            return None
 
 
 def _segment_after(
@@ -143,7 +149,6 @@ def to_artist_lookup(artist: MusicBrainzArtist) -> ArtistLookup:
         disambiguation=artist.disambiguation or None,
         aliases=tuple(_alias_record(alias) for alias in artist.aliases if alias.name),
         url_rels=tuple(url_rels),
-        score=artist.score,
     )
 
 

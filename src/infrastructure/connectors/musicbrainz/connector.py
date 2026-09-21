@@ -120,4 +120,5 @@ def get_connector_config() -> ConnectorConfig:
         "build_auth_url": None,
         # Mappings store the recording MBID, which addresses this page directly.
         "track_url": lambda mbid: f"https://musicbrainz.org/recording/{mbid}",
+        "artist_url": lambda mbid: f"https://musicbrainz.org/artist/{mbid}",
     }

@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from src.config import get_logger
 from src.domain.entities import ArtistCredit, ConnectorTrack
 from src.domain.entities.shared import JsonValue
+from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.musicbrainz.models import MusicBrainzRecording
 
@@ -129,7 +130,7 @@ def convert_musicbrainz_track_to_connector(
 
     # Metadata extraction
     raw_metadata = extract_recording_metadata(recording)
-    raw_metadata["artist_ids"] = artist_ids
+    raw_metadata[ARTIST_IDS_KEY] = artist_ids
 
     return ConnectorTrack(
         connector_name="musicbrainz",

@@ -588,11 +588,8 @@ def _build_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 key="exclusion_source",
                 label="Exclude From",
                 field_type="task_ref",
-                required=False,
-                description=(
-                    "Upstream task whose artists will be removed from this list "
-                    "(name-based match; combine with or use instead of Artist IDs)"
-                ),
+                required=True,
+                description="Upstream task whose artists will be removed from this list",
             ),
             ConfigFieldDef(
                 key="exclude_all_artists",
@@ -601,6 +598,8 @@ def _build_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 description="When enabled, excludes tracks if any artist matches (not just primary)",
                 default=False,
             ),
+        ),
+        "filter.by_artist_ids": (
             ConfigFieldDef(
                 key="artist_ids",
                 label="Artist IDs",
@@ -616,8 +615,7 @@ def _build_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
                 label="Exclude Matches",
                 field_type="boolean",
                 description=(
-                    "Applies to Artist IDs / Favorites Only: true removes matching "
-                    "tracks, false keeps only matching tracks"
+                    "True removes matching tracks, false keeps only matching tracks"
                 ),
                 default=False,
             ),

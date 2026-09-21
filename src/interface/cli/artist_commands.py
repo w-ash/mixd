@@ -7,21 +7,20 @@ from rich.table import Table
 import typer
 
 from src.application.use_cases.enrich_artists import EnrichArtistsResult
-from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
+from src.domain.entities.progress import ProgressEmitter
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.artist import (
     ARTIST_SORTS,
     DEFAULT_ARTIST_SORT,
     ArtistSortBy,
-    is_artist_sort,
 )
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import get_cli_user_id
-from src.interface.cli.console import (
-    brand_status,
-    get_console,
-    progress_coordination_context,
+from src.interface.cli.cli_helpers import (
+    get_cli_user_id,
+    run_with_progress,
+    validate_sort,
 )
+from src.interface.cli.console import brand_status, get_console
 from src.interface.cli.ui import display_operation_result
 
 console = get_console()
@@ -30,17 +29,6 @@ app = typer.Typer(
     help="Browse and curate the artists in your library",
     rich_help_panel="🎵 Track Operations",
 )
-
-
-def _validate_sort(value: str) -> ArtistSortBy:
-    """Reject an unknown sort key with Typer's own one-liner, not a silent default.
-
-    ``is_artist_sort`` narrows the validated string, so the use case's own
-    ``_known_sort`` fallback is never what this path relies on.
-    """
-    if not is_artist_sort(value):
-        raise typer.BadParameter(f"sort must be one of: {', '.join(ARTIST_SORTS)}")
-    return value
 
 
 def _parse_artist_id(value: str) -> UUID:
@@ -69,7 +57,9 @@ def list_artists(
     """List the artists in your library."""
     from src.application.use_cases.list_artists import run_list_artists
 
-    sort_by = _validate_sort(sort)
+    sort_by: ArtistSortBy = validate_sort(
+        sort, ARTIST_SORTS, default=DEFAULT_ARTIST_SORT
+    )
     user_id = get_cli_user_id()
 
     with brand_status("Loading artists..."):
@@ -219,27 +209,18 @@ def enrich_artists(
 ) -> None:
     """Resolve artist identity against MusicBrainz."""
 
-    async def _execute() -> EnrichArtistsResult:
+    async def _enrich(emitter: ProgressEmitter) -> EnrichArtistsResult:
         from src.application.use_cases.enrich_artists import run_enrich_artists
 
-        async with progress_coordination_context(show_live=True) as context:
-            progress_broker = context.get_progress_broker()
-            emitter: ProgressEmitter = progress_broker or NullProgressEmitter()
-            return await run_enrich_artists(
-                user_id=get_cli_user_id(),
-                limit=limit,
-                refresh_older_than_days=refresh_older_than_days,
-                dry_run=dry_run,
-                progress_emitter=emitter,
-            )
+        return await run_enrich_artists(
+            user_id=get_cli_user_id(),
+            limit=limit,
+            refresh_older_than_days=refresh_older_than_days,
+            dry_run=dry_run,
+            progress_emitter=emitter,
+        )
 
-    result = run_async(_execute())
+    result = run_with_progress(_enrich)
     display_operation_result(result.result)
-    console.print(
-        f"[dim]{result.artists_identified} identified, "
-        f"{result.aliases_written} alias(es), "
-        f"{result.mappings_seeded} mapping(s), "
-        f"{result.unresolved} unresolved[/dim]"
-    )
     if dry_run:
         console.print("[dim]Dry run — nothing was written.[/dim]")

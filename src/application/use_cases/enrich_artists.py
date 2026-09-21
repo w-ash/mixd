@@ -30,7 +30,7 @@ the artist unidentified and merely touched.
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Final, Protocol, runtime_checkable
+from typing import Final
 from uuid import UUID
 
 from attrs import define, field
@@ -51,7 +51,6 @@ from src.domain.entities.progress import (
     tracked_operation,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
-from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.matching.artist_confidence import calculate_artist_confidence
 from src.domain.matching.artist_enrichment import (
     ArtistEnrichmentProviderProtocol,
@@ -88,32 +87,6 @@ _DEFAULT_LIMIT: Final = 500
 _MAX_ISSUES: Final = 50
 
 
-@runtime_checkable
-class ArtistMappingWriter(Protocol):
-    """The mapping-assert seam, which the repository protocol does not carry.
-
-    ``assert_mappings`` and ``record_assertion`` speak the generic mapping
-    mechanism's own value type, so they stay off
-    :class:`ArtistConnectorRepositoryProtocol` (the track side draws the line
-    in the same place). This narrows the repository back to them for the one
-    caller that writes artist mappings, exactly as ``BatchCommittable``
-    narrows a unit of work to its batch commit.
-    """
-
-    async def assert_mappings(
-        self,
-        rows: Sequence[Mapping[str, object]],
-        *,
-        reason: SupersessionReason = "rematch",
-    ) -> object:
-        """Assert a batch of mappings and report what the database decided."""
-        ...
-
-    async def record_assertion(self, assertion: object) -> None:
-        """Emit the resolution events one assertion earned."""
-        ...
-
-
 @define(frozen=True, slots=True)
 class EnrichArtistsCommand:
     """Selectors for one artist-enrichment pass."""
@@ -126,18 +99,13 @@ class EnrichArtistsCommand:
 
 @define(frozen=True, slots=True)
 class EnrichArtistsResult:
-    """Enrichment outcome: what was identified and seeded.
+    """Enrichment outcome.
 
-    The count of artists looked at rides in ``result.summary_metrics`` only —
-    every caller either renders that table or forwards the ``OperationResult``
-    whole.
+    Every count rides in ``result.summary_metrics`` — every caller either
+    renders that table or forwards the ``OperationResult`` whole.
     """
 
     result: OperationResult
-    artists_identified: int = 0
-    aliases_written: int = 0
-    mappings_seeded: int = 0
-    unresolved: int = 0
 
 
 @define(frozen=True, slots=True)
@@ -525,13 +493,12 @@ class EnrichArtistsUseCase:
             await artists.touch(list(batch.touched), user_id=command.user_id)
 
         if batch.mapping_rows:
-            writer = _mapping_writer(connectors)
-            assertion = await writer.assert_mappings(list(batch.mapping_rows))
+            assertion = await connectors.assert_mappings(list(batch.mapping_rows))
             # "fill" only: an artist that already has a primary for a service
             # keeps it — an arriving seed is not a mandate to overrule a
             # decision the owner already holds.
             _ = await connectors.ensure_primaries(list(batch.primaries), mode="fill")
-            await writer.record_assertion(assertion)
+            await connectors.record_assertion(assertion)
 
         if batch.touched or batch.mapping_rows:
             await commit_batch(uow)
@@ -572,13 +539,7 @@ class EnrichArtistsUseCase:
             )
             result.metadata[RESOLUTION_FAILURES_KEY] = failures
             result.metadata[RESOLUTION_FAILURES_TRUNCATED_KEY] = tally.issues_dropped
-        return EnrichArtistsResult(
-            result=result,
-            artists_identified=tally.identified,
-            aliases_written=tally.aliases,
-            mappings_seeded=tally.mappings,
-            unresolved=tally.unresolved,
-        )
+        return EnrichArtistsResult(result=result)
 
 
 def _choose_hit(
@@ -712,16 +673,6 @@ def _mapping_row(
         "confidence": evidence.final_score,
         "confidence_evidence": evidence.as_dict(),
     }
-
-
-def _mapping_writer(repo: ArtistConnectorRepositoryProtocol) -> ArtistMappingWriter:
-    """Narrow the artist connector repository to its mapping-assert seam."""
-    if isinstance(repo, ArtistMappingWriter):
-        return repo
-    raise TypeError(
-        "artist connector repository cannot assert mappings: "
-        f"{type(repo).__name__} has no assert_mappings/record_assertion"
-    )
 
 
 async def run_enrich_artists(

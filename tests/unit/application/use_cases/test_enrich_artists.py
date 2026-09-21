@@ -9,8 +9,6 @@ mappings, how the run commits, and what a provider fault or a dry run does.
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid7
 
-import pytest
-
 from src.application.use_cases.enrich_artists import (
     EnrichArtistsCommand,
     EnrichArtistsUseCase,
@@ -49,12 +47,7 @@ def make_lookup(**overrides) -> ArtistLookup:
 
 
 def make_connector_repo(**overrides) -> AsyncMock:
-    """Artist connector repo mock carrying the mapping-assert seam.
-
-    ``assert_mappings`` / ``record_assertion`` are set explicitly: a protocol
-    runtime check reads attributes statically, so a lazily built mock member
-    would not satisfy ``ArtistMappingWriter``.
-    """
+    """Artist connector repo mock whose assert returns a token to record back."""
     repo = make_mock_artist_connector_repo(**overrides)
     repo.assert_mappings = AsyncMock(return_value=object())
     repo.record_assertion = AsyncMock()
@@ -134,8 +127,8 @@ class TestIdentification:
         provider.lookup_artist.assert_awaited_once_with(MBID)
         artist_repo.set_identity.assert_awaited_once()
         # Already identified: the run refreshed it, it did not identify it.
-        assert result.artists_identified == 0
-        assert result.unresolved == 0
+        assert result.result.summary_metrics.get("resolved") == 0
+        assert result.result.summary_metrics.get("unresolved") == 0
 
     async def test_an_unanchored_artist_is_searched_by_name(self):
         artist = make_artist(name="Totally Enormous Extinct Dinosaurs")
@@ -144,7 +137,7 @@ class TestIdentification:
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
         provider.search_artist.assert_awaited_once_with(artist.name)
-        assert result.artists_identified == 1
+        assert result.result.summary_metrics.get("resolved") == 1
         _, kwargs = artist_repo.set_identity.call_args
         assert kwargs["mbid"] == MBID
         assert kwargs["kind"] == "person"
@@ -156,7 +149,7 @@ class TestIdentification:
 
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
-        assert result.artists_identified == 1
+        assert result.result.summary_metrics.get("resolved") == 1
         artist_repo.set_identity.assert_awaited_once()
 
     async def test_a_lookup_that_does_not_resolve_leaves_the_artist_touched(self):
@@ -165,7 +158,7 @@ class TestIdentification:
 
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
-        assert result.unresolved == 1
+        assert result.result.summary_metrics.get("unresolved") == 1
         artist_repo.set_identity.assert_not_awaited()
         artist_repo.touch.assert_awaited_once_with([artist.id], user_id=TEST_USER_ID)
 
@@ -183,8 +176,8 @@ class TestAmbiguity:
 
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
-        assert result.unresolved == 1
-        assert result.artists_identified == 0
+        assert result.result.summary_metrics.get("unresolved") == 1
+        assert result.result.summary_metrics.get("resolved") == 0
         artist_repo.set_identity.assert_not_awaited()
         connector_repo.assert_mappings.assert_not_awaited()
         # Touched anyway: the run has to advance past a collision.
@@ -202,7 +195,7 @@ class TestAmbiguity:
 
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
-        assert result.artists_identified == 1
+        assert result.result.summary_metrics.get("resolved") == 1
 
     async def test_an_empty_search_leaves_the_artist_unresolved(self):
         artist = make_artist(name="Nobody At All")
@@ -210,7 +203,7 @@ class TestAmbiguity:
 
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
-        assert result.unresolved == 1
+        assert result.result.summary_metrics.get("unresolved") == 1
 
 
 class TestCachedRows:
@@ -261,7 +254,7 @@ class TestCachedRows:
         )
         # Id-tier evidence, the same band a direct connector id scores at.
         assert by_service["spotify"]["confidence"] == 100
-        assert result.mappings_seeded == 5
+        assert result.result.summary_metrics.get("mappings_seeded") == 5
         connector_repo.record_assertion.assert_awaited_once()
 
     async def test_several_rels_for_one_service_are_all_kept(self):
@@ -335,8 +328,8 @@ class TestFailures:
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
         assert result.result.summary_metrics.get("artists_processed") == 2
-        assert result.artists_identified == 1
-        assert result.unresolved == 1
+        assert result.result.summary_metrics.get("resolved") == 1
+        assert result.result.summary_metrics.get("unresolved") == 1
         assert result.result.is_failure
         assert result.result.is_partial_failure
         (issue,) = result.result.resolution_failures
@@ -361,22 +354,10 @@ class TestDryRun:
         alias_repo.replace_aliases.assert_not_awaited()
         uow.commit_batch.assert_not_awaited()
 
-        assert result.artists_identified == 1
-        assert result.aliases_written == 2
-        assert result.mappings_seeded == 2
+        assert result.result.summary_metrics.get("resolved") == 1
+        assert result.result.summary_metrics.get("aliases_written") == 2
+        assert result.result.summary_metrics.get("mappings_seeded") == 2
         assert result.result.metadata["dry_run"] is True
-
-
-class TestMappingSeam:
-    async def test_a_repository_without_the_assert_seam_is_rejected(self):
-        artist = make_artist(name="TEED")
-        uow, _, _, _, _ = build([artist], hits=[make_lookup()])
-        # A repository that cannot assert mappings is a wiring defect, not a
-        # silently skipped write.
-        del uow.get_artist_connector_repository.return_value.assert_mappings
-
-        with pytest.raises(TypeError, match="assert_mappings"):
-            _ = await EnrichArtistsUseCase().execute(command(), uow)
 
 
 class TestFirstPassSeeding:
@@ -403,7 +384,7 @@ class TestFirstPassSeeding:
             "spotify",
             "discogs",
         }
-        assert result.mappings_seeded == 3
+        assert result.result.summary_metrics.get("mappings_seeded") == 3
 
     async def test_the_search_hit_carries_the_artist_when_the_re_read_fails(self):
         artist = make_artist(name="TEED")
@@ -416,7 +397,7 @@ class TestFirstPassSeeding:
         result = await EnrichArtistsUseCase().execute(command(), uow)
 
         # Identified on the hit's own aliases; the ids wait for the next pass.
-        assert result.artists_identified == 1
+        assert result.result.summary_metrics.get("resolved") == 1
         artist_repo.set_identity.assert_awaited_once()
         (rows,) = connector_repo.assert_mappings.call_args.args
         assert {row["connector_name"] for row in rows} == {"musicbrainz"}
@@ -451,7 +432,7 @@ class TestExistingMappingsSurvive:
         connector_repo.touch_last_seen.assert_awaited_once_with(
             "spotify", [sp_row_id], user_id=artist.user_id
         )
-        assert result.mappings_seeded == 1
+        assert result.result.summary_metrics.get("mappings_seeded") == 1
         assert not result.result.resolution_failures
 
     async def test_a_conflicting_owner_is_reported_and_nothing_is_re_pointed(self):

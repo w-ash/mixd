@@ -1,8 +1,7 @@
 import { delay, HttpResponse, http } from "msw";
 import { Route, Routes } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { installHttpCache } from "#/test/http-cache";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -78,12 +77,6 @@ function renderArtistDetail(artistId = ARTIST_ID) {
 }
 
 describe("ArtistDetail", () => {
-  let uninstallCache: (() => void) | undefined;
-  afterEach(() => {
-    uninstallCache?.();
-    uninstallCache = undefined;
-  });
-
   it("renders identity fields from the detail response", async () => {
     overrideArtist(mockArtist);
     overrideTracks();
@@ -175,63 +168,6 @@ describe("ArtistDetail", () => {
     await waitFor(() => {
       expect(calls).toEqual(["POST", "DELETE"]);
     });
-    expect(
-      await screen.findByRole("button", { name: "Favorite Radiohead" }),
-    ).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("keeps the heart flipped when the API caches its reads", async () => {
-    // `GET /artists/{id}` answers with `Cache-Control: max-age`, so the refetch
-    // a write triggers is a browser cache hit unless the read revalidates —
-    // which served the pre-write body and snapped the heart back.
-    const uninstall = installHttpCache();
-    uninstallCache = uninstall;
-    const user = userEvent.setup();
-    const calls: string[] = [];
-    let favorited = false;
-    overrideTracks();
-    server.use(
-      http.get("*/api/v1/artists/:artistId", () =>
-        HttpResponse.json(
-          { ...mockArtist, is_favorited: favorited },
-          { status: 200, headers: { "Cache-Control": "max-age=10" } },
-        ),
-      ),
-      http.post("*/api/v1/artists/:artistId/favorite", () => {
-        favorited = true;
-        calls.push("POST");
-        return HttpResponse.json(
-          { artist_id: ARTIST_ID, is_favorited: true, changed: true },
-          { status: 200 },
-        );
-      }),
-      http.delete("*/api/v1/artists/:artistId/favorite", () => {
-        favorited = false;
-        calls.push("DELETE");
-        return new HttpResponse(null, { status: 204 });
-      }),
-    );
-
-    renderArtistDetail();
-
-    await user.click(
-      await screen.findByRole("button", { name: "Favorite Radiohead" }),
-    );
-
-    await waitFor(() => expect(calls).toEqual(["POST"]));
-    // Survives the refetch rather than only the optimistic write.
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Unfavorite Radiohead" }),
-      ).toHaveAttribute("aria-pressed", "true"),
-    );
-
-    // The second click has to be the opposite write, not a repeat of the first.
-    await user.click(
-      screen.getByRole("button", { name: "Unfavorite Radiohead" }),
-    );
-
-    await waitFor(() => expect(calls).toEqual(["POST", "DELETE"]));
     expect(
       await screen.findByRole("button", { name: "Favorite Radiohead" }),
     ).toHaveAttribute("aria-pressed", "false");

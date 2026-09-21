@@ -24,6 +24,7 @@ from src.domain.entities import (
     Track,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
+from src.domain.matching.artist_resolution import ARTIST_IDS_KEY
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.spotify.models import (
     SpotifyArtist,
@@ -94,7 +95,7 @@ def convert_spotify_track_to_connector(
         **track.model_dump(),
         "album_id": track.album.id if track.album else None,
         "explicit": track.explicit,
-        "artist_ids": spotify_artist_ids(track.artists),
+        ARTIST_IDS_KEY: spotify_artist_ids(track.artists),
     }
 
     return ConnectorTrack(

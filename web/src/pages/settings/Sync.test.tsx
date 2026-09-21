@@ -265,13 +265,27 @@ describe("Sync page", () => {
     const appleCard = screen
       .getByText("Apple Music Recent Plays")
       .closest("div.rounded-xl") as HTMLElement;
-    expect(within(appleCard).getByText("Last sync:")).toBeInTheDocument();
-    // Its checkpoint carries a real timestamp — the row must not fall back to
-    // "Never", which is what a missing/undefined checkpoint would render
-    // before the checkpoints query resolves.
+    // The row arrives with the checkpoint: before it lands there is nothing
+    // to report, and its timestamp is real, so the row never reads "Never".
     await waitFor(() => {
-      expect(within(appleCard).queryByText("Never")).not.toBeInTheDocument();
+      expect(within(appleCard).getByText("Last sync:")).toBeInTheDocument();
     });
+    expect(within(appleCard).queryByText("Never")).not.toBeInTheDocument();
+  });
+
+  it("omits the last-sync row for work that keeps no checkpoint", async () => {
+    setupCheckpointsMock();
+    renderWithProviders(<Sync />);
+
+    const enrichCard = screen
+      .getByText("Enrich Artists")
+      .closest("div.rounded-xl") as HTMLElement;
+    await waitFor(() => {
+      expect(screen.getAllByText("Last sync:").length).toBeGreaterThan(0);
+    });
+    expect(
+      within(enrichCard).queryByText("Last sync:"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders segmented mode selector for Last.fm history", () => {

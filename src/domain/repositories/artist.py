@@ -7,16 +7,18 @@ has its own table and its own writer.
 
 Two of the declared sorts order by something ``artists`` does not store:
 ``track_count`` is a count over ``track_artists`` and ``favorited_at`` lives on
-``artist_favorites``. They are named in :data:`COMPUTED_ARTIST_SORT_COLUMNS`
-and the repository resolves each to a correlated subquery; the keyset
-declaration is otherwise identical, so paging, cursors and the NULL tail all
-behave as they do for a stored column.
+``artist_favorites``. They are declared ``computed`` and the repository
+resolves each to a correlated subquery; the keyset declaration is otherwise
+identical, so paging, cursors and the NULL tail all behave as they do for a
+stored column.
 """
 
 from collections.abc import Awaitable, Mapping, Sequence
 from datetime import datetime
 from typing import Final, Literal, Protocol, TypedDict, TypeIs
 from uuid import UUID
+
+from attrs import define
 
 from src.domain.entities.artist import (
     Artist,
@@ -25,6 +27,9 @@ from src.domain.entities.artist import (
     ConnectorArtist,
 )
 from src.domain.entities.shared import JsonDict, SortKey
+from src.domain.entities.track import Track
+from src.domain.matching.artist_resolution import ArtistCreditSource
+from src.domain.matching.config import MatchingConfig
 from src.domain.repositories.keyset import KeysetSort, sorts
 from src.domain.repositories.mapping import (
     ElectionMode,
@@ -41,25 +46,17 @@ type ArtistSortBy = Literal[
 
 DEFAULT_ARTIST_SORT: Final[ArtistSortBy] = "name_asc"
 
-# Sort columns that are not columns of ``artists``. The repository owns the
-# expression each resolves to; the declaration here is what keeps the two
-# halves (domain cursor codec, infrastructure ORDER BY) reading one value.
-COMPUTED_ARTIST_SORT_COLUMNS: Final[frozenset[str]] = frozenset({
-    "track_count",
-    "favorited_at",
-})
-
 # The one artist sort registry: the repository orders and seeks by it, the
 # cursor codec encodes by it. ``sorts`` stamps each entry's wire key.
 ARTIST_SORTS: Final[Mapping[ArtistSortBy, KeysetSort]] = sorts({
     "name_asc": KeysetSort("name", "asc"),
     "name_desc": KeysetSort("name", "desc"),
     # A count is never NULL, and an artist with no credits counts zero.
-    "track_count_desc": KeysetSort("track_count", "desc"),
-    "track_count_asc": KeysetSort("track_count", "asc"),
+    "track_count_desc": KeysetSort("track_count", "desc", computed=True),
+    "track_count_asc": KeysetSort("track_count", "asc", computed=True),
     # NULL for an artist the user has not favorited, so the tail is ordered.
     "favorited_at_desc": KeysetSort(
-        "favorited_at", "desc", nullable=True, is_datetime=True
+        "favorited_at", "desc", nullable=True, is_datetime=True, computed=True
     ),
 })
 
@@ -220,12 +217,61 @@ class ArtistConnectorRepositoryProtocol(Protocol):
     def ensure_primaries(
         self, candidates: Sequence[PrimaryCandidate], *, mode: ElectionMode = "fill"
     ) -> Awaitable[list[PrimaryCandidate]]:
-        """Elect one primary mapping per (artist, connector) pair.
+        """Elect one primary mapping per (artist, connector) pair."""
+        ...
 
-        The batch assert and its event recording are not on this protocol, for
-        the same reason the track one omits them: their value type is the
-        generic mechanism's own, so they stay on the concrete repository the
-        resolution service holds.
+    def assert_mappings(
+        self, rows: Sequence[Mapping[str, object]]
+    ) -> Awaitable[object]:
+        """Assert a batch of artist mappings, returning an opaque assertion.
+
+        The assertion is the generic mapping mechanism's own value; a caller
+        holds it only to hand it back to :meth:`record_assertion` once the
+        primaries it names are elected.
+        """
+        ...
+
+    def record_assertion(self, assertion: object) -> Awaitable[None]:
+        """Emit the resolution events one assertion earned."""
+        ...
+
+
+@define(frozen=True, slots=True)
+class ArtistMintSummary:
+    """What one minting pass wrote, for the caller's log line."""
+
+    connector_artists_upserted: int = 0
+    artists_created: int = 0
+    artists_reused: int = 0
+    credits_assigned: int = 0
+
+    @property
+    def empty(self) -> bool:
+        return self == ArtistMintSummary()
+
+
+class ArtistMinterProtocol(Protocol):
+    """The import-path artist minting walk, one home for both its callers.
+
+    Every decision is the domain's (``domain.matching.artist_resolution``);
+    the minter does the repository calls in the order ``ArtistWrites`` lists
+    them, inside the caller's transaction, and never touches the network.
+    """
+
+    def mint(
+        self,
+        connector: str,
+        sources: Sequence[ArtistCreditSource],
+        canonicals: Mapping[str, Track],
+        *,
+        user_id: str,
+        config: MatchingConfig,
+    ) -> Awaitable[ArtistMintSummary]:
+        """Upsert connector records, probe owners, plan, and persist the writes.
+
+        ``canonicals`` maps each source's key to the canonical track it
+        resolved to, so the credits that named an artist can be filled on it.
+        ``config`` prices every planner decision.
         """
         ...
 
@@ -292,13 +338,14 @@ class ArtistAliasRepositoryProtocol(Protocol):
 
 __all__ = [
     "ARTIST_SORTS",
-    "COMPUTED_ARTIST_SORT_COLUMNS",
     "DEFAULT_ARTIST_SORT",
     "ArtistAliasRepositoryProtocol",
     "ArtistConnectorRepositoryProtocol",
     "ArtistFavoriteRepositoryProtocol",
     "ArtistListingPage",
     "ArtistMappingInfo",
+    "ArtistMintSummary",
+    "ArtistMinterProtocol",
     "ArtistRepositoryProtocol",
     "ArtistSortBy",
     "is_artist_sort",

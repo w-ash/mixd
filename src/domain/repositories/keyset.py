@@ -23,13 +23,16 @@ class KeysetSort:
     from :func:`sorts`; a standalone sort names it explicitly. ``column`` is
     the model attribute the repository orders by. ``nullable`` columns order
     NULLS LAST and need the keyset's NULL arms; ``is_datetime`` columns travel
-    through the cursor as ISO strings.
+    through the cursor as ISO strings. A ``computed`` column is not a column
+    of the model: the repository owns the expression it orders by and the
+    side map it reads the cursor value from.
     """
 
     column: str
     direction: SortDirection
     nullable: bool = False
     is_datetime: bool = False
+    computed: bool = False
     key: str = field(default="", kw_only=True)
 
     @property

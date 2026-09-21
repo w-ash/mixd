@@ -34,7 +34,7 @@ def _stub_result(*, dry_run: bool = False) -> RebuildPlayHistoryResult:
 class TestPlaysRebuild:
     def test_prompts_and_aborts_without_confirmation(self):
         with patch(
-            "src.interface.cli.plays_commands.run_async",
+            "src.interface.cli.cli_helpers.run_async",
             side_effect=_run_async_stub(),
         ) as mock_run:
             result = runner.invoke(app, ["plays", "rebuild"], input="n\n")
@@ -46,7 +46,7 @@ class TestPlaysRebuild:
 
     def test_yes_flag_skips_prompt_and_runs(self):
         with patch(
-            "src.interface.cli.plays_commands.run_async",
+            "src.interface.cli.cli_helpers.run_async",
             side_effect=_run_async_stub(),
         ) as mock_run:
             result = runner.invoke(app, ["plays", "rebuild", "--yes"])
@@ -58,7 +58,7 @@ class TestPlaysRebuild:
 
     def test_dry_run_skips_prompt_and_reports_preview(self):
         with patch(
-            "src.interface.cli.plays_commands.run_async",
+            "src.interface.cli.cli_helpers.run_async",
             side_effect=_run_async_stub(dry_run=True),
         ) as mock_run:
             result = runner.invoke(app, ["plays", "rebuild", "--dry-run"])

@@ -35,8 +35,7 @@ from src.interface.api.schemas.artists import (
     to_artist_summary,
 )
 from src.interface.api.schemas.imports import OperationStartedResponse
-from src.interface.api.services.progress import OperationBoundEmitter
-from src.interface.api.services.sse_operations import launch_sse_operation
+from src.interface.api.services.artist_enrichment import launch_artist_enrichment
 
 router = APIRouter(prefix="/artists", tags=["artists"])
 
@@ -85,23 +84,10 @@ async def enrich_artists(
     user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Resolve artist identity against MusicBrainz in the background."""
-
-    async def _enrich(emitter: OperationBoundEmitter) -> object:
-        from src.application.use_cases.enrich_artists import run_enrich_artists
-
-        enriched = await run_enrich_artists(
-            user_id=user_id,
-            limit=body.limit,
-            refresh_older_than_days=body.refresh_older_than_days,
-            progress_emitter=emitter,
-        )
-        # Unwrap to the OperationResult so the audit path records counts.
-        return enriched.result
-
-    return await launch_sse_operation(
+    return await launch_artist_enrichment(
         user_id=user_id,
-        operation_type="artist_enrichment",
-        coro_factory=_enrich,
+        limit=body.limit,
+        refresh_older_than_days=body.refresh_older_than_days,
     )
 
 

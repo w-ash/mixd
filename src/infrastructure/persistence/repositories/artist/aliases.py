@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -53,7 +52,7 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
             return 0
 
         now = datetime.now(UTC)
-        rows = self._deduplicate_batch(
+        return await self.bulk_insert_ignore_conflicts(
             [
                 {
                     "id": alias.id,
@@ -64,16 +63,11 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
                     "locale": alias.locale,
                     "is_primary": alias.is_primary,
                     "fetched_at": alias.fetched_at or now,
-                    "created_at": now,
-                    "updated_at": now,
                 }
                 for alias in aliases
             ],
-            ["connector_artist_id", "name", "alias_type", "locale"],
-            label="replace_aliases",
+            conflict_keys=["connector_artist_id", "name", "alias_type", "locale"],
         )
-        await self.session.execute(pg_insert(DBArtistAlias).values(rows))
-        return len(rows)
 
     @db_operation("get_aliases_for_connector_artists")
     async def get_aliases_for_connector_artists(

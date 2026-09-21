@@ -3,6 +3,11 @@ import { useState } from "react";
 import type { ConnectorMappingSchema } from "#/api/generated/model";
 import { useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch } from "#/api/generated/tracks/tracks";
 import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
+import {
+  MatchMethodBadge,
+  PrimaryBadge,
+  SMALL_BADGE,
+} from "#/components/shared/MappingBadges";
 import { RelinkMappingDialog } from "#/components/shared/RelinkMappingDialog";
 import {
   confidenceVariant,
@@ -11,10 +16,7 @@ import {
 import { UnlinkMappingDialog } from "#/components/shared/UnlinkMappingDialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { matchMethodDescription, matchMethodLabel } from "#/lib/match-methods";
 import { toasts } from "#/lib/toasts";
-
-const smallBadge = "text-[10px] px-1.5 py-0";
 
 /** Connector mapping list with hover-reveal actions */
 export function MappingList({
@@ -124,18 +126,8 @@ export function MappingList({
 
               {/* Metadata badges */}
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                {m.is_primary && (
-                  <Badge variant="default" className={smallBadge}>
-                    Primary
-                  </Badge>
-                )}
-                <Badge
-                  variant="outline"
-                  className={smallBadge}
-                  title={matchMethodDescription(m.match_method)}
-                >
-                  {matchMethodLabel(m.match_method)}
-                </Badge>
+                {m.is_primary && <PrimaryBadge />}
+                <MatchMethodBadge method={m.match_method} />
                 <StatusIndicator
                   variant={confidenceVariant(m.confidence)}
                   label={`${m.confidence}%`}
@@ -144,7 +136,7 @@ export function MappingList({
                 {m.origin === "manual_override" && (
                   <Badge
                     variant="outline"
-                    className={`${smallBadge} border-primary/40 text-primary`}
+                    className={`${SMALL_BADGE} border-primary/40 text-primary`}
                   >
                     Manual
                   </Badge>

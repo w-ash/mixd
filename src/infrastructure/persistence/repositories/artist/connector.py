@@ -16,12 +16,10 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities.artist import Artist, ArtistMapping, ConnectorArtist
-from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.repositories.artist import ArtistMappingInfo
 from src.domain.repositories.mapping import ElectionMode, PrimaryCandidate
 from src.infrastructure.persistence.database.models import (
@@ -94,7 +92,7 @@ class ConnectorArtistRepository(BaseRepository[DBConnectorArtist, ConnectorArtis
             return {}
 
         now = datetime.now(UTC)
-        rows = self._deduplicate_batch(
+        stored = await self.bulk_upsert(
             [
                 {
                     "id": artist.id,
@@ -103,31 +101,12 @@ class ConnectorArtistRepository(BaseRepository[DBConnectorArtist, ConnectorArtis
                     "name": artist.name,
                     "raw_metadata": artist.raw_metadata,
                     "last_updated": artist.last_updated or now,
-                    "created_at": now,
-                    "updated_at": now,
                 }
                 for artist in artists
             ],
-            ["connector_name", "connector_artist_identifier"],
-            label="bulk_upsert_connector_artists",
+            lookup_keys=["connector_name", "connector_artist_identifier"],
         )
-
-        stmt = pg_insert(DBConnectorArtist).values(rows)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["connector_name", "connector_artist_identifier"],
-            set_={
-                "name": stmt.excluded.name,
-                "raw_metadata": stmt.excluded.raw_metadata,
-                "last_updated": stmt.excluded.last_updated,
-                "updated_at": now,
-            },
-        ).returning(DBConnectorArtist)
-
-        result = await self.session.execute(stmt)
-        return {
-            row.connector_artist_identifier: await self.mapper.to_domain(row)
-            for row in result.scalars().all()
-        }
+        return {row.connector_artist_identifier: row for row in stored}
 
 
 class ArtistConnectorRepository:
@@ -252,13 +231,14 @@ class ArtistConnectorRepository:
     # ── the generic mapping seam, unwrapped ──────────────────────────
 
     async def assert_mappings(
-        self,
-        rows: Sequence[Mapping[str, object]],
-        *,
-        reason: SupersessionReason = "rematch",
+        self, rows: Sequence[Mapping[str, object]]
     ) -> MappingAssertion:
-        """Assert a batch of artist mappings through the generic mechanism."""
-        return await self.mapping_repo.assert_mappings(rows, reason=reason)
+        """Assert a batch of artist mappings through the generic mechanism.
+
+        No supersession reason: the artist table has no supersession columns,
+        so a changed decision rewrites in place and the reason is never stamped.
+        """
+        return await self.mapping_repo.assert_mappings(rows)
 
     async def ensure_primaries(
         self,
@@ -269,8 +249,16 @@ class ArtistConnectorRepository:
         """Elect one primary mapping per (artist, connector) pair."""
         return await self.mapping_repo.ensure_primaries(candidates, mode=mode)
 
-    async def record_assertion(self, assertion: MappingAssertion) -> None:
-        """Record the resolution events one assertion earned."""
+    async def record_assertion(self, assertion: object) -> None:
+        """Record the resolution events one assertion earned.
+
+        The protocol hands the assertion around opaquely; only one produced by
+        :meth:`assert_mappings` can be recorded.
+        """
+        if not isinstance(assertion, MappingAssertion):
+            raise TypeError(
+                f"record_assertion expects a MappingAssertion, got {type(assertion).__name__}"
+            )
         await self.mapping_repo.record_assertion(assertion)
 
 

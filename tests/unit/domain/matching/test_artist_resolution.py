@@ -21,7 +21,6 @@ from src.domain.matching.artist_resolution import (
     credit_source,
     credited_artists,
     dumped_credits,
-    has_mapping_seam,
     plan_artist_resolution,
 )
 from src.domain.matching.canonical_resolution import Described
@@ -342,16 +341,3 @@ class TestArtistWrites:
 
         assert len(writes.artists) == 2
         assert writes.assignments == ()
-
-
-class TestMappingSeam:
-    def test_the_seam_is_structural(self):
-        class Seam:
-            async def assert_mappings(self, rows, *, reason="rematch"):
-                return rows
-
-            async def record_assertion(self, assertion):
-                return None
-
-        assert has_mapping_seam(Seam())
-        assert not has_mapping_seam(object())

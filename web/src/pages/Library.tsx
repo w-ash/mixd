@@ -1,5 +1,5 @@
 import { Bookmark, Music } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
@@ -21,9 +21,10 @@ import { TablePagination } from "#/components/shared/TablePagination";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
-import type { SortDir, SortField } from "#/hooks/useLibraryFilters";
+import type { SortDirection } from "#/hooks/sort-param";
+import type { SortField } from "#/hooks/useLibraryFilters";
 import { useLibraryFilters } from "#/hooks/useLibraryFilters";
-import { usePagination } from "#/hooks/usePagination";
+import { useKeysetPagination } from "#/hooks/usePagination";
 import { useSelectionSet } from "#/hooks/useSelectionSet";
 import { isConnectable } from "#/lib/connectors";
 import { formatCount, formatList } from "#/lib/format";
@@ -33,7 +34,16 @@ import { cn } from "#/lib/utils";
 const PAGE_SIZE = 50;
 
 export function Library() {
-  const cursorMapRef = useRef<Map<number, string>>(new Map());
+  const {
+    page,
+    limit,
+    offset,
+    cursor,
+    totalPages,
+    setPage,
+    rememberNextCursor,
+    resetCursors,
+  } = useKeysetPagination({ defaultLimit: PAGE_SIZE });
   // The selection lives below the tracks query, but the filter-write callback
   // above it has to clear it — the ref bridges the two without re-running.
   const clearSelectionRef = useRef<(() => void) | null>(null);
@@ -43,9 +53,9 @@ export function Library() {
   // Every filter write clears the cursor cache and the selection, so the user
   // can't silently bulk-tag tracks they can no longer see.
   const resetLocalState = useCallback(() => {
-    cursorMapRef.current.clear();
+    resetCursors();
     clearSelectionRef.current?.();
-  }, []);
+  }, [resetCursors]);
   const {
     filters,
     setFilter,
@@ -56,16 +66,7 @@ export function Library() {
     searchInput,
     isSearching,
     toQueryParams,
-    searchParams,
   } = useLibraryFilters({ onMutate: resetLocalState });
-
-  // Pagination — offset derived from URL ?page= before the query fires;
-  // usePagination runs after it for totalPages/setPage (both need `total`).
-  const pageParam = Number(searchParams.get("page") ?? "1");
-  const queryOffset = (pageParam - 1) * PAGE_SIZE;
-  // Keyset pagination: cache cursors from API responses for sequential nav.
-  // Map: page number → cursor for the *next* page after that page.
-  const cursorForPage = cursorMapRef.current.get(pageParam - 1);
 
   // Auto-open when filters become active — from a chip or the URL as much as
   // from the panel itself — and never auto-close: only the user closes it.
@@ -83,11 +84,11 @@ export function Library() {
     useListTracksApiV1TracksGet(
       {
         ...toQueryParams(),
-        limit: PAGE_SIZE,
-        offset: queryOffset,
+        limit,
+        offset,
         // Only pay for GROUP BYs when the user is looking at the filters.
         include_facets: filterPanelOpen,
-        ...(cursorForPage ? { cursor: cursorForPage } : {}),
+        ...(cursor ? { cursor } : {}),
       },
       { query: { staleTime: 30_000, placeholderData: (prev) => prev } },
     );
@@ -96,20 +97,11 @@ export function Library() {
   const tracks = response?.data ?? [];
   const total = response?.total ?? 0;
   const facets = response?.facets ?? null;
+  rememberNextCursor(response);
 
   const trackIds = useMemo(() => tracks.map((t) => t.id), [tracks]);
   const selection = useSelectionSet(trackIds);
   clearSelectionRef.current = selection.clear;
-
-  // Cache the next_cursor from the latest response
-  const nextCursor = response?.next_cursor;
-  useEffect(() => {
-    if (nextCursor) {
-      cursorMapRef.current.set(pageParam, nextCursor);
-    }
-  }, [nextCursor, pageParam]);
-
-  const { page, totalPages, setPage } = usePagination(total);
 
   // Connectors list for filter dropdown
   const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet({
@@ -118,7 +110,7 @@ export function Library() {
   const connectors = connectorsData?.status === 200 ? connectorsData.data : [];
 
   const handleSort = useCallback(
-    (field: SortField, dir: SortDir) => setFilter("sort", { field, dir }),
+    (field: SortField, dir: SortDirection) => setFilter("sort", { field, dir }),
     [setFilter],
   );
 
@@ -304,7 +296,7 @@ export function Library() {
             page={page}
             totalPages={totalPages}
             total={total}
-            limit={PAGE_SIZE}
+            limit={limit}
             onPageChange={(nextPage) => {
               selection.clear();
               setPage(nextPage);

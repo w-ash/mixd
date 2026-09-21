@@ -7,7 +7,7 @@ with what — against ``make_mock_uow``.
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
-from uuid import UUID
+from uuid import UUID, uuid7
 
 from attrs import evolve
 
@@ -133,6 +133,38 @@ class TestAlreadyMapped:
         # Nothing planned, created or mapped.
         uow.get_track_repository().save_tracks.assert_not_awaited()
         connector_repo.map_tracks_to_connectors.assert_not_awaited()
+
+    async def test_fully_linked_credits_skip_the_artist_heal(self):
+        # Every credit already carries an artist id: nothing to assign, so
+        # a no-op batch never opens the savepoint or touches an artist seam.
+        linked = ArtistCredit(credited_name="Bonobo", artist_id=uuid7())
+        canonical = make_track(title="Ibrik", artists=[linked], version=1)
+        uow = _uow(existing={(CONNECTOR, "sp_1"): canonical})
+
+        _ = await _service().ingest(
+            CONNECTOR, [_payload("sp_1")], uow, user_id=TEST_USER_ID
+        )
+
+        uow.get_artist_minter().mint.assert_not_awaited()
+        uow.get_artist_connector_repository().bulk_upsert_connector_artists.assert_not_awaited()
+        uow.savepoint.assert_not_called()
+
+    async def test_an_unlinked_credit_keeps_the_heal(self):
+        canonical = make_track(
+            title="Ibrik",
+            artists=[
+                ArtistCredit(credited_name="Bonobo", artist_id=uuid7()),
+                ArtistCredit(credited_name="Kiara"),
+            ],
+            version=1,
+        )
+        uow = _uow(existing={(CONNECTOR, "sp_1"): canonical})
+
+        _ = await _service().ingest(
+            CONNECTOR, [_payload("sp_1")], uow, user_id=TEST_USER_ID
+        )
+
+        uow.get_artist_minter().mint.assert_awaited_once()
 
     async def test_the_lock_is_taken_before_any_probe(self):
         uow = _uow()

@@ -91,7 +91,7 @@ class TestEnrichmentRoundTrip:
             EnrichArtistsCommand(user_id=user_id), get_unit_of_work(db_session)
         )
 
-        assert result.artists_identified == 1
+        assert result.result.summary_metrics.get("resolved") == 1
         assert provider.searches == ["TEED"]
         # The search names the MBID; only the lookup carries the url-rels the
         # Spotify mapping below is seeded from, so it happens on this pass.
@@ -171,7 +171,7 @@ class TestEnrichmentRoundTrip:
         assert first.result.summary_metrics.get("artists_processed") == 1
         # Identified and freshly touched, so no longer a candidate.
         assert second.result.summary_metrics.get("artists_processed") == 0
-        assert second.mappings_seeded == 0
+        assert second.result.summary_metrics.get("mappings_seeded") == 0
         assert (
             await count(db_session, DBArtistMapping, DBArtistMapping.user_id == user_id)
             == mappings_after_first
@@ -197,7 +197,7 @@ class TestEnrichmentRoundTrip:
             EnrichArtistsCommand(user_id=user_id), get_unit_of_work(db_session)
         )
 
-        assert result.unresolved == 1
+        assert result.result.summary_metrics.get("unresolved") == 1
         stored = await db_session.get(DBArtist, artist.id)
         await db_session.refresh(stored)
         assert stored.mbid is None
@@ -261,13 +261,13 @@ class TestExistingMappingsSurvive:
             provider=FakeEnrichmentProvider(make_lookup())
         ).execute(EnrichArtistsCommand(user_id=user_id), get_unit_of_work(db_session))
 
-        assert result.artists_identified == 1
+        assert result.result.summary_metrics.get("resolved") == 1
         # Still the import's own word for it, on the same artist.
         assert await self.spotify_mapping(db_session, user_id) == [
             (artist.id, "direct")
         ]
         # Only the MusicBrainz anchor was seeded this run.
-        assert result.mappings_seeded == 1
+        assert result.result.summary_metrics.get("mappings_seeded") == 1
         assert not result.result.resolution_failures
 
     async def test_a_rel_claiming_another_artists_id_is_reported_not_re_pointed(
@@ -289,7 +289,7 @@ class TestExistingMappingsSurvive:
             provider=FakeEnrichmentProvider(make_lookup())
         ).execute(EnrichArtistsCommand(user_id=user_id), get_unit_of_work(db_session))
 
-        assert result.artists_identified == 1
+        assert result.result.summary_metrics.get("resolved") == 1
         # The Spotify id stays where it was; the claimant gets no Spotify row.
         assert await self.spotify_mapping(db_session, user_id) == [(owner.id, "direct")]
         (issue,) = result.result.resolution_failures

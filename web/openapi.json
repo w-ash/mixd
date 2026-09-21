@@ -5874,6 +5874,32 @@
         "title": "ArtistConnectorMappingSchema",
         "description": "One live mapping on an artist, with the service's own page for it."
       },
+      "ArtistCreditSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "artist_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ArtistCreditSchema",
+        "description": "One credited artist on a track.\n\n``artist_id`` is the canonical artist the credit resolved to, or None while\nit is unresolved \u2014 it is what makes a credited name on a track table a link\nto that artist's page."
+      },
       "ArtistDetailSchema": {
         "properties": {
           "id": {
@@ -5944,7 +5970,7 @@
           "name"
         ],
         "title": "ArtistDetailSchema",
-        "description": "Full artist detail: identity, mappings, counts, favorite state."
+        "description": "Full artist detail: the summary plus mappings and related names."
       },
       "ArtistKind": {
         "type": "string",
@@ -5953,32 +5979,6 @@
           "group",
           "other"
         ]
-      },
-      "ArtistSchema": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "artist_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Artist Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "ArtistSchema",
-        "description": "One credited artist on a track.\n\n``artist_id`` is the canonical artist the credit resolved to, or None while\nit is unresolved \u2014 it is what makes a credited name on a track table a link\nto that artist's page."
       },
       "ArtistSortBy": {
         "type": "string",
@@ -7851,7 +7851,7 @@
           },
           "artists": {
             "items": {
-              "$ref": "#/components/schemas/ArtistSchema"
+              "$ref": "#/components/schemas/ArtistCreditSchema"
             },
             "type": "array",
             "title": "Artists"
@@ -10639,7 +10639,7 @@
           },
           "artists": {
             "items": {
-              "$ref": "#/components/schemas/ArtistSchema"
+              "$ref": "#/components/schemas/ArtistCreditSchema"
             },
             "type": "array",
             "title": "Artists"
@@ -10812,7 +10812,7 @@
           },
           "artists": {
             "items": {
-              "$ref": "#/components/schemas/ArtistSchema"
+              "$ref": "#/components/schemas/ArtistCreditSchema"
             },
             "type": "array",
             "title": "Artists"
