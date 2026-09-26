@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.1
+ * OpenAPI spec version: 0.12.1.1
  */
 import type { SseProgressStatus } from './sseProgressStatus.ts';
 import type { SseSubOperationOutcome } from './sseSubOperationOutcome.ts';

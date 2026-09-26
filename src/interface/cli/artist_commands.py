@@ -1,4 +1,4 @@
-"""CLI commands for browsing, favoriting and enriching artists."""
+"""CLI commands for browsing, favoriting, minting and enriching artists."""
 
 from typing import Annotated
 from uuid import UUID
@@ -7,6 +7,7 @@ from rich.table import Table
 import typer
 
 from src.application.use_cases.enrich_artists import EnrichArtistsResult
+from src.application.use_cases.mint_artists import MintArtistsResult
 from src.domain.entities.progress import ProgressEmitter
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.artist import (
@@ -221,6 +222,38 @@ def enrich_artists(
         )
 
     result = run_with_progress(_enrich)
+    display_operation_result(result.result)
+    if dry_run:
+        console.print("[dim]Dry run — nothing was written.[/dim]")
+
+
+@app.command(name="mint")
+def mint_artists(
+    limit: Annotated[
+        int | None,
+        typer.Option("--limit", "-n", min=1, help="Cap how many tracks to walk"),
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Report what would change, write nothing")
+    ] = False,
+) -> None:
+    """Mint canonical artists from the connector credits already stored.
+
+    For a library imported before v0.12.1: its credits carry the service artist
+    ids but no canonical artist owns them yet. Reads the database only.
+    """
+
+    async def _mint(emitter: ProgressEmitter) -> MintArtistsResult:
+        from src.application.use_cases.mint_artists import run_mint_artists
+
+        return await run_mint_artists(
+            user_id=get_cli_user_id(),
+            limit=limit,
+            dry_run=dry_run,
+            progress_emitter=emitter,
+        )
+
+    result = run_with_progress(_mint)
     display_operation_result(result.result)
     if dry_run:
         console.print("[dim]Dry run — nothing was written.[/dim]")

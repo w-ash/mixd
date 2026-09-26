@@ -41,6 +41,9 @@ _RETRYABLE_OPERATION_TYPES: Final[frozenset[str]] = frozenset({
     # marker is the artist's own ``updated_at``, so a retry is the same run
     # again and it picks up where the last one stopped.
     "artist_enrichment",
+    # Artist minting is resumable the same way: a minted credit stops being
+    # NULL, so it leaves the candidate query and a retry is the same run again.
+    "artist_minting",
 })
 
 

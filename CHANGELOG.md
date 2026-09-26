@@ -6,6 +6,16 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1.1] — 2026-09-26
+
+**A library imported before v0.12.1 gets its artists without re-importing.** `mixd artists mint` (also `POST /api/v1/artists/mint` and the `mint_artists` chat tool) pages every track whose credits are still unlinked but whose service payload carries an artist id, and feeds them through the same minter the import path uses — canonical artists, mappings and linked credits appear in minutes with no network calls, and a rerun changes nothing.
+
+- Found in prod after the v0.12.1 deploy: the backfill wrote 79,717 unlinked credits and 62,064 connector credits with Spotify ids, but nothing re-encounters an already-imported track.
+- One keyset statement per 500-track page (merge semi-join over the credit unique index; a partial index measured slower on the prod-shaped table, so none was added); resumable by construction since minted credits leave the candidate set; `dry_run` reports `credits_available`.
+- The Import Center's enrich card points at the command for pre-v0.12.1 libraries.
+
+→ [details](docs/backlog/v0.12.x.md#post-deploy-revisions-1)
+
 ## [0.12.1] — 2026-09-25
 
 **Artists are first-class: every artist in your library is a page you can open, favorite, and build playlists around.** A Spotify import mints artists from the ids it already holds and finishes in seconds; a resumable MusicBrainz enrichment (`mixd artists enrich`, the API, or the Import Center card) adds aliases, kind and links to every connected service through url-rels. "TEED" and "Totally Enormous Extinct Dinosaurs" score as one artist once aliases are cached. Favorites are Mixd-only curation, one click away on the list, the detail page and the dashboard, and `filter.by_artist_ids` with `favorites_only` turns them into a workflow.

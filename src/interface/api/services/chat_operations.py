@@ -37,6 +37,7 @@ from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonDict
 from src.domain.exceptions import ToolExecutionError
 from src.interface.api.services.artist_enrichment import launch_artist_enrichment
+from src.interface.api.services.artist_minting import launch_artist_minting
 from src.interface.api.services.playlist_sync import launch_playlist_link_sync
 from src.interface.api.services.progress import OperationBoundEmitter
 from src.interface.api.services.sse_operations import launch_sse_operation
@@ -314,6 +315,22 @@ async def _launch_enrich_artists(
     return resp.operation_id, resp.run_id
 
 
+async def _launch_mint_artists(
+    details: JsonDict, user_id: str
+) -> tuple[str, str | None]:
+    """Mirror ``mixd artists mint`` — canonical artists from the stored credits."""
+    raw_limit = details.get("limit")
+    limit = int(raw_limit) if isinstance(raw_limit, int) else None
+
+    resp = await launch_artist_minting(
+        user_id=user_id,
+        limit=limit,
+        dry_run=bool(details.get("dry_run", False)),
+        initiated_by="assistant",
+    )
+    return resp.operation_id, resp.run_id
+
+
 _LAUNCHERS: dict[str, _LaunchFn] = {
     "run_workflow": _launch_run_workflow,
     "sync_playlist_link": _launch_sync_playlist_link,
@@ -322,6 +339,7 @@ _LAUNCHERS: dict[str, _LaunchFn] = {
     "import_data": _launch_import_data,
     "rebuild_play_history": _launch_rebuild_play_history,
     "enrich_artists": _launch_enrich_artists,
+    "mint_artists": _launch_mint_artists,
 }
 
 

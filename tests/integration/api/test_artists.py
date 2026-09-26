@@ -1,8 +1,9 @@
 """Integration tests for the artist API endpoints.
 
 Full request -> route -> use case -> DB -> response, on a fresh database per
-test. ``POST /artists/enrich`` is covered for its launch contract only — the
-background task itself is stubbed out by the client fixture.
+test. ``POST /artists/enrich`` and ``POST /artists/mint`` are covered for their
+launch contract only — the background task itself is stubbed out by the client
+fixture.
 """
 
 from uuid import UUID, uuid7
@@ -217,6 +218,30 @@ class TestEnrichArtistsEndpoint:
 
     async def test_rejects_a_zero_limit(self, client: httpx2.AsyncClient) -> None:
         response = await client.post("/api/v1/artists/enrich", json={"limit": 0})
+
+        assert response.status_code == 422
+
+
+class TestMintArtistsEndpoint:
+    """POST /api/v1/artists/mint."""
+
+    async def test_returns_an_operation_handle(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        response = await client.post("/api/v1/artists/mint", json={})
+
+        assert response.status_code == 200
+        assert "operation_id" in response.json()
+
+    async def test_accepts_a_dry_run(self, client: httpx2.AsyncClient) -> None:
+        response = await client.post(
+            "/api/v1/artists/mint", json={"limit": 10, "dry_run": True}
+        )
+
+        assert response.status_code == 200
+
+    async def test_rejects_a_zero_limit(self, client: httpx2.AsyncClient) -> None:
+        response = await client.post("/api/v1/artists/mint", json={"limit": 0})
 
         assert response.status_code == 422
 

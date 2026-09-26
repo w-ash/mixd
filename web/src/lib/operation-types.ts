@@ -19,7 +19,8 @@ export type RunOperationType =
   | "import_apple_recent"
   | "import_connector_playlists"
   | "apply_assignments_bulk"
-  | "artist_enrichment";
+  | "artist_enrichment"
+  | "artist_minting";
 
 export interface OperationTypeSpec {
   /** Display name for run history rows and logs. */
@@ -87,6 +88,12 @@ export const OPERATION_TYPES: Record<RunOperationType, OperationTypeSpec> = {
     countKeys: ["resolved", "artists_processed"],
     title: (n) =>
       n > 0 ? `Identified ${pluralize(n, "artist")}` : "Enrichment complete",
+  },
+  artist_minting: {
+    label: "Artist minting",
+    countKeys: ["artists_created", "credits_linked", "tracks_processed"],
+    title: (n) =>
+      n > 0 ? `Minted ${pluralize(n, "artist")}` : "Minting complete",
   },
   apply_assignments_bulk: {
     label: "Apply all assignments",

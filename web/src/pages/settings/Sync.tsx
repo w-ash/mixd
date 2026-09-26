@@ -689,7 +689,7 @@ function ArtistEnrichment() {
     <OperationCard
       connector="musicbrainz"
       title="Enrich Artists"
-      description="Resolve artists against MusicBrainz: aliases, kind, and links to every connected service."
+      description="Resolve artists against MusicBrainz: aliases, kind, and links to every connected service. A library imported before v0.12.1 has no artists to resolve yet — run mixd artists mint first to create them from the credits already stored."
       // No checkpoint: enrichment re-reads whatever has gone stale rather than
       // resuming from a cursor.
       checkpoint={undefined}

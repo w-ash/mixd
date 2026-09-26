@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.12.1"
+    "version": "0.12.1.1"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -2562,6 +2562,48 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/EnrichArtistsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artists/mint": {
+      "post": {
+        "tags": [
+          "artists"
+        ],
+        "summary": "Mint Artists",
+        "description": "Mint canonical artists from the library's stored connector credits.",
+        "operationId": "mint_artists_api_v1_artists_mint_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MintArtistsRequest"
               }
             }
           },
@@ -8343,6 +8385,33 @@
         ],
         "title": "MethodHealthStatSchema",
         "description": "Single match method + connector aggregation row."
+      },
+      "MintArtistsRequest": {
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "description": "Cap how many tracks to walk"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "Report what would be minted, write nothing",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "MintArtistsRequest",
+        "description": "Body for ``POST /artists/mint``."
       },
       "MusicKitConfigResponse": {
         "properties": {

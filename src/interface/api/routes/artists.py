@@ -2,8 +2,10 @@
 
 ``GET /artists`` is the merged list+search the artists page loads; the favorite
 pair mirrors the track preference pair (POST reports whether anything changed,
-DELETE is idempotent and answers 204 either way). Enrichment is a long
-operation and returns an ``operation_id`` to subscribe to over SSE.
+DELETE is idempotent and answers 204 either way). Minting and enrichment are
+long operations and return an ``operation_id`` to subscribe to over SSE:
+``mint`` reads canonical artists out of the credits already stored, ``enrich``
+resolves their identity against MusicBrainz.
 """
 
 from typing import Annotated
@@ -30,12 +32,14 @@ from src.interface.api.schemas.artists import (
     ArtistDetailSchema,
     EnrichArtistsRequest,
     FavoriteArtistResponse,
+    MintArtistsRequest,
     PaginatedArtistsResponse,
     to_artist_detail,
     to_artist_summary,
 )
 from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.services.artist_enrichment import launch_artist_enrichment
+from src.interface.api.services.artist_minting import launch_artist_minting
 
 router = APIRouter(prefix="/artists", tags=["artists"])
 
@@ -88,6 +92,17 @@ async def enrich_artists(
         user_id=user_id,
         limit=body.limit,
         refresh_older_than_days=body.refresh_older_than_days,
+    )
+
+
+@router.post("/mint")
+async def mint_artists(
+    body: MintArtistsRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> OperationStartedResponse:
+    """Mint canonical artists from the library's stored connector credits."""
+    return await launch_artist_minting(
+        user_id=user_id, limit=body.limit, dry_run=body.dry_run
     )
 
 
