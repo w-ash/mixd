@@ -6,6 +6,20 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1] — 2026-09-25
+
+**Artists are first-class: every artist in your library is a page you can open, favorite, and build playlists around.** A Spotify import mints artists from the ids it already holds and finishes in seconds; a resumable MusicBrainz enrichment (`mixd artists enrich`, the API, or the Import Center card) adds aliases, kind and links to every connected service through url-rels. "TEED" and "Totally Enormous Extinct Dinosaurs" score as one artist once aliases are cached. Favorites are Mixd-only curation, one click away on the list, the detail page and the dashboard, and `filter.by_artist_ids` with `favorites_only` turns them into a workflow.
+
+- **Domain.** `ArtistCredit(credited_name, artist_id, join_phrase, role)` replaces the `Artist(name)` string on tracks; connector tracks carry `ConnectorArtistCredit` with the service's own artist id — a global record never points into a tenant's library. `Artist`, `ArtistFavorite` (presence, no tombstone), `ConnectorArtist`, `ArtistMapping` (live rows, no supersession), `ArtistAlias`; Various Artists is never an artist row.
+- **Schema.** Migrations 060–062: `artists`, `connector_artists`, `artist_mappings`, `artist_favorites`, `track_artists`, `artist_aliases`, and `connector_track_artists` (the connector twin of `track_artists`); a set-based backfill from the tracks JSONB and the stored Spotify dumps; `mb_url_rel` joins the match-method vocabulary. External ids stay references, never keys.
+- **Resolution.** One minting walk (`ArtistMinter`) runs from both import entry points and reads typed credits, never JSON; a name never creates an artist. Enrichment probes owners before asserting (first claimant keeps the mapping, overlaps reported as `shared_mbid`), seeds url-rel mappings with insert-or-touch so shared connector rows are never rewritten, and identifies only on exact normalized agreement — collisions stay pending.
+- **Matching.** `ArtistEquivalence` injected into `calculate_confidence`; artist evidence levels (`connector_id | mbid | alias_name | name`) on the Fellegi–Sunter machinery with the Last.fm cap as a bounded level; `TrackMatchEvaluationService` → `MatchEvaluationService`.
+- **Surfaces.** `GET/POST/DELETE /api/v1/artists…`, `POST /artists/enrich`, `GET /tracks?artist_id=`; `query_library(entity=artists)` and `favorite_artist` chat tools; `mixd artists list|show|favorite|unfavorite|enrich`; `/artists` and `/artists/:id` on shared `useKeysetPagination`, `SortableHead`, `DetailField`/`DetailSection`, `FavoriteToggle`, `TrackTable`.
+- **Caching.** The API now answers every GET with `private, no-cache` (weak ETags keep unchanged bodies at 304); only the node and template catalogs keep `max-age`, and error responses carry no validator. The favorites page was the third route to be served a pre-write body from the browser cache.
+- **Housekeeping.** `KeysetSort.computed` for side-map sorts; `resolve_cursor`, `run_with_progress`, `validate_sort` shared; `artist_url` as a `ConnectorConfig` hook; Apple artist ids confirmed as the trailing url-rel segment (Tidal re-verify still open).
+
+→ [details](docs/backlog/v0.12.x.md#v0121-first-class-artists)
+
 ## [0.12.0.3] — 2026-09-19
 
 **A dependency-freshness sweep.** Every dependency to its latest stable release — internal currency and security patches, nothing user-visible — with one item worth naming: the ten open Dependabot alerts against `better-auth` close, because `@neondatabase/auth` finally published the release that carries the patched line.
