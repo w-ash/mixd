@@ -1,19 +1,23 @@
 ---
 name: vitest-strategy-architect
-description: Use this skill when you need Vitest component testing strategy, React Testing Library patterns, Tanstack Query mocking with MSW, or Playwright E2E test design for mixd's web UI (v0.3.0+).
+description: Use this skill when you need Vitest component testing strategy, React Testing Library patterns, Tanstack Query mocking with MSW, test-value checks (kill criterion, mutation testing), or Playwright E2E test design for mixd's web UI (v0.3.0+).
 ---
 
 # Frontend Test Strategy — mixd web UI
 
 > Related skill: `api-contracts` (REST + SSE conventions). E2E editing specifics (incl. the visual-audit harness) auto-load from `.claude/rules/web-e2e-patterns.md` when touching `web/e2e/**` — don't restate them here.
+>
+> Test value standard: `.claude/rules/test-value.md` (kill criterion, expected values, mocks, banned patterns V1–V10). This skill applies it to the web UI and does not restate it.
 
-## Test pyramid (60/35/5)
+## Test tiers
 
-- **Component unit (60%)** — `src/**/*.test.tsx`, RTL, MSW-mocked API, <100ms each. Rendering + interactions.
-- **Integration (35%)** — same naming convention; real Tanstack Query against MSW, flows across components, <1s each.
-- **E2E (5%)** — `web/e2e/*.spec.ts`, Playwright, Chromium desktop only, critical flows only. **Run in the CI-pinned Docker image** — native macOS false-fails (procedure + current image tag in `web/e2e/README.md`).
+Pick the tier that owns the contract. There is no ratio to hit.
 
-Philosophy: test user behavior via accessible queries (`getByRole`/`getByLabelText`), never class names or implementation details. Prefer integration over isolated unit tests.
+- **Component** — `src/**/*.test.tsx`, RTL, MSW-mocked API, <100ms each. Rendering + interactions.
+- **Integration** — same naming convention; real Tanstack Query against MSW, flows across components, <1s each.
+- **E2E** — `web/e2e/*.spec.ts`, Playwright, Chromium desktop only, critical flows only. **Run in the CI-pinned Docker image** — native macOS false-fails (procedure + current image tag in `web/e2e/README.md`).
+
+Test user behavior via accessible queries (`getByRole`/`getByLabelText`), never class names or implementation details. Prefer integration over isolated unit tests.
 
 ## Mixd test infrastructure
 
@@ -42,18 +46,33 @@ server.use(http.get('*/api/v1/playlists/:id', ({ params }) =>
 
 **Async**: `await screen.findBy...` or `await waitFor(...)` for anything post-fetch; a bare `getBy` on async content is the most common failure.
 
-## Designing coverage for a change
+## Writing a test
 
-1. What renders? → component tests for each visual state (loading/error/empty/success — `QueryStates` gives these for free; test the consumer's wiring, not the wrapper).
-2. What round-trips? → integration tests with MSW overrides for the success + at least one error path.
+1. **Kill criterion first.** Name the bug the test catches and two wrong implementations it fails on. No bug, no test.
+2. **Mock the network, not the code.** Use `server.use` overrides. Do not `vi.mock` own hooks, components, or modules; when unavoidable, add a comment that gives the reason.
+3. **Assert what the user sees.** Query by role, label, or text; assert exact content and state (`toHaveTextContent("3 tracks")`, `toBeDisabled()`).
+4. **Calls only when the call is the contract** — navigation, or a mutation fired with these args. Assert the args (`toHaveBeenCalledWith`), and never as the only assertion. For API calls, capture the request in the MSW handler and assert its body.
+5. **No existence-only assertions (V3).** `toBeDefined`/`toBeTruthy` alone prove nothing; assert the value.
+
+Biome runs `useExpect` (test with no assertion) and `noMisplacedAssertion` (`expect` outside a test) on `*.test.ts(x)`, as warnings.
+
+## Choosing tests for a change
+
+1. What renders? → component tests for each visual state the change affects (loading/error/empty/success — `QueryStates` gives these for free; test the consumer's wiring, not the wrapper).
+2. What round-trips? → MSW-backed tests for each response the UI handles differently (e.g. a 409 that shows a conflict message). A response with no distinct UI needs no test.
 3. Is it a critical user flow (import, sync, workflow run, playlist edit)? → at most one E2E spec; everything else stays at the MSW tier.
 4. Shared state pollution symptoms (pass alone, fail together) are already handled by `renderWithProviders`' fresh QueryClient — if you see them anyway, look for module-level state.
+
+## Mutation testing
+
+`pnpm --prefix web test:mutate` runs Stryker on `src/lib/**` and `src/hooks/**`. Kill each survivor with a new test, or note it as equivalent (no test can tell the mutant apart).
 
 ## Commands
 
 ```bash
 pnpm --prefix web test                          # all Vitest
 pnpm --prefix web test src/pages/Library.test.tsx  # one file
+pnpm --prefix web test:mutate                   # Stryker on src/lib + src/hooks
 # E2E — CI-pinned Docker image (see CLAUDE.md version-bump bar for the full command)
 pnpm --prefix web test:e2e:audit                # fixture-driven visual audit harness
 ```

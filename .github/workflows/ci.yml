@@ -78,6 +78,16 @@ jobs:
       - name: Dead code (Python)
         run: uv run vulture
 
+      # Counts may only fall: vulture whitelist entries and suppressions in src/.
+      - name: Suppression ratchet
+        run: bash scripts/check_ratchet.sh
+
+      # Syntactically vacuous tests (.claude/rules/test-value.md), ratcheted against
+      # tests/.vacuity_baseline.json. Mutation testing and the red check stay in
+      # /ship — too slow for every push.
+      - name: Test vacuity ratchet
+        run: uv run python scripts/check_test_vacuity.py
+
       # Undeclared imports: catches code importing a package we only receive
       # transitively (a fastapi bump could otherwise move starlette out from
       # under src/interface/api's middleware). Config in pyproject.toml.

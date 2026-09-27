@@ -79,6 +79,7 @@ dev = [
     "import-linter>=2.15",
     "testcontainers[postgres]>=4.15.0",
     "hypothesis>=6.168.0",
+    "mutmut>=3.8.0,<3.9",
 ]
 
 [tool.uv]
@@ -93,7 +94,8 @@ required-version = ">=0.12,<0.13"
 # extend_exclude, not exclude — overwriting `exclude` would drop deptry's own
 # defaults (notably `tests`, whose dev-only imports would then all trip DEP004).
 # docs/dev-setup-guide is a vendored submodule, not our dependency contract.
-extend_exclude = ["docs/dev-setup-guide"]
+# scripts/mutmut_run.py is dev tooling that wraps the dev-group mutmut and hypothesis.
+extend_exclude = ["docs/dev-setup-guide", "scripts/mutmut_run\\.py"]
 
 # Distributions whose import name differs from their PyPI name. Required, not
 # belt-and-braces: `uvx` runs deptry in its own isolated environment, so it can
@@ -450,6 +452,23 @@ ignore_names = [
     "do_GET",              # HTTP handler protocol
     "log_message",         # HTTP handler protocol
 ]
+
+# Mutation testing (mutmut 3.8+), run by /ship Step 6 on the release diff — not CI.
+# Always invoke it as `uv run python scripts/mutmut_run.py <mutmut args>`: bare
+# `mutmut` strips the `src.` prefix from module names and cannot test this package.
+# Only pure, synchronous src/domain/ is mutated: mutmut forks once per mutant, and a
+# forked child that inherits a live event loop hangs async tests (mutmut #578).
+# source_paths is all of src/ because the root conftest imports infrastructure, and
+# mutants/ must hold a complete, importable `src` package; only_mutate narrows it.
+[tool.mutmut]
+source_paths = ["src/"]
+only_mutate = ["src/domain/*"]
+pytest_add_cli_args_test_selection = ["tests/unit/domain/"]
+# test_status_matrix_export imports scripts/ and reads the web fixture it renders.
+also_copy = ["scripts/", "web/src/test/fixtures/"]
+# -n 0 overrides addopts' `-n auto`: mutmut runs tests in-process and forces -x.
+pytest_add_cli_args = ["-n", "0"]
+mutate_only_covered_lines = true
 
 # Layer-boundary enforcement (import-linter 2.13+).
 #

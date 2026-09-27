@@ -49,14 +49,14 @@ Sub-version sections: **Goal** · **Context** · **What this unlocks** · **Pers
     - Indexes on `(user_id, track_id, played_at)` and `(user_id, played_at)`
 
     **Tests**:
-    - (integration) `played_at` preserved from source
-    - (integration) Batch insert of 10k rows succeeds
-    - (integration) ON DELETE CASCADE: deleting track removes history
+    - (integration) Stored `played_at` equals the source timestamp, not the import time
+    - (integration) A 10k-row batch insert stores exactly 10k rows for that user
+    - (integration) Deleting a track removes its history rows
 
     Effort: M | Dependencies: Track Domain Model | Status: Not Started
 </example>
 
-**Story** = who/what/why, with enough detail for in-flight judgment. **Decisions** = non-obvious choices, user-rooted rationale. **Spec** = schema/API/technical. **Tests** = verification at the right layer. Infra stories use **Story** to explain the user-facing capability they enable.
+**Story** = who/what/why, with enough detail for in-flight judgment. **Decisions** = non-obvious choices, user-rooted rationale. **Spec** = schema/API/technical. **Tests** = the behaviors that must fail when broken, one contract statement each, tagged with the owning layer (`.claude/rules/test-value.md`); never test counts or "unit + integration tests". Infra stories use **Story** to explain the user-facing capability they enable.
 
 ## Readability (problem-first, dual-reader)
 

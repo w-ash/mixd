@@ -20,10 +20,9 @@ import {
   trackStates,
 } from "../../e2e/fixtures/playlist-detail";
 
-/** Narrow a mock to its JSON body, failing loudly if it isn't a JSON response. */
+/** Return the body of a JSON mock, or undefined for any other kind. */
 function jsonBody(res: MockResponse | undefined): unknown {
-  expect(res?.kind).toBe("json");
-  return (res as Extract<MockResponse, { kind: "json" }>).body;
+  return res?.kind === "json" ? res.body : undefined;
 }
 
 describe("playlist-detail audit fixtures", () => {
@@ -42,6 +41,7 @@ describe("playlist-detail audit fixtures", () => {
   it("every link factory yields a well-formed PlaylistLinkSchema array", () => {
     for (const [name, factory] of Object.entries(linkStates)) {
       const mocks = factory() as EndpointMocks;
+      expect(mocks.links?.kind, name).toBe("json");
       const links = jsonBody(mocks.links) as Array<Record<string, unknown>>;
       expect(Array.isArray(links), name).toBe(true);
       for (const link of links) {
@@ -63,14 +63,18 @@ describe("playlist-detail audit fixtures", () => {
     expect(entry.is_resolved).toBe(false);
     expect(entry.track.id).toBeNull();
 
-    const tracks = jsonBody(trackStates.withUnresolved().tracks) as {
+    const tracksMock = trackStates.withUnresolved().tracks;
+    expect(tracksMock?.kind).toBe("json");
+    const tracks = jsonBody(tracksMock) as {
       data: Array<{ is_resolved?: boolean }>;
     };
     expect(tracks.data.some((e) => e.is_resolved === false)).toBe(true);
   });
 
   it("the destructive sync preview is safety-flagged with removal counts", () => {
-    const preview = jsonBody(syncDialogStates.destructive().syncPreview) as {
+    const previewMock = syncDialogStates.destructive().syncPreview;
+    expect(previewMock?.kind).toBe("json");
+    const preview = jsonBody(previewMock) as {
       safety_flagged?: boolean;
       safety_removals?: number;
     };
