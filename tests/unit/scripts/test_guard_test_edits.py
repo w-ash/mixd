@@ -7,6 +7,7 @@ honest edit.
 """
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -29,7 +30,7 @@ def _run(project: Path, payload: object) -> subprocess.CompletedProcess[str]:
         input=stdin,
         capture_output=True,
         text=True,
-        env={"CLAUDE_PROJECT_DIR": str(project)},
+        env={"CLAUDE_PROJECT_DIR": str(project), "PATH": os.environ["PATH"]},
         check=False,
     )
 
@@ -148,3 +149,39 @@ def test_malformed_input_exits_zero_silently(project: Path, payload: object) -> 
     result = _run(project, payload)
 
     assert (result.returncode, result.stdout) == (0, "")
+
+
+def _git(project: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True)
+
+
+@pytest.mark.parametrize(
+    ("branch", "asks"),
+    [("test-audit/x", False), ("main", True)],
+    ids=["audit-branch-silent", "main-asks"],
+)
+def test_audit_branch_silences_the_guard(
+    project: Path, branch: str, *, asks: bool
+) -> None:
+    """Auditor worktrees on test-audit/* delete tests under verifier review."""
+    _git(project, "init", "-b", branch)
+    _git(project, "add", ".")
+    _git(
+        project,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "init",
+    )
+
+    result = _run(project, _edit(project, "    assert total([]) == 0\n", ""))
+
+    assert result.returncode == 0
+    assert (result.stdout != "") is asks
+    if asks:
+        assert _decision(result)["permissionDecision"] == "ask"

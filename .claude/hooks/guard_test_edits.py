@@ -6,6 +6,8 @@ JSON from stdin and computes the file text before and after the edit. It counts
 assertions, test functions, and skip markers. When assertions or tests decrease,
 or skip markers increase, it prints an "ask" decision. Otherwise it prints nothing.
 Any error exits 0 silently, so the hook never blocks a tool call.
+The hook stays silent on ``test-audit/*`` branches, where verifier agents prove each
+deletion and the user reviews each wave PR.
 
 See ``.claude/rules/test-value.md``, section "Existing tests".
 """
@@ -16,9 +18,11 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 from typing import cast
 
+_AUDIT_BRANCH_PREFIX = "test-audit/"
 _PY_TEST_PATH = re.compile(r"^tests/.+\.py$")
 _TS_TEST_PATH = re.compile(r"^web/src/.+\.test\.tsx?$|^web/e2e/.+\.ts$")
 
@@ -105,6 +109,21 @@ def before_after(
     return current, after
 
 
+def on_audit_branch(directory: Path) -> bool:
+    """Return True when the git branch at the directory starts with test-audit/."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(directory), "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=True,
+        )
+    except OSError, subprocess.SubprocessError:
+        return False
+    return result.stdout.strip().startswith(_AUDIT_BRANCH_PREFIX)
+
+
 def decide(payload: Mapping[str, object], project_dir: str | None) -> str | None:
     """Return the reason to ask for confirmation, or None to stay silent."""
     tool_name = payload.get("tool_name")
@@ -133,6 +152,14 @@ def decide(payload: Mapping[str, object], project_dir: str | None) -> str | None
         and after.tests >= before.tests
         and after.skips <= before.skips
     ):
+        return None
+    cwd = payload.get("cwd")
+    git_dir = (
+        path.parent
+        if path.parent.is_dir()
+        else Path(cwd if isinstance(cwd, str) else ".")
+    )
+    if on_audit_branch(git_dir):
         return None
     return (
         f"This edit weakens {rel}: "

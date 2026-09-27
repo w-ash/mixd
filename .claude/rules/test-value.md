@@ -60,7 +60,7 @@ Write the failing test. Run it. See it fail for the right reason. Then fix the c
 ## Existing tests
 - Never weaken, skip, delete, or loosen an assertion to get green.
 - If a test is wrong, say so explicitly in your reply and in the commit message.
-- A hook asks for confirmation when a change removes assertions.
+- A hook asks for confirmation when a change removes assertions (silent on `test-audit/*` branches, where verifier agents prove each deletion).
 
 ## Properties
 Prefer Hypothesis (Python) or fast-check (TS; add the dependency with the first property) for pure transforms: matching, normalization, diffing, pagination. Example: `tests/unit/domain/matching/test_play_projection.py`.

@@ -244,6 +244,14 @@ unfixable = []
                 # bridge's try/finally cancels the task on disconnect, which closes
                 # the context via GeneratorExit — cleanup is guaranteed cross-function
 ]
+".claude/hooks/guard_test_edits.py" = [
+    "suspicious-subprocess-import",     # runs one fixed git command to read the branch
+    "subprocess-without-shell-equals-true",     # argv is literal git args plus the edited file's directory
+    "start-process-with-partial-path",     # git resolves from the hook's PATH, like every Claude Code hook command
+]
+"tests/unit/scripts/test_guard_test_edits.py" = [
+    "start-process-with-partial-path",     # builds throwaway git repos to exercise the hook's branch check
+]
 "tests/**/*.py" = [
     "assert",     # Allow assert in tests
     "suspicious-subprocess-import",     # Allow subprocess import in tests (isolation guards run fixed commands)
