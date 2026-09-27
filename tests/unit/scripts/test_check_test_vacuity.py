@@ -154,6 +154,19 @@ CLEAN = [
     ),
     pytest.param(
         """
+        def _same(actual, expected):
+            assert actual == expected
+
+        def _round_trip(value):
+            _same(decode(encode(value)), value)
+
+        def test_it():
+            _round_trip(3)
+        """,
+        id="helper-through-helper",
+    ),
+    pytest.param(
+        """
         def test_it(repo):
             result = run(repo)
             repo.save.assert_called_once_with("a")
@@ -255,17 +268,15 @@ class TestDuplicates:
 
 
 class TestRatchet:
-    def _baseline(
-        self, root: Path, counts: dict[str, int], tests: dict[str, list[str]]
-    ) -> None:
+    def _baseline(self, root: Path, tests: dict[str, list[str]]) -> None:
         path = root / "tests" / ".vacuity_baseline.json"
-        path.write_text(json.dumps({"counts": counts, "tests": tests}))
+        path.write_text(json.dumps({"tests": tests}))
 
-    def test_count_above_baseline_fails_and_names_the_test(
+    def test_unlisted_test_fails_and_names_it(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         _write(tmp_path, "def test_new():\n    run()\n")
-        self._baseline(tmp_path, {"V1": 0}, {})
+        self._baseline(tmp_path, {})
 
         assert main(["--root", str(tmp_path)]) == 1
         assert "tests/unit/test_sample.py:1 test_new V1" in capsys.readouterr().out
@@ -274,9 +285,7 @@ class TestRatchet:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         _write(tmp_path, "def test_new():\n    run()\n")
-        self._baseline(
-            tmp_path, {"V1": 1}, {"V1": ["tests/unit/test_sample.py::test_fixed"]}
-        )
+        self._baseline(tmp_path, {"V1": ["tests/unit/test_sample.py::test_fixed"]})
 
         assert main(["--root", str(tmp_path)]) == 1
         out = capsys.readouterr().out
@@ -285,9 +294,7 @@ class TestRatchet:
 
     def test_listed_test_passes(self, tmp_path: Path) -> None:
         _write(tmp_path, "def test_old():\n    run()\n")
-        self._baseline(
-            tmp_path, {"V1": 1}, {"V1": ["tests/unit/test_sample.py::test_old"]}
-        )
+        self._baseline(tmp_path, {"V1": ["tests/unit/test_sample.py::test_old"]})
 
         assert main(["--root", str(tmp_path)]) == 0
 
@@ -295,9 +302,7 @@ class TestRatchet:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         _write(tmp_path, "def test_old():\n    assert run() == 1\n")
-        self._baseline(
-            tmp_path, {"V1": 1}, {"V1": ["tests/unit/test_sample.py::test_old"]}
-        )
+        self._baseline(tmp_path, {"V1": ["tests/unit/test_sample.py::test_old"]})
 
         assert main(["--root", str(tmp_path)]) == 0
         assert "--update-baseline" in capsys.readouterr().out
@@ -307,8 +312,35 @@ class TestRatchet:
 
         assert main(["--root", str(tmp_path), "--update-baseline"]) == 0
         saved = json.loads((tmp_path / "tests" / ".vacuity_baseline.json").read_text())
-        assert saved["counts"]["V1"] == 1
-        assert saved["tests"]["V1"] == ["tests/unit/test_sample.py::test_old"]
+        assert saved == {
+            "tests": {
+                "V1": ["tests/unit/test_sample.py::test_old"],
+                "V2": [],
+                "V3": [],
+                "V5": [],
+                "V7": [],
+                "V9": [],
+                "DUP": [],
+            }
+        }
+        assert main(["--root", str(tmp_path)]) == 0
+
+    def test_nested_class_test_is_keyed_by_its_full_node_id(
+        self, tmp_path: Path
+    ) -> None:
+        """Pytest ids a nested-class test as ``Outer::Inner::name``."""
+        _write(
+            tmp_path,
+            "class TestOuter:\n"
+            "    class TestInner:\n"
+            "        def test_x(self):\n"
+            "            run()\n",
+        )
+        self._baseline(
+            tmp_path,
+            {"V1": ["tests/unit/test_sample.py::TestOuter::TestInner::test_x"]},
+        )
+
         assert main(["--root", str(tmp_path)]) == 0
 
 

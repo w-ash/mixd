@@ -17,10 +17,7 @@ What earns a test, mocks, and banned patterns → `.claude/rules/test-value.md`.
 
 ## Before you write a test
 
-1. **Kill criterion** — which bug does it catch? Name two plausible wrong implementations; the test must fail on both. No bug, no test.
-2. **Expected value** — from the spec, story, or domain knowledge, written as a literal. Never copied from a run of the code.
-3. **Mock boundary** — each mock is an HTTP client, clock, randomness, or the UoW/repos in a use-case test. Never the unit under test.
-4. **Red check** — see it fail: against the unfixed code for a bug fix, or with the behavior broken for new code.
+Apply `.claude/rules/test-value.md` (kill criterion, expected values, mock boundaries, red first). For new behavior, also see the test fail with the behavior broken.
 
 ## Designing tests for a change
 
@@ -31,7 +28,12 @@ What earns a test, mocks, and banned patterns → `.claude/rules/test-value.md`.
 
 ## Checking test value
 
-- **Mutation testing** — mutates `src/domain/` (config in pyproject `[tool.mutmut]`). Run `uv run python scripts/mutmut_run.py run "src.domain.<pkg>.<module>*"`, list survivors with `uv run python scripts/mutmut_run.py results`, and print one mutant's diff with `uv run python scripts/mutmut_run.py show <name>`. Never call bare `mutmut`: the package is named `src`, and the wrapper fixes that. Kill each survivor with a new test, or note it as equivalent.
+- **Mutation testing** — mutates `src/domain/`. Run it through the wrapper, never bare `mutmut`; usage is in the `scripts/mutmut_run.py` docstring. Survivors: `test-value.md` (Mutation survivors).
+  ```bash
+  uv run python scripts/mutmut_run.py run "src.domain.<pkg>.<module>*"
+  uv run python scripts/mutmut_run.py results      # survivors
+  uv run python scripts/mutmut_run.py show <name>  # one mutant's diff
+  ```
 - **Vacuity check** — `scripts/check_test_vacuity.py` is an AST checker for the V-codes in `test-value.md`. It ratchets against `tests/.vacuity_baseline.json`: it fails when a flagged test is not in the baseline.
 - **Red check** — `scripts/check_tests_red.sh` reports new tests that pass on the base branch. For a bug fix or new behavior, such a test does not catch the change.
 

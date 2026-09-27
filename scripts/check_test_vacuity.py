@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Flag vacuous tests by V-code and ratchet their counts.
+"""Flag vacuous tests by V-code and ratchet them against a baseline.
 
 Parse every ``tests/**/test_*.py`` file with ``ast``. Classify each test function by
 the banned patterns of ``.claude/rules/test-value.md`` that syntax can decide: V1, V2,
@@ -15,15 +15,15 @@ Usage:
 
 import argparse
 import ast
-from collections import defaultdict
-import copy
-from dataclasses import asdict, dataclass
+from collections import ChainMap, defaultdict
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 import hashlib
 import json
 from pathlib import Path
 import sys
-from typing import cast, override
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_NAME = "tests/.vacuity_baseline.json"
@@ -57,18 +57,7 @@ _MOCK_ARG_ATTRS = frozenset({
     "mock_calls",
     "method_calls",
 })
-_MOCK_ATTRS = frozenset({
-    "called",
-    "call_count",
-    "call_args",
-    "call_args_list",
-    "await_count",
-    "await_args",
-    "await_args_list",
-    "awaited",
-    "mock_calls",
-    "method_calls",
-})
+_MOCK_ATTRS = _MOCK_ARG_ATTRS | {"called", "call_count", "await_count", "awaited"}
 _HELPER_PREFIXES = (
     "assert",
     "_assert",
@@ -93,11 +82,15 @@ class Check(StrEnum):
     EXISTENCE = "existence"
     ENUM_PIN = "enum_pin"
     FROZEN = "frozen"
+    TIMING = "timing"
 
 
 @dataclass(frozen=True, slots=True)
 class Finding:
-    """One flagged test and the V-code it violates."""
+    """One flagged test and the V-code it violates.
+
+    ``cls`` is the class path, ``Outer::Inner`` for a nested class.
+    """
 
     file: str
     line: int
@@ -108,7 +101,7 @@ class Finding:
 
     @property
     def key(self) -> str:
-        """Line-independent identity for baseline comparison."""
+        """Line-independent identity for baseline comparison: the pytest node id."""
         parts = [self.file, *([self.cls] if self.cls else []), self.name]
         return "::".join(parts)
 
@@ -267,6 +260,8 @@ def _checks_mock_args(expr: ast.expr) -> bool:
 
 
 def _classify_assert(expr: ast.expr) -> Check:
+    if _is_timing_bound(expr):
+        return Check.TIMING
     if _references_mock_attr(expr):
         return Check.MOCK_ARGS if _checks_mock_args(expr) else Check.MOCK
     if _is_enum_pin(expr):
@@ -326,9 +321,19 @@ def collect_checks(stmts: list[ast.stmt], helpers: frozenset[str]) -> list[Check
     ``helpers`` names local functions and methods that contain checks. A call to
     one counts as a real check.
     """
+    return _scan_checks(stmts, helpers)[0]
+
+
+def _scan_checks(
+    stmts: list[ast.stmt], helpers: frozenset[str]
+) -> tuple[list[Check], set[str]]:
+    """Return the checks in ``stmts`` and the names of all functions they call."""
     checks: list[Check] = []
+    called: set[str] = set()
     consumed: set[int] = set()
     for node in ast.walk(ast.Module(body=stmts, type_ignores=[])):
+        if isinstance(node, ast.Call) and (name := _call_name(node.func)):
+            called.add(name)
         match node:
             case ast.Assert(test=test):
                 checks.append(_classify_assert(test))
@@ -359,14 +364,15 @@ def collect_checks(stmts: list[ast.stmt], helpers: frozenset[str]) -> list[Check
                 checks.append(Check.REAL)
             case _:
                 pass
-    return checks
+    return checks, called
 
 
 def classify_checks(checks: list[Check]) -> str | None:
     """Return V1, V2, V3, or V5 for the assertion shape, or None when it is sound.
 
     V2 and V3 need every mock check to be bare. A check of call arguments may be
-    the contract, so audit agents judge those tests.
+    the contract, so audit agents judge those tests. A timing bound counts as a
+    check here; ``analyze_source`` flags it as V9.
     """
     kinds = set(checks)
     if not kinds:
@@ -475,54 +481,50 @@ def patches_unit_under_test(fn: FuncDef, modules: frozenset[str]) -> bool:
 # --- DUP: normalized body fingerprints ---------------------------------------
 
 
-class _Normalizer(ast.NodeTransformer):
-    """Rewrite names so that equal fingerprints mean equal behavior."""
+def _dump(
+    node: object,
+    qualified: Mapping[str, str],
+    self_attrs: Mapping[str, str],
+    out: list[str],
+) -> None:
+    """Serialize ``node`` into ``out`` with names replaced by their qualified form.
 
-    def __init__(
-        self,
-        qualified: dict[str, str],
-        self_attrs: dict[str, str],
-    ) -> None:
-        self.qualified: dict[str, str] = qualified
-        self.self_attrs: dict[str, str] = self_attrs
-
-    @override
-    def visit_Name(self, node: ast.Name) -> ast.Name:
-        node.id = self.qualified.get(node.id, node.id)
-        return node
-
-    @override
-    def visit_arg(self, node: ast.arg) -> ast.arg:
-        node.arg = self.qualified.get(node.arg, node.arg)
-        node.annotation = None
-        return node
-
-    @override
-    def visit_Attribute(self, node: ast.Attribute) -> ast.Attribute:
-        if isinstance(node.value, ast.Name) and node.value.id == "self":
-            node.attr = self.self_attrs.get(node.attr, node.attr)
-            return node
-        self.generic_visit(node)
-        return node
+    Argument annotations are left out. The node itself is not changed.
+    """
+    match node:
+        case list():
+            out.append("[")
+            for item in cast("list[object]", node):
+                _dump(item, qualified, self_attrs, out)
+            out.append("]")
+        case ast.Name(id=name, ctx=ctx):
+            out.append(f"Name({qualified.get(name, name)!r},{type(ctx).__name__})")
+        case ast.arg(arg=name):
+            out.append(f"arg({qualified.get(name, name)!r})")
+        case ast.Attribute(value=ast.Name(id="self"), attr=attr, ctx=ctx):
+            out.append(f"self.({self_attrs.get(attr, attr)!r},{type(ctx).__name__})")
+        case ast.AST():
+            out.append(f"{type(node).__name__}(")
+            for field in ast.iter_fields(node):
+                _dump(cast("tuple[str, object]", field)[1], qualified, self_attrs, out)
+            out.append(")")
+        case _:
+            out.append(f"{node!r},")
 
 
 def fingerprint(
     fn: FuncDef,
-    qualified: dict[str, str],
-    self_attrs: dict[str, str],
+    qualified: Mapping[str, str],
+    self_attrs: Mapping[str, str],
 ) -> str:
     """Hash the test with its name, docstring, and annotations removed."""
-    node = copy.deepcopy(fn)
-    node.name = "_"
-    node.returns = None
-    body = node.body
+    body = fn.body
     if body and isinstance(body[0], ast.Expr) and _str_const(body[0].value) is not None:
         body = body[1:] or [ast.Pass()]
-    node.body = body
-    # The visitors rewrite nodes in place and return them, so ``node`` is the result.
-    _Normalizer(qualified, self_attrs).visit(node)
-    dump = ast.dump(node, annotate_fields=False, include_attributes=False)
-    return hashlib.sha256(dump.encode()).hexdigest()
+    out: list[str] = [type(fn).__name__]
+    for part in (fn.args, body, fn.decorator_list, fn.type_params):
+        _dump(part, qualified, self_attrs, out)
+    return hashlib.sha256("".join(out).encode()).hexdigest()
 
 
 # --- module analysis ---------------------------------------------------------
@@ -568,118 +570,135 @@ def _module_scope(tree: ast.Module, rel: str) -> tuple[dict[str, str], frozenset
 
 
 def _asserting_helpers(tree: ast.Module) -> frozenset[str]:
-    """Return names of non-test functions and methods that contain checks."""
-    defs: dict[str, FuncDef] = {
-        node.name: node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        and not node.name.startswith("test_")
-    }
-    found: set[str] = set()
-    changed = True
-    while changed:
-        changed = False
-        for name, fn in defs.items():
-            if name not in found and collect_checks(fn.body, frozenset(found)):
-                found.add(name)
-                changed = True
+    """Return names of non-test functions and methods that contain checks.
+
+    A function counts when it checks directly or calls a function that counts.
+    """
+    direct: set[str] = set()
+    callers: dict[str, set[str]] = defaultdict(set)
+    for node in ast.walk(tree):
+        if isinstance(
+            node, ast.FunctionDef | ast.AsyncFunctionDef
+        ) and not node.name.startswith("test_"):
+            checks, called = _scan_checks(node.body, frozenset())
+            if checks:
+                direct.add(node.name)
+            for name in called:
+                callers[name].add(node.name)
+    found = set(direct)
+    pending = list(direct)
+    while pending:
+        for caller in callers[pending.pop()] - found:
+            found.add(caller)
+            pending.append(caller)
     return frozenset(found)
 
 
-def _iter_tests(tree: ast.Module) -> list[tuple[FuncDef, ast.ClassDef | None]]:
-    tests: list[tuple[FuncDef, ast.ClassDef | None]] = []
+type TestItem = tuple[str, FuncDef, ast.ClassDef | None]
 
-    def visit(body: list[ast.stmt], cls: ast.ClassDef | None) -> None:
+
+def iter_tests(tree: ast.Module) -> list[TestItem]:
+    """Return every pytest test function in the module, in source order.
+
+    Each item is the node id within the file (``Outer::Inner::test_x``), the
+    function, and its innermost class.
+    """
+    tests: list[TestItem] = []
+
+    def visit(body: list[ast.stmt], prefix: str, cls: ast.ClassDef | None) -> None:
         for stmt in body:
             if isinstance(
                 stmt, ast.FunctionDef | ast.AsyncFunctionDef
             ) and stmt.name.startswith("test"):
-                tests.append((stmt, cls))
+                tests.append((prefix + stmt.name, stmt, cls))
             elif isinstance(stmt, ast.ClassDef) and stmt.name.startswith("Test"):
-                visit(stmt.body, stmt)
+                visit(stmt.body, f"{prefix}{stmt.name}::", stmt)
 
-    visit(tree.body, None)
+    visit(tree.body, "", None)
     return tests
 
 
-@dataclass(frozen=True, slots=True)
-class _Print:
-    """One test's DUP fingerprint and its location."""
+def _class_names(
+    cls: ast.ClassDef | None, cls_path: str | None, rel: str, fixtures: dict[str, str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return the fixtures visible in the class and its ``self.`` method names."""
+    fixtures = dict(fixtures)
+    self_attrs: dict[str, str] = {}
+    if cls is not None:
+        for stmt in cls.body:
+            if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
+                self_attrs[stmt.name] = f"{rel}::{cls_path}.{stmt.name}"
+                if _is_fixture(stmt):
+                    fixtures[stmt.name] = self_attrs[stmt.name]
+    return fixtures, self_attrs
 
-    digest: str
-    file: str
-    line: int
-    name: str
-    cls: str | None
+
+type Print = tuple[str, Finding]
 
 
-def analyze_source(source: str, rel: str) -> tuple[list[Finding], list[_Print]]:
-    """Return per-test findings and DUP fingerprints for one test module."""
+def analyze_source(source: str, rel: str) -> tuple[list[Finding], list[Print]]:
+    """Return per-test findings and DUP fingerprints for one test module.
+
+    Each fingerprint comes with a DUP finding for its test, without a group.
+    """
     tree = ast.parse(source, filename=rel)
     scope, modules = _module_scope(tree, rel)
     helpers = _asserting_helpers(tree)
     module_fixtures = {
-        stmt.name
+        stmt.name: f"{rel}::{stmt.name}"
         for stmt in tree.body
         if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef)
         and _is_fixture(stmt)
     }
     directory = rel.rsplit("/", 1)[0]
+    class_names: dict[str | None, tuple[dict[str, str], dict[str, str]]] = {}
     findings: list[Finding] = []
-    prints: list[_Print] = []
-    for fn, cls in _iter_tests(tree):
-        cls_name = cls.name if cls else None
+    prints: list[Print] = []
+    for node_id, fn, cls in iter_tests(tree):
+        cls_path = node_id.rpartition("::")[0] or None
+        if cls_path not in class_names:
+            class_names[cls_path] = _class_names(cls, cls_path, rel, module_fixtures)
+        fixtures, self_attrs = class_names[cls_path]
+        test = Finding(rel, fn.lineno, fn.name, cls_path, "DUP")
 
-        def flag(code: str, fn: FuncDef = fn, cls_name: str | None = cls_name) -> None:
-            findings.append(Finding(rel, fn.lineno, fn.name, cls_name, code))
-
-        if shape := classify_checks(collect_checks(fn.body, helpers)):
-            flag(shape)
+        checks = collect_checks(fn.body, helpers)
+        if shape := classify_checks(checks):
+            findings.append(replace(test, code=shape))
         if patches_unit_under_test(fn, modules):
-            flag("V7")
-        if any(
-            isinstance(node, ast.Assert) and _is_timing_bound(node.test)
-            for node in ast.walk(fn)
-        ):
-            flag("V9")
+            findings.append(replace(test, code="V7"))
+        if Check.TIMING in checks:
+            findings.append(replace(test, code="V9"))
 
-        qualified = dict(scope)
-        for arg in fn.args.args:
-            if arg.arg not in {"self", "cls"}:
-                qualified[arg.arg] = f"{directory}/fixture::{arg.arg}"
-        qualified.update({f: f"{rel}::{f}" for f in module_fixtures})
-        self_attrs: dict[str, str] = {}
-        if cls is not None:
-            for stmt in cls.body:
-                if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
-                    self_attrs[stmt.name] = f"{rel}::{cls.name}.{stmt.name}"
-                    if _is_fixture(stmt):
-                        qualified[stmt.name] = f"{rel}::{cls.name}.{stmt.name}"
-        digest = fingerprint(fn, qualified, self_attrs)
-        prints.append(_Print(digest, rel, fn.lineno, fn.name, cls_name))
+        args = {
+            arg.arg: f"{directory}/fixture::{arg.arg}"
+            for arg in fn.args.args
+            if arg.arg not in {"self", "cls"}
+        }
+        qualified = ChainMap(fixtures, args, scope)
+        prints.append((fingerprint(fn, qualified, self_attrs), test))
     return findings, prints
 
 
-def duplicate_findings(prints: list[_Print]) -> list[Finding]:
+def duplicate_findings(prints: list[Print]) -> list[Finding]:
     """Return a DUP finding for every test whose fingerprint another test shares."""
-    groups: dict[str, list[_Print]] = defaultdict(list)
-    for p in prints:
-        groups[p.digest].append(p)
+    groups: dict[str, list[Finding]] = defaultdict(list)
+    for digest, test in prints:
+        groups[digest].append(test)
     dup_groups = sorted(
         (members for members in groups.values() if len(members) > 1),
         key=lambda members: (members[0].file, members[0].line),
     )
     return [
-        Finding(p.file, p.line, p.name, p.cls, "DUP", group=number)
+        replace(test, group=number)
         for number, members in enumerate(dup_groups, start=1)
-        for p in members
+        for test in members
     ]
 
 
 def scan(root: Path) -> list[Finding]:
     """Scan every test module under ``root/tests`` and return sorted findings."""
     findings: list[Finding] = []
-    prints: list[_Print] = []
+    prints: list[Print] = []
     for path in sorted((root / "tests").rglob("test_*.py")):
         if "__pycache__" in path.parts:
             continue
@@ -707,67 +726,45 @@ def count_by_code(findings: list[Finding]) -> dict[str, int]:
     return counts
 
 
-def build_baseline(findings: list[Finding]) -> dict[str, object]:
-    """Return the baseline document: counts plus the flagged test identities."""
-    tests: dict[str, list[str]] = {code: [] for code in CODES}
+def build_baseline(findings: list[Finding]) -> dict[str, dict[str, list[str]]]:
+    """Return the baseline document: the sorted flagged test ids per code."""
+    tests: dict[str, set[str]] = {code: set() for code in CODES}
     for finding in findings:
-        tests[finding.code].append(finding.key)
-    return {
-        "counts": count_by_code(findings),
-        "tests": {code: sorted(set(keys)) for code, keys in tests.items()},
-    }
+        tests[finding.code].add(finding.key)
+    return {"tests": {code: sorted(keys) for code, keys in tests.items()}}
 
 
-def _json_dict(value: object) -> dict[str, object]:
-    """Return ``value`` as a string-keyed dict, or an empty dict for other JSON."""
-    if not isinstance(value, dict):
-        return {}
-    items = cast("dict[object, object]", value).items()
-    return {k: v for k, v in items if isinstance(k, str)}
-
-
-def load_baseline(path: Path) -> tuple[dict[str, int], dict[str, set[str]]]:
-    """Read the baseline counts and identities. A missing file gives empty ones."""
+def load_baseline(path: Path) -> dict[str, set[str]]:
+    """Read the flagged test ids per code. A missing file gives none."""
     if not path.exists():
-        return {}, {}
-    loaded = cast("object", json.loads(path.read_text(encoding="utf-8")))
-    raw = _json_dict(loaded)
-    counts = {
-        code: value
-        for code, value in _json_dict(raw.get("counts")).items()
-        if isinstance(value, int)
-    }
-    tests: dict[str, set[str]] = {}
-    for code, keys in _json_dict(raw.get("tests")).items():
-        if isinstance(keys, list):
-            members = cast("list[object]", keys)
-            tests[code] = {k for k in members if isinstance(k, str)}
-    return counts, tests
+        return {}
+    document = cast(
+        "dict[str, dict[str, list[str]]]",
+        json.loads(path.read_text(encoding="utf-8")),
+    )
+    return {code: set(ids) for code, ids in document["tests"].items()}
 
 
 def ratchet(findings: list[Finding], baseline_path: Path) -> int:
-    """Compare flagged tests to the baseline by identity.
+    """Compare flagged tests to the baseline by id.
 
-    Return 1 when a flagged test is not listed in the baseline for its code, or
-    when a count rises. Otherwise return 0.
+    Return 1 when a flagged test is not listed in the baseline for its code.
+    Otherwise return 0.
     """
-    base_counts, base_tests = load_baseline(baseline_path)
+    baseline = load_baseline(baseline_path)
     counts = count_by_code(findings)
     failed = False
     fixed = False
     for code in CODES:
-        current, allowed = counts[code], base_counts.get(code, 0)
-        known = base_tests.get(code, set())
-        offenders = [f for f in findings if f.code == code and f.key not in known]
-        flagged = {f.key for f in findings if f.code == code}
-        fixed = fixed or bool(known - flagged)
-        if offenders or current > allowed:
-            failed = True
-            print(f"VACUITY FAIL: {code} = {current} (baseline {allowed})")
-            for f in offenders:
-                print(f"  {f.file}:{f.line} {f.name} {f.code}")
-        else:
-            print(f"ok: {code} = {current} (baseline {allowed})")
+        known = baseline.get(code, set())
+        flagged = [f for f in findings if f.code == code]
+        offenders = [f for f in flagged if f.key not in known]
+        fixed = fixed or bool(known - {f.key for f in flagged})
+        failed = failed or bool(offenders)
+        status = "VACUITY FAIL" if offenders else "ok"
+        print(f"{status}: {code} = {counts[code]} (baseline {len(known)})")
+        for f in offenders:
+            print(f"  {f.file}:{f.line} {f.name} {f.code}")
     if failed:
         print("See .claude/rules/test-value.md for each code and its fix.")
         return 1
@@ -807,7 +804,7 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     _ = mode.add_argument("--report", action="store_true", help="list every flag")
     _ = mode.add_argument(
-        "--update-baseline", action="store_true", help="write current counts"
+        "--update-baseline", action="store_true", help="write the flagged ids"
     )
     _ = parser.add_argument("--json", action="store_true", help="JSON with --report")
     _ = parser.add_argument("--root", type=Path, help=argparse.SUPPRESS)
@@ -817,7 +814,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.update_baseline:
         document = build_baseline(findings)
         _ = baseline_path.write_text(json.dumps(document, indent=2) + "\n")
-        print(f"wrote {BASELINE_NAME}: {document['counts']}")
+        print(f"wrote {BASELINE_NAME}: {count_by_code(findings)}")
         return 0
     if args.report:
         report(findings, as_json=args.json)

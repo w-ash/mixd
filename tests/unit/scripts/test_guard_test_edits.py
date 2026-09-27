@@ -68,6 +68,28 @@ def test_removing_an_assert_asks(project: Path) -> None:
     assert "assertions 2→1" in decision["permissionDecisionReason"]
 
 
+def test_removing_a_warns_block_asks(project: Path) -> None:
+    test_file = project / "tests" / "unit" / "test_math.py"
+    test_file.write_text(
+        "import pytest\n\n\ndef test_legacy_warns():\n"
+        "    with pytest.warns(DeprecationWarning):\n        legacy()\n"
+    )
+    old = "    with pytest.warns(DeprecationWarning):\n        legacy()\n"
+
+    result = _run(project, _edit(project, old, "    legacy()\n"))
+
+    assert "assertions 1→0" in _decision(result)["permissionDecisionReason"]
+
+
+def test_edit_that_breaks_syntax_still_counts_by_text(project: Path) -> None:
+    """A half-finished edit does not parse; the regex fallback still sees the loss."""
+    result = _run(
+        project, _edit(project, "    assert total([]) == 0\n", "    total([\n")
+    )
+
+    assert "assertions 2→1" in _decision(result)["permissionDecisionReason"]
+
+
 def test_adding_an_assert_is_silent(project: Path) -> None:
     extra = "    assert total([]) == 0\n    assert total([5]) == 5\n"
     result = _run(project, _edit(project, "    assert total([]) == 0\n", extra))

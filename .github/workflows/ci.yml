@@ -28,29 +28,6 @@ jobs:
         with:
           submodules: false
 
-      # TTL backstop: push branches expire in 1 day, PR branches in 7
-      # (neon-cleanup.yml only covers PR close; expiry catches everything else)
-      - name: Compute Neon branch expiry
-        id: neon-expiry
-        run: |
-          days=$([ "${{ github.event_name }}" = "push" ] && echo 1 || echo 7)
-          echo "expires_at=$(date -u -d "+${days} days" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
-      - name: Create Neon branch
-        id: neon-branch
-        uses: neondatabase/create-branch-action@v6
-        with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: ci/pr-${{ github.event.number || github.sha }}
-          api_key: ${{ secrets.NEON_API_KEY }}
-          database: neondb
-          expires_at: ${{ steps.neon-expiry.outputs.expires_at }}
-
-      - name: Set DATABASE_URL
-        run: echo "DATABASE_URL=${DB_URL/postgres:\/\//postgresql+psycopg:\/\/}" >> "$GITHUB_ENV"
-        env:
-          DB_URL: ${{ steps.neon-branch.outputs.db_url }}
-
       # Full version, not `@v10` — setup-uv stopped publishing major/minor tags at
       # v8.0.0 (deliberately, as a supply-chain measure after the tj-actions
       # compromise), so a shortened `@v10` fails at "Unable to resolve action".
@@ -63,9 +40,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      - name: Run migrations
-        run: uv run alembic upgrade head
-
+      # DB-free static checks run before the Neon branch exists, so a lint failure
+      # costs no branch or migration.
       - name: Lint
         run: uv run ruff check .
 
@@ -101,6 +77,32 @@ jobs:
       # sanctioned edge is documented in .claude/rules/.
       - name: Layer contracts
         run: uv run lint-imports --no-cache
+
+      # TTL backstop: push branches expire in 1 day, PR branches in 7
+      # (neon-cleanup.yml only covers PR close; expiry catches everything else)
+      - name: Compute Neon branch expiry
+        id: neon-expiry
+        run: |
+          days=$([ "${{ github.event_name }}" = "push" ] && echo 1 || echo 7)
+          echo "expires_at=$(date -u -d "+${days} days" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Create Neon branch
+        id: neon-branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: ci/pr-${{ github.event.number || github.sha }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          database: neondb
+          expires_at: ${{ steps.neon-expiry.outputs.expires_at }}
+
+      - name: Set DATABASE_URL
+        run: echo "DATABASE_URL=${DB_URL/postgres:\/\//postgresql+psycopg:\/\/}" >> "$GITHUB_ENV"
+        env:
+          DB_URL: ${{ steps.neon-branch.outputs.db_url }}
+
+      - name: Run migrations
+        run: uv run alembic upgrade head
 
       - name: Test with coverage
         run: uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80

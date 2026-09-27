@@ -48,13 +48,13 @@ server.use(http.get('*/api/v1/playlists/:id', ({ params }) =>
 
 ## Writing a test
 
-1. **Kill criterion first.** Name the bug the test catches and two wrong implementations it fails on. No bug, no test.
-2. **Mock the network, not the code.** Use `server.use` overrides. Do not `vi.mock` own hooks, components, or modules; when unavoidable, add a comment that gives the reason.
-3. **Assert what the user sees.** Query by role, label, or text; assert exact content and state (`toHaveTextContent("3 tracks")`, `toBeDisabled()`).
-4. **Calls only when the call is the contract** — navigation, or a mutation fired with these args. Assert the args (`toHaveBeenCalledWith`), and never as the only assertion. For API calls, capture the request in the MSW handler and assert its body.
-5. **No existence-only assertions (V3).** `toBeDefined`/`toBeTruthy` alone prove nothing; assert the value.
+Apply `.claude/rules/test-value.md`. Web specifics:
 
-Biome runs `useExpect` (test with no assertion) and `noMisplacedAssertion` (`expect` outside a test) on `*.test.ts(x)`, as warnings.
+1. **Mock the network** with `server.use` overrides.
+2. **Assert what the user sees.** Query by role, label, or text; assert exact content and state (`toHaveTextContent("3 tracks")`, `toBeDisabled()`).
+3. **A call as the contract** (navigation, mutation args) → `toHaveBeenCalledWith`. For API calls, capture the request in the MSW handler and assert its body.
+
+Biome runs `nursery/useExpect` (test with no assertion) and `suspicious/noMisplacedAssertion` (`expect` outside a test) on `*.test.ts(x)` as errors.
 
 ## Choosing tests for a change
 
@@ -65,7 +65,7 @@ Biome runs `useExpect` (test with no assertion) and `noMisplacedAssertion` (`exp
 
 ## Mutation testing
 
-`pnpm --prefix web test:mutate` runs Stryker on `src/lib/**` and `src/hooks/**`. Kill each survivor with a new test, or note it as equivalent (no test can tell the mutant apart).
+`pnpm --prefix web test:mutate` runs Stryker on `src/lib/**` and `src/hooks/**`. Survivors: `test-value.md` (Mutation survivors).
 
 ## Commands
 

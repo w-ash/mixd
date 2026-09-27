@@ -57,6 +57,9 @@ Add a test at another layer only for a risk the primary test cannot reach.
 ## Bug fixes: red first
 Write the failing test. Run it. See it fail for the right reason. Then fix the code.
 
+## Mutation survivors
+Kill every surviving mutant in changed code with a new test, or note it as equivalent in the PR or release notes, with one line on why no test can tell it apart. There is no score threshold. A timeout counts as killed.
+
 ## Existing tests
 - Never weaken, skip, delete, or loosen an assertion to get green.
 - If a test is wrong, say so explicitly in your reply and in the commit message.

@@ -170,13 +170,13 @@ changed() { { git diff --name-only --diff-filter=d "$base" -- "$@"; git ls-files
 ```
 
 - **Red check:** run `bash scripts/check_tests_red.sh main`. It covers new pytest tests only; web tests are not red-checked. It lists new tests that already pass on the base branch. It only reports and always exits 0. A listed test does not guard this release's change: make it fail without the change, or say in the PR why it passes on base.
-- **Domain mutation**, when the diff touches `src/domain/**`. Run mutmut through `scripts/mutmut_run.py`. It is a drop-in wrapper that patches mutmut 3.8's src-layout assumptions, because our package is named `src`, so never run bare `mutmut`. A mutant name is its module path plus the function, so each changed file becomes a glob such as `src.domain.matching.algorithms.*`:
+- **Domain mutation**, when the diff touches `src/domain/**`. Use the `scripts/mutmut_run.py` wrapper, never bare `mutmut` (see its docstring). Each changed file becomes a mutant-name glob such as `src.domain.matching.algorithms.*`:
   ```bash
   mods=$(changed 'src/domain/*.py' | sed -E 's#\.py$##; s#/__init__$##; s#/#.#g')
   [ -n "$mods" ] && uv run python scripts/mutmut_run.py run $(sed 's/$/.*/' <<<"$mods")
   uv run python scripts/mutmut_run.py results | grep -F "$(sed 's/$/./' <<<"$mods")"
   ```
-  `results` lists every mutant that was not killed. `uv run python scripts/mutmut_run.py show <name>` prints one mutant's diff. The full `src/domain/` run takes about 80s.
+  `uv run python scripts/mutmut_run.py show <name>` prints one mutant's diff.
 - **Web mutation**, when the diff touches `web/src/lib/**` or `web/src/hooks/**`. Stryker takes the changed files as a comma-separated list, with paths relative to `web/`:
   ```bash
   files=$(changed web/src/lib web/src/hooks | grep -E '\.ts$' | grep -v '\.test\.ts$' | sed 's#^web/##' | paste -sd, -)
@@ -184,7 +184,7 @@ changed() { { git diff --name-only --diff-filter=d "$base" -- "$@"; git ls-files
   ```
   Survivors print in the clear-text report. The HTML report is `web/reports/mutation/mutation.html`.
 
-**Rule:** kill every surviving mutant with a new test, or list it as equivalent in the release notes or PR with one line on why no test can tell it apart. There is no score threshold, and a timeout counts as killed.
+**Survivors:** handle each per `.claude/rules/test-value.md` (Mutation survivors).
 
 ### Verifying results — read actual output, not wrappers
 

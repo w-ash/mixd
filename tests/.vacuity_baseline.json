@@ -1,13 +1,4 @@
 {
-  "counts": {
-    "V1": 47,
-    "V2": 102,
-    "V3": 86,
-    "V5": 19,
-    "V7": 18,
-    "V9": 12,
-    "DUP": 10
-  },
   "tests": {
     "V1": [
       "tests/integration/repositories/test_mapping_vocabulary_constraints.py::TestVocabularyMembersAreAccepted::test_mapping_with_a_manual_override_origin",

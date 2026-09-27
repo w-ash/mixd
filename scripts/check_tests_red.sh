@@ -40,23 +40,14 @@ import ast
 import subprocess
 import sys
 
+from scripts.check_test_vacuity import iter_tests
+
 
 def test_ids(source: str) -> set[str]:
-    found: set[str] = set()
-
-    def visit(body: list[ast.stmt], prefix: str) -> None:
-        for node in body:
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                if node.name.startswith("test"):
-                    found.add(prefix + node.name)
-            elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
-                visit(node.body, f"{prefix}{node.name}::")
-
     try:
-        visit(ast.parse(source).body, "")
+        return {node_id for node_id, _, _ in iter_tests(ast.parse(source))}
     except SyntaxError:
-        pass
-    return found
+        return set()
 
 
 merge_base, *files = sys.argv[1:]
@@ -95,39 +86,47 @@ copy() { # repo-relative path
 for f in $changed; do copy "$f"; done
 rm -rf "$worktree/tests/fixtures"
 cp -R tests/fixtures "$worktree/tests/fixtures"
-while IFS= read -r f; do copy "$f"; done < <(find tests -name conftest.py -not -path '*/__pycache__/*')
-# New test directories need their package markers to import at all.
+# Every conftest.py; and the package markers of new test directories, which
+# need them to import at all.
 while IFS= read -r f; do
-  [ -e "$worktree/$f" ] || copy "$f"
-done < <(find tests -name __init__.py -not -path '*/__pycache__/*')
+  case "$f" in
+    */conftest.py) copy "$f" ;;
+    *) [ -e "$worktree/$f" ] || copy "$f" ;;
+  esac
+done < <(find tests \( -name conftest.py -o -name __init__.py \) -not -path '*/__pycache__/*')
 
 echo "Running $(echo "$new_ids" | wc -l | tr -d ' ') new test(s) against $base ($merge_base)..."
 # The editable install puts this checkout on sys.path. Drop it, so that src/ and the
 # scripts/ namespace package resolve only from the worktree. `-o addopts=` drops
-# xdist and the default marker filter.
+# xdist and the default marker filter. pytest gets the files, not the node ids: an
+# id that cannot resolve (its module fails to import) stops the whole run, but a
+# file that fails to import only fails its own tests. The plugin then keeps the
+# new tests, with every parametrized case.
 run_pytest='
 import os, sys
 repo = os.path.realpath(sys.argv.pop(1))
 sys.path[:] = [p for p in sys.path if os.path.realpath(p or ".") != repo]
+with open(sys.argv.pop(1), encoding="utf-8") as handle:
+    wanted = set(handle.read().split())
 import pytest
-sys.exit(pytest.main(sys.argv[1:]))
+
+class OnlyNew:
+    def pytest_collection_modifyitems(self, items):
+        items[:] = [i for i in items if i.nodeid.partition("[")[0] in wanted]
+
+sys.exit(pytest.main(sys.argv[1:], plugins=[OnlyNew()]))
 '
-# One pytest run per file: an unresolvable id or import error stops the whole run,
-# and must not hide the other files' results.
-for f in $changed; do
-  file_ids=$(grep -F "$f::" <<<"$new_ids" || true)
-  [ -n "$file_ids" ] || continue
-  # shellcheck disable=SC2086  # word-splitting the id list is intended
-  (
-    cd "$worktree"
-    UV_PROJECT_ENVIRONMENT="$repo/.venv" uv run --no-sync --quiet \
-      python -c "$run_pytest" "$repo" $file_ids \
-      -p no:randomly -p no:cacheprovider -q -rp -o addopts=
-  ) >"$tmp/pytest.log" 2>&1 || true
-  echo "  $f: $(tail -n 1 "$tmp/pytest.log")"
-  grep -E '^PASSED ' "$tmp/pytest.log" | sed 's/^PASSED //' >>"$tmp/passed" || true
-done
-passed=$(cat "$tmp/passed" 2>/dev/null || true)
+echo "$new_ids" >"$tmp/ids"
+# shellcheck disable=SC2086  # word-splitting the file list is intended
+(
+  cd "$worktree"
+  UV_PROJECT_ENVIRONMENT="$repo/.venv" uv run --no-sync --quiet \
+    python -c "$run_pytest" "$repo" "$tmp/ids" $changed \
+    -p no:randomly -p no:cacheprovider -q -rp -o addopts= \
+    --continue-on-collection-errors
+) >"$tmp/pytest.log" 2>&1 || true
+echo "  $(tail -n 1 "$tmp/pytest.log")"
+passed=$(grep -E '^PASSED ' "$tmp/pytest.log" | sed 's/^PASSED //' || true)
 echo
 if [ -n "$passed" ]; then
   echo "New tests that PASS on base (they do not guard this change):"

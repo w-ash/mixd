@@ -20,9 +20,12 @@ import {
   trackStates,
 } from "../../e2e/fixtures/playlist-detail";
 
-/** Return the body of a JSON mock, or undefined for any other kind. */
-function jsonBody(res: MockResponse | undefined): unknown {
-  return res?.kind === "json" ? res.body : undefined;
+/** Return the body of a JSON mock. Throw when the mock is missing or not JSON. */
+function jsonBody(res: MockResponse | undefined, label = "mock"): unknown {
+  if (res?.kind !== "json") {
+    throw new Error(`${label}: expected a json mock, got ${res?.kind}`);
+  }
+  return res.body;
 }
 
 describe("playlist-detail audit fixtures", () => {
@@ -41,8 +44,7 @@ describe("playlist-detail audit fixtures", () => {
   it("every link factory yields a well-formed PlaylistLinkSchema array", () => {
     for (const [name, factory] of Object.entries(linkStates)) {
       const mocks = factory() as EndpointMocks;
-      expect(mocks.links?.kind, name).toBe("json");
-      const links = jsonBody(mocks.links) as Array<Record<string, unknown>>;
+      const links = jsonBody(mocks.links, name) as Record<string, unknown>[];
       expect(Array.isArray(links), name).toBe(true);
       for (const link of links) {
         for (const field of [
@@ -63,18 +65,14 @@ describe("playlist-detail audit fixtures", () => {
     expect(entry.is_resolved).toBe(false);
     expect(entry.track.id).toBeNull();
 
-    const tracksMock = trackStates.withUnresolved().tracks;
-    expect(tracksMock?.kind).toBe("json");
-    const tracks = jsonBody(tracksMock) as {
+    const tracks = jsonBody(trackStates.withUnresolved().tracks) as {
       data: Array<{ is_resolved?: boolean }>;
     };
     expect(tracks.data.some((e) => e.is_resolved === false)).toBe(true);
   });
 
   it("the destructive sync preview is safety-flagged with removal counts", () => {
-    const previewMock = syncDialogStates.destructive().syncPreview;
-    expect(previewMock?.kind).toBe("json");
-    const preview = jsonBody(previewMock) as {
+    const preview = jsonBody(syncDialogStates.destructive().syncPreview) as {
       safety_flagged?: boolean;
       safety_removals?: number;
     };
