@@ -248,8 +248,16 @@ unfixable = []
 ]
 ".claude/hooks/guard_test_edits.py" = [
     "suspicious-subprocess-import",     # runs one fixed git command to read the branch
-    "subprocess-without-shell-equals-true",     # argv is literal git args plus the edited file's directory
-    "start-process-with-partial-path",     # git resolves from the hook's PATH, like every Claude Code hook command
+    "subprocess-without-shell-equals-true",     # fixed git argv; only the edited file's directory varies, passed to -C
+    "start-process-with-partial-path",     # trusts PATH for git like any dev tool
+]
+"scripts/check_test_vacuity.py" = [
+    "suspicious-subprocess-import",     # --base-ref runs fixed git commands to read the base baseline
+    "subprocess-without-shell-equals-true",     # fixed git argv; the ref is validated (no leading '-')
+    "start-process-with-partial-path",     # trusts PATH for git like any dev tool
+]
+"tests/unit/scripts/test_check_test_vacuity.py" = [
+    "start-process-with-partial-path",     # builds throwaway git repos to exercise --base-ref
 ]
 "tests/unit/scripts/test_guard_test_edits.py" = [
     "start-process-with-partial-path",     # builds throwaway git repos to exercise the hook's branch check

@@ -8,6 +8,7 @@ vacuous tests back in.
 
 import json
 from pathlib import Path
+import subprocess
 from textwrap import dedent
 
 import pytest
@@ -119,6 +120,112 @@ FLAGGED = [
         "V9",
         id="V9-timing-bound",
     ),
+    pytest.param(
+        """
+        def test_it(result):
+            assert result
+        """,
+        "V3",
+        id="V3-truthiness-of-a-fixture",
+    ),
+    pytest.param(
+        """
+        def _assert_saved(repo):
+            repo.save.assert_called_once()
+
+        def test_it(repo):
+            run(repo)
+            _assert_saved(repo)
+        """,
+        "V2",
+        id="V2-helper-with-only-bare-mock-calls",
+    ),
+    pytest.param(
+        """
+        import subprocess
+
+        def test_it():
+            subprocess.check_call(["make"])
+        """,
+        "V1",
+        id="V1-check-prefix-on-a-foreign-module",
+    ),
+    pytest.param(
+        """
+        from unittest.mock import patch
+
+        from pkg.calc import total
+
+        def test_it():
+            with patch("pkg.calc.total"):
+                assert total() == 1
+        """,
+        "V7",
+        id="V7-patches-the-imported-function-it-calls",
+    ),
+    pytest.param(
+        """
+        import pytest
+        from unittest.mock import patch
+
+        @pytest.fixture
+        def use_case():
+            return UseCase()
+
+        def test_it(use_case):
+            with patch.object(UseCase, "_load"):
+                assert use_case.execute() == 1
+        """,
+        "V7",
+        id="V7-private-patch-on-a-fixture-instance",
+    ),
+    pytest.param(
+        """
+        from unittest.mock import patch
+
+        class TestIt:
+            def setup_method(self):
+                self.use_case = UseCase()
+
+            def test_it(self):
+                with patch.object(UseCase, "_load"):
+                    assert self.use_case.execute() == 1
+        """,
+        "V7",
+        id="V7-private-patch-on-a-setup-method-instance",
+    ),
+    pytest.param(
+        """
+        import pytest
+        from unittest.mock import patch
+
+        @pytest.fixture
+        def client():
+            built = Client()
+            return built
+
+        @pytest.fixture
+        def fast_client(client):
+            client.wait = 0
+            return client
+
+        def test_it(fast_client):
+            with patch.object(Client, "_fetch_impl"):
+                assert fast_client.fetch() == 1
+        """,
+        "V7",
+        id="V7-private-patch-on-a-fixture-passed-through",
+    ),
+    pytest.param(
+        """
+        def test_it():
+            result = run()
+            assert result.count == 3
+            assert result.duration_ms >= 0
+        """,
+        "V9",
+        id="V9-result-duration-bound",
+    ),
 ]
 
 CLEAN = [
@@ -218,6 +325,73 @@ CLEAN = [
         """,
         id="exact-timing",
     ),
+    pytest.param(
+        """
+        def test_it():
+            result = finish()
+            assert result.status.value == "completed"
+        """,
+        id="value-of-a-non-enum-attribute",
+    ),
+    pytest.param(
+        """
+        def test_it(repo):
+            outcome = run(repo)
+            assert (outcome, repo.commit.call_count) == ("ok", 1)
+        """,
+        id="mock-count-beside-an-outcome",
+    ),
+    pytest.param(
+        """
+        def test_it():
+            valid = validate("x")
+            assert valid
+        """,
+        id="truthiness-of-a-predicate-result",
+    ),
+    pytest.param(
+        """
+        from unittest.mock import patch
+
+        from datetime import datetime
+
+        def test_it():
+            with patch("pkg.thing.datetime"):
+                assert stamp(datetime(2024, 1, 1)) == "2024"
+        """,
+        id="patches-the-clock-in-the-subject-module",
+    ),
+    pytest.param(
+        """
+        from unittest.mock import patch
+
+        from other import total
+
+        def test_it():
+            with patch("pkg.calc.total"):
+                assert total() == 1
+        """,
+        id="patch-target-in-another-module",
+    ),
+    pytest.param(
+        """
+        from unittest.mock import patch
+
+        def test_it():
+            with patch.object(Client, "_request_json"):
+                assert Client().fetch() == 1
+        """,
+        id="patches-the-transport-method",
+    ),
+    pytest.param(
+        """
+        def test_it():
+            track = load()
+            assert track.title == "a"
+            assert track.duration_ms > 0
+        """,
+        id="data-field-in-milliseconds",
+    ),
 ]
 
 
@@ -265,6 +439,50 @@ class TestDuplicates:
         _write(tmp_path, body.format(module="pkg.floats"), "test_two.py")
 
         assert _codes(tmp_path) == set()
+
+    def test_same_text_over_different_class_subjects_is_distinct(
+        self, tmp_path: Path
+    ) -> None:
+        _write(
+            tmp_path,
+            """
+            class TestSpotify:
+                subject = SpotifyConnector
+
+                def test_a(self):
+                    assert self.subject().name == "x"
+
+            class TestLastfm:
+                def setup_method(self):
+                    self.subject = LastfmConnector
+
+                def test_a(self):
+                    assert self.subject().name == "x"
+            """,
+        )
+
+        assert _codes(tmp_path) == set()
+
+    def test_same_text_over_a_shared_base_attribute_is_a_duplicate(
+        self, tmp_path: Path
+    ) -> None:
+        _write(
+            tmp_path,
+            """
+            class Base:
+                subject = SpotifyConnector
+
+            class TestOne(Base):
+                def test_a(self):
+                    assert self.subject().name == "x"
+
+            class TestTwo(Base):
+                def test_a(self):
+                    assert self.subject().name == "x"
+            """,
+        )
+
+        assert _codes(tmp_path) == {("test_a", "DUP")}
 
 
 class TestRatchet:
@@ -342,6 +560,119 @@ class TestRatchet:
         )
 
         assert main(["--root", str(tmp_path)]) == 0
+
+
+def _git(root: Path, *args: str) -> None:
+    identity = ["-c", "user.name=t", "-c", "user.email=t@t"]
+    _ = subprocess.run(["git", "-C", str(root), *identity, *args], check=True)
+
+
+class TestBaseRef:
+    """``--base-ref`` stops a change from adding its own tests to the baseline."""
+
+    def _commit_baseline(self, root: Path, tests: dict[str, list[str]]) -> None:
+        path = root / "tests" / ".vacuity_baseline.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"tests": tests}))
+        _git(root, "init", "-q")
+        _git(root, "add", "-A")
+        _git(root, "commit", "-qm", "base")
+
+    def _grow(self, root: Path, capsys: pytest.CaptureFixture[str]) -> int:
+        assert main(["--root", str(root), "--update-baseline"]) == 0
+        _ = capsys.readouterr()
+        return main(["--root", str(root), "--base-ref", "HEAD"])
+
+    def test_a_new_id_in_a_modified_file_fails_and_names_it(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _write(tmp_path, "def test_old():\n    assert run() == 1\n")
+        self._commit_baseline(tmp_path, {})
+        _write(tmp_path, "def test_old():\n    run()\n")
+
+        assert self._grow(tmp_path, capsys) == 1
+        out = capsys.readouterr().out
+        assert "BASELINE GREW: V1 tests/unit/test_sample.py::test_old" in out
+
+    def test_a_new_id_in_an_untracked_file_fails(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._commit_baseline(tmp_path, {})
+        _write(tmp_path, "def test_new():\n    run()\n", "test_new.py")
+
+        assert self._grow(tmp_path, capsys) == 1
+        out = capsys.readouterr().out
+        assert "BASELINE GREW: V1 tests/unit/test_new.py::test_new" in out
+
+    def test_a_new_id_in_a_renamed_file_fails(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _write(tmp_path, "def test_old():\n    run()\n", "test_before.py")
+        self._commit_baseline(tmp_path, {"V1": ["tests/unit/test_before.py::test_old"]})
+        _git(tmp_path, "mv", "tests/unit/test_before.py", "tests/unit/test_after.py")
+
+        assert self._grow(tmp_path, capsys) == 1
+        out = capsys.readouterr().out
+        assert "BASELINE GREW: V1 tests/unit/test_after.py::test_old" in out
+
+    def test_a_new_id_in_an_untouched_file_passes_with_a_note(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A sharper checker may flag an old test that this change did not touch."""
+        _write(tmp_path, "def test_old():\n    run()\n")
+        self._commit_baseline(tmp_path, {})
+
+        assert self._grow(tmp_path, capsys) == 0
+        out = capsys.readouterr().out
+        assert (
+            "BASELINE ADDED (untouched file): V1 tests/unit/test_sample.py::test_old"
+            in out
+        )
+        assert "BASELINE GREW" not in out
+
+    def test_a_baseline_equal_to_the_base_passes(self, tmp_path: Path) -> None:
+        _write(tmp_path, "def test_old():\n    run()\n")
+        self._commit_baseline(tmp_path, {"V1": ["tests/unit/test_sample.py::test_old"]})
+
+        assert main(["--root", str(tmp_path), "--base-ref", "HEAD"]) == 0
+
+    def test_a_base_without_a_baseline_skips_the_check(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _write(tmp_path, "def test_old():\n    run()\n")
+        self._commit_baseline(tmp_path, {})
+        (tmp_path / "tests" / ".vacuity_baseline.json").unlink()
+        _git(tmp_path, "commit", "-qam", "drop baseline")
+        assert main(["--root", str(tmp_path), "--update-baseline"]) == 0
+        _ = capsys.readouterr()
+
+        assert main(["--root", str(tmp_path), "--base-ref", "HEAD"]) == 0
+        assert "no tests/.vacuity_baseline.json at HEAD" in capsys.readouterr().out
+
+    def test_an_unknown_ref_fails(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _write(tmp_path, "def test_old():\n    run()\n")
+        self._commit_baseline(tmp_path, {"V1": ["tests/unit/test_sample.py::test_old"]})
+
+        assert main(["--root", str(tmp_path), "--base-ref", "no-such-ref"]) == 1
+        assert "unknown ref no-such-ref" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("ref", ["-x", "--output={out}"])
+    def test_a_ref_that_starts_with_a_dash_fails_before_git_sees_it(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], ref: str
+    ) -> None:
+        """A ref that git would read as an option is rejected, not passed on."""
+        _write(tmp_path, "def test_old():\n    run()\n")
+        self._commit_baseline(tmp_path, {"V1": ["tests/unit/test_sample.py::test_old"]})
+        out_file = tmp_path / "injected"
+        ref = ref.format(out=out_file)
+
+        assert main(["--root", str(tmp_path), f"--base-ref={ref}"]) == 1
+        out = capsys.readouterr().out
+        assert f"VACUITY FAIL: ref may not start with '-': {ref}" in out
+        assert "unknown ref" not in out
+        assert not out_file.exists()
 
 
 def test_json_report_lists_class_and_code(

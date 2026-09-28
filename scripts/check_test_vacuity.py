@@ -5,10 +5,15 @@ Parse every ``tests/**/test_*.py`` file with ``ast``. Classify each test functio
 the banned patterns of ``.claude/rules/test-value.md`` that syntax can decide: V1, V2,
 V3, V5, V7, V9, and DUP (identical normalized test bodies). V4, V6, V8, and V10 need
 judgment and stay with audit agents. The default mode fails when a flagged test is not
-listed for its code in ``tests/.vacuity_baseline.json``.
+listed for its code in ``tests/.vacuity_baseline.json``. With ``--base-ref REF`` it also
+fails when that file gains an id, relative to the file committed at ``REF``, for a test
+file that changed since ``REF``: a branch cannot hide its own new offenders with
+``--update-baseline``. An id in an unchanged test file may enter the baseline (a
+sharper checker finds an old offender); it is printed as a note.
 
 Usage:
     uv run python scripts/check_test_vacuity.py                    # ratchet
+    uv run python scripts/check_test_vacuity.py --base-ref main    # + no growth in changed files
     uv run python scripts/check_test_vacuity.py --report [--json]  # list every flag
     uv run python scripts/check_test_vacuity.py --update-baseline
 """
@@ -17,11 +22,12 @@ import argparse
 import ast
 from collections import ChainMap, defaultdict
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 from typing import cast
 
@@ -70,7 +76,40 @@ _HELPER_PREFIXES = (
 )
 _PYTEST_CHECKS = frozenset({"raises", "warns", "deprecated_call", "fail"})
 _FROZEN_ERRORS = frozenset({"FrozenInstanceError", "AttributeError"})
-_TIMING_SUFFIXES = ("_ms", "_time", "duration", "elapsed")
+_TIMING_WORDS = frozenset({"elapsed", "took", "latency", "runtime"})
+_TIMING_RECEIVERS = frozenset({
+    "result",
+    "event",
+    "run",
+    "timing",
+    "timer",
+    "stats",
+    "metrics",
+})
+# Boundaries that test-value.md allows to mock: clock, randomness, HTTP transport.
+_BOUNDARY_NAMES = frozenset({
+    "datetime",
+    "date",
+    "time",
+    "monotonic",
+    "perf_counter",
+    "sleep",
+    "uuid4",
+    "uuid7",
+    "random",
+    "randint",
+    "choice",
+    "shuffle",
+})
+_BOUNDARY_PREFIXES = (
+    "_api_call",
+    "_api_request",
+    "_request",
+    "_client",
+    "_http",
+    "_session",
+    "_transport",
+)
 
 
 class Check(StrEnum):
@@ -156,9 +195,19 @@ def _is_mock_assert_call(call: ast.Call) -> bool:
     )
 
 
-def _is_helper_assert_call(call: ast.Call) -> bool:
-    name = _call_name(call.func)
-    return name is not None and name.startswith(_HELPER_PREFIXES)
+def _local_call_name(call: ast.Call) -> str | None:
+    """Return the name of a call that can reach a function of this module.
+
+    That is a bare ``name(...)`` or a ``self.name(...)``/``cls.name(...)`` method
+    call. A call on any other receiver (``subprocess.check_call``) gives None.
+    """
+    match call.func:
+        case ast.Name(id=name):
+            return name
+        case ast.Attribute(value=ast.Name(id="self" | "cls"), attr=name):
+            return name
+        case _:
+            return None
 
 
 def _is_int_const(expr: ast.expr, value: int) -> bool:
@@ -187,11 +236,15 @@ def _walk_shallow(nodes: list[ast.stmt]) -> list[ast.AST]:
 # --- assert classification ---------------------------------------------------
 
 
-def _is_existence(expr: ast.expr) -> bool:
-    """Return True for existence/type checks that pin no value (V3)."""
+def _is_existence(expr: ast.expr, predicates: frozenset[str]) -> bool:
+    """Return True for existence/type checks that pin no value (V3).
+
+    A bare ``assert name`` is an existence check, except when ``name`` is in
+    ``predicates``: the test binds it to a call, comparison, or boolean result.
+    """
     match expr:
-        case ast.Name():
-            return True
+        case ast.Name(id=name):
+            return name not in predicates
         case ast.Compare(ops=[ast.IsNot()], comparators=[ast.Constant(value=None)]):
             return True
         case ast.Call(func=ast.Name(id="isinstance" | "hasattr" | "callable" | "len")):
@@ -205,13 +258,24 @@ def _is_existence(expr: ast.expr) -> bool:
                 or (isinstance(op, ast.NotEq) and _is_int_const(right, 0))
             )
         case ast.BoolOp(op=ast.And(), values=values):
-            return all(_is_existence(v) for v in values)
+            return all(_is_existence(v, predicates) for v in values)
+        case _:
+            return False
+
+
+def _is_enum_member(expr: ast.expr) -> bool:
+    """Return True for ``Enum.MEMBER``: a CapWords owner and an UPPER_CASE member."""
+    match expr:
+        case ast.Attribute(
+            attr=member, value=ast.Name(id=owner) | ast.Attribute(attr=owner)
+        ):
+            return owner[:1].isupper() and not owner.isupper() and member.isupper()
         case _:
             return False
 
 
 def _is_enum_pin(expr: ast.expr) -> bool:
-    """Return True for ``X.Y.value == <str/int literal>`` (V5)."""
+    """Return True for ``Enum.MEMBER.value == <str/int literal>`` (V5)."""
     match expr:
         case ast.Compare(left=left, ops=[ast.Eq()], comparators=[right]):
             pass
@@ -220,12 +284,9 @@ def _is_enum_pin(expr: ast.expr) -> bool:
     for member, literal in ((left, right), (right, left)):
         match member, literal:
             case (
-                ast.Attribute(
-                    attr="value",
-                    value=ast.Attribute(value=ast.Name() | ast.Attribute()),
-                ),
+                ast.Attribute(attr="value", value=owner),
                 ast.Constant(value=str() | int() as value),
-            ) if not isinstance(value, bool):
+            ) if not isinstance(value, bool) and _is_enum_member(owner):
                 return True
             case _:
                 pass
@@ -259,20 +320,74 @@ def _checks_mock_args(expr: ast.expr) -> bool:
     )
 
 
-def _classify_assert(expr: ast.expr) -> Check:
+def _assert_parts(expr: ast.expr) -> list[ast.expr]:
+    """Split an assert into the checks it makes together.
+
+    ``a and b`` gives its operands. ``(a, b) == (x, y)`` gives ``a == x`` and
+    ``b == y``. Any other expression is one part.
+    """
+    match expr:
+        case ast.BoolOp(op=ast.And(), values=values):
+            return [part for value in values for part in _assert_parts(value)]
+        case ast.Compare(
+            left=ast.Tuple(elts=lefts) | ast.List(elts=lefts),
+            ops=[ast.Eq()],
+            comparators=[ast.Tuple(elts=rights) | ast.List(elts=rights)],
+        ) if len(lefts) == len(rights):
+            return [
+                ast.Compare(left=left, ops=[ast.Eq()], comparators=[right])
+                for left, right in zip(lefts, rights, strict=True)
+            ]
+        case _:
+            return [expr]
+
+
+def _classify_assert(expr: ast.expr, predicates: frozenset[str]) -> Check:
+    """Return the kind of one assert.
+
+    An assert that makes several checks together is REAL when one of them is.
+    """
+    parts = _assert_parts(expr)
+    if len(parts) > 1 and any(
+        _classify_part(part, predicates) is Check.REAL for part in parts
+    ):
+        return Check.REAL
+    return _classify_part(expr, predicates)
+
+
+def _classify_part(expr: ast.expr, predicates: frozenset[str]) -> Check:
     if _is_timing_bound(expr):
         return Check.TIMING
     if _references_mock_attr(expr):
         return Check.MOCK_ARGS if _checks_mock_args(expr) else Check.MOCK
     if _is_enum_pin(expr):
         return Check.ENUM_PIN
-    if _is_existence(expr):
+    if _is_existence(expr, predicates):
         return Check.EXISTENCE
     return Check.REAL
 
 
+def _is_timing_name(subject: ast.expr) -> bool:
+    """Return True when ``subject`` names a measured elapsed time.
+
+    ``execution_time``, ``elapsed``, ``took``, ``latency``, and ``runtime`` always
+    do. ``duration`` does only on a result or timing receiver (``result.duration_ms``),
+    because a track's ``duration_ms`` is data.
+    """
+    name = _call_name(subject)
+    if name is None:
+        return False
+    words = name.lower().split("_")
+    if "execution_time" in name.lower() or _TIMING_WORDS.intersection(words):
+        return True
+    if "duration" not in words or not isinstance(subject, ast.Attribute):
+        return False
+    receiver = _call_name(subject.value) or ""
+    return receiver in _TIMING_RECEIVERS or receiver.endswith("_result")
+
+
 def _is_timing_bound(expr: ast.expr) -> bool:
-    """Return True for ``<x_ms|x_time|duration|elapsed> >= 0`` or ``> 0`` (V9)."""
+    """Return True for ``<elapsed time> >= 0`` or ``> 0`` (V9)."""
     match expr:
         case ast.Compare(left=left, ops=[op], comparators=[right]):
             pass
@@ -284,8 +399,7 @@ def _is_timing_bound(expr: ast.expr) -> bool:
         subject = right
     else:
         return False
-    name = _call_name(subject)
-    return name is not None and name.endswith(_TIMING_SUFFIXES)
+    return _is_timing_name(subject)
 
 
 def _is_frozen_raises(item: ast.withitem, body: list[ast.stmt]) -> bool:
@@ -319,24 +433,57 @@ def collect_checks(stmts: list[ast.stmt], helpers: frozenset[str]) -> list[Check
     """Return the kind of every check found in ``stmts``.
 
     ``helpers`` names local functions and methods that contain checks. A call to
-    one counts as a real check.
+    one, as ``name(...)`` or ``self.name(...)``, counts as a real check.
     """
-    return _scan_checks(stmts, helpers)[0]
+    return _scan_checks(stmts, dict.fromkeys(helpers, _REAL_ONLY))[0]
+
+
+_REAL_ONLY = frozenset({Check.REAL})
+_PREDICATE_VALUES = (ast.Call, ast.Compare, ast.BoolOp)
+
+
+def _predicate_names(nodes: list[ast.AST]) -> frozenset[str]:
+    """Return names bound to a call, comparison, or boolean result in ``nodes``."""
+    names: set[str] = set()
+    for node in nodes:
+        match node:
+            case ast.Assign(targets=targets, value=value):
+                bound = [t.id for t in targets if isinstance(t, ast.Name)]
+            case (
+                ast.AnnAssign(target=ast.Name(id=name), value=value)
+                | ast.NamedExpr(target=ast.Name(id=name), value=value)
+            ):
+                bound = [name]
+            case _:
+                continue
+        if isinstance(value, ast.Await):
+            value = value.value
+        if isinstance(value, _PREDICATE_VALUES) or (
+            isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.Not)
+        ):
+            names.update(bound)
+    return frozenset(names)
 
 
 def _scan_checks(
-    stmts: list[ast.stmt], helpers: frozenset[str]
+    stmts: list[ast.stmt], helpers: Mapping[str, frozenset[Check]]
 ) -> tuple[list[Check], set[str]]:
-    """Return the checks in ``stmts`` and the names of all functions they call."""
+    """Return the checks in ``stmts`` and the local names they call.
+
+    ``helpers`` maps a local function to the check kinds that a call to it adds.
+    """
     checks: list[Check] = []
     called: set[str] = set()
     consumed: set[int] = set()
-    for node in ast.walk(ast.Module(body=stmts, type_ignores=[])):
-        if isinstance(node, ast.Call) and (name := _call_name(node.func)):
-            called.add(name)
+    nodes = list(ast.walk(ast.Module(body=stmts, type_ignores=[])))
+    predicates = _predicate_names(nodes)
+    for node in nodes:
+        local = _local_call_name(node) if isinstance(node, ast.Call) else None
+        if local is not None:
+            called.add(local)
         match node:
             case ast.Assert(test=test):
-                checks.append(_classify_assert(test))
+                checks.append(_classify_assert(test, predicates))
             case (
                 ast.With(items=items, body=body) | ast.AsyncWith(items=items, body=body)
             ):
@@ -351,12 +498,10 @@ def _scan_checks(
                         if _call_name(node.func) in _MOCK_ARG_ASSERTS
                         else Check.MOCK
                     )
-                elif (
-                    _is_pytest_check(node)
-                    or _is_helper_assert_call(node)
-                    or _call_name(node.func) in helpers
-                ):
+                elif _is_pytest_check(node):
                     checks.append(Check.REAL)
+                elif local is not None and local in helpers:
+                    checks.extend(helpers[local])
             case ast.Raise(exc=exc) if exc is not None and (
                 _call_name(exc.func if isinstance(exc, ast.Call) else exc)
                 == "AssertionError"
@@ -391,56 +536,194 @@ def classify_checks(checks: list[Check]) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class _Patch:
-    """One patched attribute and the owner it was patched on."""
+    """One patched attribute and the owner it was patched on.
+
+    ``owner_path`` is the dotted path of the owner for a string target, else empty.
+    """
 
     name: str
     owner: str
     owner_is_module: bool
+    owner_path: str = ""
+
+
+def _is_boundary(name: str) -> bool:
+    """Return True for a clock, randomness, or HTTP transport name (a legal mock)."""
+    return name in _BOUNDARY_NAMES or name.startswith(_BOUNDARY_PREFIXES)
 
 
 def _patch_from_call(call: ast.Call, modules: frozenset[str]) -> _Patch | None:
+    """Return the patch that ``call`` makes, or None for a boundary or dunder patch."""
     dotted = _dotted(call.func)
     first = call.args[0] if call.args else None
     second = call.args[1] if len(call.args) > 1 else None
     target = _str_const(first)
+    patch: _Patch | None = None
     if dotted in {"patch", "mock.patch", "unittest.mock.patch", "mocker.patch"} or (
         dotted == "monkeypatch.setattr" and target is not None
     ):
         if target is None or "." not in target:
             return None
-        *path, name = target.split(".")
-        owner = path[-1]
-        return _Patch(name, owner, owner_is_module=not owner[:1].isupper())
-    if dotted.endswith(("patch.object", "monkeypatch.setattr")) and first is not None:
+        owner_path, name = target.rsplit(".", 1)
+        owner = owner_path.rsplit(".", 1)[-1]
+        patch = _Patch(name, owner, not owner[:1].isupper(), owner_path)
+    elif dotted.endswith(("patch.object", "monkeypatch.setattr")) and first is not None:
         name = _str_const(second)
         owner = _dotted(first)
         if name is None or not owner or owner in modules:
             return None
-        return _Patch(name, owner.rsplit(".", 1)[-1], owner_is_module=False)
+        patch = _Patch(name, owner.rsplit(".", 1)[-1], owner_is_module=False)
+    if patch is None or patch.name.startswith("__") or _is_boundary(patch.name):
+        return None
+    return patch
+
+
+def _constructed_class(
+    expr: ast.expr | None, factories: Mapping[str, str]
+) -> str | None:
+    """Return the class that ``expr`` builds, or None when it builds nothing.
+
+    ``Owner(...)``, ``mod.Owner(...)``, and ``Owner.create(...)`` build ``Owner``.
+    A call to a local factory or fixture builds what that function returns.
+    """
+    if isinstance(expr, ast.Await):
+        expr = expr.value
+    match expr:
+        case ast.Call(func=ast.Name(id=name)):
+            return factories.get(name, name)
+        case ast.Call(func=ast.Attribute(attr=attr, value=value)):
+            if attr[:1].isupper():
+                return attr
+            if isinstance(value, ast.Name) and value.id[:1].isupper():
+                return value.id
+            return attr
+        case _:
+            return None
+
+
+def _returned_class(
+    fn: FuncDef, body: list[ast.AST], factories: Mapping[str, str]
+) -> str | None:
+    """Return the class that ``fn`` returns or yields, or None when unknown.
+
+    ``body`` is the shallow walk of ``fn``. The value is a constructor call, a
+    local name bound to one, or a parameter that names a known fixture.
+    """
+    local: dict[str, str] = {}
+    for node in body:
+        match node:
+            case ast.Assign(targets=[ast.Name(id=var)], value=value) if (
+                cls_name := _constructed_class(value, factories)
+            ):
+                local[var] = cls_name
+            case ast.withitem(context_expr=value, optional_vars=ast.Name(id=var)) if (
+                cls_name := _constructed_class(value, factories)
+            ):
+                local[var] = cls_name
+            case _:
+                pass
+    params = {arg.arg for arg in fn.args.args}
+    for node in body:
+        match node:
+            case ast.Return(value=ast.Name(id=var)) | ast.Yield(value=ast.Name(id=var)):
+                found = local.get(var) or (
+                    factories.get(var) if var in params else None
+                )
+            case ast.Return(value=value) | ast.Yield(value=value):
+                found = _constructed_class(value, factories)
+            case _:
+                continue
+        if found:
+            return found
     return None
 
 
-def _receiver_matches(receiver: ast.expr, owner: str, bound: dict[str, str]) -> bool:
+def _factories(tree: ast.Module) -> dict[str, str]:
+    """Map each local function (fixtures included) to the class it returns."""
+    functions: list[tuple[FuncDef, list[ast.AST]]] = []
+    for node in ast.walk(tree):
+        if isinstance(
+            node, ast.FunctionDef | ast.AsyncFunctionDef
+        ) and not node.name.startswith("test"):
+            body = _walk_shallow(node.body)
+            if any(isinstance(n, ast.Return | ast.Yield) for n in body):
+                functions.append((node, body))
+    factories: dict[str, str] = {}
+    changed = True
+    while changed:  # a fixture may pass through one defined later
+        changed = False
+        for fn, body in functions:
+            if fn.name not in factories and (
+                cls_name := _returned_class(fn, body, factories)
+            ):
+                factories[fn.name] = cls_name
+                changed = True
+    return factories
+
+
+def _self_instances(
+    chain: list[tuple[ast.ClassDef, str]], factories: Mapping[str, str]
+) -> dict[str, str]:
+    """Map ``self.<attr>`` to the class it holds, from class-level or method binds.
+
+    ``chain`` is the test class and its local base classes, most derived first.
+    """
+    instances: dict[str, str] = {}
+    for cls, _path in reversed(chain):
+        instances.update(_own_instances(cls, factories))
+    return instances
+
+
+def _own_instances(cls: ast.ClassDef, factories: Mapping[str, str]) -> dict[str, str]:
+    instances: dict[str, str] = {}
+    class_level = {id(stmt) for stmt in cls.body}
+    for node in ast.walk(cls):
+        match node:
+            case ast.Assign(targets=targets, value=value):
+                pass
+            case _:
+                continue
+        if not (cls_name := _constructed_class(value, factories)):
+            continue
+        for target in targets:
+            match target:
+                case ast.Attribute(value=ast.Name(id="self"), attr=attr):
+                    instances[f"self.{attr}"] = cls_name
+                case ast.Name(id=attr) if id(node) in class_level:
+                    instances[f"self.{attr}"] = cls_name
+                case _:
+                    pass
+    return instances
+
+
+def _receiver_matches(receiver: ast.expr, owner: str, bound: Mapping[str, str]) -> bool:
     """Return True when ``receiver`` is ``owner``, ``owner(...)``, or bound to it."""
-    match receiver:
-        case ast.Name(id=name):
-            return owner in {name, bound.get(name)}
-        case ast.Attribute(attr=attr):
-            return attr == owner
-        case ast.Call(func=func):
-            return _call_name(func) == owner
-        case _:
-            return False
+    if isinstance(receiver, ast.Call):
+        return _call_name(receiver.func) == owner
+    dotted = _dotted(receiver)
+    return bool(dotted) and owner in {
+        dotted,
+        dotted.rsplit(".", 1)[-1],
+        bound.get(dotted),
+    }
 
 
-def patches_unit_under_test(fn: FuncDef, modules: frozenset[str]) -> bool:
+def patches_unit_under_test(
+    fn: FuncDef,
+    modules: frozenset[str],
+    scope: Mapping[str, str],
+    bound: Mapping[str, str],
+) -> bool:
     """Return True when the test patches a callable that it then calls directly (V7).
 
-    A module-level patch matches a bare call of the same name. A class or object
-    patch matches a method call whose receiver is that owner, an instance built
-    from it in the test, or the owner itself. The method name must be the patched
-    name, or the patched name must be private (the test stubs out the unit's own
-    internals and then drives the unit).
+    A module-level string patch ``pkg.mod.name`` matches a bare ``name(...)`` call
+    when ``scope`` resolves ``name`` to ``pkg.mod.name``. A class or object patch
+    matches a method call on that owner, on ``owner(...)``, or on a name that
+    ``bound`` or the test binds to an instance of it. The method name must be the
+    patched name, or the patched name must be private: the test stubs out the
+    unit's own internals and then drives the unit. Clock, randomness, and HTTP
+    transport names are boundaries and never count. ``bound`` maps fixtures,
+    local factories, and ``self.<attr>`` to the class they build or hold.
     """
     body = _walk_shallow(fn.body)
     patches: list[_Patch] = []
@@ -448,29 +731,44 @@ def patches_unit_under_test(fn: FuncDef, modules: frozenset[str]) -> bool:
     for node in [*fn.decorator_list, *body]:
         if isinstance(node, ast.Call) and (patch := _patch_from_call(node, modules)):
             patch_calls.add(id(node))
-            if not patch.name.startswith("__"):
-                patches.append(patch)
+            imported = scope.get(patch.owner, "")
+            if (
+                patch.owner_path
+                and not patch.owner_is_module
+                and imported
+                and "::" not in imported
+                and imported != patch.owner_path
+            ):
+                continue  # the test imports a different class of that name
+            patches.append(patch)
     if not patches:
         return False
-    bound: dict[str, str] = {}
+    instances = dict(bound)
     for node in body:
         match node:
-            case ast.Assign(targets=[ast.Name(id=var)], value=ast.Call(func=func)):
-                if cls_name := _call_name(func):
-                    bound[var] = cls_name
-            case _:
+            case ast.Assign(targets=[ast.Name(id=var)], value=value):
                 pass
+            case ast.withitem(context_expr=value, optional_vars=ast.Name(id=var)):
+                pass
+            case _:
+                continue
+        if cls_name := _constructed_class(value, bound):
+            instances[var] = cls_name
     for node in body:
         if not isinstance(node, ast.Call) or id(node) in patch_calls:
             continue
         for patch in patches:
             match node.func:
-                case ast.Name(id=name) if patch.owner_is_module and name == patch.name:
+                case ast.Name(id=name) if (
+                    patch.owner_is_module
+                    and name == patch.name
+                    and scope.get(name) == f"{patch.owner_path}.{name}"
+                ):
                     return True
                 case ast.Attribute(attr=attr, value=receiver) if (
                     not patch.owner_is_module
                     and (attr == patch.name or patch.name.startswith("_"))
-                    and _receiver_matches(receiver, patch.owner, bound)
+                    and _receiver_matches(receiver, patch.owner, instances)
                 ):
                     return True
                 case _:
@@ -484,7 +782,7 @@ def patches_unit_under_test(fn: FuncDef, modules: frozenset[str]) -> bool:
 def _dump(
     node: object,
     qualified: Mapping[str, str],
-    self_attrs: Mapping[str, str],
+    self_attrs: _SelfAttrs,
     out: list[str],
 ) -> None:
     """Serialize ``node`` into ``out`` with names replaced by their qualified form.
@@ -502,7 +800,7 @@ def _dump(
         case ast.arg(arg=name):
             out.append(f"arg({qualified.get(name, name)!r})")
         case ast.Attribute(value=ast.Name(id="self"), attr=attr, ctx=ctx):
-            out.append(f"self.({self_attrs.get(attr, attr)!r},{type(ctx).__name__})")
+            out.append(f"self.({self_attrs.qualify(attr)!r},{type(ctx).__name__})")
         case ast.AST():
             out.append(f"{type(node).__name__}(")
             for field in ast.iter_fields(node):
@@ -515,7 +813,7 @@ def _dump(
 def fingerprint(
     fn: FuncDef,
     qualified: Mapping[str, str],
-    self_attrs: Mapping[str, str],
+    self_attrs: _SelfAttrs,
 ) -> str:
     """Hash the test with its name, docstring, and annotations removed."""
     body = fn.body
@@ -569,29 +867,46 @@ def _module_scope(tree: ast.Module, rel: str) -> tuple[dict[str, str], frozenset
     return names, frozenset(modules)
 
 
-def _asserting_helpers(tree: ast.Module) -> frozenset[str]:
-    """Return names of non-test functions and methods that contain checks.
+def _helper_contribution(kinds: set[Check]) -> frozenset[Check]:
+    """Return what a call to a helper with ``kinds`` adds to the calling test.
 
-    A function counts when it checks directly or calls a function that counts.
+    A sound helper adds one real check. A vacuous one (only bare mock calls, only
+    existence checks) adds its own kinds, so the test is judged by them.
     """
-    direct: set[str] = set()
-    callers: dict[str, set[str]] = defaultdict(set)
+    return _REAL_ONLY if classify_checks(list(kinds)) is None else frozenset(kinds)
+
+
+def _asserting_helpers(tree: ast.Module) -> dict[str, frozenset[Check]]:
+    """Map each local non-test function that checks to what a call to it adds.
+
+    A function checks directly, calls a local function that checks, or has a
+    helper name (``assert*``, ``check_*``, ``expect_*``, ``verify*``). Only local
+    functions count: ``subprocess.check_call`` is not a helper.
+    """
+    kinds: dict[str, set[Check]] = defaultdict(set)
+    calls: dict[str, set[str]] = defaultdict(set)
     for node in ast.walk(tree):
         if isinstance(
             node, ast.FunctionDef | ast.AsyncFunctionDef
-        ) and not node.name.startswith("test_"):
-            checks, called = _scan_checks(node.body, frozenset())
-            if checks:
-                direct.add(node.name)
-            for name in called:
-                callers[name].add(node.name)
-    found = set(direct)
-    pending = list(direct)
-    while pending:
-        for caller in callers[pending.pop()] - found:
-            found.add(caller)
-            pending.append(caller)
-    return frozenset(found)
+        ) and not node.name.startswith("test"):
+            checks, called = _scan_checks(node.body, {})
+            kinds[node.name].update(checks)
+            calls[node.name].update(called)
+    changed = True
+    while changed:
+        changed = False
+        for name, callees in calls.items():
+            for callee in callees & kinds.keys():
+                if not kinds[callee]:
+                    continue
+                added = _helper_contribution(kinds[callee]) - kinds[name]
+                if added:
+                    kinds[name].update(added)
+                    changed = True
+    for name, found in kinds.items():
+        if not found and name.startswith(_HELPER_PREFIXES):
+            found.add(Check.REAL)
+    return {name: _helper_contribution(found) for name, found in kinds.items() if found}
 
 
 type TestItem = tuple[str, FuncDef, ast.ClassDef | None]
@@ -618,19 +933,98 @@ def iter_tests(tree: ast.Module) -> list[TestItem]:
     return tests
 
 
+@dataclass(slots=True)
+class _SelfAttrs:
+    """Qualified names of ``self.<attr>``; an unbound attr is qualified by ``fallback``."""
+
+    fallback: str
+    names: dict[str, str] = field(default_factory=dict)
+
+    def qualify(self, attr: str) -> str:
+        """Return the qualified name of ``self.<attr>``."""
+        return self.names.get(attr, f"{self.fallback}.{attr}")
+
+
+def _class_chain(
+    cls: ast.ClassDef | None, cls_path: str | None, classes: Mapping[str, ast.ClassDef]
+) -> list[tuple[ast.ClassDef, str]]:
+    """Return the test class and its base classes in this module, most derived first."""
+    chain: list[tuple[ast.ClassDef, str]] = []
+    pending = [(cls, cls_path or "")] if cls is not None else []
+    while pending:
+        klass, path = pending.pop(0)
+        if any(klass is seen for seen, _ in chain):
+            continue
+        chain.append((klass, path))
+        pending.extend(
+            (classes[base.id], base.id)
+            for base in klass.bases
+            if isinstance(base, ast.Name) and base.id in classes
+        )
+    return chain
+
+
+def _self_binds(stmt: ast.stmt) -> list[tuple[str, ast.expr]]:
+    """Return the ``(attr, value)`` pairs that a class-body statement binds on ``self``.
+
+    A class-level assignment binds its names. A method binds every ``self.<attr>``
+    it assigns.
+    """
+    match stmt:
+        case ast.Assign(targets=targets, value=value):
+            return [(t.id, value) for t in targets if isinstance(t, ast.Name)]
+        case ast.AnnAssign(target=ast.Name(id=name), value=ast.expr() as value):
+            return [(name, value)]
+        case ast.FunctionDef() | ast.AsyncFunctionDef():
+            return [
+                (target.attr, node.value)
+                for node in ast.walk(stmt)
+                if isinstance(node, ast.Assign | ast.AnnAssign)
+                and node.value is not None
+                for target in (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
+                if isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "self"
+            ]
+        case _:
+            return []
+
+
 def _class_names(
-    cls: ast.ClassDef | None, cls_path: str | None, rel: str, fixtures: dict[str, str]
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Return the fixtures visible in the class and its ``self.`` method names."""
-    fixtures = dict(fixtures)
-    self_attrs: dict[str, str] = {}
-    if cls is not None:
+    chain: list[tuple[ast.ClassDef, str]],
+    fallback: str,
+    rel: str,
+    fixtures: Mapping[str, str],
+    scope: Mapping[str, str],
+) -> tuple[dict[str, str], _SelfAttrs]:
+    """Return the fixtures visible in the class and the qualified ``self.`` names.
+
+    A method is qualified by the class that defines it. A data attribute is
+    qualified by the normalized values bound to it, so tests of different
+    subjects (``subject = SpotifyConnector`` vs ``LastfmConnector``) differ and
+    tests that share a base-class attribute match.
+    """
+    visible = dict(fixtures)
+    self_attrs = _SelfAttrs(fallback)
+    class_fixtures: set[str] = set()
+    for cls, path in chain:
+        values: dict[str, list[str]] = defaultdict(list)
         for stmt in cls.body:
             if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
-                self_attrs[stmt.name] = f"{rel}::{cls_path}.{stmt.name}"
-                if _is_fixture(stmt):
-                    fixtures[stmt.name] = self_attrs[stmt.name]
-    return fixtures, self_attrs
+                if stmt.name not in self_attrs.names:
+                    self_attrs.names[stmt.name] = f"{rel}::{path}.{stmt.name}"
+                if _is_fixture(stmt) and stmt.name not in class_fixtures:
+                    class_fixtures.add(stmt.name)
+                    visible[stmt.name] = f"{rel}::{path}.{stmt.name}"
+            for attr, value in _self_binds(stmt):
+                _dump(value, scope, self_attrs, values[attr])
+        for attr, dumped in values.items():
+            if attr not in self_attrs.names:
+                digest = hashlib.sha256("".join(dumped).encode()).hexdigest()[:16]
+                self_attrs.names[attr] = f"={digest}"
+    return visible, self_attrs
 
 
 type Print = tuple[str, Finding]
@@ -644,6 +1038,9 @@ def analyze_source(source: str, rel: str) -> tuple[list[Finding], list[Print]]:
     tree = ast.parse(source, filename=rel)
     scope, modules = _module_scope(tree, rel)
     helpers = _asserting_helpers(tree)
+    patches = "patch" in source or "setattr" in source
+    factories = _factories(tree) if patches else {}
+    classes = {stmt.name: stmt for stmt in tree.body if isinstance(stmt, ast.ClassDef)}
     module_fixtures = {
         stmt.name: f"{rel}::{stmt.name}"
         for stmt in tree.body
@@ -651,20 +1048,26 @@ def analyze_source(source: str, rel: str) -> tuple[list[Finding], list[Print]]:
         and _is_fixture(stmt)
     }
     directory = rel.rsplit("/", 1)[0]
-    class_names: dict[str | None, tuple[dict[str, str], dict[str, str]]] = {}
+    class_names: dict[str | None, tuple[dict[str, str], _SelfAttrs, dict[str, str]]]
+    class_names = {}
     findings: list[Finding] = []
     prints: list[Print] = []
     for node_id, fn, cls in iter_tests(tree):
         cls_path = node_id.rpartition("::")[0] or None
         if cls_path not in class_names:
-            class_names[cls_path] = _class_names(cls, cls_path, rel, module_fixtures)
-        fixtures, self_attrs = class_names[cls_path]
+            chain = _class_chain(cls, cls_path, classes)
+            fixtures, self_attrs = _class_names(
+                chain, f"{rel}::{cls_path}", rel, module_fixtures, scope
+            )
+            bound = {**factories, **_self_instances(chain, factories)}
+            class_names[cls_path] = (fixtures, self_attrs, bound)
+        fixtures, self_attrs, bound = class_names[cls_path]
         test = Finding(rel, fn.lineno, fn.name, cls_path, "DUP")
 
-        checks = collect_checks(fn.body, helpers)
+        checks = _scan_checks(fn.body, helpers)[0]
         if shape := classify_checks(checks):
             findings.append(replace(test, code=shape))
-        if patches_unit_under_test(fn, modules):
+        if patches and patches_unit_under_test(fn, modules, scope, bound):
             findings.append(replace(test, code="V7"))
         if Check.TIMING in checks:
             findings.append(replace(test, code="V9"))
@@ -734,15 +1137,75 @@ def build_baseline(findings: list[Finding]) -> dict[str, dict[str, list[str]]]:
     return {"tests": {code: sorted(keys) for code, keys in tests.items()}}
 
 
+def parse_baseline(text: str) -> dict[str, set[str]]:
+    """Return the flagged test ids per code from a baseline document."""
+    document = cast("dict[str, dict[str, list[str]]]", json.loads(text))
+    return {code: set(ids) for code, ids in document["tests"].items()}
+
+
 def load_baseline(path: Path) -> dict[str, set[str]]:
     """Read the flagged test ids per code. A missing file gives none."""
     if not path.exists():
         return {}
-    document = cast(
-        "dict[str, dict[str, list[str]]]",
-        json.loads(path.read_text(encoding="utf-8")),
+    return parse_baseline(path.read_text(encoding="utf-8"))
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(root), *args], capture_output=True, text=True, check=False
     )
-    return {code: set(ids) for code, ids in document["tests"].items()}
+
+
+def changed_files(root: Path, ref: str) -> set[str]:
+    """Return the paths added, changed, or renamed since ``ref``, untracked tests included.
+
+    The diff covers commits after ``ref`` and uncommitted work. A rename gives
+    both its old and new path.
+    """
+    diff = _git(
+        root, "diff", "--name-only", "--no-renames", "--end-of-options", ref, "--"
+    )
+    untracked = _git(root, "ls-files", "--others", "--exclude-standard", "tests/")
+    return {line for line in (diff.stdout + untracked.stdout).splitlines() if line}
+
+
+def check_base_growth(root: Path, ref: str) -> int:
+    """Compare the working baseline to the baseline committed at ``ref``.
+
+    Return 1 when the working baseline gains an id, relative to ``ref``, in a
+    test file that changed since ``ref``, or when ``ref`` is unknown or starts
+    with ``-``. Print an id gained in an unchanged file as a note. When ``ref``
+    has no baseline file, print a note and return 0.
+    """
+    if ref.startswith("-"):
+        print(f"VACUITY FAIL: ref may not start with '-': {ref}")
+        return 1
+    if _git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode:
+        print(f"VACUITY FAIL: unknown ref {ref}")
+        return 1
+    shown = _git(root, "show", f"{ref}:{BASELINE_NAME}")
+    if shown.returncode:
+        print(f"note: no {BASELINE_NAME} at {ref}; baseline growth not checked")
+        return 0
+    base = parse_baseline(shown.stdout)
+    current = load_baseline(root / BASELINE_NAME)
+    added = [
+        (code, key)
+        for code in CODES
+        for key in sorted(current.get(code, set()) - base.get(code, set()))
+    ]
+    changed: set[str] = changed_files(root, ref) if added else set()
+    grown = [(code, key) for code, key in added if key.split("::")[0] in changed]
+    for code, key in added:
+        if (code, key) not in grown:
+            print(f"BASELINE ADDED (untouched file): {code} {key}")
+    for code, key in grown:
+        print(f"BASELINE GREW: {code} {key}")
+    if grown:
+        print(f"Fix these tests; files changed since {ref} may not grow the baseline.")
+        return 1
+    print(f"ok: baseline adds no ids in files changed since {ref}")
+    return 0
 
 
 def ratchet(findings: list[Finding], baseline_path: Path) -> int:
@@ -795,6 +1258,7 @@ class _Args(argparse.Namespace):
     report: bool = False
     update_baseline: bool = False
     json: bool = False
+    base_ref: str | None = None
     root: Path = REPO_ROOT
 
 
@@ -807,6 +1271,11 @@ def main(argv: list[str] | None = None) -> int:
         "--update-baseline", action="store_true", help="write the flagged ids"
     )
     _ = parser.add_argument("--json", action="store_true", help="JSON with --report")
+    _ = parser.add_argument(
+        "--base-ref",
+        metavar="REF",
+        help="ratchet mode: also fail when a test file changed since REF gains a baseline id",
+    )
     _ = parser.add_argument("--root", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv, namespace=_Args())
     findings = scan(args.root)
@@ -819,7 +1288,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.report:
         report(findings, as_json=args.json)
         return 0
-    return ratchet(findings, baseline_path)
+    status = ratchet(findings, baseline_path)
+    if args.base_ref is not None:
+        status = max(status, check_base_growth(args.root, args.base_ref))
+    return status
 
 
 if __name__ == "__main__":

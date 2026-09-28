@@ -34,7 +34,7 @@ Apply `.claude/rules/test-value.md` (kill criterion, expected values, mock bound
   uv run python scripts/mutmut_run.py results      # survivors
   uv run python scripts/mutmut_run.py show <name>  # one mutant's diff
   ```
-- **Vacuity check** — `scripts/check_test_vacuity.py` is an AST checker for the V-codes in `test-value.md`. It ratchets against `tests/.vacuity_baseline.json`: it fails when a flagged test is not in the baseline.
+- **Vacuity check** — `scripts/check_test_vacuity.py` is an AST checker for the V-codes in `test-value.md`. It ratchets against `tests/.vacuity_baseline.json`: it fails when a flagged test is not in the baseline. With `--base-ref REF` it also fails when the baseline gains an id in a test file changed since REF, so fix a new offender in your change; do not add it with `--update-baseline`. An id in an unchanged file (a sharper checker) may enter the baseline.
 - **Red check** — `scripts/check_tests_red.sh` reports new tests that pass on the base branch. For a bug fix or new behavior, such a test does not catch the change.
 
 ## Test-environment gotchas (source of most false confidence)

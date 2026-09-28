@@ -177,19 +177,11 @@ def _git(project: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True)
 
 
-@pytest.mark.parametrize(
-    ("branch", "asks"),
-    [("test-audit/x", False), ("main", True)],
-    ids=["audit-branch-silent", "main-asks"],
-)
-def test_audit_branch_silences_the_guard(
-    project: Path, branch: str, *, asks: bool
-) -> None:
-    """Auditor worktrees on test-audit/* delete tests under verifier review."""
-    _git(project, "init", "-b", branch)
-    _git(project, "add", ".")
+def _init_repo(repo: Path, branch: str) -> None:
+    _git(repo, "init", "-b", branch)
+    _git(repo, "add", ".")
     _git(
-        project,
+        repo,
         "-c",
         "user.name=t",
         "-c",
@@ -201,9 +193,187 @@ def test_audit_branch_silences_the_guard(
         "init",
     )
 
+
+@pytest.mark.parametrize(
+    ("branch", "asks"),
+    [("test-audit/x", False), ("main", True)],
+    ids=["audit-branch-silent", "main-asks"],
+)
+def test_audit_branch_silences_the_guard(
+    project: Path, branch: str, *, asks: bool
+) -> None:
+    """Auditor worktrees on test-audit/* delete tests under verifier review."""
+    _init_repo(project, branch)
+
     result = _run(project, _edit(project, "    assert total([]) == 0\n", ""))
 
     assert result.returncode == 0
     assert (result.stdout != "") is asks
     if asks:
         assert _decision(result)["permissionDecision"] == "ask"
+
+
+def test_worktree_under_the_project_is_guarded(project: Path) -> None:
+    """A worktree's tests/ sits below .claude/worktrees/, not at the project root."""
+    worktree = project / ".claude" / "worktrees" / "x"
+    (worktree / "tests").mkdir(parents=True)
+    (worktree / "tests" / "test_a.py").write_text(ORIGINAL)
+    _init_repo(worktree, "main")
+    payload = _edit(
+        project,
+        "    assert total([]) == 0\n",
+        "",
+        path=".claude/worktrees/x/tests/test_a.py",
+    )
+
+    reason = _decision(_run(project, payload))["permissionDecisionReason"]
+
+    assert reason.startswith("This edit weakens tests/test_a.py: assertions 2→1")
+
+
+def test_session_started_in_a_subdirectory_is_guarded(tmp_path: Path) -> None:
+    """A session started in web/ has CLAUDE_PROJECT_DIR=web; the repo root decides."""
+    spec = tmp_path / "web" / "src" / "total.test.ts"
+    spec.parent.mkdir(parents=True)
+    spec.write_text(TS_ORIGINAL)
+    _init_repo(tmp_path, "main")
+    payload = _edit(
+        tmp_path, "  expect(total([])).toBe(0);\n", "", path="web/src/total.test.ts"
+    )
+
+    reason = _decision(_run(tmp_path / "web", payload))["permissionDecisionReason"]
+
+    assert reason.startswith("This edit weakens web/src/total.test.ts: assertions 2→1")
+
+
+def test_tests_dir_below_the_repo_root_is_silent(tmp_path: Path) -> None:
+    """Only tests/ at the git toplevel holds project tests."""
+    vendored = tmp_path / "src" / "pkg" / "tests" / "test_math.py"
+    vendored.parent.mkdir(parents=True)
+    vendored.write_text(ORIGINAL)
+    _init_repo(tmp_path, "main")
+    payload = _edit(
+        tmp_path,
+        "    assert total([]) == 0\n",
+        "",
+        path="src/pkg/tests/test_math.py",
+    )
+
+    result = _run(tmp_path, payload)
+
+    assert (result.returncode, result.stdout) == (0, "")
+
+
+TS_ORIGINAL = """\
+import { expect, it } from "vitest";
+
+it("totals", () => {
+  expect(total([1, 2])).toBe(3);
+  expect(total([])).toBe(0);
+});
+"""
+RAISES_MATCH = """\
+import pytest
+
+
+def test_total_rejects_none():
+    with pytest.raises(TypeError, match="not iterable"):
+        total(None)
+"""
+RAISES_BARE = RAISES_MATCH.replace(', match="not iterable"', "")
+EXISTENCE = ORIGINAL.replace("total([]) == 0", "total([]) is not None")
+PY_PATH = "tests/unit/test_math.py"
+TS_PATH = "web/src/total.test.ts"
+
+
+def _edit_file(
+    tmp_path: Path, path: str, source: str, old: str, new: str
+) -> subprocess.CompletedProcess[str]:
+    target = tmp_path / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source)
+    return _run(tmp_path, _edit(tmp_path, old, new, path=path))
+
+
+@pytest.mark.parametrize(
+    ("path", "source", "old", "new", "change"),
+    [
+        (PY_PATH, ORIGINAL, "== 0", "is not None", "strong checks 2→1"),
+        (PY_PATH, ORIGINAL, "total([]) == 0", "True", "strong checks 2→1"),
+        (
+            PY_PATH,
+            RAISES_MATCH,
+            ', match="not iterable"',
+            "",
+            "raises with match 1→0",
+        ),
+        (PY_PATH, RAISES_BARE, "TypeError", "Exception", "strong checks 1→0"),
+        (TS_PATH, TS_ORIGINAL, "toBe(0)", "toBeDefined()", "strong checks 2→1"),
+        (TS_PATH, TS_ORIGINAL, "toBe(0)", "toBeTruthy()", "strong checks 2→1"),
+        (TS_PATH, TS_ORIGINAL, "toBe(0)", "not.toBeNull()", "strong checks 2→1"),
+        (
+            TS_PATH,
+            TS_ORIGINAL,
+            "  expect(total([])).toBe(0);\n",
+            "  expect(total([])).toBe(0);\n  expect(total([5])).toBeTruthy();\n",
+            "weak checks 0→1",
+        ),
+    ],
+    ids=[
+        "py-is-not-none",
+        "py-assert-true",
+        "py-raises-drops-match",
+        "py-raises-broadens",
+        "ts-to-be-defined",
+        "ts-to-be-truthy",
+        "ts-not-to-be-null",
+        "ts-adds-weak-matcher",
+    ],
+)
+def test_weakening_with_equal_assertion_count_asks(
+    tmp_path: Path, path: str, source: str, old: str, new: str, change: str
+) -> None:
+    result = _edit_file(tmp_path, path, source, old, new)
+
+    decision = _decision(result)
+    assert decision["permissionDecision"] == "ask"
+    assert change in decision["permissionDecisionReason"]
+    assert "assertions" not in decision["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize(
+    ("path", "source", "old", "new"),
+    [
+        (PY_PATH, EXISTENCE, "is not None", "== 0"),
+        (PY_PATH, RAISES_BARE, "TypeError)", 'TypeError, match="not iterable")'),
+        (
+            TS_PATH,
+            TS_ORIGINAL.replace("toBe(0)", "toBeDefined()"),
+            "toBeDefined()",
+            "toBe(0)",
+        ),
+    ],
+    ids=["py-pins-value", "py-raises-adds-match", "ts-pins-value"],
+)
+def test_strengthening_is_silent(
+    tmp_path: Path, path: str, source: str, old: str, new: str
+) -> None:
+    result = _edit_file(tmp_path, path, source, old, new)
+
+    assert (result.returncode, result.stdout) == (0, "")
+
+
+def test_removing_a_local_assert_helper_call_asks(tmp_path: Path) -> None:
+    """A call to a local helper that asserts is a check; dropping it weakens."""
+    source = """\
+def _assert_total(values, expected):
+    assert total(values) == expected
+
+
+def test_total():
+    _assert_total([1, 2], 3)
+    _assert_total([], 0)
+"""
+    result = _edit_file(tmp_path, PY_PATH, source, "    _assert_total([], 0)\n", "")
+
+    assert "assertions 3→2" in _decision(result)["permissionDecisionReason"]

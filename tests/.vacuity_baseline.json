@@ -47,7 +47,9 @@
       "tests/unit/interface/shared/test_cli_helpers.py::TestValidateDateRange::test_none_dates_passes",
       "tests/unit/interface/shared/test_cli_helpers.py::TestValidateDateRange::test_partial_none_passes",
       "tests/unit/interface/shared/test_cli_helpers.py::TestValidateDateRange::test_valid_date_range_passes",
-      "tests/unit/interface/shared/test_cli_helpers.py::TestValidateFilePath::test_valid_file_path_passes"
+      "tests/unit/interface/shared/test_cli_helpers.py::TestValidateFilePath::test_valid_file_path_passes",
+      "tests/unit/scripts/test_cleanup_mistenanted_spotify_tracks.py::TestWindowGuard::test_an_empty_candidate_set_passes",
+      "tests/unit/scripts/test_cleanup_mistenanted_spotify_tracks.py::TestWindowGuard::test_rows_at_or_after_the_window_pass"
     ],
     "V2": [
       "tests/integration/api/test_api_logging.py::TestAPILifespanLogging::test_api_lifespan_configures_structlog",
@@ -155,6 +157,7 @@
     ],
     "V3": [
       "tests/integration/repositories/test_base_repo_contracts.py::TestFindByConditionForms::test_find_one_by_dict_conditions",
+      "tests/integration/repositories/test_mapping_origin.py::TestIngestSkipsManualOverride::test_full_confidence_mapping_is_stamped_too",
       "tests/integration/repositories/test_resolution_events.py::TestRejectedPairsAreNotReProposed::test_rejecting_a_candidate_materializes_its_connector_track",
       "tests/integration/test_connector_contracts.py::TestConnectorContracts::test_connector_registry_provides_valid_lastfm_connector",
       "tests/integration/test_connector_contracts.py::TestConnectorContracts::test_connector_registry_provides_valid_spotify_connector",
@@ -167,7 +170,6 @@
       "tests/integration/test_progress_coordination.py::TestProgressConsoleCoordination::test_console_restoration_after_coordination",
       "tests/integration/test_progress_coordination.py::TestProgressConsoleCoordination::test_progress_coordination_context_provides_unified_console",
       "tests/integration/test_progress_coordination.py::TestProgressConsoleCoordination::test_progress_subscriber_console_coordination",
-      "tests/integration/test_progress_coordination.py::TestProgressConsoleCoordination::test_unified_console_output_coordination",
       "tests/integration/test_workflow_context_contracts.py::TestUseCaseProviderContracts::test_use_case_provider_provides_all_required_use_cases",
       "tests/integration/test_workflow_context_contracts.py::TestWorkflowContextContracts::test_workflow_context_provides_real_repositories",
       "tests/integration/test_workflow_context_contracts.py::TestWorkflowContextContracts::test_workflow_context_provides_use_cases",
@@ -176,7 +178,6 @@
       "tests/unit/application/services/test_play_import_orchestrator.py::TestResolverLifecycle::test_resolver_without_aclose_still_resolves",
       "tests/unit/application/tools/test_registry_parity.py::test_non_agentic_tools_have_a_dispatcher",
       "tests/unit/application/use_cases/_shared/test_batch_commit.py::TestCommitBatchHappyPath::test_mock_uow_satisfies_protocol",
-      "tests/unit/application/use_cases/_shared/test_metric_config.py::TestDefaultMetricConfig::test_default_metric_config_returns_a_provider",
       "tests/unit/application/use_cases/_shared/test_sync_targets.py::TestDispatchableVersusSchedulable::test_play_poll_carries_both_poll_hooks",
       "tests/unit/application/use_cases/_shared/test_timed_execution.py::TestTimedQuerySuccess::test_yields_timer",
       "tests/unit/application/use_cases/test_get_played_tracks.py::TestGetPlayedTracksUseCase::test_execute_with_days_back_filter",
@@ -263,6 +264,7 @@
       "tests/unit/infrastructure/connectors/_shared/test_successor_resolution.py::TestSuccessorAssertion::test_assertion_is_immutable"
     ],
     "V7": [
+      "tests/integration/repositories/test_generic_mapping_repository.py::TestAssertWithoutSupersession::test_a_row_the_pre_read_missed_is_still_a_rewrite",
       "tests/unit/application/use_cases/test_import_play_history.py::TestImportTracksUseCase::test_exception_returns_failed_result",
       "tests/unit/application/use_cases/test_import_play_history.py::TestImportTracksUseCase::test_quota_exhaustion_propagates_instead_of_failed_result",
       "tests/unit/application/use_cases/test_import_play_history.py::TestImportTracksUseCase::test_successful_import_returns_result",
@@ -279,7 +281,17 @@
       "tests/unit/application/workflows/nodes/test_config_fields.py::test_required_select_with_no_options_fails_the_build",
       "tests/unit/infrastructure/connectors/lastfm/test_lastfm_fast_implementation.py::TestLastFMFastImplementation::test_comprehensive_api_call_performance",
       "tests/unit/infrastructure/connectors/lastfm/test_lastfm_inward_resolver.py::TestConcurrentEnrichment::test_one_failed_enrichment_fails_without_cancelling_siblings",
-      "tests/unit/infrastructure/connectors/musicbrainz/test_client_artist.py::TestSearchArtist::test_a_suppressed_request_failure_reads_as_no_hits",
+      "tests/unit/infrastructure/connectors/spotify/test_spotify_retry_behavior.py::TestComprehensiveErrorClassification::test_network_errors_retried_as_temporary",
+      "tests/unit/infrastructure/connectors/spotify/test_spotify_retry_behavior.py::TestComprehensiveErrorClassification::test_not_found_error_no_retry",
+      "tests/unit/infrastructure/connectors/spotify/test_spotify_retry_behavior.py::TestComprehensiveErrorClassification::test_permanent_http_errors_no_retry_comprehensive",
+      "tests/unit/infrastructure/connectors/spotify/test_spotify_retry_behavior.py::TestComprehensiveErrorClassification::test_rate_limit_error_retries",
+      "tests/unit/infrastructure/connectors/spotify/test_spotify_retry_behavior.py::TestComprehensiveErrorClassification::test_success_after_temporary_failure",
+      "tests/unit/infrastructure/connectors/spotify/test_spotify_retry_behavior.py::TestComprehensiveErrorClassification::test_temporary_server_errors_retry_comprehensive",
+      "tests/unit/infrastructure/connectors/spotify/test_token_manager.py::TestInvalidGrantOnRefresh::test_force_refresh_propagates_reauth_error",
+      "tests/unit/infrastructure/connectors/spotify/test_token_manager.py::TestInvalidGrantOnRefresh::test_try_silent_refresh_propagates_reauth_error",
+      "tests/unit/infrastructure/connectors/spotify/test_token_manager.py::TestInvalidGrantOnRefresh::test_try_silent_refresh_still_swallows_other_errors",
+      "tests/unit/infrastructure/connectors/spotify/test_token_manager.py::TestSpotifyTokenManager::test_force_refresh_saves_to_storage",
+      "tests/unit/infrastructure/connectors/spotify/test_token_manager.py::TestSpotifyTokenManager::test_refreshes_expired_token",
       "tests/unit/infrastructure/connectors/test_discovery.py::TestDiscoverConnectors::test_import_error_propagates"
     ],
     "V9": [

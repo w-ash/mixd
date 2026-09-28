@@ -143,7 +143,7 @@ This gate mirrors `.github/workflows/ci.yml`. If you change one, change both —
 - `uv run ruff format .` — autoformat
 - `uv run vulture` — dead code. CI runs it and a red step here shipped unnoticed for a month pre-v0.8.17; never skip it.
 - `scripts/check_ratchet.sh` — bounds the sanctioned `# pyright: ignore` count so suppressions can't proliferate
-- `uv run python scripts/check_test_vacuity.py` — fails when a flagged test is not in `tests/.vacuity_baseline.json` (`.claude/rules/test-value.md`)
+- `uv run python scripts/check_test_vacuity.py --base-ref origin/main` — fails when a flagged test is not in `tests/.vacuity_baseline.json`, or when it gains an id in a test file changed since main; ids in unchanged files are printed as notes (`.claude/rules/test-value.md`). CI passes `HEAD~1`, which is the base branch tip on a PR merge commit
 - `uvx deptry .` — undeclared and unused dependencies
 - `uv run lint-imports --no-cache` — layer contracts. `--no-cache` is load-bearing: a cached run under-reports
 - `uv run python scripts/check_backlog.py` — backlog hygiene (links, archive index, matrix ↔ files, changelog entry for the new version)

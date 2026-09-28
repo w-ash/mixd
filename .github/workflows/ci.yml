@@ -24,9 +24,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # Depth 2 makes HEAD~1 available: the base branch tip for a PR merge commit,
+      # the previous main commit for a push. The vacuity ratchet compares to it.
       - uses: actions/checkout@v7
         with:
           submodules: false
+          fetch-depth: 2
 
       # Full version, not `@v10` — setup-uv stopped publishing major/minor tags at
       # v8.0.0 (deliberately, as a supply-chain measure after the tj-actions
@@ -59,10 +62,12 @@ jobs:
         run: bash scripts/check_ratchet.sh
 
       # Syntactically vacuous tests (.claude/rules/test-value.md), ratcheted against
-      # tests/.vacuity_baseline.json. Mutation testing and the red check stay in
-      # /ship — too slow for every push.
+      # tests/.vacuity_baseline.json. --base-ref HEAD~1 fails when the baseline lists
+      # an id the base commit's baseline does not, so --update-baseline cannot hide a
+      # new offender. Mutation testing and the red check stay in /ship — too slow
+      # for every push.
       - name: Test vacuity ratchet
-        run: uv run python scripts/check_test_vacuity.py
+        run: uv run python scripts/check_test_vacuity.py --base-ref HEAD~1
 
       # Undeclared imports: catches code importing a package we only receive
       # transitively (a fastapi bump could otherwise move starlette out from
