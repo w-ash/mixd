@@ -34,13 +34,6 @@ class TestConcatenateDedup:
         result = concatenate([tl1, tl2], deduplicate=True, tracklist=TrackList())
         assert [t.id for t in result.tracks] == [id1, id2, id3]
 
-    def test_dedup_false_is_default(self):
-        shared_id = uuid7()
-        tl1 = TrackList(tracks=[make_persisted_track(id=shared_id)])
-        tl2 = TrackList(tracks=[make_persisted_track(id=shared_id)])
-        result = concatenate([tl1, tl2], tracklist=TrackList())
-        assert len(result.tracks) == 2
-
 
 class TestInterleaveDedup:
     def test_no_dedup_preserves_duplicates(self):

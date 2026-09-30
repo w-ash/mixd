@@ -148,10 +148,11 @@ class TestPositionShiftSimulation:
             op for op in operations if op.operation_type == PlaylistOperationType.MOVE
         ]
 
-        if len(move_ops) > 1:
-            # Verify operations are in reverse order by old_position
-            old_positions = [op.old_position for op in move_ops]
-            assert old_positions == sorted(old_positions, reverse=True)
+        # A reversal cannot be reached without moves, so the ordering check
+        # below is never vacuous.
+        assert len(move_ops) >= 2
+        old_positions = [op.old_position for op in move_ops]
+        assert old_positions == sorted(old_positions, reverse=True)
 
     def test_empty_operations_handling(self):
         """Test handling of empty operations list."""
@@ -173,37 +174,3 @@ class TestPositionShiftSimulation:
         adjusted_ops = simulate_position_shifts(operations)
         assert len(adjusted_ops) == 1
         assert adjusted_ops[0] == operations[0]
-
-    def test_large_playlist_efficiency(self):
-        """Test efficiency with large number of operations."""
-        # Create large playlist with many tracks
-        tracks = [
-            Track(
-                id=i,
-                title=f"Track {i}",
-                artists=[ArtistCredit(credited_name=f"Artist {i}")],
-                user_id=TEST_USER_ID,
-            )
-            for i in range(100)
-        ]
-
-        current_playlist = Playlist.from_tracklist(
-            name="Large Test", tracklist=tracks, user_id=TEST_USER_ID
-        )
-        target_tracks = list(reversed(tracks))  # Reverse order - worst case
-        target_tracklist = TrackList(tracks=target_tracks)
-
-        diff = calculate_playlist_diff(current_playlist, target_tracklist)
-        operations = plan_api_operations(diff)
-
-        # Should have many move operations, all properly ordered
-        move_ops = [
-            op for op in operations if op.operation_type == PlaylistOperationType.MOVE
-        ]
-
-        if len(move_ops) > 1:
-            # Verify reverse ordering
-            old_positions = [
-                op.old_position for op in move_ops if op.old_position is not None
-            ]
-            assert old_positions == sorted(old_positions, reverse=True)

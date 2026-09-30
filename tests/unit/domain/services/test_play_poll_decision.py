@@ -66,9 +66,11 @@ class TestRedundancy:
         assert has_redundant_observer(None, now=_NOW) is False
 
     def test_cap_follows_redundancy(self) -> None:
-        assert cap_for(_inputs()) == SOLE_OBSERVER_CAP_SECONDS
+        # Sole observer: 2 hours keeps inside the ~50-play window turnover.
+        # With Last.fm also scrobbling: the daily third-party sync default.
+        assert cap_for(_inputs()) == 2 * 60 * 60
         redundant = _inputs(lastfm_last_timestamp=_NOW - timedelta(days=1))
-        assert cap_for(redundant) == REDUNDANT_CAP_SECONDS
+        assert cap_for(redundant) == 24 * 60 * 60
 
 
 class TestDecideVetoes:
@@ -132,9 +134,10 @@ class TestFullnessControlLaw:
         assert result.consecutive_empty == 2
 
     def test_empty_poll_stretches(self) -> None:
+        # One empty poll doubles the 30-minute base (no jitter key → exact).
         result = _apply(PollState(), raw_plays=0, imported=0)
         assert result.consecutive_empty == 1
-        assert result.interval_seconds > BASE_INTERVAL_SECONDS
+        assert result.interval_seconds == 60 * 60
 
     def test_repeated_empties_stretch_to_the_cap_not_past_it(self) -> None:
         state = PollState()

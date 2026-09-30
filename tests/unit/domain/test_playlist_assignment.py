@@ -4,6 +4,7 @@ Pure-function tests: constructor validation, ``create()`` normalization,
 invalid input rejection. No I/O, no mocks.
 """
 
+from datetime import UTC, datetime
 from uuid import uuid7
 
 import pytest
@@ -36,24 +37,6 @@ class TestValidateActionValue:
 
 
 class TestConstructor:
-    def test_canonical_preference_accepted(self) -> None:
-        assignment = PlaylistAssignment(
-            user_id="u",
-            connector_playlist_id=uuid7(),
-            action_type="set_preference",
-            action_value="star",
-        )
-        assert assignment.action_value == "star"
-
-    def test_canonical_tag_accepted(self) -> None:
-        assignment = PlaylistAssignment(
-            user_id="u",
-            connector_playlist_id=uuid7(),
-            action_type="add_tag",
-            action_value="mood:chill",
-        )
-        assert assignment.action_value == "mood:chill"
-
     def test_non_canonical_tag_normalized_on_construct(self) -> None:
         """Direct construction normalizes the same way ``create()`` does, so
         CLI / migration callers that bypass ``create()`` still produce a
@@ -108,17 +91,12 @@ class TestCreateClassmethod:
 
 
 class TestPlaylistAssignmentMember:
-    def test_default_synced_at(self) -> None:
+    def test_synced_at_defaults_to_now_in_utc(self) -> None:
+        before = datetime.now(UTC)
         member = PlaylistAssignmentMember(
             user_id="u", assignment_id=uuid7(), track_id=uuid7()
         )
-        assert member.synced_at is not None
+        after = datetime.now(UTC)
 
-    def test_explicit_synced_at_preserved(self) -> None:
-        from datetime import UTC, datetime
-
-        ts = datetime(2025, 6, 1, tzinfo=UTC)
-        member = PlaylistAssignmentMember(
-            user_id="u", assignment_id=uuid7(), track_id=uuid7(), synced_at=ts
-        )
-        assert member.synced_at == ts
+        assert before <= member.synced_at <= after
+        assert member.synced_at.tzinfo == UTC

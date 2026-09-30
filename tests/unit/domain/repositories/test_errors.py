@@ -7,6 +7,8 @@ either library (this is the domain kernel, and the application layer that
 calls it may not import them at all).
 """
 
+import pytest
+
 from src.domain.repositories.errors import (
     DEADLOCK_DETECTED,
     LOCK_NOT_AVAILABLE,
@@ -66,9 +68,17 @@ class TestReadingTheSqlstate:
 
 
 class TestClassifyingContention:
-    def test_the_three_contention_codes_are_transient(self):
-        for code in (LOCK_NOT_AVAILABLE, DEADLOCK_DETECTED, SERIALIZATION_FAILURE):
-            assert is_transient_contention(_SqlalchemyWrapper(_PsycopgError(code)))
+    @pytest.mark.parametrize(
+        "code",
+        [
+            "55P03",  # lock_not_available
+            "40P01",  # deadlock_detected
+            "40001",  # serialization_failure
+        ],
+    )
+    def test_the_three_contention_codes_are_transient(self, code: str):
+        """Literal SQLSTATEs from the PostgreSQL error-code appendix."""
+        assert is_transient_contention(_SqlalchemyWrapper(_PsycopgError(code)))
 
     def test_a_constraint_violation_is_not(self):
         """The distinction the ingest fallback turns on: this one is about the

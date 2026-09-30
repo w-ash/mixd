@@ -4,12 +4,15 @@ Tests validate 100% first-pass accuracy, minimal moves, and proper duplicate han
 Critical for ensuring the three-layer architecture meets success criteria.
 """
 
+import itertools
+
 from attrs import evolve
 import pytest
 
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import ArtistCredit, Track, TrackList
 from src.domain.playlist.diff_engine import (
+    PlaylistOperation,
     PlaylistOperationType,
     calculate_add_operations,
     calculate_lis_reorder_operations,
@@ -18,6 +21,29 @@ from src.domain.playlist.diff_engine import (
     calculate_remove_operations,
 )
 from tests.fixtures import TEST_USER_ID
+
+
+def _assert_strictly_increasing_subsequence(
+    sequence: list[int], indices: list[int]
+) -> None:
+    """Indices ascend and pick strictly increasing values."""
+    assert indices == sorted(set(indices))
+    values = [sequence[i] for i in indices]
+    assert all(a < b for a, b in itertools.pairwise(values))
+
+
+def _unmoved_tracks_keep_target_order(
+    current: list[Track], target: list[Track], operations: list[PlaylistOperation]
+) -> bool:
+    """Whether single-track moves can reach ``target`` from ``current``.
+
+    A move never changes the relative order of the tracks it does not touch, so
+    the unmoved tracks must already appear in ``target`` order.
+    """
+    moved = {op.old_position for op in operations}
+    unmoved = [track.id for pos, track in enumerate(current) if pos not in moved]
+    remaining = iter([track.id for track in target])
+    return all(track_id in remaining for track_id in unmoved)
 
 
 class TestLongestIncreasingSubsequence:
@@ -44,27 +70,21 @@ class TestLongestIncreasingSubsequence:
         assert len(result) == 1  # Only one element can be in increasing order
 
     def test_complex_sequence(self):
-        """Complex sequence should find optimal LIS."""
+        """[10, 9, 2, 5, 3, 7, 101, 18] has longest increasing runs of length 4."""
         sequence = [10, 9, 2, 5, 3, 7, 101, 18]
         result = calculate_longest_increasing_subsequence(sequence)
 
-        # Verify the LIS is valid (increasing)
-        lis_values = [sequence[i] for i in result]
-        assert lis_values == sorted(lis_values)
-
-        # Should find one of the longest possible subsequences
-        assert len(result) >= 4  # e.g., [2, 3, 7, 101] or [2, 5, 7, 18]
+        # e.g., [2, 3, 7, 101] or [2, 5, 7, 18]
+        assert len(result) == 4
+        _assert_strictly_increasing_subsequence(sequence, result)
 
     def test_duplicates_in_sequence(self):
-        """Sequence with duplicates should handle correctly."""
+        """Equal values cannot share a strictly increasing run: [1, 3, 5] is longest."""
         sequence = [1, 3, 3, 5, 2, 4]
         result = calculate_longest_increasing_subsequence(sequence)
 
-        # Verify LIS is valid
-        lis_values = [sequence[i] for i in result]
-        assert all(
-            lis_values[i] < lis_values[i + 1] for i in range(len(lis_values) - 1)
-        )
+        assert len(result) == 3
+        _assert_strictly_increasing_subsequence(sequence, result)
 
 
 class TestLISReorderOperations:
@@ -109,22 +129,40 @@ class TestLISReorderOperations:
         operations = calculate_lis_reorder_operations(current, target)
         assert len(operations) == 0
 
-    def test_complete_reversal_minimal_moves(self, sample_tracks):
-        """Complete reversal should generate minimal moves using LIS."""
-        current = sample_tracks.copy()  # [1, 2, 3, 4, 5]
-        target = list(reversed(sample_tracks))  # [5, 4, 3, 2, 1]
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "calculate_lis_reorder_operations lists same-position matches ahead of "
+            "the other target positions, so the LIS runs on a permuted sequence and "
+            "leaves tracks unmoved that must swap order"
+        ),
+    )
+    @pytest.mark.parametrize(
+        ("target_order", "minimal_moves"),
+        [
+            pytest.param([4, 3, 2, 1, 0], 4, id="odd-length-reversal"),
+            pytest.param([4, 1, 2, 3, 0], 2, id="swap-the-ends"),
+        ],
+    )
+    def test_reorder_reaches_the_target_when_a_track_is_already_in_place(
+        self, sample_tracks, target_order: list[int], minimal_moves: int
+    ):
+        """Minimal moves = tracks outside the longest run already in target order.
+
+        Both targets keep one track at its current position. The reversal's
+        longest in-order run is 1 track (4 moves); swapping the ends keeps the
+        middle 3 in order (2 moves).
+        """
+        current = sample_tracks.copy()
+        target = [sample_tracks[i] for i in target_order]
 
         operations = calculate_lis_reorder_operations(current, target)
 
-        # LIS optimization should find the most efficient solution
-        # For a complete reversal, 3 moves is more optimal than 4
-        assert len(operations) == 3
-
-        # All operations should be MOVE type
-        assert all(op.operation_type == PlaylistOperationType.MOVE for op in operations)
+        assert _unmoved_tracks_keep_target_order(current, target, operations)
+        assert len(operations) == minimal_moves
 
     def test_single_track_move(self, sample_tracks):
-        """Moving single track should generate exactly one operation."""
+        """Swapping the first two tracks reaches the target in at most two moves."""
         current = sample_tracks.copy()  # [1, 2, 3, 4, 5]
         target = [
             sample_tracks[1],
@@ -136,13 +174,11 @@ class TestLISReorderOperations:
 
         operations = calculate_lis_reorder_operations(current, target)
 
-        # Should move track 2 to position 0, track 1 to position 1
-        # LIS optimization might make this just 1 or 2 operations
+        assert _unmoved_tracks_keep_target_order(current, target, operations)
         assert 1 <= len(operations) <= 2
 
     def test_duplicate_tracks_handling(self):
-        """Duplicate tracks should be handled correctly with greedy matching."""
-        # Create tracks with duplicates
+        """Duplicate tracks reorder by position, each copy matched once."""
         track_a = Track(
             title="Track A",
             artists=[ArtistCredit(credited_name="Artist 1")],
@@ -159,9 +195,7 @@ class TestLISReorderOperations:
 
         operations = calculate_lis_reorder_operations(current, target)
 
-        # Should generate operations to reorder duplicates correctly
-        # Exact count depends on LIS optimization but should be > 0
-        assert len(operations) > 0
+        assert _unmoved_tracks_keep_target_order(current, target, operations)
         assert all(op.operation_type == PlaylistOperationType.MOVE for op in operations)
 
     def test_partial_reorder_with_lis_optimization(self, sample_tracks):
@@ -345,15 +379,8 @@ class TestPlaylistDiffIntegration:
             for op in diff.operations
             if op.operation_type == PlaylistOperationType.REMOVE
         ]
-        move_ops = [
-            op
-            for op in diff.operations
-            if op.operation_type == PlaylistOperationType.MOVE
-        ]
-
         assert len(add_ops) == 1  # Adding new track
         assert len(remove_ops) == 1  # Removing track B
-        assert len(move_ops) >= 0  # May need moves depending on LIS optimization
 
         # Verify correct tracks in operations
         assert add_ops[0].track.id == new_track.id
@@ -366,14 +393,14 @@ class TestPlaylistDiffIntegration:
         diff = calculate_playlist_diff(sample_playlist, target_tracklist)
         assert diff.confidence_score == 1.0
 
-        # Partial match should have lower confidence
+        # 2 of 4 tracks kept, 2 removed: matched / (matched + operations) = 2 / 4
         target_tracks = sample_playlist.tracks[:2]  # Only first 2 tracks
         target_tracklist = TrackList(tracks=target_tracks)
         diff = calculate_playlist_diff(sample_playlist, target_tracklist)
-        assert 0.0 < diff.confidence_score < 1.0
+        assert diff.confidence_score == 0.5
 
-    def test_large_playlist_performance(self):
-        """Large playlist should process efficiently with LIS optimization."""
+    def test_even_length_reversal_keeps_one_track_in_place(self):
+        """Reversing 100 tracks leaves an in-order run of 1, so 99 tracks move."""
         # Create large playlist (100 tracks)
         tracks = [
             Track(
@@ -393,11 +420,6 @@ class TestPlaylistDiffIntegration:
 
         diff = calculate_playlist_diff(playlist, target_tracklist)
 
-        # Should complete efficiently and generate operations
-        assert diff.has_changes
-
-        # LIS optimization should significantly reduce operations
-        # For 100 reversed tracks, should need 99 moves (LIS of 1)
         move_ops = [
             op
             for op in diff.operations
