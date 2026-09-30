@@ -140,13 +140,35 @@ describe("useSyncTargetBlock", () => {
   });
 
   it("blocks nothing for a target the server does not list", async () => {
+    // The only listed target is blocked, so borrowing its verdict for the
+    // unlisted one would show a hint.
     mockApis(
-      [target({ id: "lastfm:plays", service: "lastfm" })],
+      [
+        target({
+          id: "lastfm:plays",
+          service: "lastfm",
+          available: false,
+          blocked_reason: "CONNECTOR_NOT_CONNECTED",
+        }),
+      ],
       [connector()],
     );
 
-    const { result } = renderBlock();
+    const { result } = renderHook(
+      () => ({
+        unlisted: useSyncTargetBlock("spotify:plays", "import").block,
+        // A blocked sibling proves the list resolved, so the null below is a
+        // verdict rather than the loading state.
+        listed: useSyncTargetBlock("lastfm:plays", "import").block,
+      }),
+      { wrapper: wrapper() },
+    );
 
-    await waitFor(() => expect(result.current).toBeNull());
+    await waitFor(() =>
+      expect(result.current.listed?.text).toBe(
+        "Connect Last.fm in Integrations to import.",
+      ),
+    );
+    expect(result.current.unlisted).toBeNull();
   });
 });

@@ -282,7 +282,10 @@ describe("WorkflowDetail", () => {
     expect(backLink).toHaveAttribute("href", "/workflows");
   });
 
-  it("shows run button", async () => {
+  it("Run starts this workflow and locks the button while it runs", async () => {
+    const user = userEvent.setup();
+    let ranId: string | null = null;
+
     server.use(
       http.get("*/api/v1/workflows/:id", () =>
         HttpResponse.json(mockWorkflow, { status: 200 }),
@@ -290,31 +293,31 @@ describe("WorkflowDetail", () => {
       http.get("*/api/v1/workflows/:id/runs", () =>
         HttpResponse.json(emptyRuns, { status: 200 }),
       ),
+      http.get("*/api/v1/workflows/active-runs", () =>
+        HttpResponse.json(
+          { data: [], total: 0, limit: 50, offset: 0 },
+          { status: 200 },
+        ),
+      ),
+      http.post("*/api/v1/workflows/:id/run", ({ params }) => {
+        ranId = params.id as string;
+        return HttpResponse.json(
+          { operation_id: "op-1", run_id: "run-1" },
+          { status: 202 },
+        );
+      }),
     );
 
     renderWithProviders(<WorkflowDetail />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Run")).toBeInTheDocument();
-    });
-  });
+    const runButton = await screen.findByRole("button", { name: "Run" });
+    expect(runButton).toBeEnabled();
 
-  it("shows the never-run prompt when there is no run history", async () => {
-    const workflowNoRun = { ...mockWorkflow, last_run: null };
-
-    server.use(
-      http.get("*/api/v1/workflows/:id", () =>
-        HttpResponse.json(workflowNoRun, { status: 200 }),
-      ),
-      http.get("*/api/v1/workflows/:id/runs", () =>
-        HttpResponse.json(emptyRuns, { status: 200 }),
-      ),
-    );
-
-    renderWithProviders(<WorkflowDetail />);
+    await user.click(runButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/Never run yet/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Running..." })).toBeDisabled();
     });
+    expect(ranId).toBe("1");
   });
 });

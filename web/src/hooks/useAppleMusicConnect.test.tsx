@@ -122,13 +122,16 @@ describe("useAppleMusicConnect prewarm", () => {
       },
     );
 
-    await waitFor(() => expect(counters.configFetches).toBeGreaterThan(0));
+    await waitFor(() => expect(counters.configFetches).toBe(1));
     expect(errorSpy).not.toHaveBeenCalled();
 
     await act(async () => {
       await result.current.connect();
     });
 
+    // The click retried the setup from scratch rather than replaying the
+    // mount's rejection.
+    expect(counters.configFetches).toBe(2);
     expect(errorSpy).toHaveBeenCalledWith(
       "Failed to connect Apple Music",
       expect.anything(),

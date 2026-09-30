@@ -11,6 +11,8 @@ vi.mock("@neondatabase/auth/react/ui", () => ({
   useAuthenticate: () => mockUseAuthenticate(),
 }));
 
+// A marker stub, so the crash test can prove the logo renders outside the
+// error boundary without depending on the logo's own markup.
 vi.mock("#/components/shared/MixdLogo", () => ({
   MixdLogo: () => <div data-testid="mixd-logo">MixdLogo</div>,
 }));

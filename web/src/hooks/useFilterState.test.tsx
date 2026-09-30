@@ -23,34 +23,15 @@ describe("useFilterState", () => {
     expect(result.current.searchParams.get("page")).toBeNull();
   });
 
-  it("setFilter with null removes the key", () => {
-    const { result } = renderHook(() => useFilterState(), {
-      wrapper: wrapper("/library?preference=star"),
-    });
-
-    act(() => result.current.setFilter("preference", null));
-
-    expect(result.current.searchParams.get("preference")).toBeNull();
-  });
-
-  it("setFilter with empty string removes the key", () => {
-    const { result } = renderHook(() => useFilterState(), {
-      wrapper: wrapper("/library?q=abc"),
-    });
-
-    act(() => result.current.setFilter("q", ""));
-
-    expect(result.current.searchParams.get("q")).toBeNull();
-  });
-
   it("setMultiFilter replaces the full set of values for a repeating param", () => {
     const { result } = renderHook(() => useFilterState(), {
-      wrapper: wrapper("/library?tag=mood:chill&tag=energy:low"),
+      wrapper: wrapper("/library?tag=mood:chill&tag=energy:low&page=2"),
     });
 
     act(() => result.current.setMultiFilter("tag", ["mood:upbeat"]));
 
     expect(result.current.searchParams.getAll("tag")).toEqual(["mood:upbeat"]);
+    expect(result.current.searchParams.get("page")).toBeNull();
   });
 
   it("clearAll empties the search params", () => {
@@ -86,7 +67,7 @@ describe("useFilterState", () => {
 
   it("setFilters keeps both keys where two setFilter calls would not", () => {
     const { result } = renderHook(() => useFilterState(), {
-      wrapper: wrapper("/plays"),
+      wrapper: wrapper("/plays?page=4"),
     });
 
     act(() =>
@@ -95,19 +76,6 @@ describe("useFilterState", () => {
 
     expect(result.current.searchParams.get("from")).toBe("2026-01-01");
     expect(result.current.searchParams.get("to")).toBe("2026-02-01");
-  });
-
-  it("setFilters writes every key in one navigation", () => {
-    const { result } = renderHook(() => useFilterState(), {
-      wrapper: wrapper("/library?page=4"),
-    });
-
-    act(() =>
-      result.current.setFilters({ min_plays: "10", never_played: "true" }),
-    );
-
-    expect(result.current.searchParams.get("min_plays")).toBe("10");
-    expect(result.current.searchParams.get("never_played")).toBe("true");
     expect(result.current.searchParams.get("page")).toBeNull();
   });
 

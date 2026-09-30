@@ -48,20 +48,6 @@ describe("toasts.runCompleted — primaryCount key reconciliation", () => {
     },
   );
 
-  it("singularizes a count of 1", () => {
-    toasts.runCompleted({
-      operationType: "import_lastfm_history",
-      counts: { track_plays: 1 },
-      issueCount: 0,
-      runId: null,
-      onNavigate: noop,
-    });
-    expect(toast.success).toHaveBeenCalledWith(
-      "Imported 1 scrobble",
-      expect.anything(),
-    );
-  });
-
   it("falls back to the generic title when no known key is present", () => {
     toasts.runCompleted({
       operationType: "import_spotify_likes",

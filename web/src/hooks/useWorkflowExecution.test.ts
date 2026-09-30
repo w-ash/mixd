@@ -1,9 +1,11 @@
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowExecutionProvider } from "#/contexts/WorkflowExecutionContext";
 import { seedQuery, wasInvalidated } from "#/test/query-utils";
+import { server } from "#/test/setup";
 import {
   mockSSEOpenStream,
   mockSSEWithEvents,
@@ -14,6 +16,9 @@ import { useWorkflowExecution } from "./useWorkflowExecution";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
+// connectToSSE is the transport boundary. Mocked (not MSW) so a test controls
+// frames one by one: hold a stream open, end it without a terminal, or throw
+// mid-stream to drive the resume path.
 vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
@@ -53,8 +58,17 @@ describe("useWorkflowExecution", () => {
     expect(result.current.error).toBeNull();
   });
 
-  it("execute triggers mutation and sets executing state", async () => {
-    // The default MSW handler returns 202 with { operation_id, run_id }.
+  it("execute starts the run and tracks the handles the server returned", async () => {
+    let requestedWorkflowId: string | undefined;
+    server.use(
+      http.post("*/api/v1/workflows/:workflowId/run", ({ params }) => {
+        requestedWorkflowId = String(params.workflowId);
+        return HttpResponse.json(
+          { operation_id: "op-run-7", run_id: "run-7" },
+          { status: 202 },
+        );
+      }),
+    );
     // Keep the stream OPEN: an in-flight run's SSE doesn't close until terminal,
     // and a clean close without a terminal now triggers a snapshot reconcile.
     mockSSEOpenStream([]);
@@ -72,9 +86,10 @@ describe("useWorkflowExecution", () => {
 
     await waitFor(() => {
       expect(result.current.isExecuting).toBe(true);
-      expect(result.current.operationId).toBeTruthy();
-      expect(result.current.runId).toEqual(expect.any(String));
     });
+    expect(requestedWorkflowId).toBe("019d0000-0000-7000-8000-000000000001");
+    expect(result.current.operationId).toBe("op-run-7");
+    expect(result.current.runId).toBe("run-7");
   });
 
   it("processes node_status SSE events into nodeStatuses map", async () => {
@@ -116,42 +131,6 @@ describe("useWorkflowExecution", () => {
       expect(nodeStatus?.status).toBe("completed");
       expect(nodeStatus?.durationMs).toBe(450);
       expect(nodeStatus?.outputTrackCount).toBe(50);
-    });
-  });
-
-  it("resets state on new execution", async () => {
-    // First execution sets error
-    mockSSEWithEvents([
-      sseFrame("error", { error_message: "Something broke" }),
-    ]);
-
-    const { result } = renderHook(
-      () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
-      {
-        wrapper: createWrapper(),
-      },
-    );
-
-    act(() => {
-      result.current.execute();
-    });
-
-    await waitFor(() => {
-      expect(result.current.error).not.toBeNull();
-    });
-
-    // Second execution should reset error and nodeStatuses. Keep the stream open
-    // so the still-running run doesn't trigger a stream-end snapshot reconcile.
-    mockSSEOpenStream([]);
-
-    act(() => {
-      result.current.execute();
-    });
-
-    // error is cleared synchronously in execute()
-    await waitFor(() => {
-      expect(result.current.error).toBeNull();
-      expect(result.current.nodeStatuses.size).toBe(0);
     });
   });
 

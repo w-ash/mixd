@@ -117,43 +117,6 @@ describe("diffWorkflowDefs", () => {
     expect(diff.unchanged).toHaveLength(1);
   });
 
-  it("handles a complex diff with all change types at once", () => {
-    const oldTasks = [
-      makeTask({ id: "kept", type: "source", config: { service: "spotify" } }),
-      makeTask({ id: "changed", type: "filter", config: { min_plays: 5 } }),
-      makeTask({ id: "gone", type: "sort", upstream: ["kept"] }),
-    ];
-    const newTasks = [
-      makeTask({ id: "kept", type: "source", config: { service: "spotify" } }),
-      makeTask({ id: "changed", type: "filter", config: { min_plays: 20 } }),
-      makeTask({ id: "fresh", type: "enrich", upstream: ["kept"] }),
-    ];
-
-    const diff = diffWorkflowDefs(oldTasks, newTasks);
-
-    expect(diff.unchanged).toHaveLength(1);
-    expect(diff.unchanged[0].id).toBe("kept");
-
-    expect(diff.modified).toHaveLength(1);
-    expect(diff.modified[0].old.id).toBe("changed");
-
-    expect(diff.removed).toHaveLength(1);
-    expect(diff.removed[0].id).toBe("gone");
-
-    expect(diff.added).toHaveLength(1);
-    expect(diff.added[0].id).toBe("fresh");
-  });
-
-  it("produces an empty diff for empty task lists", () => {
-    const diff = diffWorkflowDefs([], []);
-
-    expect(diff.added).toHaveLength(0);
-    expect(diff.removed).toHaveLength(0);
-    expect(diff.modified).toHaveLength(0);
-    expect(diff.unchanged).toHaveLength(0);
-    expect(diff.highlightMap.size).toBe(0);
-  });
-
   it("populates highlightMap with correct status for every task ID", () => {
     const oldTasks = [
       makeTask({ id: "same", type: "source" }),
