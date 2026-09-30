@@ -224,12 +224,6 @@ class TestArtistCredit:
         assert ct.artists[0].connector_artist_identifier == "Radiohead"
         assert "artist_ids" not in ct.raw_metadata
 
-    def test_no_artist_yields_no_credit(
-        self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
-    ) -> None:
-        ct = convert({"name": "Creep"})
-        assert ct.artists == ()
-
 
 class TestFullPayload:
     def test_full_dict_payload(

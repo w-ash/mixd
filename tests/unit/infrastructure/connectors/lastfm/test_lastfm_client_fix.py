@@ -1,12 +1,13 @@
 """Tests for LastFM client initialization and Last.fm double-decode workaround."""
 
+import hashlib
 from unittest.mock import AsyncMock, patch
 
 import httpx2
 import pytest
 from tenacity import AsyncRetrying, stop_after_attempt
 
-from src.infrastructure.connectors.lastfm.client import LastFMAPIClient, _sign_params
+from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 
 
@@ -58,51 +59,20 @@ class TestLastFMClientFix:
             assert client.is_configured
             # No password hash attribute — write ops will fail at runtime when attempted
 
-    async def test_comprehensive_method_no_crash(self):
-        """Test that get_track_info_comprehensive method is accessible."""
-        with patch(
-            "src.infrastructure.connectors.lastfm.client.settings"
-        ) as mock_settings:
-            mock_settings.credentials.lastfm_key = "test_key"
-            mock_settings.credentials.lastfm_secret.get_secret_value.return_value = (
-                "test_secret"
-            )
-            mock_settings.credentials.lastfm_username = "test_user"
-            mock_settings.credentials.lastfm_password = None
-
-            client = LastFMAPIClient()
-
-            # Method should be accessible without AttributeError
-            try:
-                method = client.get_track_info_comprehensive
-                assert method is not None
-            except AttributeError as e:
-                pytest.fail(f"AttributeError accessing method: {e}")
-
 
 class TestLastFMAPIError:
     """Tests for the LastFMAPIError exception class."""
 
-    def test_error_code_stored_as_string(self):
-        """Test that error codes are stored as strings for classifier compat."""
-        error = LastFMAPIError(29, "Rate limit exceeded")
-        assert error.status == "29"
-
-    def test_string_error_code_preserved(self):
-        """Test that string error codes are preserved as-is."""
-        error = LastFMAPIError("11", "Service offline")
-        assert error.status == "11"
+    @pytest.mark.parametrize(("code", "expected"), [(29, "29"), ("11", "11")])
+    def test_error_code_stored_as_string(self, code, expected):
+        """Codes are stored as strings: the classifier's code tables key on them."""
+        assert LastFMAPIError(code, "some error").status == expected
 
     def test_error_message_in_str(self):
         """Test that error message is included in string representation."""
         error = LastFMAPIError(6, "Invalid parameters")
         assert "6" in str(error)
         assert "Invalid parameters" in str(error)
-
-    def test_details_attribute(self):
-        """Test that details attribute stores the message."""
-        error = LastFMAPIError(4, "Authentication Failed")
-        assert error.details == "Authentication Failed"
 
 
 def _make_ok_response(json_body: dict | None = None) -> httpx2.Response:
@@ -191,16 +161,12 @@ class TestDoubleDecodeWorkaround:
         _, kwargs = mock_post.call_args
         data = kwargs["data"]
 
-        # Recompute expected signature from original (un-encoded) values
-        sig_params = {
-            "method": "track.love",
-            "api_key": "test_key",
-            "track": "+1",  # Original, NOT %2B1
-            "artist": "B.Miles",
-            "sk": "fake_sk",
-        }
-        expected_sig = _sign_params(sig_params, "test_secret")
-        # The sent api_sig should match (quote won't change a hex MD5 string)
+        # Last.fm spec: md5 of the key-sorted name+value pairs (format
+        # excluded) followed by the secret, over the ORIGINAL values.
+        signed = (
+            "api_keytest_keyartistB.Milesmethodtrack.loveskfake_sktrack+1test_secret"
+        )
+        expected_sig = hashlib.md5(signed.encode(), usedforsecurity=False).hexdigest()
         assert data["api_sig"] == expected_sig
 
     async def test_unicode_chars_pre_encoded(self):

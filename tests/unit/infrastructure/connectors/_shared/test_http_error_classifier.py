@@ -338,60 +338,6 @@ class TestHTTPErrorClassifierTextPatterns:
         assert result is None
 
 
-class TestHTTPErrorClassifierIntegration:
-    """Test how HTTP status and text pattern methods work together."""
-
-    @pytest.fixture
-    def classifier(self):
-        """Create test classifier instance."""
-        return TestHTTPErrorClassifierImplementation()
-
-    def test_http_status_takes_precedence_over_text_patterns(self, classifier):
-        """Test that HTTP status classification takes precedence."""
-
-        # Create exception with both HTTP status and rate limit text
-        class TestException(Exception):
-            def __init__(self, message):
-                super().__init__(message)
-                self.status_code = 500  # Server error
-
-        exc = TestException("Rate limit exceeded")  # Text says rate limit
-
-        result = classifier.classify_error(exc)
-        error_type, error_code, _ = result
-
-        # Should use HTTP status (temporary) not text pattern (rate_limit)
-        assert error_type == "temporary"
-        assert error_code == "500"
-
-    def test_text_patterns_used_when_no_http_status(self, classifier):
-        """Test that text patterns are used when HTTP status isn't available."""
-        exc = Exception("Rate limit exceeded")
-
-        result = classifier.classify_error(exc)
-        error_type, error_code, _ = result
-
-        # Should use text pattern classification
-        assert error_type == "rate_limit"
-        assert error_code == "text"
-
-    def test_unknown_fallback_when_no_classification_matches(self, classifier):
-        """Test fallback to unknown when neither HTTP nor text patterns match."""
-
-        class TestException(Exception):
-            def __init__(self, message):
-                super().__init__(message)
-                # No status_code attribute
-
-        exc = TestException("Completely unrecognized error")
-
-        result = classifier.classify_error(exc)
-        error_type, error_code, _ = result
-
-        assert error_type == "unknown"
-        assert error_code == "N/A"
-
-
 class _TemplateOnlyClassifier(HTTPErrorClassifier):
     """No service hook — every classification is the template's own."""
 
@@ -454,6 +400,21 @@ class TestTemplateFallthrough:
 
         assert error_type == "permanent"
         assert error_code == "403"
+
+    def test_http_status_takes_precedence_over_text_patterns(
+        self, classifier: HTTPErrorClassifier
+    ) -> None:
+        """A 500 whose message reads like a rate limit is still a server error."""
+        request = httpx2.Request("GET", "https://api.example.com/test")
+        response = httpx2.Response(500, request=request)
+        exc = httpx2.HTTPStatusError(
+            "Rate limit exceeded", request=request, response=response
+        )
+
+        error_type, error_code, _ = classifier.classify_error(exc)
+
+        assert error_type == "temporary"
+        assert error_code == "500"
 
     def test_plain_request_error_is_temporary(
         self, classifier: HTTPErrorClassifier

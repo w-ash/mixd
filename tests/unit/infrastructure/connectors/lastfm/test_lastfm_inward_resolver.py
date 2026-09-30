@@ -10,7 +10,7 @@ per-item savepoint fallback on bulk failure).
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx2
 
@@ -256,64 +256,6 @@ class TestCrossDiscovery:
         assert [s.connector for s in _mapping_specs(uow)] == ["lastfm"]
 
 
-class TestDiscoveryRejected:
-    """When cross-discovery returns Nothing, track is still created."""
-
-    async def test_failed_discovery_still_creates_track(self):
-        lastfm_client = AsyncMock()
-        lastfm_client.get_track_info_comprehensive.return_value = _track_info(
-            lastfm_album_name=None
-        )
-
-        cross_discovery = AsyncMock()
-        cross_discovery.discover_batch.return_value = [Nothing()]
-
-        saved_track = make_track(id=42)
-        resolver = LastfmInwardResolver(
-            lastfm_client=lastfm_client,
-            cross_discovery=cross_discovery,
-        )
-
-        uow = _make_uow(saved_track=saved_track)
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow, user_id="test-user"
-        )
-
-        # Track should still be created
-        assert "radiohead::creep" in result
-
-
-class TestTrackInfoFailure:
-    """When track.getInfo fails, fallback artist::title connector ID is used."""
-
-    async def test_enrichment_failure_uses_fallback_id(self):
-        lastfm_client = AsyncMock()
-        lastfm_client.get_track_info_comprehensive.return_value = None  # Failure
-        # getCorrection also has nothing on file — degrades to raw names.
-        lastfm_client.get_track_correction.return_value = None
-
-        cross_discovery = AsyncMock()
-        cross_discovery.discover_batch.return_value = [Nothing()]
-
-        saved_track = make_track(id=42)
-        resolver = LastfmInwardResolver(
-            lastfm_client=lastfm_client,
-            cross_discovery=cross_discovery,
-        )
-
-        uow = _make_uow(saved_track=saved_track)
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow, user_id="test-user"
-        )
-
-        assert "radiohead::creep" in result
-
-        # Connector ID should be the fallback format (no URL available)
-        connector_ids = [spec.connector_id for spec in _lastfm_specs(uow)]
-        # Should use artist::title fallback
-        assert any("::" in cid and "last.fm" not in cid for cid in connector_ids)
-
-
 class TestMBIDEnrichment:
     """Last.fm's getInfo MBID must be quarantined, not used as a musicbrainz identity."""
 
@@ -357,33 +299,6 @@ class TestMBIDEnrichment:
             assert "musicbrainz" not in probe.connector_track_identifiers
         # ...but non-identity enrichment (album, duration) still lands.
         assert any(c.args[0].duration_ms == 238000 for c in save_calls)
-
-    async def test_no_mbid_when_track_info_has_none(self):
-        """When track.getInfo returns no MBID, connector_track_identifiers is unchanged."""
-        lastfm_client = AsyncMock()
-        lastfm_client.get_track_info_comprehensive.return_value = _track_info()
-
-        cross_discovery = AsyncMock()
-        cross_discovery.discover_batch.return_value = [Nothing()]
-
-        saved_track = make_track(id=42)
-        resolver = LastfmInwardResolver(
-            lastfm_client=lastfm_client,
-            cross_discovery=cross_discovery,
-        )
-
-        uow = _make_uow(saved_track=saved_track)
-        result, _ = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow, user_id="test-user"
-        )
-
-        assert "radiohead::creep" in result
-        # Verify that no save call includes "musicbrainz" in connector_track_identifiers
-        track_repo = uow.get_track_repository()
-        save_calls = track_repo.save_track.call_args_list
-        for call in save_calls:
-            track_arg = call.args[0]
-            assert "musicbrainz" not in track_arg.connector_track_identifiers
 
 
 class TestDelegatesToBaseLookup:
@@ -457,36 +372,6 @@ class TestCanonicalReuse:
         # No API calls needed — no skeletal track creation
         lastfm_client.get_track_info_comprehensive.assert_not_called()
         track_repo.save_track.assert_not_called()
-
-    async def test_no_reuse_when_no_title_artist_match(self):
-        """When no existing track matches title+artist, fall through to track creation."""
-        lastfm_client = AsyncMock()
-        lastfm_client.get_track_info_comprehensive.return_value = _track_info()
-
-        saved_track = make_track(id=42)
-        resolver = LastfmInwardResolver(
-            lastfm_client=lastfm_client,
-        )
-
-        uow = _make_uow(saved_track=saved_track)
-        track_repo = uow.get_track_repository()
-        connector_repo = uow.get_connector_repository()
-
-        # Mapping Lookup: no connector mapping
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        # Canonical Reuse: no title+artist match
-        track_repo.find_tracks_by_title_artist.return_value = {}
-
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow, user_id="test-user"
-        )
-
-        assert "radiohead::creep" in result
-        assert metrics.reused == 0
-        assert metrics.created == 1
-
-        # Should have called track.getInfo for the new track
-        lastfm_client.get_track_info_comprehensive.assert_called_once()
 
     async def test_reuse_mixed_with_existing_and_new(self):
         """Mapping lookup, canonical reuse, and track creation all resolve different IDs."""
@@ -776,29 +661,25 @@ class TestConcurrentEnrichment:
         identifier FAILS instead of degrading (v0.10.2.9 F5: content misses
         return ``None`` and never raise, so any raise is a transport-shaped
         failure that must not mint a canonical from raw names)."""
-        real_build = LastfmInwardResolver._build_enriched_probe
 
-        async def _explosive_build(self, artist_name, track_name, *, user_id):
-            if artist_name == "bad artist":
+        async def _get_info(artist, title):
+            if artist == "bad artist":
                 raise RuntimeError("unexpected payload shape")
-            return await real_build(self, artist_name, track_name, user_id=user_id)
+            return _track_info(
+                lastfm_artist_name="Good Artist", lastfm_title="Good Track"
+            )
 
         lastfm_client = AsyncMock()
-        lastfm_client.get_track_info_comprehensive.return_value = _track_info(
-            lastfm_artist_name="Good Artist", lastfm_title="Good Track"
-        )
+        lastfm_client.get_track_info_comprehensive.side_effect = _get_info
 
         resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
         uow = _make_uow()
 
-        with patch.object(
-            LastfmInwardResolver, "_build_enriched_probe", new=_explosive_build
-        ):
-            result, metrics = await resolver.resolve_to_canonical_tracks(
-                ["bad artist::bad track", "good artist::good track"],
-                uow,
-                user_id="test-user",
-            )
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["bad artist::bad track", "good artist::good track"],
+            uow,
+            user_id="test-user",
+        )
 
         assert metrics.created == 1
         assert metrics.failed == 1

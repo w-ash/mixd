@@ -15,7 +15,6 @@ import pytest
 from tenacity import wait_fixed
 
 from src.infrastructure.connectors._shared.retry_policies import (
-    DEFAULT_RATE_LIMIT_PAUSE_SECONDS,
     RetryAfterWait,
     RetryConfig,
     RetryPolicyFactory,
@@ -141,7 +140,8 @@ class TestBackoffHandlerBrakesTheLimiter:
     def test_rate_limit_without_a_usable_header_pauses_for_the_default(self):
         limiter = self._run(_http_status_error(429, {}))
 
-        limiter.pause_for.assert_called_once_with(DEFAULT_RATE_LIMIT_PAUSE_SECONDS)
+        # No usable Retry-After: a short 2s brake rather than none at all.
+        limiter.pause_for.assert_called_once_with(2.0)
 
     def test_non_rate_limit_error_does_not_pause(self):
         limiter = self._run(_http_status_error(503, {"Retry-After": "7"}))
@@ -168,11 +168,17 @@ class TestCreatePolicyWiring:
         wait_max=17.0,
     )
 
-    def test_policy_wait_is_retry_after_aware(self):
+    def test_policy_wait_honors_retry_after_up_to_wait_max(self):
         policy = RetryPolicyFactory.create_policy(self._CONFIG)
+        wait = policy.wait
 
-        assert isinstance(policy.wait, RetryAfterWait)
-        assert policy.wait.cap == self._CONFIG.wait_max
+        honored = wait(_retry_state_with(_http_status_error(429, {"Retry-After": "7"})))
+        capped = wait(
+            _retry_state_with(_http_status_error(429, {"Retry-After": "300"}))
+        )
+
+        assert honored == 8.0  # 7s plus the 1s margin
+        assert capped == 17.0  # the config's wait_max
 
     def test_limiter_pause_is_capped_by_the_policys_wait_max(self):
         """One bound per service: the pause cap is the wait cap, not a constant."""

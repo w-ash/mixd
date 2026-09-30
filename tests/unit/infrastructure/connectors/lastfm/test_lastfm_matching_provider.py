@@ -223,7 +223,3 @@ class TestLastFMProviderProtocolCompliance:
     def test_has_service_name(self):
         provider, _ = _make_provider()
         assert provider.service_name == "lastfm"
-
-    def test_has_fetch_raw_matches_for_tracks(self):
-        provider, _ = _make_provider()
-        assert callable(provider.fetch_raw_matches_for_tracks)

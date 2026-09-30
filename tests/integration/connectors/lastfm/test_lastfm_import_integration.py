@@ -1,9 +1,9 @@
 """Integration tests for LastfmPlayImporter with real repository interactions.
 
-Tests critical service + repository integration paths following .claude/rules/test-patterns.md:
-- Real database operations with automatic cleanup
-- End-to-end workflow validation
-- UnitOfWork transaction integrity
+Covers the importer's two halves around the ledger: ``_to_connector_plays``
+turning one window's scrobbles into ledger rows (fields and Last.fm metadata
+verbatim), and ``_save_connector_plays_via_uow`` reporting what the real
+ledger accepted.
 """
 
 from datetime import UTC, datetime
@@ -44,14 +44,12 @@ class TestLastfmPlayImporterIntegration:
             importer = LastfmPlayImporter(lastfm_connector=mock_connector)
             yield importer, mock_connector
 
-    # INTEGRATION TEST 1: End-to-End Connector Play Creation
-    async def test_connector_play_creation_with_real_database(
-        self, lastfm_importer_with_mocked_api, unit_of_work
+    async def test_records_convert_to_stamped_connector_plays(
+        self, lastfm_importer_with_mocked_api
     ):
-        """Test complete connector play creation workflow with real database."""
+        """Each record becomes one ledger row with its fields and tenancy."""
         importer, _ = lastfm_importer_with_mocked_api
 
-        # Create test play records (simulating Last.fm API response)
         play_records = [
             PlayRecord(
                 track_name="Bohemian Rhapsody",
@@ -77,45 +75,36 @@ class TestLastfmPlayImporterIntegration:
             ),
         ]
 
-        # Act - Convert a day's records into connector plays. Conversion is
-        # per-day now (the day loop calls this as each day lands), so this is
-        # the seam that used to be _process_data.
+        # Conversion is per-window: the window loop calls this as each lands.
         connector_plays = importer._to_connector_plays(
             play_records,
             user_id="integration-user",
             batch_id="integration-test-batch",
-            import_timestamp=datetime.now(UTC),
+            import_timestamp=datetime(2024, 3, 16, tzinfo=UTC),
         )
 
-        # Assert - Verify transformation
-        assert len(connector_plays) == 2
-        assert all(isinstance(play, ConnectorTrackPlay) for play in connector_plays)
-
-        # Verify first track
-        bohemian_play = connector_plays[0]
+        bohemian_play, we_will_rock_play = connector_plays
         assert bohemian_play.service == "lastfm"
         assert bohemian_play.track_name == "Bohemian Rhapsody"
         assert bohemian_play.artist_name == "Queen"
         assert bohemian_play.album_name == "A Night at the Opera"
-        assert bohemian_play.service_metadata["mbid"] == "test-mbid-123"
-        assert "lastfm_track_url" in bohemian_play.service_metadata
+        assert bohemian_play.played_at == datetime(2024, 3, 15, 12, 0, tzinfo=UTC)
         assert bohemian_play.import_batch_id == "integration-test-batch"
         # Tenancy is stamped at construction, not by a later pass over the span.
         assert bohemian_play.user_id == "integration-user"
-
-        # Verify second track
-        we_will_rock_play = connector_plays[1]
-        assert we_will_rock_play.service_metadata["loved"] is True
+        assert we_will_rock_play.track_name == "We Will Rock You"
+        assert we_will_rock_play.service_metadata == {
+            "mbid": "test-mbid-456",
+            "loved": True,
+        }
         assert we_will_rock_play.ms_played is None  # Last.fm doesn't provide this
 
-    # INTEGRATION TEST 2: Base Class Integration (UnitOfWork Pattern)
-    async def test_base_class_integration_with_uow(
+    async def test_saving_the_same_plays_twice_reports_duplicates(
         self, lastfm_importer_with_mocked_api, unit_of_work
     ):
-        """Test that base class methods work correctly with UnitOfWork pattern."""
+        """The save reports the real ledger's own counts: a re-save is duplicates."""
         importer, _ = lastfm_importer_with_mocked_api
 
-        # Create connector plays
         connector_plays = [
             ConnectorTrackPlay(
                 service="lastfm",
@@ -123,26 +112,23 @@ class TestLastfmPlayImporterIntegration:
                 artist_name="Test Artist",
                 played_at=datetime(2024, 3, 15, 15, 30, tzinfo=UTC),
                 service_metadata={"test": "data"},
-                import_timestamp=datetime.now(UTC),
+                import_timestamp=datetime(2024, 3, 16, tzinfo=UTC),
                 import_source="integration_test",
                 import_batch_id="test-batch-123",
                 user_id=TEST_USER_ID,
             )
         ]
 
-        # Test UnitOfWork-based save method (plays are returned directly by
-        # import_data — the old instance-state handoff no longer exists)
-        saved_count, duplicate_count = await importer._save_connector_plays_via_uow(
+        first = await importer._save_connector_plays_via_uow(
+            connector_plays, unit_of_work
+        )
+        second = await importer._save_connector_plays_via_uow(
             connector_plays, unit_of_work
         )
 
-        assert saved_count == 1
-        assert duplicate_count == 0
+        assert first == (1, 0)
+        assert second == (0, 1)
 
-        # Verify data was actually saved to database
-        unit_of_work.get_connector_play_repository()
-
-    # INTEGRATION TEST 3: Error Handling with Real Dependencies
     async def test_error_handling_with_real_dependencies(
         self, lastfm_importer_with_mocked_api, unit_of_work
     ):
@@ -186,59 +172,45 @@ class TestLastfmPlayImporterIntegration:
         assert saved_count == 1
         assert duplicate_count == 0
 
-    # INTEGRATION TEST 4: Metadata Preservation (Business Value)
     async def test_metadata_preservation_lastfm_specific(
-        self, lastfm_importer_with_mocked_api, unit_of_work
+        self, lastfm_importer_with_mocked_api
     ):
-        """Test that Last.fm-specific metadata is preserved correctly."""
+        """Last.fm-specific metadata reaches the ledger row verbatim."""
         importer, _ = lastfm_importer_with_mocked_api
 
         # Last.fm provides rich metadata that other services don't
+        lastfm_metadata = {
+            "mbid": "track-mbid-123",
+            "artist_mbid": "artist-mbid-456",
+            "album_mbid": "album-mbid-789",
+            "lastfm_track_url": "https://www.last.fm/music/Test+Artist/_/Test+Track",
+            "loved": True,
+            "streamable": True,
+            "nowplaying": False,
+            "image": [
+                {
+                    "#text": "https://lastfm.freetls.fastly.net/i/u/34s/image.png",
+                    "size": "small",
+                },
+                {
+                    "#text": "https://lastfm.freetls.fastly.net/i/u/64s/image.png",
+                    "size": "medium",
+                },
+            ],
+        }
         lastfm_play_record = PlayRecord(
             track_name="Test Track",
             artist_name="Test Artist",
             played_at=datetime(2024, 3, 15, 12, 0, tzinfo=UTC),
             service="lastfm",
-            service_metadata={
-                "mbid": "track-mbid-123",
-                "artist_mbid": "artist-mbid-456",
-                "album_mbid": "album-mbid-789",
-                "lastfm_track_url": "https://www.last.fm/music/Test+Artist/_/Test+Track",
-                "loved": True,
-                "streamable": True,
-                "nowplaying": False,
-                "image": [
-                    {
-                        "#text": "https://lastfm.freetls.fastly.net/i/u/34s/image.png",
-                        "size": "small",
-                    },
-                    {
-                        "#text": "https://lastfm.freetls.fastly.net/i/u/64s/image.png",
-                        "size": "medium",
-                    },
-                ],
-            },
+            service_metadata=lastfm_metadata,
         )
 
-        connector_plays = importer._to_connector_plays(
+        (connector_play,) = importer._to_connector_plays(
             [lastfm_play_record],
             user_id="integration-user",
             batch_id="metadata-test-batch",
-            import_timestamp=datetime.now(UTC),
+            import_timestamp=datetime(2024, 3, 16, tzinfo=UTC),
         )
 
-        # Assert all Last.fm metadata is preserved
-        connector_play = connector_plays[0]
-        metadata = connector_play.service_metadata
-
-        assert metadata["mbid"] == "track-mbid-123"
-        assert metadata["artist_mbid"] == "artist-mbid-456"
-        assert metadata["album_mbid"] == "album-mbid-789"
-        assert (
-            metadata["lastfm_track_url"]
-            == "https://www.last.fm/music/Test+Artist/_/Test+Track"
-        )
-        assert metadata["loved"] is True
-        assert metadata["streamable"] is True
-        assert "image" in metadata
-        assert len(metadata["image"]) == 2
+        assert connector_play.service_metadata == lastfm_metadata

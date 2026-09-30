@@ -330,11 +330,12 @@ class TestInwardResolverDelegation:
 class TestResolverConstruction:
     """LastfmConnectorPlayResolver wires its own client/resolver when omitted."""
 
-    def test_defaults_create_internal_collaborators(self):
+    def test_defaults_share_one_client_with_the_inward_resolver(self):
+        """The resolver builds one client and hands it down, so its aclose
+        releases the only pool the chain opened."""
         resolver = LastfmConnectorPlayResolver()
 
-        assert resolver.lastfm_client is not None
-        assert resolver._inward_resolver is not None
+        assert resolver._inward_resolver._lastfm_client is resolver.lastfm_client
 
     def test_accepts_injected_client(self):
         client = MagicMock()
