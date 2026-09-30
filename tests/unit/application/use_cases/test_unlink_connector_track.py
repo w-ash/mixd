@@ -58,6 +58,7 @@ def _make_connector_track(
         id=connector_track_id,
         connector_name=connector_name,
         connector_track_identifier=external_id,
+        isrc="USRC17607839",
         title="Test Track",
         artists=[ConnectorArtistCredit(credited_name="Test Artist")],
     )
@@ -66,7 +67,7 @@ def _make_connector_track(
 class TestUnlinkHappyPath:
     """Mapping deleted with proper primary reassignment."""
 
-    async def test_mapping_deleted(self) -> None:
+    async def test_mapping_deleted_and_committed(self) -> None:
         mapping = _make_mapping(is_primary=False)
         connector_repo = make_mock_connector_repo()
         connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
@@ -83,6 +84,7 @@ class TestUnlinkHappyPath:
         assert result.deleted_mapping_id == 1
         assert result.orphan_track_id is None
         connector_repo.delete_mapping.assert_awaited_once_with(1, user_id="test-user")
+        uow.commit.assert_awaited_once()
 
     async def test_primary_reassigned_after_deletion(self) -> None:
         mapping = _make_mapping(is_primary=True)
@@ -101,22 +103,6 @@ class TestUnlinkHappyPath:
         connector_repo.ensure_primary_for_connector.assert_awaited_once_with(
             10, "spotify"
         )
-
-    async def test_commit_called(self) -> None:
-        mapping = _make_mapping()
-        connector_repo = make_mock_connector_repo()
-        connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
-        connector_repo.delete_mapping = AsyncMock(return_value=mapping)
-        connector_repo.ensure_primary_for_connector = AsyncMock()
-        connector_repo.count_mappings_for_connector_track = AsyncMock(return_value=1)
-        uow = make_mock_uow(connector_repo=connector_repo)
-
-        command = UnlinkConnectorTrackCommand(
-            user_id="test-user", mapping_id=1, current_track_id=10
-        )
-        await UnlinkConnectorTrackUseCase().execute(command, uow)
-
-        uow.commit.assert_awaited_once()
 
 
 class TestUnlinkOrphanCreation:
@@ -151,12 +137,18 @@ class TestUnlinkOrphanCreation:
         result = await UnlinkConnectorTrackUseCase().execute(command, uow)
 
         assert result.orphan_track_id == 42
-        track_repo.save_track.assert_awaited_once()
-        connector_repo.map_track_to_connector.assert_awaited_once()
-
-        # Verify the mapping has manual_override origin
-        call_kwargs = connector_repo.map_track_to_connector.call_args
-        assert call_kwargs.kwargs.get("confidence") == 100 or call_kwargs.args[4] == 100
+        # The orphan withholds the ISRC: save_track upserts by ISRC and would
+        # merge the orphan straight back onto the track the user unlinked from.
+        orphan = track_repo.save_track.await_args.args[0]
+        assert orphan.title == "Test Track"
+        assert orphan.isrc is None
+        assert orphan.user_id == "test-user"
+        # manual_override is the negative constraint that stops re-ingestion
+        # from re-attaching the connector track.
+        mapped = connector_repo.map_track_to_connector.await_args
+        assert mapped.args == (saved_orphan, "spotify", "spotify:abc123")
+        assert mapped.kwargs["origin"] == "manual_override"
+        assert mapped.kwargs["confidence"] == 100
 
     async def test_no_orphan_when_other_mappings_remain(self) -> None:
         mapping = _make_mapping()

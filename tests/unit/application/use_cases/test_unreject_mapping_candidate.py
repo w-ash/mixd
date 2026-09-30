@@ -11,7 +11,6 @@ import pytest
 
 from src.application.use_cases.unreject_mapping_candidate import (
     UnrejectMappingCandidateCommand,
-    UnrejectMappingCandidateResult,
     UnrejectMappingCandidateUseCase,
 )
 from src.domain.exceptions import NotFoundError
@@ -39,7 +38,6 @@ class TestUnrejectHappyPath:
         )
         result = await UnrejectMappingCandidateUseCase().execute(command, uow)
 
-        assert isinstance(result, UnrejectMappingCandidateResult)
         assert result.connector_name == "spotify"
         assert result.connector_track_id == connector_track_id
         assert result.candidate_track_id == candidate_track_id

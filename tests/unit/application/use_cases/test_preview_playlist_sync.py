@@ -22,9 +22,8 @@ from src.domain.entities.playlist import Playlist
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.exceptions import NotFoundError
 from src.domain.playlist.reconciliation import SyncPlan
+from src.domain.playlist.sync_safety import SyncSafetyResult
 from tests.fixtures import TEST_USER_ID, make_mock_uow
-
-_RESOLVER = "src.application.use_cases._shared.playlist_resolver.require_playlist_link"
 
 
 def _link() -> PlaylistLink:
@@ -37,40 +36,53 @@ def _link() -> PlaylistLink:
     )
 
 
-async def test_preview_maps_plan_to_result():
-    link = _link()
+async def test_preview_maps_plan_and_safety_gate_to_result():
+    """The confirm dialog reads "remove N of M (K remain)" from these fields."""
+    link = _link()  # stored direction is PULL
     uow = make_mock_uow()
+    uow.get_playlist_link_repository().get_link = AsyncMock(return_value=link)
     uow.get_playlist_repository().get_playlist_by_id = AsyncMock(
         return_value=Playlist(name="My Playlist", user_id=TEST_USER_ID)
     )
     plan = SyncPlan(
-        direction=SyncDirection.PULL,
+        direction=SyncDirection.PUSH,
         tracks_to_add=2,
-        tracks_to_remove=0,
-        tracks_unchanged=3,
+        tracks_to_remove=30,
+        tracks_unchanged=10,
         is_noop=False,
+        safety=SyncSafetyResult(
+            flagged=True,
+            reason="Would remove 30 of 40 tracks",
+            removals=30,
+            total_current=40,
+            remaining_after_sync=10,
+        ),
+    )
+    engine_preview = AsyncMock(
+        return_value=SyncPreview(plan=plan, confirm_token="tok-123")
     )
 
-    preview = SyncPreview(plan=plan, confirm_token="tok-123")
-
-    with (
-        patch(_RESOLVER, AsyncMock(return_value=link)),
-        patch.object(
-            PlaylistReconciliationEngine, "preview", AsyncMock(return_value=preview)
-        ),
-    ):
+    with patch.object(PlaylistReconciliationEngine, "preview", engine_preview):
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(user_id="u", link_id=link.id), uow
+            PreviewPlaylistSyncCommand(
+                user_id="u", link_id=link.id, direction_override=SyncDirection.PUSH
+            ),
+            uow,
         )
 
+    # The override, not the link's stored PULL, drives the diff and the result.
+    assert engine_preview.await_args.args[1] == SyncDirection.PUSH
+    assert result.direction == SyncDirection.PUSH
     assert result.tracks_to_add == 2
-    assert result.tracks_to_remove == 0
-    assert result.tracks_unchanged == 3
-    assert result.direction == SyncDirection.PULL
+    assert result.tracks_to_remove == 30
+    assert result.tracks_unchanged == 10
     assert result.connector_name == "spotify"
     assert result.playlist_name == "My Playlist"
-    assert result.safety_flagged is False
-    assert result.has_comparison_data is True
+    assert result.safety_flagged is True
+    assert result.safety_message == "Would remove 30 of 40 tracks"
+    assert result.safety_removals == 30
+    assert result.safety_total == 40
+    assert result.safety_remaining == 10
     assert result.confirm_token == "tok-123"
 
 

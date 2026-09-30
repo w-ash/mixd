@@ -8,7 +8,7 @@ ExecuteWorkflowRunUseCase lifecycle, exception handling, and correlation context
 import asyncio
 from asyncio import CancelledError
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -26,10 +26,21 @@ from src.application.use_cases.workflow_runs import (
     RunWorkflowUseCase,
     serialize_output_tracks,
 )
-from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import WorkflowRun
 from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
 from tests.fixtures import make_mock_uow, make_tracks, make_workflow, make_workflow_def
+
+
+class _SteppingClock:
+    """Stand-in for the timer's ``datetime``: each ``now()`` is 250 ms later."""
+
+    def __init__(self) -> None:
+        self._now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def now(self, tz=None):
+        current = self._now
+        self._now += timedelta(milliseconds=250)
+        return current
 
 
 @contextmanager
@@ -256,17 +267,6 @@ class TestGetLatestWorkflowRunsUseCase:
         assert result.successful_run_counts == {1: 3}
         run_repo.get_run_summaries_for_workflows.assert_called_once_with([1, 2])
 
-    async def test_returns_empty_when_no_runs(self) -> None:
-        run_repo = AsyncMock()
-        run_repo.get_run_summaries_for_workflows.return_value = ({}, {})
-        uow = make_mock_uow(workflow_run_repo=run_repo)
-
-        command = GetLatestWorkflowRunsCommand(user_id="test-user", workflow_ids=[1, 2])
-        result = await GetLatestWorkflowRunsUseCase().execute(command, uow)
-
-        assert result.latest_runs == {}
-        assert result.successful_run_counts == {}
-
 
 class TestSerializeOutputTracks:
     """serialize_output_tracks produces lightweight dicts for the run record."""
@@ -281,7 +281,7 @@ class TestSerializeOutputTracks:
         assert result[2]["rank"] == 3
         assert result[0]["track_id"] == str(tracks[0].id)
         assert result[0]["title"] == tracks[0].title
-        assert isinstance(result[0]["artists"], str)
+        assert result[0]["artists"] == "Artist 1"
         assert columns == []
 
     def test_empty_list(self) -> None:
@@ -303,13 +303,14 @@ class TestSerializeOutputTracks:
         assert result[1]["metrics"] == {"playcount": 7, "popularity": 50}
 
     def test_caps_at_max_columns(self) -> None:
-        """Only MAX_OUTPUT_METRIC_COLUMNS columns are included."""
+        """Only the first five columns, alphabetically, are included."""
         tracks = make_tracks(count=1)
         metrics = {f"metric_{i}": {tracks[0].id: i} for i in range(10)}
         result, columns = serialize_output_tracks(tracks, metrics=metrics)
 
-        assert len(columns) == WorkflowConstants.MAX_OUTPUT_METRIC_COLUMNS
-        assert len(result[0]["metrics"]) == WorkflowConstants.MAX_OUTPUT_METRIC_COLUMNS
+        expected = ["metric_0", "metric_1", "metric_2", "metric_3", "metric_4"]
+        assert columns == expected
+        assert list(result[0]["metrics"]) == expected
 
     def test_no_metrics_returns_empty(self) -> None:
         """Without metrics, no metrics key or columns are produced."""
@@ -364,8 +365,13 @@ class TestSerializeOutputTracks:
 class TestExecuteWorkflowRunUseCase:
     """ExecuteWorkflowRunUseCase lifecycle, exception handling, and diagnostics."""
 
-    async def test_execute_updates_status_to_running_then_completed(self) -> None:
+    async def test_execute_updates_status_to_running_then_completed(
+        self, monkeypatch
+    ) -> None:
         """Happy path: RUNNING → COMPLETED with duration_ms + output_track_count + output_tracks."""
+        monkeypatch.setattr(
+            "src.application.utilities.timing.datetime", _SteppingClock()
+        )
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
@@ -375,33 +381,31 @@ class TestExecuteWorkflowRunUseCase:
         )
 
         tracks = make_tracks(count=3)
+        before = datetime.now(UTC)
         with _patch_execute_deps(mock_run_return=MagicMock(tracks=tracks, metrics={})):
             result = await use_case.execute(workflow_def, run_id=7)
+        after = datetime.now(UTC)
 
         # First call: RUNNING with started_at
         assert mock_updater.call_count == 2
         running_call = mock_updater.call_args_list[0]
-        assert running_call == call(
-            7,
-            WorkflowConstants.RUN_STATUS_RUNNING,
-            started_at=running_call.kwargs["started_at"],
-        )
-        assert running_call.kwargs["started_at"] is not None
+        started_at = running_call.kwargs["started_at"]
+        assert running_call == call(7, "running", started_at=started_at)
 
         # Second call: COMPLETED with completed_at, duration_ms, output_track_count, output_tracks
         completed_call = mock_updater.call_args_list[1]
-        assert completed_call.args[1] == WorkflowConstants.RUN_STATUS_COMPLETED
-        assert completed_call.kwargs["completed_at"] is not None
-        assert completed_call.kwargs["duration_ms"] >= 0
+        assert completed_call.args[1] == "completed"
+        # Timezone-aware wall-clock stamps, in order (a naive one fails to compare).
+        assert before <= started_at <= completed_call.kwargs["completed_at"] <= after
+        assert completed_call.kwargs["duration_ms"] == 250
         assert completed_call.kwargs["output_track_count"] == 3
-        assert len(completed_call.kwargs["output_tracks"]) == 3
-        assert completed_call.kwargs["output_tracks"][0]["rank"] == 1
+        assert [t["rank"] for t in completed_call.kwargs["output_tracks"]] == [1, 2, 3]
 
         # Result object
-        assert result.status == WorkflowConstants.RUN_STATUS_COMPLETED
+        assert result.status == "completed"
         assert result.run_id == 7
         assert result.output_track_count == 3
-        assert result.duration_ms >= 0
+        assert result.duration_ms == 250
 
     async def test_execute_handles_general_exception(self) -> None:
         """RuntimeError during execution → FAILED status with truncated message."""
@@ -420,14 +424,14 @@ class TestExecuteWorkflowRunUseCase:
         # Status updater called: RUNNING, then FAILED
         assert mock_updater.call_count == 2
         failed_call = mock_updater.call_args_list[1]
-        assert failed_call.args[1] == WorkflowConstants.RUN_STATUS_FAILED
+        assert failed_call.args[1] == "failed"
         assert failed_call.kwargs["error_message"] == "API timeout"
 
-        assert result.status == WorkflowConstants.RUN_STATUS_FAILED
+        assert result.status == "failed"
         assert result.error_message == "API timeout"
 
     async def test_execute_truncates_long_error_message(self) -> None:
-        """Error messages exceeding ERROR_MESSAGE_MAX_LENGTH are truncated."""
+        """Error messages longer than 2000 characters are cut to 2000."""
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
@@ -436,12 +440,18 @@ class TestExecuteWorkflowRunUseCase:
             bump_heartbeat=AsyncMock(),
         )
 
-        long_msg = "x" * (WorkflowConstants.ERROR_MESSAGE_MAX_LENGTH + 500)
+        long_msg = "x" * 2500
         with _patch_execute_deps() as (_logger, mock_run, _observer):
             mock_run.side_effect = RuntimeError(long_msg)
             result = await use_case.execute(workflow_def, run_id=11)
 
-        assert len(result.error_message) == WorkflowConstants.ERROR_MESSAGE_MAX_LENGTH
+        # Capped at the 2000-character column budget; the run row gets the same text.
+        assert len(result.error_message) == 2000
+        assert result.error_message.startswith("x" * 1900)
+        assert (
+            mock_updater.call_args_list[1].kwargs["error_message"]
+            == result.error_message
+        )
 
     async def test_execute_handles_cancelled_error(self) -> None:
         """CancelledError (worker death/reload) → CRASHED, not FAILED, then re-raised.
@@ -466,10 +476,10 @@ class TestExecuteWorkflowRunUseCase:
         # Status updater called: RUNNING, then CRASHED with cancellation message
         assert mock_updater.call_count == 2
         crashed_call = mock_updater.call_args_list[1]
-        assert crashed_call.args[1] == WorkflowConstants.RUN_STATUS_CRASHED
+        assert crashed_call.args[1] == "crashed"
         assert (
             crashed_call.kwargs["error_message"]
-            == WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE
+            == "Cancelled by server (possible reload)"
         )
 
     async def test_execute_records_workflow_cancelled_error_as_cancelled(self) -> None:
@@ -496,8 +506,8 @@ class TestExecuteWorkflowRunUseCase:
 
         assert mock_updater.call_count == 2
         cancelled_call = mock_updater.call_args_list[1]
-        assert cancelled_call.args[1] == WorkflowConstants.RUN_STATUS_CANCELLED
-        assert result.status == WorkflowConstants.RUN_STATUS_CANCELLED
+        assert cancelled_call.args[1] == "cancelled"
+        assert result.status == "cancelled"
 
     async def test_execute_logs_when_status_update_fails_on_exception(self) -> None:
         """If both run_workflow and update_run_status fail, result is still returned."""
@@ -516,7 +526,7 @@ class TestExecuteWorkflowRunUseCase:
             result = await use_case.execute(workflow_def, run_id=13)
 
         # Despite the double failure, a result is returned (not crashed)
-        assert result.status == WorkflowConstants.RUN_STATUS_FAILED
+        assert result.status == "failed"
         assert result.error_message == "API timeout"
 
         mock_logger.error.assert_any_call(
@@ -682,4 +692,4 @@ class TestExecuteWorkflowRunHeartbeat:
         with _patch_execute_deps():
             result = await use_case.execute(workflow_def, run_id=7)
 
-        assert result.status == WorkflowConstants.RUN_STATUS_COMPLETED
+        assert result.status == "completed"

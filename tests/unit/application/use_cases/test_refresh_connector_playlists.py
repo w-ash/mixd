@@ -79,15 +79,20 @@ class TestFailureIsolation:
 
 
 class TestConnectorThreading:
-    async def test_connector_name_resolves_to_provider(self) -> None:
-        cp = _cp("sp1")
+    async def test_connector_name_scopes_cache_lookup_and_fetch(self) -> None:
+        """A non-default connector reaches both the cache lookup and the provider."""
+        cp = _cp("td1")
         uow, _ = make_mock_uow_with_connector(get_playlist_return=cp)
 
-        _ = await RefreshConnectorPlaylistsUseCase().execute(
-            _cmd(["sp1"], connector_name="spotify"), uow
+        result = await RefreshConnectorPlaylistsUseCase().execute(
+            _cmd(["td1"], connector_name="tidal"), uow
         )
 
-        uow.get_service_connector_provider().get_connector.assert_called_with("spotify")
+        uow.get_connector_playlist_repository().find_by_identifiers.assert_awaited_once_with(
+            "tidal", ["td1"]
+        )
+        uow.get_service_connector_provider().get_connector.assert_called_with("tidal")
+        assert list(result.succeeded) == ["td1"]
 
 
 class TestNoWork:
@@ -111,7 +116,7 @@ class TestNoWork:
         )
 
         connector.get_playlist.assert_awaited_once()
-        assert len(result.succeeded) == 1
+        assert list(result.succeeded) == ["sp1"]
 
 
 class TestForce:
