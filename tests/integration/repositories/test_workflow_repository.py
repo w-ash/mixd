@@ -3,6 +3,7 @@
 Tests CRUD and user-scoping behavior.
 """
 
+from contextlib import suppress
 from uuid import uuid7
 
 import pytest
@@ -97,3 +98,38 @@ class TestWorkflowRepositoryScoping:
 
         with pytest.raises(NotFoundError):
             await repo.get_workflow_by_id(saved.id, user_id="user-b")
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="save_workflow has no user filter — cross-tenant overwrite; see backlog",
+    )
+    async def test_save_with_another_users_id_leaves_their_workflow_unchanged(
+        self, db_session
+    ) -> None:
+        """User B saving under user A's workflow id must not rewrite A's workflow.
+
+        ``save_workflow`` finds the existing row by id alone, so B's entity
+        updates A's row in place. RLS does not stop it: the app role bypasses
+        RLS in production, and the test container connects as a superuser.
+        """
+        repo = WorkflowRepository(db_session)
+        owned = await repo.save_workflow(
+            Workflow(
+                user_id="user-a",
+                definition=make_workflow_def("wf-a", name="A's workflow"),
+            )
+        )
+
+        # A fix may refuse the write outright; the contract is A's row, below.
+        with suppress(NotFoundError):
+            _ = await repo.save_workflow(
+                Workflow(
+                    id=owned.id,
+                    user_id="user-b",
+                    definition=make_workflow_def("wf-b", name="B's takeover"),
+                )
+            )
+
+        as_owner = await repo.get_workflow_by_id(owned.id, user_id="user-a")
+        assert as_owner.definition.id == "wf-a"
+        assert as_owner.definition.name == "A's workflow"
