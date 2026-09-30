@@ -501,7 +501,9 @@ class TestExecManagePlaylistEntries:
     async def test_reorder_commits_the_full_order(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        pid, e1, e2, e3 = uuid4(), uuid4(), uuid4(), uuid4()
+        # Fixed ids, proposed out of sorted order, so a sort or reverse is caught.
+        pid = uuid4()
+        e1, e2, e3 = UUID(int=1), UUID(int=2), UUID(int=3)
         seen = _capture(
             monkeypatch,
             ReorderPlaylistEntriesUseCase,
