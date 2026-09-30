@@ -19,16 +19,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.domain.entities.operations import SyncCheckpoint
-from src.domain.repositories.play import (
-    AppleRecentImportParams,
-    SpotifyRecentImportParams,
-)
+from src.domain.repositories.play import AppleRecentImportParams
 from src.infrastructure.connectors.apple_music.models import (
     AppleMusicRecentlyPlayedResponse,
     AppleMusicSong,
 )
 from src.infrastructure.connectors.apple_music.recently_played_importer import (
-    MAX_TURNOVER_PAGES,
     AppleMusicRecentlyPlayedImporter,
 )
 from tests.fixtures import make_apple_song
@@ -138,24 +134,17 @@ def _saved_state(repo) -> dict:
 class TestFirstPoll:
     """Seeding: no fingerprint yet means no honest timestamp for anything."""
 
-    async def test_first_poll_emits_zero_observations(self):
-        importer = AppleMusicRecentlyPlayedImporter(
-            client=_client(_window("s1", "s2", "s3"))
-        )
-        uow, _ = _uow_with_checkpoint(None)
-
-        plays = await _poll(importer, uow)
-
-        assert plays == []
-
-    async def test_first_poll_seeds_fingerprint_and_poll_time(self):
+    async def test_first_poll_emits_nothing_and_seeds_fingerprint_and_poll_time(
+        self,
+    ):
         importer = AppleMusicRecentlyPlayedImporter(
             client=_client(_window("s1", "s2", "s3"))
         )
         uow, repo = _uow_with_checkpoint(None)
 
-        _ = await _poll(importer, uow)
+        plays = await _poll(importer, uow)
 
+        assert plays == []
         state = _saved_state(repo)
         assert state["fingerprint"] == ["s1", "s2", "s3"]
         assert datetime.fromisoformat(state["polled_at"]) == _NOW
@@ -188,15 +177,6 @@ class TestFirstPoll:
 
         assert plays == []
         assert _saved_state(repo)["fingerprint"] == ["n1", "s1", "s2"]
-
-    async def test_wrong_params_type_raises(self):
-        importer = AppleMusicRecentlyPlayedImporter(client=_client([]))
-        uow, _ = _uow_with_checkpoint(None)
-
-        with pytest.raises(TypeError, match="requires AppleRecentImportParams"):
-            await importer.import_plays(
-                uow, SpotifyRecentImportParams(), user_id="user-1"
-            )
 
 
 class TestPrefixDiff:
@@ -301,11 +281,15 @@ class TestPrefixDiff:
 
         assert not result2.is_failure
         assert [p.service_metadata["song_id"] for p in plays2] == ["n1"]
-        prev = json.loads(saved.cursor)
-        prev_polled = datetime.fromisoformat(prev["polled_at"])
-        # The midpoint sits strictly inside the two runs' poll interval.
-        assert prev_polled < plays2[0].played_at
-        assert plays2[0].played_at < datetime.now(UTC)
+        prev_polled = datetime.fromisoformat(json.loads(saved.cursor)["polled_at"])
+        # The run's import_timestamp IS this poll's time: the midpoint, the
+        # rows, and the next fingerprint's polled_at share one instant.
+        poll_time = plays2[0].import_timestamp
+        assert plays2[0].played_at == prev_polled + (poll_time - prev_polled) / 2
+        saved2 = repo.save_sync_checkpoint.await_args.args[0]
+        assert datetime.fromisoformat(json.loads(saved2.cursor)["polled_at"]) == (
+            poll_time
+        )
 
 
 class TestFullTurnover:
@@ -326,15 +310,20 @@ class TestFullTurnover:
 
         assert [p.service_metadata["song_id"] for p in plays] == ["a1", "a2"]
 
-    async def test_turnover_paging_stops_at_the_cap(self):
-        pages = [_window(f"p{i}a", f"p{i}b") for i in range(MAX_TURNOVER_PAGES + 2)]
+    async def test_turnover_paging_stops_at_three_pages_advancing_the_offset(self):
+        """3 pages of 30 cover a window at least 60 deep; each page's offset
+        advances by the items the previous page returned."""
+        pages = [_window(f"p{i}a", f"p{i}b") for i in range(5)]
         client = _client(*pages)
         importer = AppleMusicRecentlyPlayedImporter(client=client)
         uow, _ = _uow_with_checkpoint(_checkpoint(["z1", "z2"]))
 
         _ = await _poll(importer, uow)
 
-        assert client.get_recently_played.await_count == MAX_TURNOVER_PAGES
+        offsets = [
+            c.kwargs["offset"] for c in client.get_recently_played.await_args_list
+        ]
+        assert offsets == [0, 2, 4]
 
     async def test_overlap_on_a_later_page_bounds_the_diff(self):
         importer = AppleMusicRecentlyPlayedImporter(

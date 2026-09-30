@@ -26,7 +26,6 @@ from src.domain.exceptions import (
 from src.infrastructure.connectors._shared.oauth import compute_pkce_challenge
 from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.infrastructure.connectors.tidal.auth import (
-    TIDAL_SCOPES,
     TidalBearerAuth,
     TidalTokenManager,
     build_auth_url,
@@ -107,7 +106,8 @@ class TestBuildAuthUrl:
         assert params["client_id"] == _CLIENT_ID
         assert params["response_type"] == "code"
         assert params["redirect_uri"] == _REDIRECT_URI
-        assert params["scope"] == " ".join(TIDAL_SCOPES)
+        # Read-only favorites access is the whole recorded scope set.
+        assert params["scope"] == "collection.read"
         assert params["state"] == "state-abc"
         assert params["code_challenge_method"] == "S256"
         # The challenge in the URL matches the verifier handed to the state

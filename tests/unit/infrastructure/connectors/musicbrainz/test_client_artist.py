@@ -8,8 +8,12 @@ here rather than quietly halve the hit rate.
 """
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx2
+import pytest
+
+from src.infrastructure.connectors._shared import rate_limiting
 from src.infrastructure.connectors.musicbrainz.client import MusicBrainzAPIClient
 
 STRFKR_MBID = "d368baa8-21ca-4759-9731-0b2753071ad8"
@@ -114,14 +118,20 @@ class TestSearchArtist:
 
         assert await client._search_artist_impl("STRFKR", 5) == []  # pyright: ignore[reportPrivateUsage]
 
-    async def test_a_suppressed_request_failure_reads_as_no_hits(self):
-        # ``_api_call`` returns None when the transport fails after retries;
-        # an empty list is the only thing a caller can act on.
+    async def test_a_suppressed_request_failure_reads_as_no_hits(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        # A 400 is permanent (no retry) and suppressed to None by the base
+        # client; an empty list is the only thing a caller can act on.
+        # A fresh limiter cache keeps the 1 req/s bucket full for this call.
+        monkeypatch.setattr(rate_limiting, "_LIMITERS", {})
+        request = httpx2.Request("GET", "https://musicbrainz.org/ws/2/artist")
         client = MusicBrainzAPIClient()
-        with patch.object(
-            MusicBrainzAPIClient, "_api_call", new=AsyncMock(return_value=None)
-        ):
-            assert await client.search_artist("STRFKR") == []
+        get = AsyncMock(return_value=httpx2.Response(400, request=request))
+        client._client = MagicMock(get=get)  # pyright: ignore[reportPrivateUsage]
+
+        assert await client.search_artist("STRFKR") == []
+        get.assert_awaited_once()
 
 
 class TestGetArtist:

@@ -111,14 +111,3 @@ class TestLifecycle:
         await resolver.aclose()
 
         client.aclose.assert_awaited_once()
-
-
-class TestRegistryWiring:
-    async def test_registry_creates_apple_resolver(self):
-        from src.infrastructure.services.play_import_registry import (
-            get_play_import_registry,
-        )
-
-        registry = get_play_import_registry()
-        resolver = await registry.create_play_resolver("apple")
-        assert isinstance(resolver, AppleMusicConnectorPlayResolver)

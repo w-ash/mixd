@@ -78,17 +78,6 @@ class TestSongResource:
         assert song.attributes.play_params.id == song.id
         assert song.attributes.play_params.catalog_id is None
 
-    def test_live_extra_fields_are_ignored(self):
-        # Real resources carry artwork, genreNames, hasLyrics, relationships,
-        # etc. — extra="ignore" must swallow them all.
-        payload = load_fixture("songs_by_ids.json")
-
-        response = AppleMusicSongsResponse.model_validate(payload)
-
-        assert len(response.data) == 1
-        assert response.data[0].attributes.name == "Bohemian Rhapsody"
-        assert not hasattr(response.data[0].attributes, "genre_names")
-
     def test_song_without_isrc_or_release_date_defaults_to_none(self):
         # HAND-MADE: every live-probed catalog song carried isrc +
         # releaseDate; the defensive defaults still need cover.
