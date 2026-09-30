@@ -16,6 +16,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.entities.resolution_event import ResolutionEvent
 from src.domain.entities.track import ArtistCredit, Track
 from src.domain.matching.content_digest import DigestSide
 from src.domain.repositories.resolution import (
@@ -134,9 +135,42 @@ class TestEventLogTemporality:
     """Three instants, three questions — and only one of them is the writer's."""
 
     async def test_recorded_at_comes_from_the_database_not_the_writer(
+        self, db_session: AsyncSession, events: ResolutionEventRepository
+    ):
+        """A backfilled decision keeps its own ``decided_at``; the row still
+        says it was learned now. A writer-supplied ``recorded_at`` is ignored:
+        the writer's clock is not an ordering key across processes."""
+        track_id = await _make_track(db_session)
+        long_ago = datetime(2020, 1, 1, tzinfo=UTC)
+        before = datetime.now(UTC)
+
+        _ = await events.append_events([
+            ResolutionEvent(
+                user_id=_USER,
+                event_type="accepted",
+                connector_name="spotify",
+                track_id=track_id,
+                matcher_version="v1",
+                recorded_at=long_ago,
+                decided_at=long_ago,
+            )
+        ])
+
+        row = (
+            await db_session.execute(
+                select(DBResolutionEvent).where(DBResolutionEvent.track_id == track_id)
+            )
+        ).scalar_one()
+        assert row.decided_at == long_ago
+        assert before - timedelta(minutes=1) < row.recorded_at
+        assert row.recorded_at < datetime.now(UTC) + timedelta(minutes=1)
+
+    async def test_the_seam_stamps_an_online_decision_with_now(
         self, db_session: AsyncSession, recorder: ResolutionRecorder
     ):
+        """Every current writer decides online, so ``decided_at`` is now."""
         track_id = await _make_track(db_session)
+        before = datetime.now(UTC)
 
         await recorder.record(
             [
@@ -152,11 +186,8 @@ class TestEventLogTemporality:
                 select(DBResolutionEvent).where(DBResolutionEvent.track_id == track_id)
             )
         ).scalar_one()
-        assert row.recorded_at is not None
-        # The seam stamps the matcher's clock; the DB stamps its own. Online
-        # they agree closely — the split only diverges on a backfill.
         assert row.decided_at is not None
-        assert abs((row.recorded_at - row.decided_at).total_seconds()) < 60
+        assert before <= row.decided_at <= datetime.now(UTC)
 
     async def test_events_in_one_transaction_are_still_ordered(
         self, db_session: AsyncSession, recorder: ResolutionRecorder
@@ -392,22 +423,41 @@ class TestRejectedPairsAreNotReProposed:
     async def test_rejecting_a_candidate_materializes_its_connector_track(
         self, db_session: AsyncSession, recorder: ResolutionRecorder
     ):
-        """Only accepted matches were ever persisted; a rejection needs a key."""
+        """Only accepted matches were ever persisted; a rejection needs a key.
+
+        The materialized row is the key the stored rejection points at, so the
+        next import's suppression check finds the pair by it.
+        """
         track_id = await _make_track(db_session)
         identifier = f"sp_new_{uuid4().hex[:8]}"
+        candidate = _candidate(identifier, _domain_track(track_id))
 
         await recorder.remember_rejections(
-            [_candidate(identifier, _domain_track(track_id))],
-            user_id=_USER,
-            connector_name="spotify",
+            [candidate], user_id=_USER, connector_name="spotify"
         )
 
-        created = await db_session.scalar(
-            select(DBConnectorTrack.id).where(
-                DBConnectorTrack.connector_track_identifier == identifier
+        created = (
+            await db_session.execute(
+                select(DBConnectorTrack.id, DBConnectorTrack.connector_name).where(
+                    DBConnectorTrack.connector_track_identifier == identifier
+                )
             )
-        )
-        assert created is not None
+        ).one()
+        assert created.connector_name == "spotify"
+        negative = (
+            await db_session.execute(
+                select(
+                    DBResolutionNegative.connector_track_id,
+                    DBResolutionNegative.candidate_track_id,
+                )
+                .where(DBResolutionNegative.kind == "rejected_pair")
+                .where(DBResolutionNegative.connector_track_id == created.id)
+            )
+        ).one()
+        assert negative.candidate_track_id == track_id
+        assert await recorder.active_rejections(
+            [candidate], user_id=_USER, connector_name="spotify"
+        ) == frozenset({(identifier, track_id)})
 
 
 class TestNoMatchBackoff:
@@ -502,52 +552,30 @@ class TestNoMatchBackoff:
 
         assert written == 1
 
-    async def test_first_miss_schedules_one_day(
-        self, db_session: AsyncSession, negatives: ResolutionNegativeRepository
-    ):
-        ct_id, _ = await _make_connector_track(db_session)
-        row = await self._miss(db_session, negatives, ct_id)
-        assert row.consecutive_misses == 1
-        assert 0.8 < self._days_until(row.check_again) < 1.2
-
-    async def test_second_miss_doubles_it(
-        self, db_session: AsyncSession, negatives: ResolutionNegativeRepository
-    ):
-        ct_id, _ = await _make_connector_track(db_session)
-        for _ in range(2):
-            row = await self._miss(db_session, negatives, ct_id)
-        assert row.consecutive_misses == 2
-        assert 1.7 < self._days_until(row.check_again) < 2.3
-
-    async def test_the_curve_caps_at_thirty_two_days(
-        self, db_session: AsyncSession, negatives: ResolutionNegativeRepository
-    ):
-        """Six misses would be 32 days; sixty would still be 32 days."""
-        ct_id, _ = await _make_connector_track(db_session)
-        for _ in range(8):
-            row = await self._miss(db_session, negatives, ct_id)
-        assert 28 < self._days_until(row.check_again) < 36
-
     async def test_the_whole_curve_doubles_in_sql(
         self, db_session: AsyncSession, negatives: ResolutionNegativeRepository
     ):
-        """1d → 2d → 4d → 8d → 16d → 32d → 32d, with the counter in step.
+        """1d → 2d → 4d → 8d → 16d → 32d → 32d → 32d, with the counter in step.
 
         The doubling moved into the upsert statement itself (no read-modify-
         write, so two importers cannot lose a miss between them), which means
         each interval is derived from the row's own previous span rather than
         recomputed from a counter. This walks the whole curve to prove the two
-        formulations agree.
+        formulations agree, and past the cap to prove it holds.
         """
         ct_id, _ = await _make_connector_track(db_session)
-        expected = [1, 2, 4, 8, 16, 32, 32]
+        expected = [1, 2, 4, 8, 16, 32, 32, 32]
 
         for miss, days in enumerate(expected, start=1):
             row = await self._miss(db_session, negatives, ct_id)
             assert row.consecutive_misses == miss
             # ±10% deterministic jitter on the base interval, inherited by
-            # every doubling; the cap is exact.
+            # every doubling.
             assert days * 0.85 < self._days_until(row.check_again) < days * 1.15
+
+        # From the seventh miss on, even the lowest jitter has doubled past the
+        # cap, so the interval is exactly 32 days.
+        assert 31.99 < self._days_until(row.check_again) < 32.01
 
     async def test_an_id_inside_its_window_is_not_re_requested(
         self, db_session: AsyncSession, recorder: ResolutionRecorder
@@ -738,7 +766,8 @@ class TestTenantIsolation:
             user_id=_USER,
         )
 
-        assert await events.events_for_mapping(mapping_id, user_id=_USER)
+        mine = await events.events_for_mapping(mapping_id, user_id=_USER)
+        assert [event.event_type for event in mine] == ["accepted"]
         assert await events.events_for_mapping(mapping_id, user_id=_OTHER_USER) == []
 
     async def test_rejections_are_scoped_to_their_user(
@@ -1290,14 +1319,17 @@ class TestListNegatives:
         negatives: ResolutionNegativeRepository,
     ):
         track_id = await _make_track(db_session)
-        _, identifier = await _make_connector_track(db_session)
+        ct_id, identifier = await _make_connector_track(db_session)
         await recorder.remember_rejections(
             [_candidate(identifier, _domain_track(track_id))],
             user_id=_USER,
             connector_name="spotify",
         )
 
-        assert await negatives.list_negatives(user_id=_USER, kind="rejected")
+        mine = await negatives.list_negatives(user_id=_USER, kind="rejected")
+        assert [(row.connector_track_id, row.track_id) for row in mine] == [
+            (ct_id, track_id)
+        ]
         assert (
             await negatives.list_negatives(user_id=_OTHER_USER, kind="rejected") == []
         )

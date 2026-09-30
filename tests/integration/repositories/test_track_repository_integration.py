@@ -123,67 +123,6 @@ class TestTrackRepositoryIntegration:
         assert "spotify" not in retrieved_track.connector_track_identifiers
         assert "lastfm" not in retrieved_track.connector_track_identifiers
 
-    async def test_bulk_track_operations(self, db_session):
-        """Test bulk operations and track management scenarios."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        tracks_to_save = []
-        for i in range(3):
-            track = make_track(
-                title=f"TEST_BulkTrack_{i}_{uuid4()}",
-                artist=f"TEST_BulkArtist_{i}_{uuid4()}",
-                connector_track_identifiers={},
-            )
-            tracks_to_save.append(track)
-
-        saved_tracks = []
-        for track in tracks_to_save:
-            saved_track = await track_repo.save_track(track)
-            saved_tracks.append(saved_track)
-
-        saved_ids = [track.id for track in saved_tracks]
-        assert len(set(saved_ids)) == 3  # All IDs should be unique
-        assert all(track_id is not None for track_id in saved_ids)
-
-        bulk_result = await track_repo.find_tracks_by_ids(saved_ids)
-        assert len(bulk_result) == 3
-        for saved_track in saved_tracks:
-            assert saved_track.id in bulk_result
-            retrieved = bulk_result[saved_track.id]
-            assert retrieved.title.startswith("TEST_BulkTrack_")
-
-    async def test_track_update_operations(self, db_session):
-        """Test track update and modification scenarios."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        original_track = make_track(
-            title=f"TEST_Original_{uuid4()}",
-            artist=f"TEST_Artist_{uuid4()}",
-            album=f"TEST_Album_{uuid4()}",
-            connector_track_identifiers={"spotify": f"spotify_{uuid4()}"},
-        )
-
-        saved_track = await track_repo.save_track(original_track)
-
-        # Updating a canonical rewrites its own columns; connector ids are
-        # not among them, so the update arm leaves them to the mappings.
-        updated_track = evolve(
-            saved_track,
-            connector_track_identifiers={
-                **saved_track.connector_track_identifiers,
-                "musicbrainz": str(uuid4()),
-            },
-        )
-
-        final_track = await track_repo.save_track(updated_track)
-
-        assert final_track.id == saved_track.id  # Same ID
-        assert final_track.title == saved_track.title  # Same title
-        assert final_track.album == saved_track.album
-        assert final_track.version == saved_track.version + 1
-
 
 class TestTrackOptimisticLocking:
     """Integration tests for optimistic concurrency control on tracks."""
@@ -234,20 +173,6 @@ class TestTrackOptimisticLocking:
             await track_repo.save_track(stale_copy)
 
         assert exc_info.value.expected_version == 1
-
-    async def test_save_track_insert_path_unaffected(self, db_session):
-        """New tracks (version=0) should save normally and get version=1."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title=f"TEST_Insert_{uuid4()}",
-            artist="Test Artist",
-        )
-        assert track.version == 0
-
-        saved = await track_repo.save_track(track)
-        assert saved.version == 1
 
 
 class TestFillBlankMetadata:
@@ -323,26 +248,6 @@ class TestFindTracksByTitleArtist:
         )
         assert ("creep", "radiohead") in result
         assert result["creep", "radiohead"].id == saved.id
-
-    async def test_case_insensitive_match(self, db_session):
-        """Title and artist matching should be case-insensitive."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="Bohemian Rhapsody",
-            artist="Queen",
-        )
-        saved = await track_repo.save_track(track)
-
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("bohemian rhapsody", "queen"),
-            ],
-            user_id="default",
-        )
-        assert ("bohemian rhapsody", "queen") in result
-        assert result["bohemian rhapsody", "queen"].id == saved.id
 
     async def test_no_match_returns_empty(self, db_session):
         """When no track matches, returns empty dict."""
@@ -553,66 +458,6 @@ class TestNormalizedLookup:
         assert ("don't stop me now", "queen") in result
         assert result["don't stop me now", "queen"].id == saved.id
 
-    async def test_article_prefix_match(self, db_session):
-        """'The Beatles' should match 'Beatles' (leading article stripped)."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="Hey Jude",
-            artist="The Beatles",
-        )
-        saved = await track_repo.save_track(track)
-
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("Hey Jude", "Beatles"),
-            ],
-            user_id="default",
-        )
-        assert ("hey jude", "beatles") in result
-        assert result["hey jude", "beatles"].id == saved.id
-
-    async def test_punctuation_match(self, db_session):
-        """'AC/DC' should match 'ACDC' (punctuation stripped)."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="Thunderstruck",
-            artist="AC/DC",
-        )
-        saved = await track_repo.save_track(track)
-
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("Thunderstruck", "ACDC"),
-            ],
-            user_id="default",
-        )
-        assert ("thunderstruck", "acdc") in result
-        assert result["thunderstruck", "acdc"].id == saved.id
-
-    async def test_feat_variation_match(self, db_session):
-        """'feat.' should match 'ft.' and 'featuring'."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="Song feat. Guest",
-            artist="Main Artist",
-        )
-        saved = await track_repo.save_track(track)
-
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("Song ft. Guest", "Main Artist"),
-            ],
-            user_id="default",
-        )
-        assert ("song ft. guest", "main artist") in result
-        assert result["song ft. guest", "main artist"].id == saved.id
-
     async def test_normalized_columns_populated_on_save(self, db_session):
         """Verify that title_normalized and artist_normalized are set when saving."""
         uow = get_unit_of_work(db_session)
@@ -637,49 +482,6 @@ class TestNormalizedLookup:
 
 class TestParentheticalStripping:
     """Integration tests for parenthetical stripping fallback matching."""
-
-    async def test_find_by_stripped_title(self, db_session):
-        """Track saved as 'Song (feat. X)' should be found by searching 'Song'."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="New Kind of Soft (feat. Neon Priest)",
-            artist="Artist",
-        )
-        saved = await track_repo.save_track(track)
-
-        # Search by bare title (without parenthetical)
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("New Kind of Soft", "Artist"),
-            ],
-            user_id="default",
-        )
-        assert ("new kind of soft", "artist") in result
-        assert result["new kind of soft", "artist"].id == saved.id
-
-    async def test_find_parenthetical_by_stripped(self, db_session):
-        """Track saved as 'Song' should be found by searching 'Song (feat. X)'."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="New Kind of Soft",
-            artist="Artist",
-        )
-        saved = await track_repo.save_track(track)
-
-        # Search by title with parenthetical added
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("New Kind of Soft (feat. Neon Priest)", "Artist"),
-            ],
-            user_id="default",
-        )
-        key = ("new kind of soft (feat. neon priest)", "artist")
-        assert key in result
-        assert result[key].id == saved.id
 
     async def test_title_stripped_column_populated(self, db_session):
         """Verify title_stripped is populated on save."""

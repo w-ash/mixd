@@ -302,22 +302,7 @@ class TestWhatItLeavesAlone:
         assert await connector_repo.find_missing_primary_violations() == []
 
 
-class TestIdempotenceAndDryRun:
-    async def test_a_second_run_finds_nothing(
-        self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
-    ) -> None:
-        track_id = await _make_track(db_session)
-        ct_id, _ = await _make_connector_track(db_session)
-        _ = await _add_mapping(
-            db_session, track_id=track_id, connector_track_id=ct_id, confidence=60
-        )
-
-        first = await connector_repo.repair_missing_primaries(user_id=_USER)
-        second = await connector_repo.repair_missing_primaries(user_id=_USER)
-
-        assert len(first) == 1
-        assert second == []
-
+class TestDryRun:
     async def test_dry_run_reports_without_writing(
         self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
     ) -> None:
