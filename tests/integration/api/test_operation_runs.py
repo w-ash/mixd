@@ -13,7 +13,6 @@ import httpx2
 
 from src.application.runner import execute_use_case
 from src.domain.entities.operation_run import OperationRun
-from src.interface.api.schemas.cache_tags import touches_for
 from tests.fixtures import make_operation_run
 
 
@@ -67,15 +66,17 @@ class TestListOperationRuns:
         self, client: httpx2.AsyncClient
     ) -> None:
         now = datetime.now(UTC)
-        await _seed_run(started_at=now - timedelta(hours=2))
+        oldest = await _seed_run(started_at=now - timedelta(hours=2))
         middle = await _seed_run(started_at=now - timedelta(hours=1))
-        await _seed_run(started_at=now)
+        newest = await _seed_run(started_at=now)
 
         response = await client.get("/api/v1/operation-runs")
         assert response.status_code == 200
-        rows = response.json()["data"]
-        assert len(rows) == 3
-        assert rows[1]["id"] == str(middle.id)
+        assert [row["id"] for row in response.json()["data"]] == [
+            str(newest.id),
+            str(middle.id),
+            str(oldest.id),
+        ]
 
     async def test_default_filter_excludes_non_import_types(
         self, client: httpx2.AsyncClient
@@ -360,8 +361,16 @@ class TestCacheTagsOnRunRows:
         rows = (await client.get("/api/v1/operation-runs?type=all")).json()["data"]
         row = next(r for r in rows if r["id"] == str(run.id))
 
-        assert set(row["touched"]) == set(touches_for("import_lastfm_history"))
-        assert "plays" in row["touched"]
+        # A play import stales the run log, plays, tracks, the sync checkpoint,
+        # the connector card that reads it, and the dashboard totals.
+        assert set(row["touched"]) == {
+            "operation-runs",
+            "plays",
+            "tracks",
+            "checkpoints",
+            "connectors",
+            "stats",
+        }
 
     async def test_unrecognised_operation_type_serialises_empty(
         self, client: httpx2.AsyncClient

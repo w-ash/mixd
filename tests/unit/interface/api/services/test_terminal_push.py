@@ -67,7 +67,14 @@ class TestPushTerminalBestEffort:
         assert len(frame) == 1
         assert frame[0]["event"] == "complete"
         assert frame[0]["data"]["counts"] == {"imported": 3}
-        assert frame[0]["data"]["touched"]
+        # A workflow run writes run history and reaches playlists (its destinations).
+        assert frame[0]["data"]["touched"] == [
+            "workflow-runs",
+            "workflows",
+            "playlists",
+            "tracks",
+            "stats",
+        ]
 
     async def test_rejected_payload_is_logged_not_raised(self, monkeypatch):
         queue: asyncio.Queue[object] = asyncio.Queue()

@@ -48,12 +48,18 @@ async def client_with_static(
     postgres_url: str,
     _init_test_schema: None,
 ) -> AsyncGenerator[httpx2.AsyncClient]:
-    """Client with static serving enabled (patched _WEB_DIST)."""
-    with _test_db_env(postgres_url):
-        with patch("src.interface.api.app._WEB_DIST", dist_dir):
-            from src.interface.api.app import create_app
+    """Client with static serving enabled (patched _WEB_DIST).
 
-            app = create_app()
+    The patch stays active for the requests too: the catch-all resolves real
+    files against ``_WEB_DIST`` per request, not at mount time.
+    """
+    with (
+        _test_db_env(postgres_url),
+        patch("src.interface.api.app._WEB_DIST", dist_dir),
+    ):
+        from src.interface.api.app import create_app
+
+        app = create_app()
 
         transport = httpx2.ASGITransport(app=app)
         async with httpx2.AsyncClient(transport=transport, base_url="http://test") as c:
@@ -81,24 +87,11 @@ async def client_without_static(
 class TestStaticServing:
     """Tests for when web/dist/ exists."""
 
-    async def test_root_serves_index_html(
-        self, client_with_static: httpx2.AsyncClient
+    @pytest.mark.parametrize("path", ["/", "/playlists", "/playlists/42"])
+    async def test_spa_routes_serve_index_html(
+        self, client_with_static: httpx2.AsyncClient, path: str
     ) -> None:
-        resp = await client_with_static.get("/")
-        assert resp.status_code == 200
-        assert "root" in resp.text
-
-    async def test_spa_route_serves_index_html(
-        self, client_with_static: httpx2.AsyncClient
-    ) -> None:
-        resp = await client_with_static.get("/playlists")
-        assert resp.status_code == 200
-        assert "root" in resp.text
-
-    async def test_nested_spa_route_serves_index_html(
-        self, client_with_static: httpx2.AsyncClient
-    ) -> None:
-        resp = await client_with_static.get("/playlists/42")
+        resp = await client_with_static.get(path)
         assert resp.status_code == 200
         assert "root" in resp.text
 
@@ -114,6 +107,8 @@ class TestStaticServing:
     ) -> None:
         resp = await client_with_static.get("/favicon.ico")
         assert resp.status_code == 200
+        # The file itself, not the SPA shell the catch-all would return.
+        assert resp.content == b"\x00\x00\x01\x00"
 
     async def test_api_routes_still_work(
         self, client_with_static: httpx2.AsyncClient

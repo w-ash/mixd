@@ -38,20 +38,6 @@ def _stub_workflow_background(monkeypatch):
 class TestPreviewUnsavedWorkflow:
     """POST /workflows/preview — preview an unsaved definition."""
 
-    async def test_returns_202_with_operation_id(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        response = await client.post(
-            "/api/v1/workflows/preview",
-            json={"definition": _valid_definition()},
-        )
-
-        assert response.status_code == 202
-        body = response.json()
-        assert "operation_id" in body
-        assert isinstance(body["operation_id"], str)
-        assert len(body["operation_id"]) > 0
-
     async def test_invalid_definition_returns_422(
         self, client: httpx2.AsyncClient
     ) -> None:
@@ -97,19 +83,6 @@ class TestPreviewUnsavedWorkflow:
 class TestPreviewSavedWorkflow:
     """POST /workflows/{id}/preview — preview a saved workflow."""
 
-    async def test_returns_202_with_operation_id(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        wf_id = await _create_workflow(client)
-
-        response = await client.post(f"/api/v1/workflows/{wf_id}/preview")
-
-        assert response.status_code == 202
-        body = response.json()
-        assert "operation_id" in body
-        assert isinstance(body["operation_id"], str)
-        assert len(body["operation_id"]) > 0
-
     async def test_nonexistent_workflow_returns_404(
         self, client: httpx2.AsyncClient
     ) -> None:
@@ -118,22 +91,37 @@ class TestPreviewSavedWorkflow:
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "NOT_FOUND"
 
-    async def test_preview_after_update_uses_latest_definition(
-        self, client: httpx2.AsyncClient
+    async def test_preview_runs_the_latest_saved_definition(
+        self, client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Preview of a saved workflow should succeed even after updates."""
+        """The saved-workflow preview loads the definition as last updated."""
         wf_id = await _create_workflow(client)
-
-        # Update the workflow
         updated_def = _valid_definition()
         updated_def["name"] = "Updated Workflow"
         await client.patch(
             f"/api/v1/workflows/{wf_id}", json={"definition": updated_def}
         )
+        launched: list = []
+        monkeypatch.setattr(
+            _workflows_mod,
+            "launch_background",
+            lambda _name, factory, **_kwargs: launched.append(factory),
+        )
+        previewed: list = []
+        monkeypatch.setattr(
+            _workflows_mod,
+            "execute_preview_background",
+            lambda _operation_id, workflow_def, _queue, _user_id: previewed.append(
+                workflow_def
+            ),
+        )
 
-        # Preview should still work
         response = await client.post(f"/api/v1/workflows/{wf_id}/preview")
+
         assert response.status_code == 202
+        assert response.json()["operation_id"]
+        launched[0]()
+        assert [definition.name for definition in previewed] == ["Updated Workflow"]
 
 
 class TestPreviewGuards:

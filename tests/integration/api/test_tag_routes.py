@@ -93,16 +93,6 @@ class TestAddTrackTag:
 
 
 class TestDeleteTrackTag:
-    async def test_removes_existing_returns_204(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        track_id = await _create_track(client, "Song")
-        await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": "mood:chill"})
-
-        response = await client.delete(f"/api/v1/tracks/{track_id}/tags/mood:chill")
-
-        assert response.status_code == 204
-
     async def test_missing_tag_returns_204(self, client: httpx2.AsyncClient) -> None:
         """DELETE is idempotent — same response whether or not the tag existed."""
         track_id = await _create_track(client, "Song")
