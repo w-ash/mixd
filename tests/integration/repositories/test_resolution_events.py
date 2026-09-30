@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -142,7 +142,9 @@ class TestEventLogTemporality:
         the writer's clock is not an ordering key across processes."""
         track_id = await _make_track(db_session)
         long_ago = datetime(2020, 1, 1, tzinfo=UTC)
-        before = datetime.now(UTC)
+        # Both bounds come from the database clock, so host clock skew
+        # cannot move them: now() is the transaction start.
+        txn_start = await db_session.scalar(select(func.now()))
 
         _ = await events.append_events([
             ResolutionEvent(
@@ -161,9 +163,11 @@ class TestEventLogTemporality:
                 select(DBResolutionEvent).where(DBResolutionEvent.track_id == track_id)
             )
         ).scalar_one()
+        db_after = await db_session.scalar(select(func.clock_timestamp()))
         assert row.decided_at == long_ago
-        assert before - timedelta(minutes=1) < row.recorded_at
-        assert row.recorded_at < datetime.now(UTC) + timedelta(minutes=1)
+        assert txn_start is not None
+        assert db_after is not None
+        assert txn_start <= row.recorded_at <= db_after
 
     async def test_the_seam_stamps_an_online_decision_with_now(
         self, db_session: AsyncSession, recorder: ResolutionRecorder
@@ -574,8 +578,11 @@ class TestNoMatchBackoff:
             assert days * 0.85 < self._days_until(row.check_again) < days * 1.15
 
         # From the seventh miss on, even the lowest jitter has doubled past the
-        # cap, so the interval is exactly 32 days.
-        assert 31.99 < self._days_until(row.check_again) < 32.01
+        # cap, so the interval is exactly 32 days. One statement stamps both
+        # columns from the database clock, so their span is exact.
+        assert row.check_again is not None
+        assert row.last_checked_at is not None
+        assert row.check_again - row.last_checked_at == timedelta(days=32)
 
     async def test_an_id_inside_its_window_is_not_re_requested(
         self, db_session: AsyncSession, recorder: ResolutionRecorder

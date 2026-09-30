@@ -1,5 +1,6 @@
 """Integration tests for TrackRepository with real database operations following modern patterns."""
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from attrs import evolve
@@ -7,6 +8,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects import postgresql
 
+from src.domain.entities import ArtistCredit
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.domain.repositories.errors import IdentityKeyClaimedError
@@ -122,6 +124,68 @@ class TestTrackRepositoryIntegration:
         retrieved_track = await track_repo.get_by_id(saved_track.id)
         assert "spotify" not in retrieved_track.connector_track_identifiers
         assert "lastfm" not in retrieved_track.connector_track_identifiers
+
+    async def test_an_update_writes_every_changed_column(self, db_session):
+        """Saving an edited track writes its columns, not only a new version.
+
+        The read-back is a column select, so the values come from the table
+        and not from an ORM instance the session already holds.
+        """
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        saved = await track_repo.save_track(
+            make_track(
+                title="Before",
+                artist="Old Artist",
+                album="Old Album",
+                duration_ms=200_000,
+                release_date=datetime(2001, 1, 1, tzinfo=UTC),
+                isrc="QZTST2600001",
+            )
+        )
+
+        _ = await track_repo.save_track(
+            evolve(
+                saved,
+                title="After (Live)",
+                artists=[
+                    ArtistCredit(credited_name="New Artist"),
+                    ArtistCredit(credited_name="Guest"),
+                ],
+                album="New Album",
+                duration_ms=245_733,
+                release_date=datetime(2024, 5, 17, tzinfo=UTC),
+                isrc="QZTST2600002",
+            )
+        )
+
+        row = (
+            await db_session.execute(
+                select(
+                    DBTrack.title,
+                    DBTrack.artists,
+                    DBTrack.album,
+                    DBTrack.duration_ms,
+                    DBTrack.release_date,
+                    DBTrack.isrc,
+                    DBTrack.title_normalized,
+                    DBTrack.artist_normalized,
+                    DBTrack.title_stripped,
+                    DBTrack.artists_text,
+                    DBTrack.version,
+                ).where(DBTrack.id == saved.id)
+            )
+        ).one()
+        assert row.title == "After (Live)"
+        assert row.artists == {"names": ["New Artist", "Guest"]}
+        assert row.album == "New Album"
+        assert row.duration_ms == 245_733
+        assert row.release_date == datetime(2024, 5, 17, tzinfo=UTC)
+        assert row.isrc == "QZTST2600002"
+        assert row.title_normalized == "after live"
+        assert row.artist_normalized == "new artist"
+        assert row.title_stripped == "after"
+        assert row.artists_text == "New Artist, Guest"
+        assert row.version == 2
 
 
 class TestTrackOptimisticLocking:
@@ -457,6 +521,23 @@ class TestNormalizedLookup:
         )
         assert ("don't stop me now", "queen") in result
         assert result["don't stop me now", "queen"].id == saved.id
+
+    async def test_probe_artist_is_normalized_like_the_stored_one(self, db_session):
+        """A probe that repeats the stored artist verbatim still matches.
+
+        The stored column holds "beatles" (article and case removed), so the
+        probe side must normalize the artist the same way, not only lowercase it.
+        """
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        saved = await track_repo.save_track(
+            make_track(title="Hey Jude", artist="The Beatles")
+        )
+
+        result = await track_repo.find_tracks_by_title_artist(
+            [("Hey Jude", "The Beatles")], user_id="default"
+        )
+
+        assert result["hey jude", "the beatles"].id == saved.id
 
     async def test_normalized_columns_populated_on_save(self, db_session):
         """Verify that title_normalized and artist_normalized are set when saving."""
