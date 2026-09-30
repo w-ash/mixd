@@ -6,6 +6,8 @@ descriptions and faster cleanup delays compared to top-level operations.
 
 import asyncio
 
+import pytest
+
 from src.domain.entities.progress import OperationStatus, ProgressOperation
 from src.interface.cli.progress_subscriber import RichProgressSubscriber
 
@@ -58,30 +60,58 @@ class TestSubOperationDisplay:
         finally:
             await provider.stop_display()
 
-    async def test_sub_operation_gets_fast_cleanup(self):
+    async def test_sub_operation_cleanup_delay_is_shorter_than_top_level(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        # The clock is the boundary: record each cleanup delay, then return at
+        # once so removal can be observed without waiting in real time.
+        real_sleep = asyncio.sleep
+        delays: list[float] = []
+
+        async def _recording_sleep(seconds: float) -> None:
+            delays.append(seconds)
+            await real_sleep(0)
+
         provider = RichProgressSubscriber(show_rate=False)
         await provider.start_display()
+        monkeypatch.setattr(asyncio, "sleep", _recording_sleep)
 
         try:
-            sub_op = ProgressOperation(
-                operation_id="sub-1",
-                description="Fetching metadata",
-                total_items=10,
-                metadata={"parent_operation_id": "parent-1"},
+            await provider.on_operation_started(
+                ProgressOperation(
+                    operation_id="top-1",
+                    description="Running workflow",
+                    total_items=10,
+                )
             )
-            await provider.on_operation_started(sub_op)
+            await provider.on_operation_started(
+                ProgressOperation(
+                    operation_id="sub-1",
+                    description="Fetching metadata",
+                    total_items=10,
+                    metadata={"parent_operation_id": "top-1"},
+                )
+            )
 
-            # Complete the sub-operation
             await provider.on_operation_completed("sub-1", OperationStatus.COMPLETED)
-
-            # The sub-operation should still be tracked (cleanup is delayed)
+            # Cleanup is deferred: the finished bar stays visible until it runs.
             assert "sub-1" in provider._operation_tasks
             assert not provider._operation_tasks["sub-1"].is_active
-
-            # Wait for the fast cleanup (0.5s) plus a small margin
-            await asyncio.sleep(0.7)
-
-            # After 0.7s the sub-operation should be cleaned up (0.5s delay)
+            await real_sleep(0)
+            await real_sleep(0)
+            sub_delays = [d for d in delays if d > 0]
             assert "sub-1" not in provider._operation_tasks
+
+            await provider.on_operation_completed("top-1", OperationStatus.COMPLETED)
+            await real_sleep(0)
+            await real_sleep(0)
+            top_delays = [d for d in delays if d > 0][len(sub_delays) :]
+            assert "top-1" not in provider._operation_tasks
+
+            assert len(sub_delays) == 1
+            assert len(top_delays) == 1
+            assert 0 < sub_delays[0] < top_delays[0]
+            assert sub_delays[0] <= 0.5
         finally:
+            monkeypatch.undo()
             await provider.stop_display()

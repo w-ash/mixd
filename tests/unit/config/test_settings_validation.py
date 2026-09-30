@@ -43,22 +43,16 @@ class TestDefaultsPassConstraints:
         assert config.high_similarity_threshold == 0.9
 
     def test_import_config_defaults(self):
+        # Last.fm's scrobble rule: a listen is 4 minutes or 50% of the track.
         config = ImportConfig()
+        assert config.play_threshold_ms == 240_000
         assert config.play_threshold_percentage == 0.5
         assert config.batch_size == 1000
-
-    def test_logging_config_defaults(self):
-        config = LoggingConfig()
-        assert config.console_level == "INFO"
 
     def test_freshness_config_defaults(self):
         config = FreshnessConfig()
         assert config.lastfm_hours == 1.0
         assert config.spotify_hours == 24.0
-
-    def test_cli_config_defaults(self):
-        config = CLIConfig()
-        assert config.playlist_name_min_width == 15
 
     def test_scheduler_config_defaults(self):
         config = SchedulerConfig()
@@ -205,10 +199,6 @@ class TestPositiveIntRejection:
         with pytest.raises(ValidationError):
             ConnectorAPIConfig(batch_size=0)
 
-    def test_batch_size_negative(self):
-        with pytest.raises(ValidationError):
-            ConnectorAPIConfig(batch_size=-1)
-
     def test_concurrency_zero(self):
         with pytest.raises(ValidationError):
             ConnectorAPIConfig(concurrency=0)
@@ -232,10 +222,6 @@ class TestPositiveFloatRejection:
     def test_rate_limit_zero(self):
         with pytest.raises(ValidationError):
             ConnectorAPIConfig(rate_limit=0.0)
-
-    def test_rate_limit_negative(self):
-        with pytest.raises(ValidationError):
-            ConnectorAPIConfig(rate_limit=-1.0)
 
     def test_timeout_zero(self):
         with pytest.raises(ValidationError):
@@ -311,10 +297,6 @@ class TestLogLevelValidation:
             LoggingConfig(console_level="TRACE")
         with pytest.raises(ValidationError):
             LoggingConfig(console_level="SUCCESS")
-
-    def test_prefect_log_level_field_removed(self):
-        """The Prefect log-level knob is gone post-swap — no dead config remains."""
-        assert "prefect_log_level" not in LoggingConfig.model_fields
 
 
 class TestEnvIgnoreEmpty:

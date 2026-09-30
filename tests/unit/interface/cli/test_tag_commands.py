@@ -6,6 +6,7 @@ with the expected arguments. Use-case behavior itself is covered by
 unit tests elsewhere.
 """
 
+import re
 from unittest.mock import patch
 from uuid import uuid7
 
@@ -18,7 +19,7 @@ from src.application.use_cases.tag_track import TagTrackResult
 from src.application.use_cases.untag_track import UntagTrackResult
 from src.domain.entities import Playlist, Track
 from src.interface.cli.app import app
-from tests.fixtures import TEST_USER_ID, make_playlist_with_entries, make_track
+from tests.fixtures import TEST_USER_ID, make_playlist_with_entries, make_track, plain
 
 runner = CliRunner()
 
@@ -293,11 +294,13 @@ class TestBatchTag:
         # UUID-resolved playlists come back with entries loaded — batch_tag
         # must use them directly instead of issuing a redundant re-fetch.
         execute_use_case.assert_not_called()
-        # Summary: succeeded=2, skipped=(requested - tagged)=1.
-        assert "Succeeded" in result.output
-        assert "Skipped" in result.output
-        assert "Failed" in result.output
-        assert "Total" in result.output
+        # Summary: succeeded=tagged, skipped=requested - tagged (already tagged).
+        output = plain(result.output)
+        assert len(track_ids) == 3
+        assert re.search(r"Succeeded\W+2\b", output)
+        assert re.search(r"Skipped\W+1\b", output)
+        assert re.search(r"Failed\W+0\b", output)
+        assert re.search(r"Total\W+3\b", output)
         kwargs = run_batch.call_args.kwargs
         assert kwargs["raw_tag"] == "mood:chill"
         assert list(kwargs["track_ids"]) == track_ids
