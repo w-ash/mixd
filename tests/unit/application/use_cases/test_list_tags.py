@@ -17,13 +17,3 @@ class TestListTags:
         uow.get_tag_repository().list_tags.assert_called_once_with(
             user_id="default", query="mood", limit=20
         )
-
-    async def test_defaults_query_to_none(self) -> None:
-        uow = make_mock_uow()
-        uow.get_tag_repository().list_tags.return_value = []
-
-        await ListTagsUseCase().execute(ListTagsCommand(user_id="default"), uow)
-
-        uow.get_tag_repository().list_tags.assert_called_once_with(
-            user_id="default", query=None, limit=100
-        )

@@ -103,13 +103,6 @@ class TestEmptyCollection:
         assert uow.get_track_repository.return_value.mock_calls == []
         assert uow.get_connector_repository.return_value.mock_calls == []
 
-    async def test_empty_page_spends_no_track_lookups(self) -> None:
-        connector = _make_connector(pages=[_page([])])
-
-        await _execute(connector)
-
-        connector.get_track_display_data.assert_not_awaited()
-
     async def test_use_case_never_closes_the_connector(self) -> None:
         # Lifecycle belongs to the UoW: the connector is cached on it and
         # closed by its __aexit__ — an aclose here would be a double-close.

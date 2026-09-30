@@ -18,23 +18,16 @@ from tests.fixtures import TEST_USER_ID
 class TestNonEmptyString:
     """Tests for non_empty_string validator (whitespace-stripping behavior)."""
 
-    def test_rejects_empty_string(self):
-        @define
-        class TestCommand:
-            name: str = field(validator=non_empty_string)
-
-        with pytest.raises(ValueError, match="must be a non-empty string"):
-            TestCommand(name="")
-
-    def test_rejects_whitespace_only_string(self):
-        """Differs from attrs.validators.min_len(1) — strips whitespace first."""
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_rejects_blank_string(self, blank: str):
+        """Whitespace-only is rejected too, unlike attrs.validators.min_len(1)."""
 
         @define
         class TestCommand:
             name: str = field(validator=non_empty_string)
 
         with pytest.raises(ValueError, match="must be a non-empty string"):
-            TestCommand(name="   ")
+            TestCommand(name=blank)
 
     def test_accepts_string_with_leading_trailing_whitespace(self):
         """Should accept strings with content even if they have whitespace."""

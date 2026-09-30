@@ -6,20 +6,15 @@ from src.application.use_cases._shared.metric_config import default_metric_confi
 class TestDefaultMetricConfig:
     """``default_metric_config`` bridges to the concrete registry provider."""
 
-    def test_default_metric_config_returns_a_provider(self) -> None:
-        """Every ``MetricConfigProvider`` method answers, not just exists."""
+    def test_provider_serves_the_connectors_declared_metrics(self) -> None:
+        """A fresh provider reads the registry the connectors declared into."""
         provider = default_metric_config()
 
-        mappings = provider.get_all_field_mappings()
-        connectors = provider.get_all_connectors_metrics()
-
-        assert isinstance(mappings, dict)
-        assert isinstance(connectors, dict)
-        assert mappings, "registry should expose at least one metric field mapping"
-
-        metric = next(iter(mappings))
-        assert isinstance(provider.get_field_name(metric), str)
-        assert isinstance(provider.get_metric_freshness(metric), float)
-
-        connector = next(iter(connectors))
-        assert isinstance(provider.get_connector_metrics(connector), list)
+        assert "lastfm_user_playcount" in provider.get_connector_metrics("lastfm")
+        assert "explicit_flag" in provider.get_all_connectors_metrics()["spotify"]
+        # The metric name and its payload field differ for Spotify's flag.
+        assert provider.get_field_name("explicit_flag") == "explicit"
+        assert provider.get_all_field_mappings()["explicit_flag"] == "explicit"
+        assert provider.get_metric_label("lastfm_user_playcount") == (
+            "Play Count (Last.fm)"
+        )

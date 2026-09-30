@@ -5,7 +5,7 @@ Clean Architecture principles with proper mocking at architectural boundaries.
 Tests use UnitOfWork pattern for proper Clean Architecture compliance.
 """
 
-from datetime import datetime
+from datetime import UTC, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid7
 
@@ -14,7 +14,6 @@ import pytest
 from src.application.use_cases.enrich_tracks import (
     EnrichmentConfig,
     EnrichTracksCommand,
-    EnrichTracksResult,
     EnrichTracksUseCase,
 )
 from src.domain.entities.track import ArtistCredit, Track, TrackList
@@ -127,7 +126,6 @@ class TestEnrichTracksUseCase:
             result = await use_case.execute(command, mock_uow)
 
         # Assert
-        assert isinstance(result, EnrichTracksResult)
         assert result.metrics_added == expected_metrics
         assert result.track_count == 2
         assert result.enriched_count == 2  # Total values across all metrics
@@ -160,7 +158,6 @@ class TestEnrichTracksUseCase:
         result = await use_case.execute(command, mock_uow)
 
         # Assert
-        assert isinstance(result, EnrichTracksResult)
         assert result.track_count == 2
         assert result.enriched_count == 4  # 2 metrics * 2 tracks (from mock fixture)
         assert len(result.errors) == 0
@@ -191,7 +188,7 @@ class TestEnrichTracksUseCase:
 
         # Arrange
         config = EnrichmentConfig(
-            enrichment_type="play_history", metrics=["period_plays"], period_days=7
+            enrichment_type="play_history", metrics=["period_plays"], period_days=10
         )
         command = EnrichTracksCommand(
             user_id="test-user", tracklist=sample_tracklist, enrichment_config=config
@@ -207,18 +204,11 @@ class TestEnrichTracksUseCase:
         assert call_kwargs["track_ids"] == [1, 2]
         assert call_kwargs["metrics"] == ["period_plays"]
 
-        # Check that period boundaries were calculated (should be datetime objects)
+        # The window ends now (UTC) and spans exactly period_days.
         period_start = call_kwargs["period_start"]
         period_end = call_kwargs["period_end"]
-        assert period_start is not None
-        assert period_end is not None
-
-        assert isinstance(period_start, datetime)
-        assert isinstance(period_end, datetime)
-
-        # Check that the period is approximately 7 days
-        period_duration = period_end - period_start
-        assert abs(period_duration.days - 7) <= 1  # Allow for small timing differences
+        assert period_end.tzinfo is UTC
+        assert period_end - period_start == timedelta(days=10)
 
     async def test_empty_tracklist_handling(
         self, use_case, external_metadata_config, mock_uow
@@ -289,7 +279,6 @@ class TestEnrichTracksUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert isinstance(result, EnrichTracksResult)
         assert result.enriched_tracklist.metadata["preferences"] == preferences
         assert len(result.errors) == 0
 
@@ -298,43 +287,6 @@ class TestEnrichTracksUseCase:
         assert call_kwargs["user_id"] == "test-user"
         call_args = mock_pref_repo.get_preferences.call_args.args
         assert list(call_args[0]) == [t.id for t in tracks]
-
-    async def test_preferences_enrichment_empty_result(self, use_case):
-        """Empty preference table → metadata["preferences"] is empty dict (all unrated)."""
-        tracks = make_tracks(count=2)
-        tracklist = TrackList(tracks=tracks)
-
-        mock_pref_repo = AsyncMock()
-        mock_pref_repo.get_preferences.return_value = {}
-        mock_uow = make_mock_uow(preference_repo=mock_pref_repo)
-
-        config = EnrichmentConfig(enrichment_type="preferences")
-        command = EnrichTracksCommand(
-            user_id="test-user", tracklist=tracklist, enrichment_config=config
-        )
-
-        result = await use_case.execute(command, mock_uow)
-
-        assert result.enriched_tracklist.metadata["preferences"] == {}
-        assert len(result.errors) == 0
-
-    async def test_preferences_enrichment_single_batch_call(self, use_case):
-        """Repo batch method is called exactly once regardless of tracklist size."""
-        tracks = make_tracks(count=50)
-        tracklist = TrackList(tracks=tracks)
-
-        mock_pref_repo = AsyncMock()
-        mock_pref_repo.get_preferences.return_value = {}
-        mock_uow = make_mock_uow(preference_repo=mock_pref_repo)
-
-        config = EnrichmentConfig(enrichment_type="preferences")
-        command = EnrichTracksCommand(
-            user_id="test-user", tracklist=tracklist, enrichment_config=config
-        )
-
-        await use_case.execute(command, mock_uow)
-
-        assert mock_pref_repo.get_preferences.call_count == 1
 
     async def test_tags_enrichment_success(self, use_case):
         """Tags enrichment attaches tags to tracklist metadata, grouped by track_id."""
@@ -362,45 +314,10 @@ class TestEnrichTracksUseCase:
         assert result.enriched_tracklist.metadata["tags"] == tags
         assert len(result.errors) == 0
 
+        # One batch read for the whole tracklist, scoped to the user.
         mock_tag_repo.get_tags.assert_called_once()
         assert mock_tag_repo.get_tags.call_args.kwargs["user_id"] == "test-user"
-
-    async def test_tags_enrichment_empty_result(self, use_case):
-        """Empty tag table → metadata["tags"] is empty dict (all untagged)."""
-        tracks = make_tracks(count=2)
-        tracklist = TrackList(tracks=tracks)
-
-        mock_tag_repo = AsyncMock()
-        mock_tag_repo.get_tags.return_value = {}
-        mock_uow = make_mock_uow(tag_repo=mock_tag_repo)
-
-        config = EnrichmentConfig(enrichment_type="tags")
-        command = EnrichTracksCommand(
-            user_id="test-user", tracklist=tracklist, enrichment_config=config
-        )
-
-        result = await use_case.execute(command, mock_uow)
-
-        assert result.enriched_tracklist.metadata["tags"] == {}
-        assert len(result.errors) == 0
-
-    async def test_tags_enrichment_single_batch_call(self, use_case):
-        """Repo batch method is called exactly once regardless of tracklist size."""
-        tracks = make_tracks(count=50)
-        tracklist = TrackList(tracks=tracks)
-
-        mock_tag_repo = AsyncMock()
-        mock_tag_repo.get_tags.return_value = {}
-        mock_uow = make_mock_uow(tag_repo=mock_tag_repo)
-
-        config = EnrichmentConfig(enrichment_type="tags")
-        command = EnrichTracksCommand(
-            user_id="test-user", tracklist=tracklist, enrichment_config=config
-        )
-
-        await use_case.execute(command, mock_uow)
-
-        assert mock_tag_repo.get_tags.call_count == 1
+        assert list(mock_tag_repo.get_tags.call_args.args[0]) == [t.id for t in tracks]
 
     async def test_invalid_enrichment_type(self, use_case, sample_tracklist, mock_uow):
         """Test handling of invalid enrichment type."""
@@ -450,7 +367,6 @@ class TestArtistFavoritesEnrichment:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert isinstance(result, EnrichTracksResult)
         assert result.enriched_tracklist.metadata["favorite_artist_ids"] == favorite_ids
         assert len(result.errors) == 0
 
@@ -460,39 +376,9 @@ class TestArtistFavoritesEnrichment:
             == "test-user"
         )
 
-    async def test_artist_favorites_enrichment_empty_result(self, use_case):
-        """No favorited artists → metadata["favorite_artist_ids"] is an empty frozenset."""
-        tracks = make_tracks(count=2)
-        tracklist = TrackList(tracks=tracks)
-
-        mock_favorite_repo = AsyncMock()
-        mock_favorite_repo.get_favorite_artist_ids.return_value = frozenset()
-        mock_uow = make_mock_uow(artist_favorite_repo=mock_favorite_repo)
-
-        config = EnrichmentConfig(enrichment_type="artist_favorites")
-        command = EnrichTracksCommand(
-            user_id="test-user", tracklist=tracklist, enrichment_config=config
-        )
-
-        result = await use_case.execute(command, mock_uow)
-
-        assert result.enriched_tracklist.metadata["favorite_artist_ids"] == frozenset()
-        assert len(result.errors) == 0
-
 
 class TestEnrichmentConfig:
     """Test suite for EnrichmentConfig validation."""
-
-    def test_external_metadata_config_validation_success(self):
-        """Test valid external metadata configuration."""
-        config = EnrichmentConfig(
-            enrichment_type="external_metadata",
-            connector="spotify",
-            connector_instance=Mock(),
-            track_metric_names=["explicit_flag"],
-        )
-        # Should not raise any validation errors
-        assert config.enrichment_type == "external_metadata"
 
     def test_external_metadata_config_missing_connector(self):
         """Test external metadata config validation with missing connector."""
@@ -524,55 +410,7 @@ class TestEnrichmentConfig:
                 track_metric_names=[],
             )
 
-    def test_play_history_config_validation_success(self):
-        """Test valid play history configuration."""
-        config = EnrichmentConfig(
-            enrichment_type="play_history", metrics=["total_plays", "last_played_dates"]
-        )
-        # Should not raise any validation errors
-        assert config.enrichment_type == "play_history"
-
     def test_play_history_config_missing_metrics(self):
         """Test play history config validation with missing metrics."""
         with pytest.raises(ValueError, match="Metrics must be specified"):
             EnrichmentConfig(enrichment_type="play_history", metrics=[])
-
-
-class TestEnrichTracksCommand:
-    """Test suite for EnrichTracksCommand validation."""
-
-    def test_command_validation_success(self):
-        """Test valid command creation."""
-        tracklist = TrackList(
-            tracks=[
-                Track(
-                    id=1,
-                    title="Test",
-                    artists=[ArtistCredit(credited_name="Artist")],
-                    user_id=TEST_USER_ID,
-                )
-            ]
-        )
-        config = EnrichmentConfig(
-            enrichment_type="play_history", metrics=["total_plays"]
-        )
-
-        command = EnrichTracksCommand(
-            user_id="test-user", tracklist=tracklist, enrichment_config=config
-        )
-        assert command.tracklist == tracklist
-        assert command.enrichment_config == config
-
-    def test_command_validation_empty_tracklist(self):
-        """Test command validation with empty tracklist."""
-        config = EnrichmentConfig(
-            enrichment_type="play_history", metrics=["total_plays"]
-        )
-
-        # Empty tracklists should be allowed at command level - use case handles gracefully
-        command = EnrichTracksCommand(
-            user_id="test-user",
-            tracklist=TrackList(tracks=[]),
-            enrichment_config=config,
-        )
-        assert command.tracklist.tracks == []

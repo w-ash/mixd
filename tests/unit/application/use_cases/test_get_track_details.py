@@ -12,9 +12,10 @@ import pytest
 from src.application.use_cases.get_track_details import (
     GetTrackDetailsCommand,
     GetTrackDetailsUseCase,
-    TrackDetailsResult,
 )
 from src.domain.entities import Playlist, TrackLike
+from src.domain.entities.preference import TrackPreference
+from src.domain.entities.tag import TrackTag
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.connector import FullMappingInfo
 from tests.fixtures import TEST_USER_ID, make_track
@@ -108,12 +109,41 @@ class TestGetTrackDetailsHappyPath:
             _make_playlists()
         )
 
+        mock_uow.get_preference_repository().get_preferences.return_value = {
+            _TRACK_UUID: TrackPreference(
+                user_id=TEST_USER_ID,
+                track_id=_TRACK_UUID,
+                state="star",
+                source="manual",
+                preferred_at=datetime(2024, 1, 1, tzinfo=UTC),
+            )
+        }
+        mock_uow.get_tag_repository().get_tags.return_value = {
+            _TRACK_UUID: [
+                TrackTag.create(
+                    user_id=TEST_USER_ID,
+                    track_id=_TRACK_UUID,
+                    raw_tag="Mood:Chill",
+                    tagged_at=datetime(2024, 1, 1, tzinfo=UTC),
+                    source="manual",
+                )
+            ]
+        }
+
         result = await GetTrackDetailsUseCase().execute(
             GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
-        assert isinstance(result, TrackDetailsResult)
-        assert result.track.title == "Creep"
+        assert result.track is track
+        assert [m.connector_name for m in result.connector_mappings] == [
+            "spotify",
+            "lastfm",
+        ]
+        assert set(result.like_status) == {"spotify", "lastfm"}
+        assert result.play_summary.total_plays == 42
+        assert [p.name for p in result.playlists] == ["Favorites", "Chill Vibes"]
+        assert result.preference == "star"
+        assert result.tags == ["mood:chill"]
 
     async def test_connector_mappings_include_provenance(self, mock_uow) -> None:
         track = make_track(id=_TRACK_UUID)
@@ -154,7 +184,7 @@ class TestGetTrackDetailsHappyPath:
         assert result.like_status["spotify"].liked_at == datetime(
             2024, 6, 15, tzinfo=UTC
         )
-        assert "lastfm" in result.like_status
+        assert result.like_status["lastfm"].liked_at == datetime(2024, 7, 1, tzinfo=UTC)
 
     async def test_play_summary_populated(self, mock_uow) -> None:
         mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
@@ -213,7 +243,8 @@ class TestGetTrackDetailsErrors:
 class TestGetTrackDetailsEmptyData:
     """Edge cases with no likes, plays, or playlists."""
 
-    async def test_no_plays(self, mock_uow) -> None:
+    async def test_track_with_no_activity_has_empty_details(self, mock_uow) -> None:
+        """Empty repositories yield zero plays, no dates, likes or playlists."""
         mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
             id=_TRACK_UUID
         )
@@ -229,19 +260,7 @@ class TestGetTrackDetailsEmptyData:
         assert result.play_summary.total_plays == 0
         assert result.play_summary.first_played is None
         assert result.play_summary.last_played is None
-
-    async def test_no_likes_or_playlists(self, mock_uow) -> None:
-        mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
-            id=_TRACK_UUID
-        )
-        mock_uow.get_connector_repository().get_full_mappings_for_track.return_value = []
-        mock_uow.get_like_repository().get_track_likes.return_value = []
-        mock_uow.get_plays_repository().get_play_aggregations.return_value = {}
-        mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
-
-        result = await GetTrackDetailsUseCase().execute(
-            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
-        )
-
         assert result.like_status == {}
         assert result.playlists == []
+        assert result.preference is None
+        assert result.tags == []
