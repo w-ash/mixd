@@ -218,17 +218,19 @@ class TestImportSpotifyAllNotImported:
         assert "Traceback" not in result.output
 
     def test_summary_counts_succeeded_and_skipped_playlists(self) -> None:
-        views = [_view("sp1", "A"), _view("sp2", "B")]
+        # Two imported, one unchanged: distinct counts, so a swap shows.
+        views = [_view("sp1", "A"), _view("sp2", "B"), _view("sp3", "C")]
         import_result = ImportConnectorPlaylistsAsCanonicalResult(
             succeeded=[
                 CanonicalImportOutcome(
-                    connector_playlist_identifier="sp1",
+                    connector_playlist_identifier=identifier,
                     canonical_playlist_id=uuid4(),
                     resolved=10,
                     unresolved=0,
                 )
+                for identifier in ("sp1", "sp2")
             ],
-            skipped_unchanged=["sp2"],
+            skipped_unchanged=["sp3"],
             failed=[],
         )
         with (
@@ -245,10 +247,10 @@ class TestImportSpotifyAllNotImported:
 
         assert result.exit_code == 0, result.output
         output = plain(result.output)
-        assert re.search(r"Succeeded\W+1\b", output)
+        assert re.search(r"Succeeded\W+2\b", output)
         assert re.search(r"Skipped\W+1\b", output)
         assert re.search(r"Failed\W+0\b", output)
-        assert re.search(r"Total\W+2\b", output)
+        assert re.search(r"Total\W+3\b", output)
 
     def test_renders_per_item_failures_then_summary(self) -> None:
         # A failed item surfaces as a "Failed:" line AND is counted in the

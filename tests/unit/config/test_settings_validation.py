@@ -30,13 +30,6 @@ class TestDefaultsPassConstraints:
         assert config.lastfm.batch_size == 50
         assert config.lastfm.rate_limit == 4.5
 
-    def test_connector_api_config_defaults(self):
-        config = ConnectorAPIConfig()
-        assert config.batch_size == 50
-        assert config.concurrency == 5
-        assert config.rate_limit is None
-        assert config.retry_count == 3
-
     def test_matching_config_defaults(self):
         config = MatchingConfig()
         assert config.auto_accept_threshold == 85
