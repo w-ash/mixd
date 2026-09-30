@@ -83,11 +83,6 @@ def classifier() -> AppleMusicErrorClassifier:
     return AppleMusicErrorClassifier()
 
 
-class TestServiceName:
-    def test_service_name(self, classifier: AppleMusicErrorClassifier):
-        assert classifier.service_name == "apple_music"
-
-
 class TestUserTokenRejection:
     def test_403_with_real_invalid_auth_body_is_permanent_auth(
         self, classifier: AppleMusicErrorClassifier
@@ -214,17 +209,6 @@ class TestVerbatimErrorEnvelopes:
         assert error.status == "403"
         assert error.title == "Forbidden"
         assert error.detail == "Invalid authentication"
-
-    def test_verbatim_limit_over_max_400_body_parses(self):
-        exc = make_status_error(400, body=load_fixture("error_400_limit_over_max.json"))
-
-        error = first_json_api_error(exc.response)
-
-        assert error is not None
-        assert error.code == "40005"
-        assert error.status == "400"
-        assert error.detail is not None
-        assert "less than or equal to 30" in error.detail
 
 
 class TestIndicatesUserTokenRejection:

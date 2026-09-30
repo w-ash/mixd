@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 
 from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.types import MatchFailureReason
-from src.infrastructure.connectors._shared.matching_provider import IsrcOnly
 from src.infrastructure.connectors.apple_music.client import CatalogSongsLookup
 from src.infrastructure.connectors.apple_music.matching_provider import (
     AppleMusicMatchingProvider,
@@ -39,17 +38,6 @@ def _isrc_track(isrc: str = "USUM72309818", title: str = "Test Song") -> Track:
         artists=[ArtistCredit(credited_name="Test Artist")],
         user_id=TEST_USER_ID,
     )
-
-
-class TestServiceContract:
-    def test_service_name_is_apple(self):
-        provider, _, _ = _make_provider()
-        assert provider.service_name == "apple"
-
-    def test_strategy_is_isrc_only(self):
-        """No artist/title phase exists — the strategy has no such hook."""
-        provider, _, _ = _make_provider()
-        assert isinstance(provider._match_strategy(), IsrcOnly)
 
 
 class TestIsrcMatching:

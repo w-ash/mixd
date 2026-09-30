@@ -139,19 +139,17 @@ class TestLookupSpotifyIds:
         assert await client.lookup_spotify_ids([_QUERY]) is None
         http.post.assert_awaited_once()
 
-    async def test_non_list_body_suppresses_to_none(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param({"error": "nope"}, id="non-list-body"),
+            # A row without the echoed query fields fails boundary validation.
+            pytest.param([{"spotify_track_ids": "not-a-list"}], id="malformed-row"),
+        ],
+    )
+    async def test_unexpected_shape_suppresses_to_none(
+        self, monkeypatch: pytest.MonkeyPatch, body: object
     ):
-        client = _make_client(monkeypatch, _http_returning({"error": "nope"}))
-
-        assert await client.lookup_spotify_ids([_QUERY]) is None
-
-    async def test_malformed_row_suppresses_to_none(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """A row without the echoed query fields fails boundary validation."""
-        client = _make_client(
-            monkeypatch, _http_returning([{"spotify_track_ids": "not-a-list"}])
-        )
+        client = _make_client(monkeypatch, _http_returning(body))
 
         assert await client.lookup_spotify_ids([_QUERY]) is None

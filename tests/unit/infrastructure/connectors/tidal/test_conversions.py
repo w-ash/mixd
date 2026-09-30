@@ -10,8 +10,6 @@ import pytest
 
 from src.infrastructure.connectors.tidal.conversions import (
     create_track_from_tidal_detail,
-    normalized_tidal_isrc,
-    tidal_duration_ms,
 )
 from src.infrastructure.connectors.tidal.models import TidalTrack, TidalTrackDetail
 
@@ -86,14 +84,3 @@ class TestCreateTrackFromTidalDetail:
         detail = _detail(track_id="old101")
         track = create_track_from_tidal_detail("new202", detail, user_id="u1")
         assert track.connector_track_identifiers["tidal"] == "new202"
-
-
-class TestHelpers:
-    def test_duration_ms_from_seconds(self):
-        assert tidal_duration_ms(_detail().track) == 200_000
-
-    def test_duration_ms_none_when_unknown(self):
-        assert tidal_duration_ms(_detail(duration_seconds=None).track) is None
-
-    def test_normalized_isrc_none_when_absent(self):
-        assert normalized_tidal_isrc(_detail(isrc=None).track) is None

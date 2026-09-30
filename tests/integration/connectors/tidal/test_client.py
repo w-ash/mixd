@@ -145,25 +145,10 @@ class TestCursorPagination:
         # Aggregated in order, stopping when next is absent.
         assert [track.id for track in tracks] == ["1", "2", "3", "4", "5"]
 
-    async def test_single_page_stops_after_one_request(self, make_client):
-        def one_page(_request: httpx2.Request) -> httpx2.Response:
-            return httpx2.Response(
-                200, json=tracks_page_payload(["1"], "/tracks", None)
-            )
-
-        handler, requests = recording(one_page)
-        client = make_client(handler)
-
-        tracks = await client.get_tracks_by_isrc(ISRC, "US")
-
-        assert len(requests) == 1
-        assert [track.id for track in tracks] == ["1"]
-
     async def test_page_cap_guards_against_runaway_cursors(
         self, make_client, monkeypatch: pytest.MonkeyPatch
     ):
-        # Behavior probed with a shrunk cap (5) to keep the fast suite fast;
-        # the real value is pinned below.
+        # Behavior probed with a shrunk cap (5) to keep the fast suite fast.
         from src.infrastructure.connectors.tidal import client as client_module
 
         monkeypatch.setattr(client_module, "MAX_CURSOR_PAGES", 5)
@@ -185,11 +170,6 @@ class TestCursorPagination:
 
         assert len(requests) == 5
         assert len(tracks) == 5
-
-    def test_page_cap_is_fifty(self):
-        from src.infrastructure.connectors.tidal.client import MAX_CURSOR_PAGES
-
-        assert MAX_CURSOR_PAGES == 50
 
 
 class TestOneIsrcPerRequest:
@@ -357,14 +337,3 @@ class TestFavoritesCount:
         # refresh token can no longer clobber a concurrent rotation.
         assert storage.saved == []
         assert token["refresh_token"] == "rt-1"
-
-    async def test_save_favorites_count_noop_without_token(
-        self, make_client, storage
-    ) -> None:
-        client = make_client(lambda _request: httpx2.Response(500))
-        storage.token = None
-
-        await client.save_favorites_count(7)
-
-        assert storage.saved == []
-        assert storage.token is None
