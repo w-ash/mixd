@@ -1,5 +1,7 @@
 """Tests for SpotifyTokenManager with injected TokenStorage."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,6 +26,32 @@ def _make_token(*, expired: bool = False) -> StoredToken:
         expires_at=expires_at,
         scope="playlist-read-private",
     )
+
+
+def _token_endpoint_response(
+    status_code: int, json_body: object = None
+) -> httpx2.Response:
+    """A real response from POST /api/token."""
+    request = httpx2.Request("POST", "https://accounts.spotify.com/api/token")
+    return httpx2.Response(status_code, json=json_body, request=request)
+
+
+@contextmanager
+def _token_endpoint(response: httpx2.Response) -> Iterator[AsyncMock]:
+    """Stub the accounts-service client; yields its ``post`` mock."""
+    with patch(
+        "src.infrastructure.connectors.spotify.auth.make_spotify_auth_client"
+    ) as make_client:
+        post = AsyncMock(return_value=response)
+        make_client.return_value.__aenter__.return_value.post = post
+        yield post
+
+
+_REFRESHED = {"access_token": "access-NEW", "token_type": "Bearer", "expires_in": 3600}
+_INVALID_GRANT = {
+    "error": "invalid_grant",
+    "error_description": "Refresh token revoked",
+}
 
 
 class TestSpotifyTokenManager:
@@ -58,28 +86,31 @@ class TestSpotifyTokenManager:
         """Second call should use in-memory cache, not hit storage again."""
         mock_storage.load_token.return_value = _make_token()
 
-        await manager.get_valid_token()
-        await manager.get_valid_token()
+        first = await manager.get_valid_token()
+        second = await manager.get_valid_token()
 
-        mock_storage.load_token.assert_called_once()
+        assert (first, second) == ("access-123", "access-123")
+        mock_storage.load_token.assert_awaited_once_with("spotify", _UID)
 
-    @patch.object(SpotifyTokenManager, "_refresh_token", new_callable=AsyncMock)
     async def test_refreshes_expired_token(
-        self,
-        mock_refresh: AsyncMock,
-        manager: SpotifyTokenManager,
-        mock_storage: AsyncMock,
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
     ):
-        """Expired token should trigger a refresh and save."""
+        """Expired token is refreshed with its refresh token, and the result saved."""
         mock_storage.load_token.return_value = _make_token(expired=True)
-        refreshed = _make_token()
-        mock_refresh.return_value = refreshed
 
-        token = await manager.get_valid_token()
+        with _token_endpoint(_token_endpoint_response(200, _REFRESHED)) as post:
+            token = await manager.get_valid_token()
 
-        assert token == "access-123"
-        mock_refresh.assert_called_once_with("refresh-456")
-        mock_storage.save_token.assert_called_once()
+        assert token == "access-NEW"
+        assert post.await_args.kwargs["data"] == {
+            "grant_type": "refresh_token",
+            "refresh_token": "refresh-456",
+        }
+        mock_storage.save_token.assert_awaited_once()
+        service, user_id, saved = mock_storage.save_token.await_args.args
+        assert (service, user_id) == ("spotify", _UID)
+        assert saved["access_token"] == "access-NEW"
+        assert saved["refresh_token"] == "refresh-456"
 
     async def test_try_silent_refresh_returns_none_when_no_token(
         self, manager: SpotifyTokenManager, mock_storage: AsyncMock
@@ -113,21 +144,20 @@ class TestSpotifyTokenManager:
         assert result is not None
         assert result["access_token"] == "access-123"
 
-    @patch.object(SpotifyTokenManager, "_refresh_token", new_callable=AsyncMock)
     async def test_force_refresh_saves_to_storage(
-        self,
-        mock_refresh: AsyncMock,
-        manager: SpotifyTokenManager,
-        mock_storage: AsyncMock,
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
     ):
-        """force_refresh should persist the new token."""
+        """force_refresh refreshes an unexpired token and persists the new one."""
         mock_storage.load_token.return_value = _make_token()
-        refreshed = _make_token()
-        mock_refresh.return_value = refreshed
 
-        await manager.force_refresh()
+        with _token_endpoint(_token_endpoint_response(200, _REFRESHED)):
+            token = await manager.force_refresh()
 
-        mock_storage.save_token.assert_called_once()
+        assert token == "access-NEW"
+        mock_storage.save_token.assert_awaited_once()
+        service, user_id, saved = mock_storage.save_token.await_args.args
+        assert (service, user_id) == ("spotify", _UID)
+        assert saved["access_token"] == "access-NEW"
 
     async def test_force_refresh_raises_when_no_token(
         self, manager: SpotifyTokenManager, mock_storage: AsyncMock
@@ -366,11 +396,6 @@ class TestInvalidGrantOnRefresh:
 
         mock_storage.delete_token.assert_not_awaited()
 
-    @patch.object(
-        SpotifyTokenManager,
-        "_refresh_token",
-        AsyncMock(side_effect=SpotifyReauthRequiredError()),
-    )
     async def test_try_silent_refresh_propagates_reauth_error(
         self, manager: SpotifyTokenManager, mock_storage: AsyncMock
     ) -> None:
@@ -378,32 +403,31 @@ class TestInvalidGrantOnRefresh:
         # reauth signal must reach the status probe.
         mock_storage.load_token.return_value = _make_token(expired=True)
 
-        with pytest.raises(SpotifyReauthRequiredError):
+        with (
+            _token_endpoint(_token_endpoint_response(400, _INVALID_GRANT)),
+            pytest.raises(SpotifyReauthRequiredError),
+        ):
             await manager.try_silent_refresh()
 
-    @patch.object(
-        SpotifyTokenManager,
-        "_refresh_token",
-        AsyncMock(side_effect=ValueError("boom")),
-    )
     async def test_try_silent_refresh_still_swallows_other_errors(
         self, manager: SpotifyTokenManager, mock_storage: AsyncMock
     ) -> None:
         mock_storage.load_token.return_value = _make_token(expired=True)
 
-        assert await manager.try_silent_refresh() is None
+        with _token_endpoint(_token_endpoint_response(500, {"error": "server_error"})):
+            assert await manager.try_silent_refresh() is None
 
-    @patch.object(
-        SpotifyTokenManager,
-        "_refresh_token",
-        AsyncMock(side_effect=SpotifyReauthRequiredError()),
-    )
+        mock_storage.save_token.assert_not_awaited()
+
     async def test_force_refresh_propagates_reauth_error(
         self, manager: SpotifyTokenManager, mock_storage: AsyncMock
     ) -> None:
         mock_storage.load_token.return_value = _make_token()
 
-        with pytest.raises(SpotifyReauthRequiredError):
+        with (
+            _token_endpoint(_token_endpoint_response(400, _INVALID_GRANT)),
+            pytest.raises(SpotifyReauthRequiredError),
+        ):
             await manager.force_refresh()
 
 
@@ -434,11 +458,11 @@ class TestAuthorizedAtStamp:
             mock_client.return_value.__aenter__.return_value.post = AsyncMock(
                 return_value=response
             )
-            before = int(time.time())
-            token_info = await manager.exchange_code("auth-code")
-            after = int(time.time())
+            with patch(
+                "src.infrastructure.connectors.spotify.auth.time.time",
+                return_value=1_750_000_000.4,
+            ):
+                token_info = await manager.exchange_code("auth-code")
 
-        extra_data = token_info["extra_data"]
-        authorized_at = extra_data["authorized_at"]
-        assert isinstance(authorized_at, int)
-        assert before <= authorized_at <= after
+        assert token_info["extra_data"] == {"authorized_at": 1_750_000_000}
+        assert token_info["expires_at"] == 1_750_003_600

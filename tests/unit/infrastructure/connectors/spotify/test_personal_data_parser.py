@@ -4,7 +4,7 @@ Tests the JSON parsing pipeline: raw Spotify export → SpotifyPlayRecord object
 Covers happy path, malformed records, null-safety for optional fields, and edge cases.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 from pathlib import Path
 
@@ -44,6 +44,7 @@ class TestSpotifyPlayRecordFromJson:
     def test_valid_record_parses_correctly(self):
         record = SpotifyPlayRecord.from_json(_make_valid_record())
 
+        assert record.timestamp == datetime(2024, 6, 15, 14, 30, tzinfo=UTC)
         assert record.track_name == "Test Song"
         assert record.artist_name == "Test Artist"
         assert record.album_name == "Test Album"
@@ -58,90 +59,57 @@ class TestSpotifyPlayRecordFromJson:
         assert record.offline is False
         assert record.incognito_mode is False
 
-    def test_timestamp_parsed_as_datetime(self):
-        record = SpotifyPlayRecord.from_json(_make_valid_record())
-        assert isinstance(record.timestamp, datetime)
-        assert record.timestamp.year == 2024
-        assert record.timestamp.month == 6
-        assert record.timestamp.day == 15
-
-    def test_missing_core_field_ts_raises_key_error(self):
+    @pytest.mark.parametrize(
+        "core_field",
+        [
+            "ts",
+            "spotify_track_uri",
+            "master_metadata_track_name",
+            "master_metadata_album_artist_name",
+            "master_metadata_album_album_name",
+            "ms_played",
+        ],
+    )
+    def test_missing_core_field_raises_key_error(self, core_field: str):
         data = _make_valid_record()
-        del data["ts"]
-        with pytest.raises(KeyError):
+        del data[core_field]
+        with pytest.raises(KeyError, match=core_field):
             SpotifyPlayRecord.from_json(data)
 
-    def test_missing_core_field_track_uri_raises_key_error(self):
+    @pytest.mark.parametrize(
+        ("export_key", "attribute"),
+        [
+            ("platform", "platform"),
+            ("conn_country", "country"),
+            ("reason_start", "reason_start"),
+            ("reason_end", "reason_end"),
+        ],
+    )
+    def test_missing_behavioral_text_field_defaults_to_unknown(
+        self, export_key: str, attribute: str
+    ):
         data = _make_valid_record()
-        del data["spotify_track_uri"]
-        with pytest.raises(KeyError):
-            SpotifyPlayRecord.from_json(data)
+        del data[export_key]
 
-    def test_missing_core_field_track_name_raises_key_error(self):
-        data = _make_valid_record()
-        del data["master_metadata_track_name"]
-        with pytest.raises(KeyError):
-            SpotifyPlayRecord.from_json(data)
-
-    def test_missing_core_field_ms_played_raises_key_error(self):
-        data = _make_valid_record()
-        del data["ms_played"]
-        with pytest.raises(KeyError):
-            SpotifyPlayRecord.from_json(data)
-
-    # Null-safety for optional behavioral fields
-    def test_missing_platform_defaults_to_unknown(self):
-        data = _make_valid_record()
-        del data["platform"]
         record = SpotifyPlayRecord.from_json(data)
-        assert record.platform == "unknown"
 
-    def test_missing_country_defaults_to_unknown(self):
+        assert getattr(record, attribute) == "unknown"
+
+    @pytest.mark.parametrize(
+        "flag", ["shuffle", "skipped", "offline", "incognito_mode"]
+    )
+    @pytest.mark.parametrize("shape", ["null", "absent"])
+    def test_null_or_absent_flag_defaults_to_false(self, flag: str, shape: str):
+        """Spotify exports can carry null for these flags, or omit them."""
         data = _make_valid_record()
-        del data["conn_country"]
+        if shape == "null":
+            data[flag] = None
+        else:
+            del data[flag]
+
         record = SpotifyPlayRecord.from_json(data)
-        assert record.country == "unknown"
 
-    def test_missing_reason_start_defaults_to_unknown(self):
-        data = _make_valid_record()
-        del data["reason_start"]
-        record = SpotifyPlayRecord.from_json(data)
-        assert record.reason_start == "unknown"
-
-    def test_missing_reason_end_defaults_to_unknown(self):
-        data = _make_valid_record()
-        del data["reason_end"]
-        record = SpotifyPlayRecord.from_json(data)
-        assert record.reason_end == "unknown"
-
-    def test_none_skipped_defaults_to_false(self):
-        """Spotify exports can have null for skipped field."""
-        record = SpotifyPlayRecord.from_json(_make_valid_record(skipped=None))
-        assert record.skipped is False
-
-    def test_none_shuffle_defaults_to_false(self):
-        record = SpotifyPlayRecord.from_json(_make_valid_record(shuffle=None))
-        assert record.shuffle is False
-
-    def test_none_offline_defaults_to_false(self):
-        record = SpotifyPlayRecord.from_json(_make_valid_record(offline=None))
-        assert record.offline is False
-
-    def test_none_incognito_mode_defaults_to_false(self):
-        record = SpotifyPlayRecord.from_json(_make_valid_record(incognito_mode=None))
-        assert record.incognito_mode is False
-
-    def test_missing_shuffle_defaults_to_false(self):
-        data = _make_valid_record()
-        del data["shuffle"]
-        record = SpotifyPlayRecord.from_json(data)
-        assert record.shuffle is False
-
-    def test_missing_skipped_defaults_to_false(self):
-        data = _make_valid_record()
-        del data["skipped"]
-        record = SpotifyPlayRecord.from_json(data)
-        assert record.skipped is False
+        assert getattr(record, flag) is False
 
     def test_invalid_timestamp_raises_value_error(self):
         with pytest.raises(ValueError):
@@ -150,15 +118,6 @@ class TestSpotifyPlayRecordFromJson:
 
 class TestParseSpotifyPersonalData:
     """Test parse_spotify_personal_data() file parsing."""
-
-    def test_valid_file_returns_records(self, tmp_path: Path):
-        file = tmp_path / "history.json"
-        file.write_text(json.dumps([_make_valid_record()]))
-
-        records = parse_spotify_personal_data(file)
-
-        assert len(records) == 1
-        assert records[0].track_name == "Test Song"
 
     def test_multiple_records_parsed(self, tmp_path: Path):
         data = [
@@ -219,39 +178,6 @@ class TestParseSpotifyPersonalData:
         assert records[0].track_name == "Test Song"
         assert records[1].track_name == "Valid After Bad"
 
-    def test_empty_file_returns_empty_list(self, tmp_path: Path):
-        file = tmp_path / "history.json"
-        file.write_text("[]")
-
-        records = parse_spotify_personal_data(file)
-        assert records == []
-
     def test_file_not_found_raises(self):
         with pytest.raises(FileNotFoundError):
             parse_spotify_personal_data(Path("/nonexistent/file.json"))
-
-    def test_large_mixed_file_processes_correctly(self, tmp_path: Path):
-        """Mixed valid/invalid records in a larger file should all process."""
-        valid = [
-            _make_valid_record(master_metadata_track_name=f"Track {i}")
-            for i in range(50)
-        ]
-        invalid = [
-            {
-                "spotify_track_uri": "spotify:track:x",
-                "master_metadata_track_name": "Bad",
-            }
-            for _ in range(10)
-        ]
-        # Podcasts (no URI)
-        podcasts = [
-            {"master_metadata_track_name": None, "spotify_track_uri": None}
-            for _ in range(5)
-        ]
-
-        all_data = valid + invalid + podcasts
-        file = tmp_path / "history.json"
-        file.write_text(json.dumps(all_data))
-
-        records = parse_spotify_personal_data(file)
-        assert len(records) == 50

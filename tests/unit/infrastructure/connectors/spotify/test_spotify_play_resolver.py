@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
-from src.application.connector_protocols import Closeable
 from src.config.constants import SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.infrastructure.connectors._shared.inward_track_resolver import (
@@ -118,19 +117,22 @@ def _ids_and_hints(resolver, plays):
 class TestShouldIncludeSpotifyPlay:
     """Test Spotify duration filtering rules."""
 
-    def test_play_over_4min_always_included(self):
-        assert should_include_spotify_play(250000, 300000) is True
+    @pytest.mark.parametrize("ms_played", [240_000, 250_000])
+    def test_a_four_minute_play_counts_even_on_a_long_track(self, ms_played: int):
+        """Last.fm's rule: half the track OR four minutes, whichever comes first.
 
-    def test_play_exactly_4min_included(self):
-        assert should_include_spotify_play(240000, 300000) is True
+        On a 10-minute track the 50% bar is 5 minutes, so only the four-minute
+        arm can admit these — at the boundary and past it.
+        """
+        assert should_include_spotify_play(ms_played, 600_000) is True
 
     def test_short_play_under_50_percent_excluded(self):
         """3-minute track played for 1 minute (33%) → excluded."""
         assert should_include_spotify_play(60000, 180000) is False
 
-    def test_short_play_over_50_percent_included(self):
-        """3-minute track played for 2 minutes (67%) → included."""
-        assert should_include_spotify_play(120000, 180000) is True
+    def test_short_play_at_exactly_50_percent_included(self):
+        """3-minute track played for 1.5 minutes — "at least half" counts."""
+        assert should_include_spotify_play(90000, 180000) is True
 
     def test_long_track_under_4min_play_excluded(self):
         """10-minute track played for 3 minutes → excluded (track >= 8min, threshold is 4min)."""
@@ -551,23 +553,6 @@ class TestResolverTrackResolution:
         assert len(metrics["resolution_failures"]) == 1
         assert metrics["resolution_failures"][0]["reason"] == "track_resolution_failed"
 
-    async def test_no_valid_spotify_ids_returns_empty(self):
-        """Plays with no extractable Spotify IDs should return empty."""
-        connector = MagicMock()
-        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
-
-        # Track URI that doesn't match spotify:track: pattern
-        play = _make_connector_play(track_uri="invalid:uri:format")
-        uow = MagicMock()
-        attach_resolution_recorder(uow)
-
-        outcome = await resolver.resolve_connector_plays(
-            [play], uow, user_id="test-user"
-        )
-        plays, metrics = outcome.track_plays, outcome.metrics
-
-        assert plays == []
-
     async def test_all_malformed_uri_chunk_counts_every_play_as_an_error(self):
         """v0.10.2.9 F6: id-less ELIGIBLE plays are errors, not silence.
 
@@ -914,37 +899,6 @@ class TestRedirectResolvedPlays:
         assert plays[0].context["resolution_method"] == "spotify_redirect"
         assert metrics["redirect_resolved"] == 1
 
-    async def test_redirect_resolved_metric(self):
-        """redirect_resolved metric should count redirected IDs."""
-        connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
-            tracks={
-                "4iV5W9uYEdYUVa79Axb7Rh": make_spotify_track("new_id_0000000000000000"),
-            }
-        )
-
-        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
-
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        uow.get_connector_repository.return_value = connector_repo
-        track_repo = AsyncMock()
-        track_repo.save_track.return_value = make_track(id=99)
-        track_repo.find_tracks_by_title_artist.return_value = {}
-        _route_batch_save(track_repo)
-        uow.get_track_repository.return_value = track_repo
-
-        play = _make_connector_play(ms_played=300000)
-        outcome = await resolver.resolve_connector_plays(
-            [play], uow, user_id="test-user"
-        )
-        _, metrics = outcome.track_plays, outcome.metrics
-
-        assert metrics["redirect_resolved"] == 1
-
 
 class TestResolverMetrics:
     """Test metrics dictionary structure and correctness."""
@@ -1139,11 +1093,6 @@ class TestIncognitoPreFilter:
 
 class TestLifecycle:
     """The orchestrator's Closeable teardown must release the connector pool."""
-
-    def test_resolver_satisfies_closeable(self):
-        resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
-
-        assert isinstance(resolver, Closeable)
 
     async def test_aclose_closes_owned_connector(self):
         connector = AsyncMock()

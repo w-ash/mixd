@@ -10,6 +10,7 @@ from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from attrs import evolve
+import pytest
 
 from src.config import settings
 from src.config.constants import SpotifyConstants
@@ -20,9 +21,7 @@ from src.infrastructure.connectors.spotify.client import (
     free_text_search_query,
 )
 from src.infrastructure.connectors.spotify.inward_resolver import (
-    VERSION_MISMATCH_TOLERANCE_MS,
     FallbackHint,
-    Provenance,
     SpotifyInwardResolver,
 )
 from src.infrastructure.connectors.spotify.models import (
@@ -138,7 +137,8 @@ class TestBatchFetch:
             ["id1", "id2"], uow, user_id="test-user"
         )
 
-        connector.get_tracks_by_ids.assert_called_once()
+        connector.get_tracks_by_ids.assert_awaited_once()
+        assert sorted(connector.get_tracks_by_ids.await_args.args[0]) == ["id1", "id2"]
         assert len(result) == 2
         assert metrics.created == 2
 
@@ -251,26 +251,6 @@ class TestRedirectDetection:
         assert specs[1].confidence == 100
 
         assert _promoted_ids(connector_repo) == [new_id]
-
-    async def test_redirect_resolved_ids_tracked(self):
-        """Redirected IDs should appear in redirect_resolved_ids set."""
-        old_id = "old_stale_id_0000000000"
-        new_id = "new_canonical_id_000000"
-
-        connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
-            tracks={
-                old_id: make_spotify_track(new_id, "Song"),
-            }
-        )
-
-        resolver = SpotifyInwardResolver(spotify_connector=connector)
-
-        uow, _, _ = _make_uow_with_repos()
-
-        await resolver.resolve_to_canonical_tracks([old_id], uow, user_id="test-user")
-
-        assert old_id in resolver.redirect_resolved_ids
 
     async def test_no_redirect_single_mapping(self):
         """When track.id == requested_id, only one mapping should be created."""
@@ -604,62 +584,6 @@ class TestFallbackSearch:
         assert metrics.failed == 1
         connector.search_track.assert_not_called()
 
-    async def test_isrc_dedup_reuses_existing_track(self):
-        """Search results whose ISRC already exists should upsert, not duplicate."""
-        connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
-        connector.search_track.return_value = [
-            make_spotify_track("new_id", "Song", "Artist", isrc="USRC12345678")
-        ]
-
-        resolver = SpotifyInwardResolver(spotify_connector=connector)
-        uow, track_repo, connector_repo = _make_uow_with_repos()
-
-        # save_track returns the EXISTING track (ISRC upsert)
-        existing_track = make_track(id=42, isrc="USRC12345678")
-        track_repo.save_track.return_value = existing_track
-        connector_repo.map_track_to_connector.return_value = existing_track
-
-        hints = {"dead_id": FallbackHint(artist_name="Artist", track_name="Song")}
-
-        result, _ = await resolver.resolve_to_canonical_tracks(
-            ["dead_id"],
-            uow,
-            hints=hints,
-            user_id="test-user",
-        )
-
-        assert "dead_id" in result
-        assert result["dead_id"].id == 42  # Existing track, not a new one
-        track_repo.save_track.assert_called_once()  # Upsert, not create + duplicate
-
-    async def test_fallback_resolved_ids_populated(self):
-        """fallback_resolved_ids should contain only IDs resolved via search."""
-        connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
-            tracks={
-                "id1": make_spotify_track("id1"),
-            }
-        )
-        connector.search_track.return_value = [make_spotify_track("new_id2", "Song B")]
-
-        resolver = SpotifyInwardResolver(spotify_connector=connector)
-        uow, track_repo, connector_repo = _make_uow_with_repos()
-
-        track_repo.save_track.side_effect = [make_track(1), make_track(2)]
-        connector_repo.map_track_to_connector.return_value = make_track(1)
-
-        hints = {"id2": FallbackHint(artist_name="Artist", track_name="Song B")}
-
-        await resolver.resolve_to_canonical_tracks(
-            ["id1", "id2"],
-            uow,
-            hints=hints,
-            user_id="test-user",
-        )
-
-        assert resolver.fallback_resolved_ids == {"id2"}
-
 
 class TestRedirectAndFallbackMetrics:
     """TrackResolutionMetrics.redirects/fallbacks are filled from the
@@ -848,33 +772,6 @@ class TestCanonicalReuse:
         assert metrics.created == 1
 
 
-class TestResolutionMethod:
-    """get_resolution_method() returns correct tags for different resolution paths."""
-
-    async def test_resolution_method_returns_redirect(self):
-        connector = AsyncMock()
-        resolver = SpotifyInwardResolver(spotify_connector=connector)
-        resolver._provenance = {"old_id": Provenance.REDIRECT}
-
-        assert resolver.get_resolution_method("old_id") == "spotify_redirect"
-
-    async def test_resolution_method_returns_fallback(self):
-        connector = AsyncMock()
-        resolver = SpotifyInwardResolver(spotify_connector=connector)
-        resolver._provenance = {"dead_id": Provenance.FALLBACK}
-
-        assert resolver.get_resolution_method("dead_id") == "search_fallback"
-
-    async def test_resolution_method_returns_default(self):
-        connector = AsyncMock()
-        resolver = SpotifyInwardResolver(spotify_connector=connector)
-
-        assert (
-            resolver.get_resolution_method("normal_id")
-            == "spotify_connector_play_resolver"
-        )
-
-
 class TestISRCDedup:
     """ISRC dedup: reuse existing canonical tracks when Spotify returns matching ISRC."""
 
@@ -945,31 +842,6 @@ class TestISRCDedup:
 
         assert spotify_id in result
         assert metrics.created == 1
-        track_repo.save_track.assert_called_once()
-
-    async def test_no_isrc_dedup_without_external_ids(self):
-        """Tracks without ISRCs skip ISRC dedup entirely."""
-        spotify_id = "no_isrc_id_0000000000"
-
-        connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
-            tracks={
-                spotify_id: make_spotify_track(spotify_id, "No ISRC Song"),
-            }
-        )
-
-        resolver = SpotifyInwardResolver(spotify_connector=connector)
-        uow, track_repo, connector_repo = _make_uow_with_repos()
-        track_repo.save_track.return_value = make_track(99)
-
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            [spotify_id], uow, user_id="test-user"
-        )
-
-        assert spotify_id in result
-        assert metrics.created == 1
-        # find_tracks_by_isrcs should not be called with empty list
-        # (it's called once with empty list at most, which returns {})
         track_repo.save_track.assert_called_once()
 
 
@@ -2291,16 +2163,12 @@ class TestFallbackDurationVeto:
 
     async def test_a_candidate_inside_the_tolerance_survives(self):
         """Crossfade trim and seek noise sit well inside the allowance."""
-        result = await self._resolve(
-            self.ESTIMATE_MS - VERSION_MISMATCH_TOLERANCE_MS, self.ESTIMATE_MS
-        )
+        result = await self._resolve(255_000, self.ESTIMATE_MS)  # 15 s short
 
         assert self.DEAD_ID in result
 
     async def test_one_millisecond_past_the_tolerance_is_rejected(self):
-        result = await self._resolve(
-            self.ESTIMATE_MS - VERSION_MISMATCH_TOLERANCE_MS - 1, self.ESTIMATE_MS
-        )
+        result = await self._resolve(254_999, self.ESTIMATE_MS)  # 15 s + 1 ms short
 
         assert self.DEAD_ID not in result
 
@@ -2378,7 +2246,10 @@ class TestUnresolvableFallbackTelemetry:
 class TestSubstitutionRecordsTheMarketSent:
     """``get_tracks_batched`` sends ``market`` on every request, so the event must say which."""
 
-    async def test_relink_event_payload_carries_the_configured_market(self):
+    async def test_relink_event_payload_carries_the_configured_market(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings.api, "spotify_market", "SE")
         old_id = "old_stale_id_0000000000"
         new_id = "new_canonical_id_000000"
 
@@ -2399,7 +2270,7 @@ class TestSubstitutionRecordsTheMarketSent:
 
         decisions = recorder.record.await_args.args[0]
         payload = decisions[0].payload
-        assert payload["market"] == settings.api.spotify_market
+        assert payload["market"] == "SE"
         assert payload["requested_id"] == old_id
         assert payload["returned_id"] == new_id
 

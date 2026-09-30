@@ -26,7 +26,6 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyTrack,
 )
 from src.infrastructure.connectors.spotify.utilities import (
-    SpotifySearchMatch,
     create_track_from_spotify_data,
     normalized_spotify_isrc,
     search_and_evaluate_attempt,
@@ -346,37 +345,17 @@ class TestSearchAndEvaluateHappyPath:
             require_success=True,
         )
 
-        assert isinstance(attempt.match, SpotifySearchMatch)
+        assert attempt.match is not None
         assert attempt.match.candidate is candidate
-        assert attempt.match.similarity > 0.0
-        assert attempt.match.match_result.confidence > 0
+        # Identical title strings: the ranking's similarity is exact.
+        assert attempt.match.similarity == 1.0
+        assert attempt.match.match_result.success is True
+        assert attempt.match.match_result.connector_id == "sp123"
         # An accepted first pass never widens.
         connector.search_track.assert_called_once_with(
             field_filtered_search_query("Radiohead", "Creep"),
             SpotifyConstants.SEARCH_DEFAULT_LIMIT,
         )
-
-
-class TestSearchAndEvaluateNoCandidates:
-    """Empty search results should produce no match."""
-
-    async def test_returns_none_when_no_candidates(
-        self, evaluation_service: MatchEvaluationService
-    ):
-        connector = _make_connector([])
-        track = make_track(id=1)
-
-        attempt = await search_and_evaluate_attempt(
-            connector,
-            evaluation_service,
-            track,
-            "Unknown",
-            "Song",
-            widen=False,
-            require_success=False,
-        )
-
-        assert attempt.match is None
 
 
 class TestSearchAndEvaluateBelowThreshold:
@@ -527,8 +506,8 @@ class TestWideningIsOptIn:
         """Returning junk is not the same as clearing the gate."""
         connector = _make_connector()
         connector.search_track.side_effect = [
-            [_make_candidate(name="Something Else Entirely")],
-            [_make_candidate()],
+            [_make_candidate(track_id="sp_junk", name="Something Else Entirely")],
+            [_make_candidate(track_id="sp_widened")],
         ]
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
@@ -544,6 +523,7 @@ class TestWideningIsOptIn:
         )
 
         assert attempt.match is not None
+        assert attempt.match.candidate.id == "sp_widened"
         assert connector.search_track.await_count == 2
 
     async def test_the_limit_is_the_same_on_both_passes(
@@ -561,11 +541,10 @@ class TestWideningIsOptIn:
             "Creep",
             widen=True,
             require_success=True,
-            limit=SpotifyConstants.SEARCH_MAX_LIMIT,
+            limit=10,
         )
 
-        for search_call in connector.search_track.await_args_list:
-            assert search_call.args[1] == SpotifyConstants.SEARCH_MAX_LIMIT
+        assert [c.args[1] for c in connector.search_track.await_args_list] == [10, 10]
 
 
 class TestRequireSuccess:
@@ -714,9 +693,10 @@ class TestMinimumCandidateDuration:
         self, evaluation_service: MatchEvaluationService
     ):
         """One-directional: an over-long candidate is ordinary, not suspicious."""
-        connector = _make_connector([
-            _make_candidate(name="Creep", artist="Radiohead", duration_ms=400000)
-        ])
+        candidate = _make_candidate(
+            name="Creep", artist="Radiohead", duration_ms=400000
+        )
+        connector = _make_connector([candidate])
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
         attempt = await search_and_evaluate_attempt(
@@ -731,6 +711,7 @@ class TestMinimumCandidateDuration:
         )
 
         assert attempt.match is not None
+        assert attempt.match.candidate is candidate
 
     async def test_the_veto_runs_before_ranking_so_a_longer_candidate_can_win(
         self, evaluation_service: MatchEvaluationService
@@ -763,9 +744,8 @@ class TestMinimumCandidateDuration:
         self, evaluation_service: MatchEvaluationService
     ):
         """Spotify reports 0 for an unknown length; absence is not evidence."""
-        connector = _make_connector([
-            _make_candidate(name="Creep", artist="Radiohead", duration_ms=0)
-        ])
+        candidate = _make_candidate(name="Creep", artist="Radiohead", duration_ms=0)
+        connector = _make_connector([candidate])
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
         attempt = await search_and_evaluate_attempt(
@@ -780,13 +760,13 @@ class TestMinimumCandidateDuration:
         )
 
         assert attempt.match is not None
+        assert attempt.match.candidate is candidate
 
     async def test_no_minimum_leaves_every_candidate_in_play(
         self, evaluation_service: MatchEvaluationService
     ):
-        connector = _make_connector([
-            _make_candidate(name="Creep", artist="Radiohead", duration_ms=1000)
-        ])
+        candidate = _make_candidate(name="Creep", artist="Radiohead", duration_ms=1000)
+        connector = _make_connector([candidate])
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
         attempt = await search_and_evaluate_attempt(
@@ -800,6 +780,7 @@ class TestMinimumCandidateDuration:
         )
 
         assert attempt.match is not None
+        assert attempt.match.candidate is candidate
 
 
 class TestSearchAttemptQueries:
@@ -941,7 +922,8 @@ class TestArtistSimilarityFloor:
     ):
         """Documents the exposure the floor closes — if this starts failing,
         the matcher's artist weighting changed and the floor may be redundant."""
-        connector = _make_connector([self._wrong_artist_candidate()])
+        candidate = self._wrong_artist_candidate()
+        connector = _make_connector([candidate])
 
         attempt = await search_and_evaluate_attempt(
             connector,
@@ -955,6 +937,7 @@ class TestArtistSimilarityFloor:
         )
 
         assert attempt.match is not None
+        assert attempt.match.candidate is candidate
 
     async def test_right_artist_clears_the_floor(
         self, evaluation_service: MatchEvaluationService

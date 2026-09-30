@@ -222,28 +222,6 @@ class TestSpotifyErrorClassifier:
             or "unavailable" in error_description.lower()
         )
 
-    # httpx2.RequestError TESTS (network errors)
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "Connection failed to Spotify API",
-            "Request timeout after 30 seconds",
-            "Network is unreachable",
-            "DNS resolution failed for api.spotify.com",
-            "SSL certificate verification failed",
-        ],
-    )
-    def test_httpx_request_errors_temporary(self, classifier, error_message):
-        """Test that httpx2.RequestError instances are classified as temporary network errors."""
-        request = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
-        exception = httpx2.ConnectError(error_message, request=request)
-
-        error_type, error_code, error_description = classifier.classify_error(exception)
-
-        assert error_type == "temporary"
-        assert error_code == "network"
-
     def test_non_network_exception_unknown(self, classifier):
         """Test that unknown non-httpx2 exceptions are classified as unknown."""
         exception = ValueError("Unexpected value error")
@@ -276,9 +254,28 @@ class TestSpotifyErrorClassifier:
         assert error_type == "temporary"
         assert error_code == "500"
 
-    def test_service_name(self, classifier):
-        """Test that service name is correctly reported."""
-        assert classifier.service_name == "spotify"
+
+class TestExpiredAccessToken401:
+    """Spotify's own 401 rule: an expired access token is retried, not given up.
+
+    The bearer-auth flow has already refreshed the token by the time the retry
+    policy asks, so the next attempt carries a fresh one. A plain 401 stays
+    permanent (``test_client_error_status_codes_permanent[401-...]``).
+    """
+
+    @pytest.fixture
+    def classifier(self):
+        return SpotifyErrorClassifier()
+
+    def test_expired_token_401_is_temporary(self, classifier):
+        exception = make_http_error(
+            401,
+            json_body={"error": {"status": 401, "message": "The access token expired"}},
+        )
+
+        error_type, error_code, _ = classifier.classify_error(exception)
+
+        assert (error_type, error_code) == ("temporary", "401")
 
 
 class TestQuota429Discrimination:

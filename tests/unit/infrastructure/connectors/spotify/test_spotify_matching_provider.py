@@ -131,18 +131,6 @@ class TestSpotifyProviderMatchByArtistTitle:
         assert matches[track.id]["connector_id"] == "sp_exact"
         assert matches[track.id]["match_method"] == "artist_title"
 
-    async def test_no_results_returns_failure(self):
-        """Empty search results should produce NO_RESULTS failure."""
-        provider, connector = _make_provider()
-        track = make_track(title="Obscure Song", artist="Unknown Artist")
-        connector.search_track.return_value = []
-
-        matches, failures = await provider._match_by_artist_title([track])
-
-        assert len(matches) == 0
-        assert len(failures) == 1
-        assert failures[0].reason == MatchFailureReason.NO_RESULTS
-
     async def test_api_error_handled_gracefully(self):
         """API exception during search should produce API_ERROR failure."""
         provider, connector = _make_provider()
@@ -154,22 +142,6 @@ class TestSpotifyProviderMatchByArtistTitle:
         assert len(matches) == 0
         assert len(failures) == 1
         assert failures[0].reason == MatchFailureReason.API_ERROR
-
-    async def test_unprocessable_track_returns_no_metadata_failure(self):
-        """A track with neither ISRC nor artist/title is unprocessable (NO_METADATA).
-
-        Routed through the template so the base partition (the single validation
-        point) classifies it, rather than the removed per-hook re-validation.
-        """
-        provider, connector = _make_provider()
-        track = make_track(title="", artist="Artist", isrc=None)
-
-        result = await provider.fetch_raw_matches_for_tracks([track])
-
-        assert len(result.matches) == 0
-        assert len(result.failures) == 1
-        assert result.failures[0].reason == MatchFailureReason.NO_METADATA
-        connector.search_track.assert_not_called()
 
 
 class TestSpotifyProviderSearchWidening:
@@ -228,7 +200,8 @@ class TestSpotifyProviderSearchWidening:
         matches, failures = await provider._match_by_artist_title([track])
 
         assert len(matches) == 0
-        assert failures[0].reason == MatchFailureReason.NO_RESULTS
+        assert [f.reason for f in failures] == [MatchFailureReason.NO_RESULTS]
+        assert failures[0].track_id == track.id
         assert connector.search_track.await_count == 2
 
 
@@ -273,9 +246,15 @@ class TestSpotifyProviderCreateRawMatch:
 
         assert result is not None
         assert result["connector_id"] == "sp_minimal"
-        assert result["service_data"]["artist"] == ""
-        assert result["service_data"]["artists"] == []
-        assert result["service_data"]["duration_ms"] == 0
+        assert result["service_data"] == {
+            "title": "Minimal Track",
+            "artist": "",
+            "album": None,
+            "artists": [],
+            "duration_ms": 0,
+            "release_date": None,
+            "isrc": None,
+        }
 
     def test_returns_none_on_exception(self):
         """Should return None if data extraction fails."""

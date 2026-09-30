@@ -8,6 +8,10 @@ from collections.abc import Awaitable, Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+import structlog.testing
+
+from src.config import settings
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.models import (
     SpotifyOwner,
@@ -208,7 +212,10 @@ class TestGetTracksBatched:
         assert all(t == 120 for _, t, _ in progress_calls)
         assert all("Spotify" in msg for _, _, msg in progress_calls)
 
-    async def test_request_sends_comma_joined_ids_and_market(self):
+    async def test_request_sends_comma_joined_ids_and_market(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings.api, "spotify_market", "SE")
         with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
             client = SpotifyAPIClient()
             client._client = AsyncMock()
@@ -222,7 +229,7 @@ class TestGetTracksBatched:
         params = client._client.get.call_args.kwargs["params"]
         assert client._client.get.call_args.args[0] == "/tracks"
         assert params["ids"] == "aaa,bbb"
-        assert params["market"] == client.market
+        assert params["market"] == "SE"
 
 
 class TestSearchLimitClamped:
@@ -269,9 +276,34 @@ class TestPlaylistItemsFieldRename:
 
 
 class TestNonOwnedPlaylistWarning:
-    """Verify warning logged for non-owned playlists."""
+    """A playlist the user does not own warns (its items may be withheld since
+    Feb 2026) and still imports; an owned one fetches silently."""
 
-    async def test_non_owned_playlist_logs_warning(self, caplog):
+    @pytest.fixture(autouse=True)
+    def _fresh_module_logger(self, monkeypatch: pytest.MonkeyPatch):
+        """Give the operations module an uncached logger per test.
+
+        ``cache_logger_on_first_use=True`` pins a logger's processor chain at
+        its first emission, so ``capture_logs`` sees nothing when an earlier
+        test in the worker already used the module logger.
+        """
+        from src.infrastructure.connectors.spotify import operations
+
+        fresh = structlog.get_logger(operations.__name__).bind(
+            service="spotify_operations"
+        )
+        monkeypatch.setattr(operations, "logger", fresh)
+
+    @pytest.mark.parametrize(
+        ("current_user_id", "warns"),
+        [
+            pytest.param("my_user_id", True, id="not-owned"),
+            pytest.param("spotify_editorial", False, id="owned"),
+        ],
+    )
+    async def test_warns_only_for_a_playlist_the_user_does_not_own(
+        self, current_user_id: str, warns: bool
+    ):
         from src.infrastructure.connectors.spotify.operations import SpotifyOperations
 
         playlist = SpotifyPlaylist(
@@ -280,21 +312,21 @@ class TestNonOwnedPlaylistWarning:
             owner=SpotifyOwner(id="spotify_editorial"),
             items=SpotifyPaginatedPlaylistItems(total=0, items=[]),
         )
-
         mock_client = AsyncMock()
         mock_client.get_playlist.return_value = playlist
-        mock_client.get_current_user_id.return_value = "my_user_id"
-        mock_client.get_next_page.return_value = None
+        mock_client.get_current_user_id.return_value = current_user_id
+        operations = SpotifyOperations(client=mock_client)
 
-        operations = SpotifyOperations.__new__(SpotifyOperations)
-        operations.client = mock_client
+        with structlog.testing.capture_logs() as captured:
+            result = await operations.get_playlist_with_all_tracks("pl1")
 
-        result = await operations.get_playlist_with_all_tracks("pl1")
-
-        # Should complete without error
-        assert result is not None
-        # Items should be empty (non-owned playlist)
-        assert len(result.items) == 0
+        assert result.connector_playlist_identifier == "pl1"
+        warnings = [
+            (e["owner_id"], e["current_user_id"])
+            for e in captured
+            if e["log_level"] == "warning"
+        ]
+        assert warnings == ([("spotify_editorial", "my_user_id")] if warns else [])
 
 
 class TestFeb2026NullableListCoercion:
