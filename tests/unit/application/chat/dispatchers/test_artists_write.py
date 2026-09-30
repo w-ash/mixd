@@ -1,8 +1,8 @@
 """Unit tests for the ``favorite_artist`` write dispatcher (propose + commit).
 
 Same shape as the other ``*_write`` tests: the propose half only stores a
-pending action, and the commit half runs the use case behind a monkeypatched
-``execute_use_case``.
+pending action, and the commit half runs the real factory with the use case's
+``execute`` patched, so the test sees the Command the dispatcher built.
 """
 
 from uuid import UUID, uuid4
@@ -12,7 +12,11 @@ import pytest
 from src.application.chat.dispatchers import _common, artists_write
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.use_cases.favorite_artist import FavoriteArtistResult
+from src.application.use_cases.favorite_artist import (
+    FavoriteArtistCommand,
+    FavoriteArtistResult,
+    FavoriteArtistUseCase,
+)
 from src.domain.exceptions import NotFoundError, ToolExecutionError
 from tests.fixtures import InMemoryPendingActionStore
 
@@ -26,11 +30,21 @@ def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
     return store
 
 
-def _fake_runner(result: object):
-    async def _run(factory: object, user_id: str | None = None) -> object:
+def _capture(monkeypatch: pytest.MonkeyPatch, result: object) -> dict[str, object]:
+    """Run the dispatcher's real factory; record the Command and runner user_id."""
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
         return result
 
-    return _run
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(FavoriteArtistUseCase, "execute", _execute)
+    monkeypatch.setattr(_common, "execute_use_case", _run)
+    return seen
 
 
 def _failing_runner(error: Exception):
@@ -86,50 +100,45 @@ class TestFavoriteArtistPropose:
 
 
 class TestExecFavoriteArtist:
-    async def test_commits_through_use_case(
-        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("is_favorited", "changed"),
+        [(True, True), (False, False)],
+        ids=["favorite", "repeat-unfavorite-is-noop"],
+    )
+    async def test_commits_the_proposed_state_through_use_case(
+        self,
+        fresh_store: InMemoryPendingActionStore,
+        monkeypatch: pytest.MonkeyPatch,
+        is_favorited: bool,
+        changed: bool,
     ) -> None:
         artist_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(
-                FavoriteArtistResult(
-                    artist_id=artist_id, is_favorited=True, changed=True
-                )
+        seen = _capture(
+            monkeypatch,
+            FavoriteArtistResult(
+                artist_id=artist_id, is_favorited=is_favorited, changed=changed
             ),
         )
         action = await _pending(
-            fresh_store, {"artist_id": str(artist_id), "is_favorited": True}
+            fresh_store, {"artist_id": str(artist_id), "is_favorited": is_favorited}
         )
 
-        result = await artists_write.exec_favorite_artist(action, "default")
+        result = await artists_write.exec_favorite_artist(action, "user-7")
 
-        assert isinstance(result, dict)
-        assert result["status"] == "confirmed"
-        assert result["operation"] == "favorite_artist"
-        assert result["changed"] is True
-
-    async def test_repeat_reports_unchanged(
-        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        artist_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(
-                FavoriteArtistResult(
-                    artist_id=artist_id, is_favorited=True, changed=False
-                )
-            ),
-        )
-        action = await _pending(
-            fresh_store, {"artist_id": str(artist_id), "is_favorited": True}
-        )
-
-        result = await artists_write.exec_favorite_artist(action, "default")
-
-        assert result["changed"] is False
+        command = seen["command"]
+        assert isinstance(command, FavoriteArtistCommand)
+        assert command.artist_id == artist_id
+        assert command.is_favorited is is_favorited
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
+        assert result == {
+            "status": "confirmed",
+            "operation": "favorite_artist",
+            "description": "do it",
+            "artist_id": str(artist_id),
+            "is_favorited": is_favorited,
+            "changed": changed,
+        }
 
     async def test_deleted_artist_surfaces_as_tool_error(
         self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch

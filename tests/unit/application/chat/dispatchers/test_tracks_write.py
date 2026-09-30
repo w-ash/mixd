@@ -4,7 +4,8 @@
 ``exec_merge_tracks`` commits through the merge-and-fetch-details use case. The
 pending-action store is swapped for a fresh instance per test so proposals don't
 leak, and ``execute_use_case`` is monkeypatched on the module under test so the
-commit path never touches a database.
+commit path never touches a database; the success path runs the real factory
+into a patched use-case ``execute`` to see the Command the dispatcher built.
 """
 
 from uuid import UUID, uuid4
@@ -15,6 +16,10 @@ from src.application.chat.dispatchers import _common, tracks_write
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.use_cases.get_track_details import PlaySummary, TrackDetailsResult
+from src.application.use_cases.merge_tracks import (
+    MergeTrackAndFetchDetailsUseCase,
+    MergeTracksCommand,
+)
 from src.domain.exceptions import NotFoundError, ToolExecutionError
 from tests.fixtures import InMemoryPendingActionStore, make_track
 
@@ -28,11 +33,21 @@ def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
     return store
 
 
-def _fake_use_case_runner(result: object):
-    async def _run(factory, user_id: str | None = None):  # matches runner signature
+def _capture(monkeypatch: pytest.MonkeyPatch, result: object) -> dict[str, object]:
+    """Run the dispatcher's real factory; record the Command and runner user_id."""
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
         return result
 
-    return _run
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(MergeTrackAndFetchDetailsUseCase, "execute", _execute)
+    monkeypatch.setattr(_common, "execute_use_case", _run)
+    return seen
 
 
 def _details_result(track_id: UUID) -> TrackDetailsResult:
@@ -77,6 +92,7 @@ class TestMergeTracksPropose:
             await tracks_write.handle_merge_tracks(
                 {"winner_id": "not-a-uuid", "loser_id": str(uuid4())}, _CTX
             )
+        assert not fresh_store._actions
 
     async def test_self_merge_rejected(
         self, fresh_store: InMemoryPendingActionStore
@@ -103,20 +119,25 @@ class TestExecMergeTracks:
             },
         )
 
-    async def test_commits_through_use_case(
+    async def test_commits_loser_into_winner(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         winner_id, loser_id = uuid4(), uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(_details_result(winner_id)),
-        )
+        seen = _capture(monkeypatch, _details_result(winner_id))
         action = await self._action(winner_id, loser_id)
 
-        result = await tracks_write.exec_merge_tracks(action, "default")
+        result = await tracks_write.exec_merge_tracks(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, MergeTracksCommand)
+        # Direction is the whole contract: the loser ceases to exist.
+        assert command.winner_id == winner_id
+        assert command.loser_id == loser_id
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
         assert result["status"] == "confirmed"
+        assert result["operation"] == "merge"
+        assert result["description"] == "Merge"
         assert result["merged_track"]["track_id"] == str(winner_id)
 
     async def test_track_gone_at_confirm_is_actionable(
@@ -153,19 +174,3 @@ class TestExecMergeTracks:
 
         with pytest.raises(ToolExecutionError, match="must be a UUID string"):
             await tracks_write.exec_merge_tracks(action, "default")
-
-    async def test_confirmed_envelope_carries_operation_and_description(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        winner_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(_details_result(winner_id)),
-        )
-        action = await self._action(winner_id, uuid4())
-
-        result = await tracks_write.exec_merge_tracks(action, "default")
-
-        assert result["operation"] == "merge"
-        assert result["description"] == "Merge"

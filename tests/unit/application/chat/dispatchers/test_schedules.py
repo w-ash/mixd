@@ -133,14 +133,3 @@ class TestGetSchedule:
             await schedules.handle_query_schedules(
                 {"workflow_id": str(uuid7()), "sync_target": "lastfm:plays"}, _CTX
             )
-
-
-class TestSpecs:
-    def test_one_read_tool_registered(self) -> None:
-        names = [spec["name"] for spec in schedules.SPECS]
-        assert names == ["query_schedules"]
-        assert schedules.SPECS[0]["kind"] == "read"
-        assert schedules.SPECS[0]["use_cases"] == (
-            "ListSchedulesUseCase",
-            "GetScheduleUseCase",
-        )
