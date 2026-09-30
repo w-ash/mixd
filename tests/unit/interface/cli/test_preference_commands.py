@@ -7,6 +7,7 @@ unit tests elsewhere.
 """
 
 from datetime import UTC, datetime
+import re
 from unittest.mock import patch
 from uuid import uuid7
 
@@ -14,7 +15,7 @@ from typer.testing import CliRunner
 
 from src.application.use_cases.set_track_preference import SetTrackPreferenceResult
 from src.interface.cli.app import app
-from tests.fixtures import make_track, make_track_preference
+from tests.fixtures import make_track, make_track_preference, plain
 
 runner = CliRunner()
 
@@ -138,10 +139,10 @@ class TestStats:
             result = runner.invoke(app, ["preference", "stats"])
 
         assert result.exit_code == 0
-        for state, count in counts.items():
-            assert state in result.output
-            assert str(count) in result.output
-        assert "Total" in result.output
+        output = plain(result.output)
+        # Each count sits on its own state's row, and the total sums them.
+        for state, count in [*counts.items(), ("Total", 6)]:
+            assert re.search(rf"\b{state}\W+{count}\b", output), state
 
     def test_empty_counts_shows_message(self) -> None:
         with patch("src.application.runner.execute_use_case", return_value={}):

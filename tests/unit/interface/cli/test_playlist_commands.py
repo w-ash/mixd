@@ -8,9 +8,11 @@ output. Use-case behavior itself is covered by
 """
 
 from collections.abc import Sequence
+import re
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4, uuid7
 
+import pytest
 from typer.testing import CliRunner
 
 from src.application.services.connector_playlist_sync_service import RefreshFailure
@@ -215,7 +217,7 @@ class TestImportSpotifyAllNotImported:
         assert sent_ids == {"sp2", "sp3"}
         assert "Traceback" not in result.output
 
-    def test_reports_summary_with_batch_result_shape(self) -> None:
+    def test_summary_counts_succeeded_and_skipped_playlists(self) -> None:
         views = [_view("sp1", "A"), _view("sp2", "B")]
         import_result = ImportConnectorPlaylistsAsCanonicalResult(
             succeeded=[
@@ -242,9 +244,11 @@ class TestImportSpotifyAllNotImported:
             result = runner.invoke(app, ["playlist", "import-spotify", "--all"])
 
         assert result.exit_code == 0, result.output
-        assert "Succeeded" in result.output
-        assert "Skipped" in result.output
-        assert "Total" in result.output
+        output = plain(result.output)
+        assert re.search(r"Succeeded\W+1\b", output)
+        assert re.search(r"Skipped\W+1\b", output)
+        assert re.search(r"Failed\W+0\b", output)
+        assert re.search(r"Total\W+2\b", output)
 
     def test_renders_per_item_failures_then_summary(self) -> None:
         # A failed item surfaces as a "Failed:" line AND is counted in the
@@ -331,7 +335,12 @@ class TestAssignmentValidation:
 class TestImportSpotifyRefresh:
     """``--refresh`` forwards force=True to the import use case."""
 
-    def test_refresh_flag_sets_force_true(self) -> None:
+    @pytest.mark.parametrize(
+        ("flags", "expected_force"), [(["--refresh"], True), ([], False)]
+    )
+    def test_refresh_flag_maps_to_force(
+        self, flags: list[str], expected_force: bool
+    ) -> None:
         views = [_view("sp1", "Chill Vibes")]
         import_mock = AsyncMock(return_value=_empty_import_result())
 
@@ -340,25 +349,11 @@ class TestImportSpotifyRefresh:
             patch(_IMPORT_PATCH, import_mock),
         ):
             result = runner.invoke(
-                app,
-                ["playlist", "import-spotify", "Chill Vibes", "--refresh"],
+                app, ["playlist", "import-spotify", "Chill Vibes", *flags]
             )
 
         assert result.exit_code == 0, result.output
-        assert import_mock.await_args.kwargs["force"] is True
-
-    def test_no_refresh_flag_sets_force_false(self) -> None:
-        views = [_view("sp1", "Chill Vibes")]
-        import_mock = AsyncMock(return_value=_empty_import_result())
-
-        with (
-            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
-            patch(_IMPORT_PATCH, import_mock),
-        ):
-            result = runner.invoke(app, ["playlist", "import-spotify", "Chill Vibes"])
-
-        assert result.exit_code == 0, result.output
-        assert import_mock.await_args.kwargs["force"] is False
+        assert import_mock.await_args.kwargs["force"] is expected_force
 
 
 class TestRefreshSpotify:
@@ -535,20 +530,20 @@ def _invoke_sync_capturing(args: list[str], *, result=None, raises=None):
 class TestSyncSource:
     """``--source {spotify,mixd}`` maps to a one-time direction override."""
 
-    def test_source_spotify_maps_to_pull(self) -> None:
-        result, captured = _invoke_sync_capturing([str(uuid4()), "--source", "spotify"])
+    @pytest.mark.parametrize(
+        ("flags", "expected"),
+        [
+            (["--source", "spotify"], SyncDirection.PULL),
+            (["--source", "mixd"], SyncDirection.PUSH),
+            ([], None),
+        ],
+    )
+    def test_source_maps_to_direction_override(
+        self, flags: list[str], expected: SyncDirection | None
+    ) -> None:
+        result, captured = _invoke_sync_capturing([str(uuid4()), *flags])
         assert result.exit_code == 0, result.output
-        assert captured["command"].direction_override == SyncDirection.PULL
-
-    def test_source_mixd_maps_to_push(self) -> None:
-        result, captured = _invoke_sync_capturing([str(uuid4()), "--source", "mixd"])
-        assert result.exit_code == 0, result.output
-        assert captured["command"].direction_override == SyncDirection.PUSH
-
-    def test_no_source_leaves_override_none(self) -> None:
-        result, captured = _invoke_sync_capturing([str(uuid4())])
-        assert result.exit_code == 0, result.output
-        assert captured["command"].direction_override is None
+        assert captured["command"].direction_override == expected
 
     def test_invalid_source_exits_2(self) -> None:
         result = runner.invoke(
@@ -617,8 +612,12 @@ class TestSyncPreviewRender:
     def test_renders_diff(self) -> None:
         result = self._invoke(self._preview(), [str(uuid4())])
         assert result.exit_code == 0, result.output
-        assert "To add:" in result.output
-        assert "Direction:" in result.output
+        output = plain(result.output)
+        assert re.search(r"Direction:\s*pull\b", output)
+        assert re.search(r"To add:\s*4\b", output)
+        assert re.search(r"To remove:\s*1\b", output)
+        assert re.search(r"Unchanged:\s*20\b", output)
+        assert "--confirm" not in output
 
     def test_renders_safety_warning_when_flagged(self) -> None:
         result = self._invoke(self._preview(flagged=True), [str(uuid4())])
