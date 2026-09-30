@@ -238,6 +238,23 @@ class TestUpdateCanonicalPlaylistUseCase:
 
         assert result.execution_time_ms == 250
 
+    async def test_update_without_mode_replaces_the_tracks(self, mock_uow):
+        """A caller that names no mode (CLI, API, chat) replaces the playlist, not appends."""
+        tid1, tid2, tid3 = uuid7(), uuid7(), uuid7()
+        current = make_playlist_with_entries(track_ids=[tid1, tid2])
+        mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
+
+        command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
+            playlist_id=str(current.id),
+            new_tracklist=TrackList(tracks=[make_track(id=tid3)]),
+        )
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert [e.track.id for e in result.playlist.entries] == [tid3]
+
     async def test_result_confidence_score_for_append(self, mock_uow):
         """Test that append mode always has 1.0 confidence."""
         tid1 = uuid7()
