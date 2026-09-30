@@ -279,6 +279,20 @@ class TestDefinitionVersion:
 
 
 class TestListNodeTypes:
+    async def test_returns_node_list(self, client: httpx2.AsyncClient) -> None:
+        response = await client.get("/api/v1/workflows/nodes")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert isinstance(body, list)
+        assert len(body) > 0
+
+        # Verify structure of first node
+        node = body[0]
+        assert "type" in node
+        assert "category" in node
+        assert "description" in node
+
     async def test_exposes_node_io_types(self, client: httpx2.AsyncClient) -> None:
         """The editor draws handles off these, so a source must declare no input."""
         response = await client.get("/api/v1/workflows/nodes")
