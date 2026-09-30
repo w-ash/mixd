@@ -172,6 +172,12 @@ class TestCancel:
         await store.cancel(action.action_id, "user-a")
         await store.cancel(action.action_id, "user-a")  # no error
 
+        async with get_session() as session:
+            remaining = await session.scalar(
+                select(DBPendingAction.id).where(DBPendingAction.id == action.action_id)
+            )
+        assert remaining is None
+
 
 class TestJsonbRoundTrip:
     async def test_nested_payloads_survive(

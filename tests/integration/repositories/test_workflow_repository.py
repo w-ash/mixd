@@ -43,14 +43,24 @@ class TestWorkflowRepositoryCRUD:
         assert result.definition.name == "Updated Name"
         assert result.id == saved.id
 
-    async def test_delete_returns_true(self, db_session) -> None:
+    async def test_delete_removes_only_the_target_and_returns_true(
+        self, db_session
+    ) -> None:
         repo = WorkflowRepository(db_session)
         saved = await repo.save_workflow(
-            Workflow(user_id="default", definition=make_workflow_def())
+            Workflow(user_id="default", definition=make_workflow_def("wf-gone"))
+        )
+        kept = await repo.save_workflow(
+            Workflow(user_id="default", definition=make_workflow_def("wf-kept"))
         )
 
         deleted = await repo.delete_workflow(saved.id, user_id="default")
+
         assert deleted is True
+        with pytest.raises(NotFoundError):
+            await repo.get_workflow_by_id(saved.id, user_id="default")
+        survivor = await repo.get_workflow_by_id(kept.id, user_id="default")
+        assert survivor.definition.id == "wf-kept"
 
     async def test_delete_nonexistent_returns_false(self, db_session) -> None:
         repo = WorkflowRepository(db_session)

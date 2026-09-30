@@ -63,44 +63,9 @@ def track_repo(db_session: AsyncSession) -> BaseRepository[DBTrack, Track]:
     )
 
 
-class TestFindByConditionForms:
-    """``find_by`` takes ``list[ColumnElement]`` expressions; the string-keyed
-    ``{field: value}`` form lives on ``find_one_by``/``count`` (and the shared
-    ``_apply_conditions`` helper). Both shapes resolve via the same helper.
-    """
-
-    async def test_find_one_by_dict_conditions(
-        self,
-        db_session: AsyncSession,
-        track_repo: BaseRepository[DBTrack, Track],
-    ):
-        unique = str(uuid4())[:8]
-        track = DBTrack(
-            title=f"TEST_find_by_dict_{unique}",
-            artists={"names": ["test"]},
-            duration_ms=200000,
-            user_id=TEST_USER_ID,
-        )
-        track.mappings = []
-        track.metrics = []
-        track.likes = []
-        track.plays = []
-        track.playlist_tracks = []
-        db_session.add(track)
-        await db_session.flush()
-
-        result = await track_repo.find_one_by(
-            conditions={"title": f"TEST_find_by_dict_{unique}"}
-        )
-        assert result is not None
-
-    async def test_find_by_list_conditions_returns_same_results(
-        self,
-        db_session: AsyncSession,
-        track_repo: BaseRepository[DBTrack, Track],
-    ):
-        unique = str(uuid4())[:8]
-        title = f"TEST_find_by_list_{unique}"
+async def _insert_tracks(db_session: AsyncSession, *titles: str) -> None:
+    """Insert one bare track row per title inside the test's savepoint."""
+    for title in titles:
         track = DBTrack(
             title=title,
             artists={"names": ["test"]},
@@ -113,7 +78,45 @@ class TestFindByConditionForms:
         track.plays = []
         track.playlist_tracks = []
         db_session.add(track)
-        await db_session.flush()
+    await db_session.flush()
+
+
+class TestFindByConditionForms:
+    """``find_by`` takes ``list[ColumnElement]`` expressions; the string-keyed
+    ``{field: value}`` form lives on ``find_one_by``/``count`` (and the shared
+    ``_apply_conditions`` helper). Both shapes resolve via the same helper.
+
+    Each test seeds a decoy row, so a helper that drops the conditions returns
+    the wrong row or too many rows.
+    """
+
+    async def test_find_one_by_dict_conditions_selects_the_matching_row(
+        self,
+        db_session: AsyncSession,
+        track_repo: BaseRepository[DBTrack, Track],
+    ):
+        unique = str(uuid4())[:8]
+        wanted = f"TEST_find_by_dict_{unique}"
+        await _insert_tracks(db_session, f"TEST_decoy_{unique}", wanted)
+
+        result = await track_repo.find_one_by(conditions={"title": wanted})
+        missing = await track_repo.find_one_by(
+            conditions={"title": f"TEST_absent_{unique}"}
+        )
+
+        assert result is not None
+        assert result.title == wanted
+        assert missing is None
+
+    async def test_find_by_list_conditions_returns_only_matching_rows(
+        self,
+        db_session: AsyncSession,
+        track_repo: BaseRepository[DBTrack, Track],
+    ):
+        unique = str(uuid4())[:8]
+        title = f"TEST_find_by_list_{unique}"
+        await _insert_tracks(db_session, f"TEST_decoy_{unique}", title)
 
         results = await track_repo.find_by(conditions=[DBTrack.title == title])
-        assert len(results) == 1
+
+        assert [track.title for track in results] == [title]

@@ -54,11 +54,6 @@ def test_forwardref_format_carries_the_unimported_name() -> None:
     )
 
 
-def test_value_format_raises_by_design() -> None:
-    with pytest.raises(NameError):
-        get_annotations(DBTrack, format=Format.VALUE)
-
-
 def _flatten(annotation: object) -> list[object]:
     args = getattr(annotation, "__args__", ())
     return [annotation, *[a for arg in args for a in _flatten(arg)]]

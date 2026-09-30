@@ -171,10 +171,18 @@ class TestCreateLink:
         created = await link_repo.create_link(new_link, user_id=TEST_USER_ID)
         await db_session.flush()
 
-        assert created.id is not None
         assert created.playlist_id == db_playlist.id
         assert created.connector_name == "spotify"
         assert created.sync_direction == SyncDirection.PULL
+
+        # The row is persisted: a fresh read finds it by id and by playlist.
+        stored = await link_repo.get_link(created.id)
+        assert stored is not None
+        assert stored.playlist_id == db_playlist.id
+        assert stored.connector_playlist_identifier == f"create_{uid}"
+        assert stored.sync_direction == SyncDirection.PULL
+        links = await link_repo.get_links_for_playlist(db_playlist.id)
+        assert [link.id for link in links] == [created.id]
 
     async def test_raises_if_connector_playlist_missing(self, db_session):
         uow = get_unit_of_work(db_session)
@@ -291,15 +299,15 @@ class TestListByUserConnector:
     """list_by_user_connector scopes links to (user_id, connector_name)."""
 
     async def test_returns_links_for_user(self, db_session):
-        await _setup_playlist_with_link(db_session, user_id="alice")
-        await _setup_playlist_with_link(db_session, user_id="alice")
+        _, _, first_id = await _setup_playlist_with_link(db_session, user_id="alice")
+        _, _, second_id = await _setup_playlist_with_link(db_session, user_id="alice")
 
         uow = get_unit_of_work(db_session)
         link_repo = uow.get_playlist_link_repository()
 
         links = await link_repo.list_by_user_connector("alice", "spotify")
 
-        assert len(links) >= 2
+        assert {link.id for link in links} == {first_id, second_id}
         for link in links:
             assert link.connector_name == "spotify"
 

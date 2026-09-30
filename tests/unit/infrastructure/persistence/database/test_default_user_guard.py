@@ -12,18 +12,35 @@ three entry points converge. These tests pin both halves: what it refuses, and
 scheduler or the OAuth prune is worse than no guard.
 """
 
+from unittest.mock import Mock
+
 import pytest
 
-from src.config.constants import BusinessLimits
 from src.config.settings import database_host_and_mode
 from src.infrastructure.persistence.database.user_context import (
     DefaultUserOnRemoteDatabaseError,
     _refuse_default_user_on_remote,
+    set_rls_user_on_begin,
+    user_context,
 )
 
-DEFAULT = BusinessLimits.DEFAULT_USER_ID
+DEFAULT = "default"
 LOCAL = "postgresql+psycopg://mixd:mixd@localhost:5432/mixd"
 REMOTE = "postgresql+psycopg://u:p@ep-super-glade.neon.tech/neondb"
+
+
+def _fire_begin_hook() -> Mock:
+    """Run the ``after_begin`` hook for a top-level transaction on a mock connection."""
+    connection = Mock()
+    transaction = Mock()
+    transaction.parent = None
+    set_rls_user_on_begin(Mock(), transaction, connection)
+    return connection
+
+
+def _bound_uid(connection: Mock) -> str:
+    """The ``app.user_id`` the hook bound on its one statement."""
+    return connection.execute.call_args.args[1]["uid"]
 
 
 class TestDatabaseHostAndMode:
@@ -115,19 +132,13 @@ class TestGuardDoesNotBlockLegitimateWork:
     def test_a_real_user_against_production_is_untouched(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from src.infrastructure.persistence.database.user_context import (
-            _current_user_id,
-            _system_operation,
-        )
-
+        """The begin hook opens a remote transaction for a real account."""
         monkeypatch.setenv("DATABASE_URL", REMOTE)
-        token = _current_user_id.set("cfe9d062-577f-real-account")
-        try:
-            uid = _current_user_id.get()
-            # Mirrors the branch in set_rls_user_on_begin.
-            assert not (uid == DEFAULT and not _system_operation.get())
-        finally:
-            _current_user_id.reset(token)
+
+        with user_context("cfe9d062-577f-real-account"):
+            connection = _fire_begin_hook()
+
+        assert _bound_uid(connection) == "cfe9d062-577f-real-account"
 
     def test_system_context_declares_a_user_less_transaction(
         self, monkeypatch: pytest.MonkeyPatch
@@ -137,18 +148,25 @@ class TestGuardDoesNotBlockLegitimateWork:
         ``prune_expired_states`` is a DELETE with no user predicate; the
         sweeper and run reaper go through ``execute_use_case`` with no
         ``user_id``. Before ``system_context`` those were indistinguishable
-        from the accident this guard exists to catch.
+        from the accident this guard exists to catch — so under
+        ``system_context`` the begin hook lets the default user through on a
+        remote database, and outside it the hook still refuses.
         """
         from src.infrastructure.persistence.database.user_context import (
-            _system_operation,
             system_context,
         )
 
         monkeypatch.setenv("DATABASE_URL", REMOTE)
-        assert _system_operation.get() is False
-        with system_context():
-            assert _system_operation.get() is True
-        assert _system_operation.get() is False
+
+        with user_context(DEFAULT), system_context():
+            connection = _fire_begin_hook()
+        assert _bound_uid(connection) == DEFAULT
+
+        with (
+            user_context(DEFAULT),
+            pytest.raises(DefaultUserOnRemoteDatabaseError),
+        ):
+            _ = _fire_begin_hook()
 
     def test_system_context_resets_when_the_block_raises(self) -> None:
         from src.infrastructure.persistence.database.user_context import (
