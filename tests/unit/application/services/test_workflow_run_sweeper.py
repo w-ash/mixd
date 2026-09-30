@@ -15,8 +15,6 @@ import pytest
 
 from src.application.services.run_activity import reset_run_activity, track_run
 from src.application.services.workflow_run_sweeper import (
-    IDLE_SWEEP_INTERVAL_SECONDS,
-    SWEEP_INTERVAL_SECONDS,
     run_sweeper_loop,
     sweep_stalled_runs,
 )
@@ -104,6 +102,7 @@ class TestSweepStalledRuns:
         uow = make_mock_uow(workflow_run_repo=repo)
 
         count = await sweep_stalled_runs(uow, stale_threshold_seconds=60)
+        after = datetime.now(UTC)
 
         assert count == 1
         repo.update_run_status.assert_awaited_once()
@@ -111,12 +110,14 @@ class TestSweepStalledRuns:
         assert call.args[0] == cold_start_run.id
         # A stall is an operational event (worker died / loop blocked), recorded
         # CRASHED — not FAILED, which is reserved for workflow logic raising.
-        assert call.args[1] == WorkflowConstants.RUN_STATUS_CRASHED
-        assert "cold-start hang" in call.kwargs["error_message"]
-        assert call.kwargs["completed_at"] is not None
-        # duration_ms should be ~120000ms — let it be at least 100s worth
-        assert call.kwargs["duration_ms"] is not None
-        assert call.kwargs["duration_ms"] >= 100_000
+        assert call.args[1] == "crashed"
+        assert call.kwargs["error_message"] == (
+            "cold-start hang: workflow runner did not begin task execution"
+        )
+        assert now <= call.kwargs["completed_at"] <= after
+        # Started 120s before `now`; the sweep ran between `now` and `after`.
+        elapsed_ms = (after - now).total_seconds() * 1000
+        assert 120_000 <= call.kwargs["duration_ms"] <= 120_000 + elapsed_ms
 
     async def test_stalled_mid_execution_uses_watchdog_message(self) -> None:
         now = datetime.now(UTC)
@@ -210,16 +211,11 @@ class TestSweeperCadence:
     async def test_idle_loop_waits_the_long_fallback(self) -> None:
         repo = make_mock_workflow_run_repo(list_stalled_runs=[])
         delays = await _collect_delays(repo, ticks=2)
-        assert delays == [IDLE_SWEEP_INTERVAL_SECONDS] * 2
+        # Six hours: far past Neon's 5-minute suspend window.
+        assert delays == [6 * 60 * 60] * 2
 
     async def test_active_loop_holds_the_short_cadence(self) -> None:
         repo = make_mock_workflow_run_repo(list_stalled_runs=[])
         async with track_run():
             delays = await _collect_delays(repo, ticks=2)
-        assert delays == [SWEEP_INTERVAL_SECONDS] * 2
-
-    async def test_idle_fallback_is_longer_than_neon_suspend_window(self) -> None:
-        # A query every T keeps a 5-minute-timeout compute awake min(5min, T) of
-        # every T. The fallback has to sit far above that window or the sweeper
-        # alone would keep billing.
-        assert IDLE_SWEEP_INTERVAL_SECONDS > 30 * 60
+        assert delays == [30] * 2

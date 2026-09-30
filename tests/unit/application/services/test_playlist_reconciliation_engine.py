@@ -130,6 +130,8 @@ class TestSafetyAgainstFreshRemote:
             return_value=PlaylistOpsOutcome(snapshot_id="new", requested=145, failed=0)
         )
 
+        link = _link(SyncDirection.PUSH)
+
         with (
             patch(
                 f"{_ENGINE_MOD}.sync_connector_playlist", AsyncMock(return_value=remote)
@@ -137,14 +139,22 @@ class TestSafetyAgainstFreshRemote:
             patch(f"{_PUSH_MOD}.resolve_playlist_connector", return_value=connector),
         ):
             result = await _engine().apply(
-                _link(SyncDirection.PUSH),
+                link,
                 SyncDirection.PUSH,
                 uow,
                 user_id="u",
                 confirmed=True,
             )
         assert result.skipped is False
+        assert result.tracks_removed == 145
         connector.execute_playlist_operations.assert_awaited_once()
+        # The link now agrees with the post-write remote snapshot.
+        base = uow.get_playlist_sync_base_repository().upsert.await_args.args[0]
+        assert (base.link_id, base.user_id, base.base_snapshot_id) == (
+            link.id,
+            "u",
+            "new",
+        )
 
 
 class TestRemoteResolvedOncePerPush:
@@ -341,16 +351,27 @@ class TestPullApply:
         ])
         uow = _uow_with(canonical)
 
+        engine = _engine()
+        link = _link(SyncDirection.PULL)
+
         with (
             patch(
                 f"{_ENGINE_MOD}.sync_connector_playlist", AsyncMock(return_value=remote)
             ),
             patch(f"{_ENGINE_MOD}.upsert_canonical_playlist", AsyncMock()) as upsert,
         ):
-            result = await _engine().apply(
-                _link(SyncDirection.PULL), SyncDirection.PULL, uow, user_id="u"
-            )
-        upsert.assert_awaited_once()
+            result = await engine.apply(link, SyncDirection.PULL, uow, user_id="u")
+        upsert.assert_awaited_once_with(
+            remote,
+            "spotify",
+            "ext1",
+            uow,
+            metric_config=engine.metric_config,
+            user_id="u",
+        )
+        # The canonical now matches the fetched remote's snapshot.
+        base = uow.get_playlist_sync_base_repository().upsert.await_args.args[0]
+        assert (base.link_id, base.base_snapshot_id) == (link.id, "snap")
         assert result.skipped is False
         assert result.direction == SyncDirection.PULL
         assert result.tracks_added == 2

@@ -124,22 +124,6 @@ class TestCreateThrottledSubOperation:
     tests exercise the real asyncio.sleep + asyncio.create_task path.
     """
 
-    async def test_first_call_emits_immediately(self):
-        mock_manager = _make_mock_manager()
-
-        emitter = await create_throttled_sub_operation(
-            progress_broker=mock_manager,
-            description="Fetching lastfm metadata",
-            total_items=100,
-            parent_operation_id="parent-1",
-            phase="enrich",
-            node_type="enricher",
-            min_interval_seconds=0.01,
-        )
-
-        await emitter(1, 100, "1/100")
-        mock_manager.emit_progress.assert_awaited_once()
-
     async def test_terminal_tick_always_emits(self):
         """emitter(N, N, ...) bypasses the throttle and emits immediately."""
         mock_manager = _make_mock_manager()
@@ -165,7 +149,8 @@ class TestCreateThrottledSubOperation:
         assert last_event.total == 10
 
     async def test_rapid_calls_within_window_suppressed_then_tail_flushed(self):
-        """High-frequency invocation collapses to <= 1 emit per window plus a tail."""
+        """A burst inside one window emits the first call, then one tail flush
+        carrying the latest suppressed update."""
         mock_manager = _make_mock_manager()
 
         emitter = await create_throttled_sub_operation(
@@ -175,27 +160,19 @@ class TestCreateThrottledSubOperation:
             parent_operation_id="p",
             phase="enrich",
             node_type="enricher",
-            min_interval_seconds=0.05,  # 50 ms
+            # Far wider than the burst takes, so every later call is suppressed.
+            min_interval_seconds=0.2,
         )
 
-        # Hammer the callback 50 times in quick succession (no awaits between).
         for i in range(1, 51):
             await emitter(i, 1000, f"{i}/1000")
+        await asyncio.sleep(0.3)
 
-        # Wait for tail-flush timer to fire.
-        await asyncio.sleep(0.1)
-
-        # First call emits immediately. Some number of subsequent calls may
-        # cross window boundaries and emit (depends on scheduling). Tail
-        # flush emits the final suppressed (50, 1000, ...) tuple. Bound the
-        # total emits to a sane ceiling that proves throttling worked.
-        assert mock_manager.emit_progress.await_count >= 2
-        assert mock_manager.emit_progress.await_count <= 10
-
-        # The last emission must reflect the most recent call.
-        last_event = mock_manager.emit_progress.call_args[0][0]
-        assert last_event.current == 50
-        assert last_event.total == 1000
+        events = [call.args[0] for call in mock_manager.emit_progress.await_args_list]
+        assert [(e.current, e.total, e.message) for e in events] == [
+            (1, 1000, "1/1000"),
+            (50, 1000, "50/1000"),
+        ]
 
     async def test_aclose_cancels_pending_tail(self):
         """No stale progress fires after the emitter is closed."""

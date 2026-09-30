@@ -10,6 +10,8 @@ from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+import pytest
+
 from src.application.services import operation_run_recorder
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from tests.fixtures import make_mock_uow
@@ -25,29 +27,6 @@ def _patch_runner(uow):
 
 
 class TestFinalizeRunIssues:
-    async def test_issue_appended_in_same_transaction(self):
-        uow = make_mock_uow()
-        repo = AsyncMock()
-        uow.get_operation_run_repository = lambda: repo
-        run_id = uuid4()
-
-        with _patch_runner(uow):
-            await operation_run_recorder.finalize_run(
-                run_id,
-                user_id="u1",
-                status="error",
-                counts={"errors": 1},
-                issues=[{"message": "Last.fm timed out"}],
-            )
-
-        repo.update_status.assert_awaited_once()
-        repo.append_issues.assert_awaited_once()
-        assert repo.append_issues.await_args.kwargs["issues"] == [
-            {"message": "Last.fm timed out"}
-        ]
-        # One commit → one transaction covering both writes.
-        uow.commit.assert_awaited_once()
-
     async def test_per_item_issues_ride_the_status_write(self):
         # A partial run's issues are the whole point of the row — status and the
         # per-item detail must land together or a crash between them reproduces
@@ -61,45 +40,47 @@ class TestFinalizeRunIssues:
             {"track": "C - D", "spotify_id": "y", "reason": "track_resolution_failed"},
         ]
 
+        run_id = uuid4()
+
         with _patch_runner(uow):
             await operation_run_recorder.finalize_run(
-                uuid4(),
+                run_id,
                 user_id="u1",
                 status="partial",
                 counts={"track_plays": 98, "errors": 2},
                 issues=issues,
             )
 
-        assert repo.update_status.await_args.kwargs["status"] == "partial"
+        repo.update_status.assert_awaited_once()
+        assert repo.update_status.await_args.args == (run_id,)
+        update_kwargs = repo.update_status.await_args.kwargs
+        assert update_kwargs["user_id"] == "u1"
+        assert update_kwargs["status"] == "partial"
+        assert update_kwargs["counts"] == {"track_plays": 98, "errors": 2}
         # One batched append, not one per issue.
-        repo.append_issues.assert_awaited_once()
-        assert repo.append_issues.await_args.kwargs["issues"] == issues
+        repo.append_issues.assert_awaited_once_with(run_id, user_id="u1", issues=issues)
+        # One commit → one transaction covering both writes.
         uow.commit.assert_awaited_once()
 
-    async def test_no_issues_leaves_issues_untouched(self):
+    @pytest.mark.parametrize("issues", [None, []], ids=["omitted", "empty"])
+    async def test_no_issues_writes_status_only(self, issues):
         uow = make_mock_uow()
         repo = AsyncMock()
         uow.get_operation_run_repository = lambda: repo
 
         with _patch_runner(uow):
             await operation_run_recorder.finalize_run(
-                uuid4(), user_id="u1", status="complete", counts={"track_plays": 7}
+                uuid4(),
+                user_id="u1",
+                status="complete",
+                counts={"track_plays": 7},
+                issues=issues,
             )
 
         repo.update_status.assert_awaited_once()
+        assert repo.update_status.await_args.kwargs["status"] == "complete"
         repo.append_issues.assert_not_awaited()
-
-    async def test_empty_issues_list_leaves_issues_untouched(self):
-        uow = make_mock_uow()
-        repo = AsyncMock()
-        uow.get_operation_run_repository = lambda: repo
-
-        with _patch_runner(uow):
-            await operation_run_recorder.finalize_run(
-                uuid4(), user_id="u1", status="complete", issues=[]
-            )
-
-        repo.append_issues.assert_not_awaited()
+        uow.commit.assert_awaited_once()
 
 
 class TestAppendRunIssues:
