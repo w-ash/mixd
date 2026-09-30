@@ -31,46 +31,14 @@ ALL_SORTS: tuple[KeysetSort, ...] = (
 
 
 class TestCursorRoundTrip:
-    """Encode → decode produces the same PageCursor."""
+    """Encode → decode keeps a float sort value, which no declared sort holds.
 
-    def test_string_sort_value(self) -> None:
-        original = PageCursor(
-            sort_key="title_asc", sort_value="Radiohead", last_id=uuid7()
-        )
-        encoded = encode_cursor(original)
-        decoded = decode_cursor(encoded)
-
-        assert decoded == original
-
-    def test_integer_sort_value(self) -> None:
-        original = PageCursor(
-            sort_key="duration_asc", sort_value=240000, last_id=uuid7()
-        )
-        encoded = encode_cursor(original)
-        decoded = decode_cursor(encoded)
-
-        assert decoded == original
-
-    def test_none_sort_value(self) -> None:
-        original = PageCursor(sort_key="duration_asc", sort_value=None, last_id=uuid7())
-        encoded = encode_cursor(original)
-        decoded = decode_cursor(encoded)
-
-        assert decoded == original
+    Every declared sort's value types are covered by the property in
+    ``TestEveryDeclaredSortRoundTrips``.
+    """
 
     def test_float_sort_value(self) -> None:
         original = PageCursor(sort_key="score_desc", sort_value=0.95, last_id=uuid7())
-        encoded = encode_cursor(original)
-        decoded = decode_cursor(encoded)
-
-        assert decoded == original
-
-    def test_datetime_as_iso_string(self) -> None:
-        """Datetimes are stored as ISO strings in the cursor."""
-        dt = datetime(2025, 6, 15, 12, 30, 0, tzinfo=UTC)
-        original = PageCursor(
-            sort_key="added_desc", sort_value=dt.isoformat(), last_id=uuid7()
-        )
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
 
@@ -133,35 +101,11 @@ class TestDecodeCursorErrors:
 
 
 class TestCursorSortValueConversion:
-    """Type coercion between cursor values and database query values."""
+    """Rejection paths of the cursor ↔ query-value coercion.
 
-    def test_datetime_sort_round_trip(self) -> None:
-        dt = datetime(2025, 3, 15, 10, 0, 0, tzinfo=UTC)
-        sort = TRACK_SORTS["added_desc"]
-
-        # Row value → cursor value (datetime → ISO string)
-        cursor_val = cursor_sort_value_from_row(dt)
-        assert isinstance(cursor_val, str)
-
-        # Cursor value → query value (ISO string → datetime)
-        query_val = cursor_sort_value_to_query(sort, cursor_val)
-        assert isinstance(query_val, datetime)
-        assert query_val == dt
-
-    def test_string_sort_passthrough(self) -> None:
-        sort = TRACK_SORTS["title_asc"]
-        assert cursor_sort_value_from_row("Hello") == "Hello"
-        assert cursor_sort_value_to_query(sort, "Hello") == "Hello"
-
-    def test_int_sort_passthrough(self) -> None:
-        sort = TRACK_SORTS["duration_asc"]
-        assert cursor_sort_value_from_row(240000) == 240000
-        assert cursor_sort_value_to_query(sort, 240000) == 240000
-
-    def test_none_passthrough(self) -> None:
-        sort = TRACK_SORTS["title_asc"]
-        assert cursor_sort_value_from_row(None) is None
-        assert cursor_sort_value_to_query(sort, None) is None
+    The accepting paths (datetime ↔ ISO string, passthrough of strings, ints,
+    and NULLs) are covered by the property in ``TestEveryDeclaredSortRoundTrips``.
+    """
 
     def test_numeric_value_on_datetime_sort_raises(self) -> None:
         # A tampered or foreign cursor carrying a number for played_at used to

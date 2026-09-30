@@ -8,9 +8,10 @@ the commit path never touches a database.
 
 The load-bearing case is ``update``: the chat rename must NOT touch tracks. Its
 executor passes an EMPTY ``TrackList`` plus name/description, driving the use
-case's metadata-only path (``update_canonical_playlist.py:190-198``). One test
-invokes the real factory and captures the Command to prove the tracklist is
-empty and only name/description are set.
+case's metadata-only path (``update_canonical_playlist.py:190-198``). The
+commit tests invoke the real factory and capture the Command, so the rename
+test proves the tracklist is empty and only name/description are set, and the
+entry tests prove ids, order, and position reach the use case.
 """
 
 from uuid import UUID, uuid4
@@ -20,18 +21,30 @@ import pytest
 from src.application.chat.dispatchers import _common, playlists_write
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.use_cases.add_playlist_tracks import AddPlaylistTracksResult
+from src.application.use_cases.add_playlist_tracks import (
+    AddPlaylistTracksCommand,
+    AddPlaylistTracksResult,
+    AddPlaylistTracksUseCase,
+)
 from src.application.use_cases.create_canonical_playlist import (
+    CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistResult,
+    CreateCanonicalPlaylistUseCase,
 )
 from src.application.use_cases.delete_canonical_playlist import (
+    DeleteCanonicalPlaylistCommand,
     DeleteCanonicalPlaylistResult,
+    DeleteCanonicalPlaylistUseCase,
 )
 from src.application.use_cases.remove_playlist_entries import (
+    RemovePlaylistEntriesCommand,
     RemovePlaylistEntriesResult,
+    RemovePlaylistEntriesUseCase,
 )
 from src.application.use_cases.reorder_playlist_entries import (
+    ReorderPlaylistEntriesCommand,
     ReorderPlaylistEntriesResult,
+    ReorderPlaylistEntriesUseCase,
 )
 from src.application.use_cases.repair_unresolved_entries import (
     RepairUnresolvedEntriesResult,
@@ -75,6 +88,29 @@ def _runner_invoking():
         return await factory(object())
 
     return _run
+
+
+def _capture(
+    monkeypatch: pytest.MonkeyPatch, use_case: type, result: object
+) -> dict[str, object]:
+    """Run the dispatcher's real factory into ``use_case``; record its Command.
+
+    Also records the ``user_id`` the runner received, so a commit that drops the
+    caller's tenant fails.
+    """
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
+        return result
+
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(use_case, "execute", _execute)
+    monkeypatch.setattr(_common, "execute_use_case", _run)
+    return seen
 
 
 def _raising_runner(exc: Exception):
@@ -188,23 +224,27 @@ class TestExecManagePlaylist:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         pid = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _runner_returning(
-                CreateCanonicalPlaylistResult(
-                    playlist=make_playlist(id=pid, name="Focus")
-                )
-            ),
+        seen = _capture(
+            monkeypatch,
+            CreateCanonicalPlaylistUseCase,
+            CreateCanonicalPlaylistResult(playlist=make_playlist(id=pid, name="Focus")),
         )
         action = await _action(
             "create",
-            {"operation": "create", "name": "Focus", "description": None},
+            {"operation": "create", "name": "Focus", "description": "deep work"},
             "manage_playlist",
         )
 
-        result = await playlists_write.exec_manage_playlist(action, "default")
+        result = await playlists_write.exec_manage_playlist(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, CreateCanonicalPlaylistCommand)
+        assert command.name == "Focus"
+        assert command.description == "deep work"
+        # A chat-created playlist starts empty; tracks arrive via the entries tool.
+        assert command.tracklist.tracks == []
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
         assert result["status"] == "confirmed"
         assert result["operation"] == "create"
         assert result["playlist"]["playlist_id"] == str(pid)
@@ -252,18 +292,16 @@ class TestExecManagePlaylist:
         assert result["status"] == "confirmed"
         assert result["operation"] == "update"
 
-    async def test_delete_commits_and_echoes_result(
+    async def test_delete_commits_with_force_and_echoes_result(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _runner_returning(
-                DeleteCanonicalPlaylistResult(
-                    deleted_playlist_id=UUID(int=7),
-                    deleted_playlist_name="Old",
-                    tracks_count=3,
-                )
+        seen = _capture(
+            monkeypatch,
+            DeleteCanonicalPlaylistUseCase,
+            DeleteCanonicalPlaylistResult(
+                deleted_playlist_id=UUID(int=7),
+                deleted_playlist_name="Old",
+                tracks_count=3,
             ),
         )
         action = await _action(
@@ -272,9 +310,17 @@ class TestExecManagePlaylist:
             "manage_playlist",
         )
 
-        result = await playlists_write.exec_manage_playlist(action, "default")
+        result = await playlists_write.exec_manage_playlist(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, DeleteCanonicalPlaylistCommand)
+        assert command.playlist_id == str(UUID(int=7))
+        # The chat confirmation IS the gate, so the external-connection warning
+        # the use case would otherwise raise is bypassed.
+        assert command.force_delete is True
+        assert command.user_id == "user-7"
         assert result["status"] == "confirmed"
+        assert result["deleted_playlist_id"] == str(UUID(int=7))
         assert result["deleted_playlist_name"] == "Old"
         assert result["tracks_count"] == 3
 
@@ -391,82 +437,95 @@ class TestManagePlaylistEntriesPropose:
 
 
 class TestExecManagePlaylistEntries:
-    async def test_add_commits_through_use_case(
+    async def test_add_commits_tracks_at_position(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        pid = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _runner_returning(
-                AddPlaylistTracksResult(playlist=make_playlist(id=pid), added=2)
-            ),
+        pid, t1, t2 = uuid4(), uuid4(), uuid4()
+        seen = _capture(
+            monkeypatch,
+            AddPlaylistTracksUseCase,
+            AddPlaylistTracksResult(playlist=make_playlist(id=pid), added=2),
         )
         action = await _action(
             "add",
             {
                 "operation": "add",
                 "playlist_id": str(pid),
-                "track_ids": [str(uuid4()), str(uuid4())],
-                "position": None,
+                "track_ids": [str(t1), str(t2)],
+                "position": 2,
             },
             "manage_playlist_entries",
         )
 
-        result = await playlists_write.exec_manage_playlist_entries(action, "default")
+        result = await playlists_write.exec_manage_playlist_entries(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, AddPlaylistTracksCommand)
+        assert command.playlist_id == pid
+        assert command.track_ids == [t1, t2]
+        assert command.position == 2
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
         assert result["status"] == "confirmed"
         assert result["added"] == 2
 
-    async def test_remove_commits_through_use_case(
+    async def test_remove_commits_the_proposed_entries(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        pid = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _runner_returning(
-                RemovePlaylistEntriesResult(playlist=make_playlist(id=pid), removed=1)
-            ),
+        pid, eid = uuid4(), uuid4()
+        seen = _capture(
+            monkeypatch,
+            RemovePlaylistEntriesUseCase,
+            RemovePlaylistEntriesResult(playlist=make_playlist(id=pid), removed=1),
         )
         action = await _action(
             "remove",
             {
                 "operation": "remove",
                 "playlist_id": str(pid),
-                "entry_ids": [str(uuid4())],
+                "entry_ids": [str(eid)],
             },
             "manage_playlist_entries",
         )
 
-        result = await playlists_write.exec_manage_playlist_entries(action, "default")
+        result = await playlists_write.exec_manage_playlist_entries(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, RemovePlaylistEntriesCommand)
+        assert command.playlist_id == pid
+        assert command.entry_ids == [eid]
+        assert command.user_id == "user-7"
         assert result["status"] == "confirmed"
         assert result["removed"] == 1
 
-    async def test_reorder_commits_through_use_case(
+    async def test_reorder_commits_the_full_order(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Fixed ids, proposed out of sorted order, so a sort or reverse is caught.
         pid = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _runner_returning(
-                ReorderPlaylistEntriesResult(playlist=make_playlist(id=pid))
-            ),
+        e1, e2, e3 = UUID(int=1), UUID(int=2), UUID(int=3)
+        seen = _capture(
+            monkeypatch,
+            ReorderPlaylistEntriesUseCase,
+            ReorderPlaylistEntriesResult(playlist=make_playlist(id=pid)),
         )
         action = await _action(
             "reorder",
             {
                 "operation": "reorder",
                 "playlist_id": str(pid),
-                "entry_ids": [str(uuid4()), str(uuid4())],
+                "entry_ids": [str(e3), str(e1), str(e2)],
             },
             "manage_playlist_entries",
         )
 
-        result = await playlists_write.exec_manage_playlist_entries(action, "default")
+        result = await playlists_write.exec_manage_playlist_entries(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, ReorderPlaylistEntriesCommand)
+        assert command.playlist_id == pid
+        assert command.entry_ids == [e3, e1, e2]
+        assert command.user_id == "user-7"
         assert result["status"] == "confirmed"
         assert result["operation"] == "reorder"
 

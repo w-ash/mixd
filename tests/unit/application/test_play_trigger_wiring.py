@@ -81,14 +81,13 @@ class TestToolRegistryHook:
             await registry.execute_tool(name, {}, ToolContext(user_id="u1"))
         return m_spawn
 
-    async def test_play_reading_tool_triggers_a_refresh(self) -> None:
-        m_spawn = await self._execute("query_stats")
-        m_spawn.assert_called_once()
-        assert m_spawn.call_args.kwargs["trigger_detail"] == "mcp"
-
-    async def test_library_query_triggers_a_refresh(self) -> None:
-        m_spawn = await self._execute("query_library")
-        m_spawn.assert_called_once()
+    @pytest.mark.parametrize("tool", ["query_stats", "query_library"])
+    async def test_play_reading_tool_triggers_a_refresh_for_the_caller(
+        self, tool: str
+    ) -> None:
+        # The refresh is the contract: it must poll the calling user's plays.
+        m_spawn = await self._execute(tool)
+        m_spawn.assert_called_once_with("u1", trigger_detail="mcp")
 
     async def test_unrelated_tool_does_not_trigger_a_refresh(self) -> None:
         # Every tool call firing a poll would defeat the staleness gate's whole

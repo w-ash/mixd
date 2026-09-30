@@ -23,8 +23,10 @@ from src.application.tools.registry import (
     MECHANICALLY_EXCLUDED_USE_CASES,
     NOT_YET_COVERED,
     TOOLS,
+    ToolSpec,
 )
 import src.application.use_cases as use_cases_pkg
+from src.domain.entities.shared import JsonValue
 
 _WHEN_TO_CALL = re.compile(r"^(Call|Use|When)\b")
 
@@ -126,22 +128,66 @@ def test_input_schemas_are_valid_object_schemas() -> None:
         )
 
 
-def test_non_agentic_tools_have_a_dispatcher() -> None:
-    for spec in TOOLS:
-        if spec.kind == "agentic":
-            continue
-        assert spec.dispatch is not None, f"{spec.name}: missing dispatcher"
+async def _dispatch(tool_input: object, ctx: object) -> JsonValue:
+    return {}
 
 
-def test_write_tools_carry_a_confirmation_path() -> None:
-    # Every write commits after confirmation via exactly one path: a synchronous
-    # ``executor`` or a long-running ``launches_operation`` (interface launcher).
-    for spec in TOOLS:
-        if spec.kind == "write":
-            assert (spec.executor is not None) ^ spec.launches_operation, (
-                f"{spec.name}: a write tool needs exactly one of executor / "
-                "launches_operation"
-            )
+async def _executor(action: object, user_id: str) -> JsonValue:
+    return {}
+
+
+def _spec(
+    *,
+    dispatch: object = _dispatch,
+    kind: str = "read",
+    executor: object = None,
+    launches_operation: bool = False,
+    defer_loading: bool = True,
+) -> ToolSpec:
+    return ToolSpec(
+        name="t",
+        description="d",
+        input_schema={"type": "object"},
+        dispatch=dispatch,
+        kind=kind,
+        executor=executor,
+        launches_operation=launches_operation,
+        defer_loading=defer_loading,
+    )
+
+
+def test_only_agentic_tools_may_omit_a_dispatcher() -> None:
+    # Enforced at construction, so no dispatcher-less read can reach TOOLS.
+    with pytest.raises(ValueError, match="only agentic server tools may omit"):
+        _spec(dispatch=None, kind="read")
+    assert _spec(dispatch=None, kind="agentic", defer_loading=False).dispatch is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"kind": "write"}, "exactly one of executor / launches_operation"),
+        (
+            {"kind": "write", "executor": _executor, "launches_operation": True},
+            "exactly one of executor / launches_operation",
+        ),
+        ({"kind": "read", "executor": _executor}, "only write tools carry"),
+        ({"kind": "read", "launches_operation": True}, "only write tools carry"),
+    ],
+    ids=["write-neither", "write-both", "read-executor", "read-launcher"],
+)
+def test_write_confirmation_path_is_enforced_at_construction(
+    overrides: dict[str, object], message: str
+) -> None:
+    # A write commits after confirmation via exactly one path: a synchronous
+    # ``executor`` or a long-running ``launches_operation``; a read has neither.
+    with pytest.raises(ValueError, match=message):
+        _spec(**overrides)
+
+
+def test_write_with_one_confirmation_path_is_accepted() -> None:
+    assert _spec(kind="write", executor=_executor).executor is _executor
+    assert _spec(kind="write", launches_operation=True).launches_operation is True
 
 
 def test_build_tools_stamps_cache_breakpoints_per_tier() -> None:
