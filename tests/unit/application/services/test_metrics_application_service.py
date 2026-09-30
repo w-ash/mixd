@@ -5,12 +5,14 @@ connector API failures.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
+from src.domain.entities.progress import OperationStatus
 from tests.fixtures import make_mock_uow, make_track
 
 
@@ -70,19 +72,56 @@ class TestSubOperationProgressIntegration:
                 parent_operation_id="parent-op-1",
             )
 
-            # create_throttled_sub_operation should have been called
-            mock_create.assert_awaited_once()
-            # Emitter teardown must run on the success path.
-            fake_emitter.aclose.assert_awaited_once()
+        mock_create.assert_awaited_once_with(
+            mock_progress_broker,
+            description="Fetching lastfm metadata",
+            total_items=1,
+            parent_operation_id="parent-op-1",
+            phase="enrich",
+            node_type="enricher",
+        )
+        fake_emitter.aclose.assert_awaited_once_with(OperationStatus.COMPLETED)
+        assert (
+            mock_connector.get_external_track_data.await_args.kwargs[
+                "progress_callback"
+            ]
+            is fake_emitter
+        )
 
-            # Connector should have received the emitter as the progress callback
-            mock_connector.get_external_track_data.assert_awaited_once()
-            call_kwargs = mock_connector.get_external_track_data.call_args
-            assert (
-                call_kwargs.kwargs.get("progress_callback") is fake_emitter
-                or (len(call_kwargs.args) > 1 and call_kwargs.args[1] is fake_emitter)
-                or (call_kwargs[1].get("progress_callback") is fake_emitter)
+    async def test_sub_operation_closes_failed_when_the_fetch_raises(self):
+        service = _make_service()
+        track = make_track(
+            id=1,
+            title="Test",
+            connector_track_identifiers={"lastfm": "ext-1"},
+        )
+        mock_uow = _make_uow_with_tracks({1: track})
+        mock_connector = AsyncMock()
+        mock_connector.get_external_track_data = AsyncMock(
+            side_effect=RuntimeError("upstream down")
+        )
+        fake_emitter = AsyncMock()
+
+        with (
+            patch(
+                "src.application.services.metrics_application_service.create_throttled_sub_operation",
+                new_callable=AsyncMock,
+                return_value=fake_emitter,
+            ),
+            pytest.raises(RuntimeError, match="upstream down"),
+        ):
+            await service.get_external_track_metrics(
+                track_ids=[1],
+                connector="lastfm",
+                metric_names=["lastfm_user_playcount"],
+                uow=mock_uow,
+                user_id="u1",
+                connector_instance=mock_connector,
+                progress_broker=AsyncMock(),
+                parent_operation_id="parent-op-1",
             )
+
+        fake_emitter.aclose.assert_awaited_once_with(OperationStatus.FAILED)
 
     async def test_skips_sub_operation_when_no_progress_broker(self):
         service = _make_service()
@@ -107,19 +146,12 @@ class TestSubOperationProgressIntegration:
             parent_operation_id=None,
         )
 
-        # Connector should have been called with progress_callback=None
-        mock_connector.get_external_track_data.assert_awaited_once()
-        call_kwargs = mock_connector.get_external_track_data.call_args
-        # Check that progress_callback is None (either via kwargs or positional)
-        if call_kwargs.kwargs.get("progress_callback") is not None:
-            # Check positional args if not in kwargs
-            if len(call_kwargs.args) > 1:
-                assert call_kwargs.args[1] is None
-            else:
-                assert (
-                    "progress_callback" not in call_kwargs.kwargs
-                    or call_kwargs.kwargs["progress_callback"] is None
-                )
+        assert (
+            mock_connector.get_external_track_data.await_args.kwargs[
+                "progress_callback"
+            ]
+            is None
+        )
 
 
 class TestLogLevels:
@@ -196,103 +228,33 @@ class TestExtractMetricsFromMetadataCoercion:
     silently round-trip to 1.0 in the database.
     """
 
-    def test_bool_true_coerces_to_1_point_0(self):
-        from uuid import uuid4
-
-        from src.application.services.metrics_application_service import (
-            MetricsApplicationService,
-        )
-
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [(True, 1.0), (False, 0.0), (42, 42.0), ("12.5", 12.5)],
+        ids=["bool-true", "bool-false", "int", "numeric-string"],
+    )
+    def test_value_coerces_to_float(self, raw, expected):
         track_id = uuid4()
         result = MetricsApplicationService._extract_metrics_from_metadata(
-            fresh_metadata={track_id: {"playcount": True}},
+            fresh_metadata={track_id: {"playcount": raw}},
             metric_names=["playcount"],
             field_map={"playcount": "playcount"},
             connector="lastfm",
             user_id="u1",
         )
         assert len(result) == 1
-        assert result[0].value == 1.0
+        assert result[0].value == expected
         assert type(result[0].value) is float
         assert result[0].track_id == track_id
         assert result[0].connector_name == "lastfm"
         assert result[0].metric_type == "playcount"
 
-    def test_bool_false_coerces_to_0_point_0(self):
-        from uuid import uuid4
-
-        from src.application.services.metrics_application_service import (
-            MetricsApplicationService,
-        )
-
+    @pytest.mark.parametrize(
+        "raw", ["not-a-number", None], ids=["unconvertible-string", "none"]
+    )
+    def test_unusable_value_is_skipped(self, raw):
         result = MetricsApplicationService._extract_metrics_from_metadata(
-            fresh_metadata={uuid4(): {"playcount": False}},
-            metric_names=["playcount"],
-            field_map={"playcount": "playcount"},
-            connector="lastfm",
-            user_id="u1",
-        )
-        assert result[0].value == 0.0
-        assert type(result[0].value) is float
-
-    def test_int_preserved_as_float(self):
-        from uuid import uuid4
-
-        from src.application.services.metrics_application_service import (
-            MetricsApplicationService,
-        )
-
-        result = MetricsApplicationService._extract_metrics_from_metadata(
-            fresh_metadata={uuid4(): {"playcount": 42}},
-            metric_names=["playcount"],
-            field_map={"playcount": "playcount"},
-            connector="lastfm",
-            user_id="u1",
-        )
-        assert result[0].value == 42.0
-        assert type(result[0].value) is float
-
-    def test_string_numeric_coerces(self):
-        from uuid import uuid4
-
-        from src.application.services.metrics_application_service import (
-            MetricsApplicationService,
-        )
-
-        result = MetricsApplicationService._extract_metrics_from_metadata(
-            fresh_metadata={uuid4(): {"playcount": "12.5"}},
-            metric_names=["playcount"],
-            field_map={"playcount": "playcount"},
-            connector="lastfm",
-            user_id="u1",
-        )
-        assert result[0].value == 12.5
-
-    def test_unconvertible_string_skipped(self):
-        from uuid import uuid4
-
-        from src.application.services.metrics_application_service import (
-            MetricsApplicationService,
-        )
-
-        result = MetricsApplicationService._extract_metrics_from_metadata(
-            fresh_metadata={uuid4(): {"playcount": "not-a-number"}},
-            metric_names=["playcount"],
-            field_map={"playcount": "playcount"},
-            connector="lastfm",
-            user_id="u1",
-        )
-        assert result == []
-
-    def test_none_value_skipped(self):
-        from uuid import uuid4
-
-        from src.application.services.metrics_application_service import (
-            MetricsApplicationService,
-        )
-
-        result = MetricsApplicationService._extract_metrics_from_metadata(
-            fresh_metadata={uuid4(): {"playcount": None}},
+            fresh_metadata={uuid4(): {"playcount": raw}},
             metric_names=["playcount"],
             field_map={"playcount": "playcount"},
             connector="lastfm",

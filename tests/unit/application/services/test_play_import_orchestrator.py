@@ -4,6 +4,7 @@ Tests the orchestration layer: phase coordination, result combination,
 short-circuit on empty ingestion, and error handling.
 """
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -12,13 +13,10 @@ from uuid import UUID
 import pytest
 from structlog.testing import capture_logs
 
-from src.application.services.play_import_orchestrator import (
-    _MAX_RECORDED_RESOLUTION_FAILURES,
-    _RESOLUTION_METRIC_TABLE,
-    _RUN_METRIC_KEYS,
-    PlayImportOrchestrator,
-)
+from src.application.services import play_import_orchestrator
+from src.application.services.play_import_orchestrator import PlayImportOrchestrator
 from src.application.services.progress_broker import ProgressBroker
+from src.config.telemetry import ChunkProbe
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
 from src.domain.entities.progress import (
     NullProgressEmitter,
@@ -146,16 +144,28 @@ class TestTwoPhaseHappyPath:
             resolutions=(),
         )
 
+        params = SpotifyImportParams(file_path=Path("/fake/path.json"))
+        emitter = NullProgressEmitter()
+
         result = await orchestrator.import_plays_two_phase(
             mock_importer,
             mock_uow,
             user_id="test-user",
-            params=SpotifyImportParams(file_path=Path("/fake/path.json")),
+            params=params,
+            progress_emitter=emitter,
         )
 
+        # The importer resolves the account from the mixd user (cross-tenant fix).
+        mock_importer.import_plays.assert_awaited_once_with(
+            mock_uow, params, user_id="test-user", progress_emitter=emitter
+        )
+        resolver_call = mock_resolver.resolve_connector_plays.await_args
+        assert resolver_call.args == (connector_plays, mock_uow)
+        assert resolver_call.kwargs == {"user_id": "test-user"}
         assert result.operation_name == "Two-Phase Play Import"
-        # Ingestion should have been called
-        mock_importer.import_plays.assert_called_once()
+        counts = result.to_counts()
+        assert counts["connector_plays"] == 3
+        assert counts["track_plays"] == 3
 
     async def test_combined_result_has_both_phase_metadata(
         self, orchestrator, mock_resolver, mock_uow, mock_importer
@@ -176,9 +186,12 @@ class TestTwoPhaseHappyPath:
             mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
         )
 
-        assert "ingestion_phase" in result.metadata
-        assert "resolution_phase" in result.metadata
-        assert result.metadata["ingestion_phase"]["batch_id"] == "test-batch-123"
+        assert result.metadata["ingestion_phase"] == {
+            "batch_id": "test-batch-123",
+            "checkpoint_timestamp": None,
+        }
+        assert result.metadata["resolution_phase"]["total_plays"] == 1
+        assert result.metadata["resolution_phase"]["resolved_plays"] == 1
 
 
 class _CloseableResolver:
@@ -239,7 +252,9 @@ class TestResolverLifecycle:
         class _PlainResolver:
             async def resolve_connector_plays(self, chunk, uow, *, user_id):
                 return PlayResolutionOutcome(
-                    track_plays=[], metrics={"error_count": 0}, resolutions=()
+                    track_plays=[_make_resolved_track_play()],
+                    metrics={"error_count": 0},
+                    resolutions=(),
                 )
 
         async def resolver_factory(service: str):
@@ -254,51 +269,37 @@ class TestResolverLifecycle:
             progress_emitter=NullProgressEmitter(),
         )
 
-        assert result is not None
+        assert result.summary_metrics.get("resolved") == 1
 
 
 class TestEmptyIngestion:
     """Test short-circuit when ingestion produces no plays."""
 
-    async def test_no_plays_short_circuits(self, orchestrator, mock_uow, mock_importer):
-        """Empty ingestion should return early without resolution phase."""
+    async def test_no_plays_short_circuits(
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
+    ):
+        """Empty ingestion returns the ingestion result: no commit, no Phase 2."""
         ingestion_result = _make_ingestion_result(imported=0, raw_plays=0, duplicates=0)
         mock_importer.import_plays.return_value = (ingestion_result, [])
+        emitter = AsyncMock()
 
         result = await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
+            mock_importer,
+            mock_uow,
+            user_id="test-user",
+            params=LastfmImportParams(),
+            progress_emitter=emitter,
         )
 
-        # Should return the ingestion result directly
         assert result is ingestion_result
-        # Resolution phase should not be attempted
-        mock_uow.get_plays_repository.assert_not_called()
+        mock_uow.commit_batch.assert_not_awaited()
+        mock_resolver.resolve_connector_plays.assert_not_awaited()
+        emitter.start_operation.assert_not_awaited()
+        emitter.emit_progress.assert_not_awaited()
 
 
 class TestResolutionPhaseErrors:
     """Test error handling in the resolution phase."""
-
-    async def test_resolution_errors_captured_in_metrics(
-        self, orchestrator, mock_resolver, mock_uow, mock_importer
-    ):
-        connector_plays = [_make_connector_play()]
-        mock_importer.import_plays.return_value = (
-            _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
-            connector_plays,
-        )
-
-        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
-            track_plays=[],  # No resolved plays
-            metrics={"error_count": 1},  # 1 error
-            resolutions=(),
-        )
-
-        result = await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
-        )
-
-        # The resolution phase error should be in combined metrics
-        assert result.metadata["resolution_phase"]["error_count"] == 1
 
     async def test_partial_failure_carries_top_level_error_message(
         self, orchestrator, mock_resolver, mock_uow, mock_importer
@@ -592,36 +593,61 @@ class TestResolutionMetricTable:
     """One table feeds both surfaces, so a counter cannot reach one and miss the
     other; the two significance columns keep each surface's display order."""
 
-    def test_every_row_is_a_counted_run_metric(self):
-        assert {key for key, *_ in _RESOLUTION_METRIC_TABLE} <= set(_RUN_METRIC_KEYS)
-
-    def test_carried_rows_keep_their_own_order_and_significance(self):
-        carried = [
-            (key, significance)
-            for key, _label, _resolution, significance in _RESOLUTION_METRIC_TABLE
-            if significance is not None
-        ]
-        assert carried == [
-            ("duration_excluded", 4),
-            ("incognito_excluded", 4),
-            ("fallback_resolved", 7),
-            ("redirect_resolved", 8),
-            ("dead_ids_unresolved", 9),
-            ("isrc_suspect_deferred", 10),
-        ]
-
-    def test_resolution_only_counters_are_not_carried(self):
-        not_carried = {
-            key
-            for key, _label, _resolution, significance in _RESOLUTION_METRIC_TABLE
-            if significance is None
-        }
-        assert not_carried == {
+    @staticmethod
+    def _resolution_with_every_counter() -> OperationResult:
+        resolution = OperationResult(operation_name="Resolution", execution_time=0.0)
+        resolution.summary_metrics.add("total", 20, "Total", significance=0)
+        resolution.summary_metrics.add("resolved", 10, "Resolved", significance=1)
+        resolution.summary_metrics.add("filtered", 8, "Filtered", significance=3)
+        resolution.summary_metrics.add("errors", 2, "Errors", significance=4)
+        for key in (
+            "duration_excluded",
+            "incognito_excluded",
+            "fallback_resolved",
+            "redirect_resolved",
+            "dead_ids_unresolved",
             "write_failed",
+            "isrc_suspect_deferred",
             "suppressed",
             "reused_tracks",
             "degraded_persists",
-        }
+        ):
+            resolution.summary_metrics.add(key, 1, key, significance=99)
+        return resolution
+
+    def test_run_record_orders_carried_counters_beside_filtered(self, orchestrator):
+        ingestion = _make_ingestion_result(imported=20, raw_plays=20, duplicates=0)
+
+        result = orchestrator._combine_phase_results(
+            ingestion, self._resolution_with_every_counter()
+        )
+
+        # The skip breakdown sorts right after "Filtered", which it explains.
+        assert list(result.to_counts()) == [
+            "raw_plays",
+            "connector_plays",
+            "track_plays",
+            "filtered",
+            "duration_excluded",
+            "incognito_excluded",
+            "errors",
+            "success_rate",
+            "fallback_resolved",
+            "redirect_resolved",
+            "dead_ids_unresolved",
+            "isrc_suspect_deferred",
+        ]
+
+    def test_resolution_only_counters_are_not_carried(self, orchestrator):
+        ingestion = _make_ingestion_result(imported=20, raw_plays=20, duplicates=0)
+
+        result = orchestrator._combine_phase_results(
+            ingestion, self._resolution_with_every_counter()
+        )
+
+        counts = result.to_counts()
+        for key in ("write_failed", "suppressed", "reused_tracks", "degraded_persists"):
+            assert key not in counts
 
 
 class TestIncrementalCommit:
@@ -650,29 +676,13 @@ class TestIncrementalCommit:
         # then the single resolution chunk.
         assert mock_uow.commit_batch.await_count == 2
 
-    async def test_no_commit_batch_on_empty_ingestion(
-        self, orchestrator, mock_uow, mock_importer
-    ):
-        """Empty ingestion short-circuits before commit_batch."""
-        mock_importer.import_plays.return_value = (
-            _make_ingestion_result(imported=0, raw_plays=0, duplicates=0),
-            [],
-        )
-
-        await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
-        )
-
-        mock_uow.commit_batch.assert_not_awaited()
-
 
 class TestPhase2Progress:
-    """Verify progress emission during Phase 2 resolution."""
+    """The caller's emitter reaches the resolution phase."""
 
-    async def test_phase2_emits_progress(
+    async def test_phase2_reports_resolution_progress_to_the_callers_emitter(
         self, orchestrator, mock_resolver, mock_uow, mock_importer
     ):
-        """Resolution phase should emit progress events per service."""
         connector_plays = [_make_connector_play(f"Song {i}") for i in range(3)]
         mock_importer.import_plays.return_value = (
             _make_ingestion_result(imported=3, raw_plays=3, duplicates=0),
@@ -683,11 +693,8 @@ class TestPhase2Progress:
             metrics={"error_count": 0},
             resolutions=(),
         )
-
         emitter = AsyncMock()
-        emitter.start_operation = AsyncMock(return_value="phase2-op-id")
-        emitter.emit_progress = AsyncMock()
-        emitter.complete_operation = AsyncMock()
+        emitter.start_operation = AsyncMock(return_value="resolve-op")
 
         await orchestrator.import_plays_two_phase(
             mock_importer,
@@ -697,33 +704,8 @@ class TestPhase2Progress:
             progress_emitter=emitter,
         )
 
-        emitter.start_operation.assert_awaited()
-        emitter.emit_progress.assert_awaited()
-        emitter.complete_operation.assert_awaited()
-
-    async def test_no_phase2_progress_on_empty(
-        self, orchestrator, mock_uow, mock_importer
-    ):
-        """Empty ingestion should not start a Phase 2 progress operation."""
-        mock_importer.import_plays.return_value = (
-            _make_ingestion_result(imported=0, raw_plays=0, duplicates=0),
-            [],
-        )
-
-        emitter = AsyncMock()
-        emitter.start_operation = AsyncMock(return_value="phase2-op-id")
-
-        await orchestrator.import_plays_two_phase(
-            mock_importer,
-            mock_uow,
-            user_id="test-user",
-            params=LastfmImportParams(),
-            progress_emitter=emitter,
-        )
-
-        # Phase 1 may call start_operation via the importer, but Phase 2 should not
-        # since we short-circuit on empty ingestion
-        emitter.emit_progress.assert_not_awaited()
+        (event,) = [call.args[0] for call in emitter.emit_progress.await_args_list]
+        assert (event.current, event.total) == (3, 3)
 
 
 def _play_index(play: ConnectorTrackPlay) -> int:
@@ -808,11 +790,11 @@ class TestResolutionFailureAccumulation:
         )
 
         failures = result.resolution_failures
-        assert len(failures) == _MAX_RECORDED_RESOLUTION_FAILURES
-        assert result.resolution_failures_truncated == 120 - len(failures)
-        # Spans the first chunk's boundary rather than restarting per call.
+        # The audit row keeps the first 50 and counts the rest.
+        assert len(failures) == 50
+        assert result.resolution_failures_truncated == 70
         assert failures[0]["spotify_id"] == "id-0"
-        assert failures[-1]["spotify_id"] == f"id-{len(failures) - 1}"
+        assert failures[-1]["spotify_id"] == "id-49"
 
     async def test_under_the_cap_records_everything_untruncated(
         self, orchestrator, mock_resolver, mock_uow
@@ -911,47 +893,46 @@ class TestChunkFlightRecording:
         assert [line["plays"] for line in lines] == [50, 50, 20]
         assert [line["chunk"] for line in lines] == [0, 1, 2]
 
-    async def test_carries_the_fields_the_analysis_needs(
-        self, orchestrator, mock_resolver, mock_uow
+    async def test_line_reports_the_chunk_probe_and_resolver_counts(
+        self, orchestrator, mock_resolver, mock_uow, monkeypatch
     ):
+        """Probe times are nanoseconds; the line reports rounded milliseconds."""
+        ms = 1_000_000
+
+        @asynccontextmanager
+        async def fixed_probe():
+            yield ChunkProbe(
+                statements=8,
+                db_ns=30 * ms + 400_000,
+                api_calls=2,
+                api_ns=12 * ms,
+                by_operation={"bulk_upsert": (3, 20 * ms)},
+                phases={"resolve": 60 * ms, "commit": 5 * ms},
+                wall_ns=100 * ms,
+            )
+
+        monkeypatch.setattr(play_import_orchestrator, "measure_chunk", fixed_probe)
+
         (line,) = await self._flight_lines(
             orchestrator, mock_resolver, mock_uow, plays=10
         )
 
-        assert line.keys() >= {
-            "service",
-            "wall_ms",
-            "db_ms",
-            "db_stmts",
-            "off_db_ms",
-            "rtt_ms",
-            "api_calls",
-            "resolve_ms",
-            "commit_ms",
-            "db_ops",
-        }
-
-    async def test_timings_are_internally_consistent(
-        self, orchestrator, mock_resolver, mock_uow
-    ):
-        (line,) = await self._flight_lines(
-            orchestrator, mock_resolver, mock_uow, plays=10
-        )
-
-        assert line["db_ms"] <= line["wall_ms"]
-        assert line["resolve_ms"] <= line["wall_ms"]
-        assert line["db_stmts"] >= 0
-        assert line["off_db_ms"] == line["wall_ms"] - line["db_ms"]
-
-    async def test_counters_restart_each_chunk(
-        self, orchestrator, mock_resolver, mock_uow
-    ):
-        """Each chunk is its own span — counters are per-chunk, not cumulative."""
-        lines = await self._flight_lines(
-            orchestrator, mock_resolver, mock_uow, plays=120
-        )
-
-        assert all(line["db_stmts"] == lines[0]["db_stmts"] for line in lines)
+        assert line["service"] == "spotify"
+        assert line["wall_ms"] == 100
+        assert line["db_ms"] == 30
+        assert line["off_db_ms"] == 70
+        assert line["db_stmts"] == 8
+        assert line["rtt_ms"] == 3.8
+        assert line["api_calls"] == 2
+        assert line["api_ms_sum"] == 12
+        assert line["resolve_ms"] == 60
+        assert line["commit_ms"] == 5
+        assert line["writeback_ms"] == 0
+        assert line["db_ops"] == {"bulk_upsert": [3, 20]}
+        # Plays 0, 4, 8 fail; 0, 3, 6, 9 resolve via fallback; absent keys are 0.
+        assert line["error_count"] == 3
+        assert line["fallback_resolved"] == 4
+        assert line["new_tracks"] == 0
 
 
 class TestResolutionChunking:
@@ -1061,10 +1042,10 @@ class TestResolutionChunking:
         """A long import must show movement between chunks, not only per service."""
         connector_plays = [_make_connector_play(f"Song {i}") for i in range(120)]
         mock_resolver.resolve_connector_plays.side_effect = (
-            lambda plays, _uow, **_kwargs: _deterministic_outcome(plays)
+            lambda plays, _uow, **_kwargs: _resolving_outcome(plays)
         )
         emitter = AsyncMock()
-        emitter.start_operation = AsyncMock(return_value="phase2-op-id")
+        emitter.start_operation = AsyncMock(side_effect=["resolve-op", "project-op"])
 
         await orchestrator.execute_resolution_phase(
             connector_plays,
@@ -1073,7 +1054,16 @@ class TestResolutionChunking:
             progress_emitter=emitter,
         )
 
-        assert emitter.emit_progress.await_count == 3
+        events = [
+            call.args[0]
+            for call in emitter.emit_progress.await_args_list
+            if call.args[0].operation_id == "resolve-op"
+        ]
+        assert [(e.current, e.total) for e in events] == [
+            (50, 120),
+            (100, 120),
+            (120, 120),
+        ]
 
 
 class TestResolutionWriteBack:
@@ -1097,18 +1087,20 @@ class TestResolutionWriteBack:
             resolutions=resolutions,
         )
 
+        before = datetime.now(UTC)
         await orchestrator.execute_resolution_phase(
             connector_plays,
             mock_uow,
             user_id="test-user",
             progress_emitter=NullProgressEmitter(),
         )
+        after = datetime.now(UTC)
 
         repo = mock_uow.get_connector_play_repository.return_value
         repo.bulk_update_resolution.assert_awaited_once()
         args, kwargs = repo.bulk_update_resolution.await_args
         assert list(args[0]) == list(resolutions)
-        assert kwargs["resolved_at"] is not None
+        assert before <= kwargs["resolved_at"] <= after
 
     async def test_no_write_back_without_resolutions(
         self, orchestrator, mock_resolver, mock_uow

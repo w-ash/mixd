@@ -7,6 +7,7 @@ belongs to ``ExecuteWorkflowRunUseCase`` and is tested alongside it in
 ``tests/unit/application/use_cases/test_workflow_runs.py``.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -102,11 +103,8 @@ class TestBumpHeartbeat:
 
     async def test_does_not_suppress_cancellation(self) -> None:
         """Cancellation must still tear the ticker down, not be swallowed as a blip."""
-        with patch.object(rl, "execute_use_case", side_effect=RuntimeError("db down")):
-            await rl.bump_heartbeat(uuid4())
-
         with (
-            patch.object(rl, "execute_use_case", side_effect=BaseException("stop")),
-            pytest.raises(BaseException, match="stop"),
+            patch.object(rl, "execute_use_case", side_effect=asyncio.CancelledError),
+            pytest.raises(asyncio.CancelledError),
         ):
             await rl.bump_heartbeat(uuid4())

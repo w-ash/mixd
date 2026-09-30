@@ -10,6 +10,7 @@ import asyncio
 
 import pytest
 
+from src.application.services import run_activity
 from src.application.services.run_activity import (
     activity_event,
     reset_run_activity,
@@ -70,9 +71,11 @@ class TestTracking:
         # Defensive clamp: an unbalanced release must not drive the count below
         # zero, which would strand the sweeper at the active cadence once a real
         # run later decremented past it.
-        async with track_run():
-            pass
+        run_activity._activity.release()
         assert runs_in_flight() == 0
+
+        async with track_run():
+            assert runs_in_flight() == 1
 
 
 class TestWakeSignal:
