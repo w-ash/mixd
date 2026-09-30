@@ -51,6 +51,7 @@ class TestFinalizeRunIssues:
                 issues=issues,
             )
 
+        repo.update_status.assert_awaited_once()
         assert repo.update_status.await_args.args == (run_id,)
         update_kwargs = repo.update_status.await_args.kwargs
         assert update_kwargs["user_id"] == "u1"
@@ -76,6 +77,7 @@ class TestFinalizeRunIssues:
                 issues=issues,
             )
 
+        repo.update_status.assert_awaited_once()
         assert repo.update_status.await_args.kwargs["status"] == "complete"
         repo.append_issues.assert_not_awaited()
         uow.commit.assert_awaited_once()

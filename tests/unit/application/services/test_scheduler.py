@@ -527,6 +527,27 @@ class TestSchedulerTick:
         assert m_process.await_count == 2
         assert count == 2
 
+    async def test_no_due_returns_zero(self) -> None:
+        repo = AsyncMock()
+        repo.try_acquire_poll_lock.return_value = True
+        repo.list_stuck_started.return_value = []
+        repo.find_due_schedules.return_value = []
+        uow = make_mock_uow(schedule_repo=repo)
+
+        count = await run_scheduler_tick(
+            uow,
+            now=datetime.now(UTC),
+            update_run_status=AsyncMock(),
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
+            max_concurrent=2,
+            stuck_timeout_seconds=1800,
+            dispatch_timeout_seconds=900,
+            catchup=False,
+            grace_seconds=120,
+        )
+        assert count == 0
+
     async def test_skips_scan_when_poll_lock_unavailable(self) -> None:
         # Another replica holds this tick's poll lock → skip the scan entirely
         # (no redundant cross-tenant queries), returning 0.

@@ -843,9 +843,11 @@ class TestResolutionFailureAccumulation:
     async def test_clean_run_records_no_failures(
         self, orchestrator, mock_resolver, mock_uow
     ):
-        connector_plays = [_make_connector_play(f"Song {i}") for i in range(3)]
-        mock_resolver.resolve_connector_plays.side_effect = (
-            lambda plays, _uow, **_kwargs: PlayResolutionOutcome(
+        """Failures belong to one run. A clean run after a failing one on the same
+        orchestrator records none, and the next failing run records only its own."""
+
+        def clean(plays, _uow, **_kwargs):
+            return PlayResolutionOutcome(
                 track_plays=[
                     _make_resolved_track_play(track_id=_play_index(p) + 1)
                     for p in plays
@@ -853,17 +855,30 @@ class TestResolutionFailureAccumulation:
                 metrics={"error_count": 0},
                 resolutions=(),
             )
-        )
 
-        result = await orchestrator.execute_resolution_phase(
-            connector_plays,
-            mock_uow,
-            user_id="test-user",
-            progress_emitter=NullProgressEmitter(),
-        )
+        async def run(count, outcome):
+            mock_resolver.resolve_connector_plays.side_effect = outcome
+            return await orchestrator.execute_resolution_phase(
+                [_make_connector_play(f"Song {i}") for i in range(count)],
+                mock_uow,
+                user_id="test-user",
+                progress_emitter=NullProgressEmitter(),
+            )
 
-        assert result.resolution_failures == []
-        assert result.resolution_failures_truncated == 0
+        await run(60, lambda plays, _uow, **_kwargs: _failing_outcome(plays))
+        clean_result = await run(3, clean)
+        later = await run(1, lambda plays, _uow, **_kwargs: _failing_outcome(plays))
+
+        assert clean_result.resolution_failures == []
+        assert clean_result.resolution_failures_truncated == 0
+        assert later.resolution_failures == [
+            {
+                "track": "Artist - Song 0",
+                "spotify_id": "id-0",
+                "reason": "track_resolution_failed",
+            }
+        ]
+        assert later.resolution_failures_truncated == 0
 
 
 class TestChunkFlightRecording:
