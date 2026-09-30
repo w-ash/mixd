@@ -12,7 +12,6 @@ from src.application.use_cases.get_track_details import (
 from src.application.use_cases.merge_tracks import (
     MergeTrackAndFetchDetailsUseCase,
     MergeTracksCommand,
-    MergeTracksResult,
     MergeTracksUseCase,
 )
 from src.domain.exceptions import NotFoundError
@@ -30,20 +29,8 @@ class TestMergeTracksHappyPath:
             MergeTracksCommand(user_id="test-user", winner_id=1, loser_id=2), uow
         )
 
-        assert isinstance(result, MergeTracksResult)
         assert result.merged_track is winner
         merge_service.merge_tracks.assert_awaited_once_with(1, 2, uow)
-        uow.commit.assert_awaited_once()
-
-    async def test_merge_calls_commit(self):
-        uow = make_mock_uow()
-        merge_service = uow.get_track_merge_service.return_value
-        merge_service.merge_tracks = AsyncMock(return_value=make_track(id=1))
-
-        await MergeTracksUseCase().execute(
-            MergeTracksCommand(user_id="test-user", winner_id=1, loser_id=2), uow
-        )
-
         uow.commit.assert_awaited_once()
 
 
@@ -58,17 +45,29 @@ class TestMergeTracksErrors:
 
         uow.get_track_merge_service.assert_not_called()
 
-    async def test_merge_not_found_propagates(self):
+    async def test_loser_owned_by_another_user_is_not_merged(self):
+        """Both tracks must belong to the acting user before anything moves."""
+        owned = {1: make_track(id=1)}
+
+        async def get_track_by_id(track_id, user_id=None):
+            if user_id != "test-user" or track_id not in owned:
+                raise NotFoundError(f"Track {track_id} not found")
+            return owned[track_id]
+
         uow = make_mock_uow()
-        merge_service = uow.get_track_merge_service.return_value
-        merge_service.merge_tracks = AsyncMock(
-            side_effect=NotFoundError("Track 99 not found")
+        uow.get_track_repository().get_track_by_id = AsyncMock(
+            side_effect=get_track_by_id
         )
+        merge_service = uow.get_track_merge_service.return_value
+        merge_service.merge_tracks = AsyncMock(return_value=owned[1])
 
         with pytest.raises(NotFoundError, match="Track 99"):
             await MergeTracksUseCase().execute(
                 MergeTracksCommand(user_id="test-user", winner_id=1, loser_id=99), uow
             )
+
+        merge_service.merge_tracks.assert_not_awaited()
+        uow.commit.assert_not_awaited()
 
 
 class TestMergeTrackAndFetchDetails:

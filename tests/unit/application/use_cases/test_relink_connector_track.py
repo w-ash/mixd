@@ -48,7 +48,7 @@ def _make_mapping(
 class TestRelinkHappyPath:
     """Mapping moves to new track with proper primary reassignment."""
 
-    async def test_mapping_moves_to_new_track(self) -> None:
+    async def test_mapping_moves_to_new_track_and_commits(self) -> None:
         mapping = _make_mapping(track_id=10)
         connector_repo = make_mock_connector_repo()
         connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
@@ -83,6 +83,7 @@ class TestRelinkHappyPath:
         connector_repo.update_mapping_track.assert_awaited_once_with(
             1, 20, "manual_override", user_id="test-user"
         )
+        uow.commit.assert_awaited_once()
 
     async def test_primary_reassigned_on_both_tracks(self) -> None:
         mapping = _make_mapping(track_id=10, is_primary=True)
@@ -108,27 +109,6 @@ class TestRelinkHappyPath:
         assert len(calls) == 2
         assert calls[0].args == (10, "spotify")
         assert calls[1].args == (20, "spotify")
-
-    async def test_commit_called(self) -> None:
-        mapping = _make_mapping(track_id=10)
-        connector_repo = make_mock_connector_repo()
-        connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
-        connector_repo.update_mapping_track = AsyncMock(
-            return_value=_make_mapping(
-                track_id=20, origin="manual_override", is_primary=False
-            )
-        )
-        connector_repo.ensure_primary_for_connector = AsyncMock()
-        track_repo = make_mock_track_repo()
-        track_repo.get_track_by_id = AsyncMock(return_value=make_track(id=20))
-        uow = make_mock_uow(connector_repo=connector_repo, track_repo=track_repo)
-
-        command = RelinkConnectorTrackCommand(
-            user_id="test-user", mapping_id=1, new_track_id=20, current_track_id=10
-        )
-        await RelinkConnectorTrackUseCase().execute(command, uow)
-
-        uow.commit.assert_awaited_once()
 
 
 class TestRelinkValidation:

@@ -4,6 +4,7 @@ Tests the identity resolution pipeline: existing mapping lookup, raw match
 fetching, domain evaluation, mapping persistence, and review candidate persistence.
 """
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid7
 
@@ -11,14 +12,25 @@ import pytest
 
 from src.application.use_cases.match_and_identify_tracks import (
     MatchAndIdentifyTracksCommand,
-    MatchAndIdentifyTracksResult,
     MatchAndIdentifyTracksUseCase,
 )
-from src.domain.entities.match_review import MatchReview
+from src.domain.entities.progress import OperationStatus
 from src.domain.entities.track import TrackList
 from src.domain.matching.types import ConfidenceEvidence, EvaluationResult, MatchResult
 from tests.fixtures import make_track
 from tests.fixtures.mocks import make_mock_uow
+
+
+class _SteppingClock:
+    """Stand-in for the timer's ``datetime``: each ``now()`` is 250 ms later."""
+
+    def __init__(self) -> None:
+        self._now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def now(self, tz=None):
+        current = self._now
+        self._now += timedelta(milliseconds=250)
+        return current
 
 
 @pytest.fixture
@@ -43,18 +55,6 @@ def mock_uow():
 
 class TestMatchAndIdentifyTracksCommand:
     """Test command construction and validation."""
-
-    def test_valid_command(self, mock_connector):
-        """Test creating a valid command."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = MatchAndIdentifyTracksCommand(
-            user_id="test-user",
-            tracklist=tracklist,
-            connector="spotify",
-            connector_instance=mock_connector,
-        )
-        assert cmd.connector == "spotify"
-        assert len(cmd.tracklist.tracks) == 1
 
     def test_empty_connector_name_rejected(self, mock_connector):
         """Test that empty connector name is rejected."""
@@ -95,7 +95,6 @@ class TestMatchAndIdentifyTracksUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert isinstance(result, MatchAndIdentifyTracksResult)
         assert result.track_count == 0
         assert result.resolved_count == 0
         assert result.identity_mappings == {}
@@ -124,7 +123,9 @@ class TestMatchAndIdentifyTracksUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
+        assert result.track_count == 2
         assert result.resolved_count == 2
+        assert result.identity_mappings == existing
         assert not result.errors
         # Should NOT have called get_raw_external_matches (no tracks need resolution)
         identity_service.get_raw_external_matches.assert_not_called()
@@ -161,8 +162,9 @@ class TestMatchAndIdentifyTracksUseCase:
         # The evaluation service is internal to the use case; we need to
         # patch it at class level due to slots=True
 
+        new_match = MagicMock()
         evaluation = EvaluationResult(
-            accepted={tracks[1].id: MagicMock()},
+            accepted={tracks[1].id: new_match},
             review_candidates={},
         )
         with patch.object(
@@ -175,6 +177,15 @@ class TestMatchAndIdentifyTracksUseCase:
 
         assert result.resolved_count == 2  # 1 existing + 1 new
         assert not result.errors
+        # Only the unmapped track goes to the provider.
+        assert identity_service.get_raw_external_matches.await_args.args[0] == [
+            tracks[1]
+        ]
+        # Only the newly accepted match is persisted; the existing one is not rewritten.
+        identity_service.persist_identity_mappings.assert_awaited_once_with(
+            {tracks[1].id: new_match}, "spotify"
+        )
+        assert result.identity_mappings[tracks[1].id] is new_match
 
     async def test_resolution_error_captured_in_result(self, mock_uow, mock_connector):
         """Test that exceptions during resolution are captured, not propagated."""
@@ -201,8 +212,13 @@ class TestMatchAndIdentifyTracksUseCase:
         assert len(result.errors) == 1
         assert "API timeout" in result.errors[0]
 
-    async def test_result_includes_execution_time(self, mock_uow, mock_connector):
-        """Test that result includes non-negative execution time."""
+    async def test_result_reports_the_measured_time(
+        self, mock_uow, mock_connector, monkeypatch
+    ):
+        """The run's duration reaches the result, measured by the timer's clock."""
+        monkeypatch.setattr(
+            "src.application.utilities.timing.datetime", _SteppingClock()
+        )
         tracklist = TrackList(tracks=[])
         command = MatchAndIdentifyTracksCommand(
             user_id="test-user",
@@ -214,32 +230,7 @@ class TestMatchAndIdentifyTracksUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert result.execution_time_ms >= 0
-
-    async def test_all_tracks_have_ids_and_resolve(self, mock_uow, mock_connector):
-        """Test that all tracks with UUIDs are processed and resolved."""
-        tracks = [make_track(), make_track(), make_track()]
-        tracklist = TrackList(tracks=tracks)
-
-        identity_service = mock_uow.get_track_identity_service()
-        identity_service.get_existing_identity_mappings.return_value = {
-            tracks[0].id: MagicMock(),
-            tracks[1].id: MagicMock(),
-            tracks[2].id: MagicMock(),
-        }
-
-        command = MatchAndIdentifyTracksCommand(
-            user_id="test-user",
-            tracklist=tracklist,
-            connector="spotify",
-            connector_instance=mock_connector,
-        )
-        use_case = MatchAndIdentifyTracksUseCase()
-
-        result = await use_case.execute(command, mock_uow)
-
-        assert result.track_count == 3  # All tracks counted
-        assert result.resolved_count == 3  # All tracks resolved (all have UUIDs)
+        assert result.execution_time_ms == 250
 
 
 class TestMatchAndIdentifyTracksProgress:
@@ -289,8 +280,10 @@ class TestMatchAndIdentifyTracksProgress:
         assert start_op_args.description == "Matching tracks to spotify"
         assert start_op_args.total_items == 2
 
-        # Verify sub-operation was completed
-        mock_progress.complete_operation.assert_called_once()
+        # Verify sub-operation was completed successfully
+        mock_progress.complete_operation.assert_awaited_once_with(
+            "sub-op-1", OperationStatus.COMPLETED
+        )
 
         # Verify progress_callback was passed to get_raw_external_matches
         call_kwargs = identity_service.get_raw_external_matches.call_args.kwargs
@@ -370,8 +363,6 @@ class TestMatchAndIdentifyTracksProgress:
         mock_progress.start_operation.assert_called_once()
 
         # Sub-operation was completed as FAILED
-        from src.domain.entities.progress import OperationStatus
-
         mock_progress.complete_operation.assert_called_once()
         complete_args = mock_progress.complete_operation.call_args.args
         assert complete_args[0] == "sub-op-fail"
@@ -528,7 +519,6 @@ class TestPersistReviewCandidates:
         review_repo.create_reviews_batch.assert_called_once()
         reviews = review_repo.create_reviews_batch.call_args[0][0]
         assert len(reviews) == 2
-        assert all(isinstance(r, MatchReview) for r in reviews)
 
         # Verify first review has correct fields
         r0 = next(
@@ -583,39 +573,6 @@ class TestPersistReviewCandidates:
         assert len(reviews) == 1
         assert reviews[0].match_weight == 0.0
         assert reviews[0].confidence_evidence is None
-
-    async def test_empty_review_candidates_no_repo_calls(
-        self, mock_uow, mock_connector
-    ):
-        """Empty review_candidates skips connector_track and review persistence."""
-        uow = mock_uow
-        identity_service = uow.get_track_identity_service()
-        identity_service.get_existing_identity_mappings.return_value = {}
-        identity_service.get_raw_external_matches.return_value = {}
-
-        evaluation = EvaluationResult(accepted={}, review_candidates={})
-
-        command = MatchAndIdentifyTracksCommand(
-            user_id="test-user",
-            tracklist=TrackList(tracks=[make_track()]),
-            connector="spotify",
-            connector_instance=mock_connector,
-        )
-        use_case = MatchAndIdentifyTracksUseCase()
-
-        with patch.object(
-            MatchAndIdentifyTracksUseCase,
-            "_evaluation_service",
-            create=True,
-        ) as mock_eval:
-            mock_eval.evaluate_raw_matches.return_value = evaluation
-            await use_case.execute(command, uow)
-
-        # Neither repo should be called when there are no review candidates
-        connector_repo = uow.get_connector_repository()
-        connector_repo.ensure_connector_tracks.assert_not_called()
-        review_repo = uow.get_match_review_repository()
-        review_repo.create_reviews_batch.assert_not_called()
 
 
 class TestReviewQueueConsultsTheCannotLinkStore:
