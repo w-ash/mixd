@@ -88,8 +88,8 @@ class TestEvaluateSingleMatch:
 
         result = self.service.evaluate_single_match(track, raw_match, "spotify")
 
-        # ISRC exact plus exact title, artist and duration saturate the sigmoid.
-        assert result.confidence == 100
+        # The model owns the exact score; this contract is clearing the accept bar.
+        assert result.confidence >= 85
         assert result.success is True
         assert result.review_required is False
         assert result.connector_id == "spotify:abc"

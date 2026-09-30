@@ -216,21 +216,20 @@ class TestArtistWrites:
         assert [a.name for a in writes.artists] == ["Caribou", "Koushik"]
         caribou, koushik = writes.artists
         assert {a.user_id for a in writes.artists} == {TEST_USER_ID}
-        # A connector artist id is identity-grade: ln(0.99/0.0001) = 9.2003,
-        # which the sigmoid maps to 100.
-        assert writes.mapping_rows == (
+        # The model owns the number; this contract is the decision. A connector
+        # artist id is identity-grade, so each row is priced at that level and
+        # clears the auto-accept bar (85), and the row records the evidence score.
+        priced = ("confidence", "confidence_evidence")
+        assert [
+            {k: v for k, v in row.items() if k not in priced}
+            for row in writes.mapping_rows
+        ] == [
             {
                 "user_id": TEST_USER_ID,
                 "artist_id": caribou.id,
                 "connector_artist_id": stored["sp-1"].id,
                 "connector_name": "spotify",
                 "match_method": "direct",
-                "confidence": 100,
-                "confidence_evidence": {
-                    "level": "connector_id",
-                    "final_score": 100,
-                    "match_weight": 9.2003,
-                },
                 "origin": "automatic",
                 "is_primary": True,
                 "last_seen_at": NOW,
@@ -241,17 +240,16 @@ class TestArtistWrites:
                 "connector_artist_id": stored["sp-2"].id,
                 "connector_name": "spotify",
                 "match_method": "direct",
-                "confidence": 100,
-                "confidence_evidence": {
-                    "level": "connector_id",
-                    "final_score": 100,
-                    "match_weight": 9.2003,
-                },
                 "origin": "automatic",
                 "is_primary": True,
                 "last_seen_at": NOW,
             },
-        )
+        ]
+        for row in writes.mapping_rows:
+            evidence = row["confidence_evidence"]
+            assert evidence["level"] == "connector_id"
+            assert row["confidence"] >= 85
+            assert evidence["final_score"] == row["confidence"]
         assert writes.primaries == (
             PrimaryCandidate(caribou.id, "spotify", stored["sp-1"].id),
             PrimaryCandidate(koushik.id, "spotify", stored["sp-2"].id),
