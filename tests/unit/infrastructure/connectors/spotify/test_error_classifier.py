@@ -4,8 +4,6 @@ The generic status-code and text-pattern mapping belongs to the shared
 template (``_shared/test_http_error_classifier.py``). These tests cover what
 the Spotify hook adds, and that it falls through to the template otherwise:
 - Unknown errors and unknown status codes reach the template's fallbacks
-- Auth and temporary-service text patterns: these pin keywords (OAuth error
-  codes, "token expired", "internal error") the shared suite does not yet cover
 - The expired-access-token 401 is temporary; every other 401 stays permanent
 - Quota-429 discrimination (PDR-003): QUOTA_EXCEEDED bodies are permanent and
   never enter the Retry-After backoff loop; plain 429s keep today's behavior.
@@ -59,54 +57,6 @@ class TestSpotifyErrorClassifier:
     def classifier(self):
         """Create a SpotifyErrorClassifier instance."""
         return SpotifyErrorClassifier()
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "invalid access token",
-            "token expired",
-            "unauthorized request",
-            "invalid_grant error",
-            "invalid_client provided",
-            "access_denied by user",
-        ],
-    )
-    def test_authentication_text_patterns(self, classifier, error_message):
-        """Test that authentication error text patterns are classified as permanent."""
-        exception = Exception(error_message)
-
-        error_type, error_code, error_description = classifier.classify_error(exception)
-
-        assert error_type == "permanent"
-        assert error_code == "auth"
-        assert (
-            "authentication" in error_description.lower()
-            or "authorization" in error_description.lower()
-        )
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "Service temporarily unavailable",
-            "Internal server error occurred",
-            "Please try again later",
-            "Service is temporarily down",
-            "System unavailable for maintenance",
-            "Internal error - please retry",
-        ],
-    )
-    def test_temporary_service_text_patterns(self, classifier, error_message):
-        """Test that temporary service error text patterns are classified correctly."""
-        exception = Exception(error_message)
-
-        error_type, error_code, error_description = classifier.classify_error(exception)
-
-        assert error_type == "temporary"
-        assert error_code == "text"
-        assert (
-            "temporarily" in error_description.lower()
-            or "unavailable" in error_description.lower()
-        )
 
     def test_non_network_exception_unknown(self, classifier):
         """Test that unknown non-httpx2 exceptions are classified as unknown."""

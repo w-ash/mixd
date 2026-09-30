@@ -319,6 +319,30 @@ class TestHTTPErrorClassifierTextPatterns:
             or "service" in error_description.lower()
         )
 
+    # SINGLE-KEYWORD CASES: each input matches exactly one keyword, so removing
+    # that keyword from the classifier drops the input to no match.
+
+    @pytest.mark.parametrize(
+        ("error_text", "expected_type", "expected_code"),
+        [
+            ("token expired", "permanent", "auth"),
+            ("invalid_grant error", "permanent", "auth"),
+            ("invalid_client provided", "permanent", "auth"),
+            ("access_denied by user", "permanent", "auth"),
+            ("Internal error - please retry", "temporary", "text"),
+        ],
+    )
+    def test_single_keyword_classification(
+        self, classifier, error_text, expected_type, expected_code
+    ):
+        """OAuth error codes and plain keywords classify with no other keyword present."""
+        result = classifier.classify_text_patterns(error_text)
+
+        assert result is not None
+        error_type, error_code, _ = result
+        assert error_type == expected_type
+        assert error_code == expected_code
+
     # NO MATCH CASES
 
     @pytest.mark.parametrize(
