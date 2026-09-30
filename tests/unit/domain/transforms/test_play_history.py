@@ -205,9 +205,8 @@ class TestFilterByPlayHistory:
             filter_by_play_history(tracklist=tracklist)
 
     def test_factory_mode_returns_callable(self):
-        """Test factory mode returns callable transform."""
+        """Without a tracklist the factory returns a transform that filters later."""
         popular_filter = filter_by_play_history(min_plays=10)
-        assert callable(popular_filter)
 
         tracks = [
             Track(
@@ -215,13 +214,19 @@ class TestFilterByPlayHistory:
                 title="Popular",
                 artists=[ArtistCredit(credited_name="Artist")],
                 user_id=TEST_USER_ID,
-            )
+            ),
+            Track(
+                id=2,
+                title="Rare",
+                artists=[ArtistCredit(credited_name="Artist")],
+                user_id=TEST_USER_ID,
+            ),
         ]
-        metadata = {"metrics": {"total_plays": {1: 15}}}
+        metadata = {"metrics": {"total_plays": {1: 15, 2: 5}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = popular_filter(tracklist)
-        assert len(result.tracks) == 1
+        assert [t.id for t in result.tracks] == [1]
 
     def test_hidden_gems_pattern(self):
         """Test hidden gems pattern: loved but not played recently."""
@@ -663,7 +668,6 @@ class TestSortByPlayHistory:
     def test_factory_mode_returns_callable(self):
         """Test factory mode returns callable transform."""
         most_played_sorter = sort_by_play_history(reverse=True)
-        assert callable(most_played_sorter)
 
         tracks = [
             Track(
@@ -715,7 +719,5 @@ class TestSortByPlayHistory:
 
         result = sort_by_play_history(reverse=True, tracklist=tracklist)
 
-        # Track with plays should be first, others should be ordered by their 0 values
-        assert len(result.tracks) == 3
-        assert result.tracks[0].id == 1  # Has plays (10)
-        # Tracks 2 and None should follow (both have 0 plays, order preserved)
+        # Track with plays first; tracks 2 and None both count 0 and keep input order
+        assert [t.id for t in result.tracks] == [1, 2, None]

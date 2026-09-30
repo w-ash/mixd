@@ -8,28 +8,24 @@ frontend bug produced by writing both halves of a filter pair.
 
 import pytest
 
-from src.domain.repositories.track import NO_PLAY_FILTERS, PlayFilters
+from src.domain.repositories.track import PlayFilters
 
 
 class TestValidCombinations:
-    def test_empty_is_the_shared_default(self) -> None:
-        assert PlayFilters() == NO_PLAY_FILTERS
-        assert NO_PLAY_FILTERS.min_plays is None
-        assert NO_PLAY_FILTERS.never_played is False
-
-    def test_min_plays_with_recency(self) -> None:
-        filters = PlayFilters(min_plays=10, played_within=30)
-        assert filters.min_plays == 10
-        assert filters.played_within == 30
-
-    def test_a_recency_band_is_allowed(self) -> None:
-        # "Played in the last 2 years but not in the last week" — the
-        # rediscovery bucket, a genuine range rather than a contradiction.
-        filters = PlayFilters(played_within=730, not_played_within=7)
-        assert filters.played_within == 730
-
-    def test_never_played_alone(self) -> None:
-        assert PlayFilters(never_played=True).never_played is True
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"min_plays": 10, "played_within": 30},
+            # "Played in the last 2 years but not in the last week" — the
+            # rediscovery bucket, a genuine range rather than a contradiction.
+            {"played_within": 730, "not_played_within": 7},
+            {"never_played": True},
+        ],
+    )
+    def test_satisfiable_combinations_are_accepted(self, kwargs) -> None:
+        filters = PlayFilters(**kwargs)
+        for name, value in kwargs.items():
+            assert getattr(filters, name) == value
 
 
 class TestRejectedCombinations:

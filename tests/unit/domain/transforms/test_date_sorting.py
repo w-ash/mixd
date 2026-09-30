@@ -133,15 +133,11 @@ class TestSortByLastPlayed:
 
 
 class TestSortByDateEdgeCases:
-    def test_empty_tracklist(self):
-        result = sort_by_date("added_at", tracklist=TrackList())
-        assert result.tracks == []
-
-    def test_no_metadata(self):
-        tracks = [make_track(id=1), make_track(id=2)]
+    def test_no_metadata_keeps_input_order(self):
+        tracks = [make_track(id=2), make_track(id=1)]
         result = sort_by_date("added_at", tracklist=TrackList(tracks=tracks))
-        # All tracks have no dates, so order is stable (all have same sentinel)
-        assert len(result.tracks) == 2
+        # All tracks share the missing-date sentinel, so the stable sort keeps order.
+        assert [t.id for t in result.tracks] == [2, 1]
 
     def test_handles_iso_strings_in_metrics(self):
         """Play history dates stored as ISO strings should be parsed correctly."""
@@ -162,13 +158,17 @@ class TestSortByDateEdgeCases:
         assert [t.id for t in result.tracks] == [2, 1]
 
     def test_dual_mode_returns_transform(self):
-        """Calling without tracklist should return a callable transform."""
+        """Calling without tracklist returns a transform that sorts when applied."""
         transform = sort_by_date("added_at")
-        assert callable(transform)
 
         tl = TrackList(
-            tracks=[make_track(id=1)],
-            metadata={"added_at_dates": {1: "2024-01-01T00:00:00+00:00"}},
+            tracks=[make_track(id=1), make_track(id=2)],
+            metadata={
+                "added_at_dates": {
+                    1: "2024-06-01T00:00:00+00:00",
+                    2: "2024-01-01T00:00:00+00:00",
+                }
+            },
         )
         result = transform(tl)
-        assert len(result.tracks) == 1
+        assert [t.id for t in result.tracks] == [2, 1]

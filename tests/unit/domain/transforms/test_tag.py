@@ -165,7 +165,6 @@ class TestLenientNormalization:
 
         result = filter_by_tag_namespace("mood", ["Chill!"], tracklist)
 
-        assert isinstance(result, TrackList)
         assert result.tracks == []
 
     def test_invalid_value_dropped_when_others_remain(self):
@@ -175,7 +174,6 @@ class TestLenientNormalization:
 
         result = filter_by_tag_namespace("mood", ["drum & bass", "chill"], tracklist)
 
-        assert isinstance(result, TrackList)
         assert [t.id for t in result.tracks] == [tracks[0].id]
 
     def test_values_normalise_before_comparison(self):
@@ -184,7 +182,6 @@ class TestLenientNormalization:
 
         result = filter_by_tag_namespace("mood", ["Deep  House"], tracklist)
 
-        assert isinstance(result, TrackList)
         assert [t.id for t in result.tracks] == [tracks[0].id]
 
     def test_namespace_is_case_insensitive(self):
@@ -194,7 +191,6 @@ class TestLenientNormalization:
 
         result = filter_by_tag_namespace(" Mood ", tracklist=tracklist)
 
-        assert isinstance(result, TrackList)
         assert [t.id for t in result.tracks] == [tracks[0].id]
 
     def test_by_tag_any_drops_invalid_and_keeps_valid(self):
@@ -204,7 +200,6 @@ class TestLenientNormalization:
 
         result = filter_by_tag(["drum & bass", "genre:dnb"], "any", tracklist)
 
-        assert isinstance(result, TrackList)
         assert [t.id for t in result.tracks] == [tracks[0].id]
 
     def test_by_tag_any_with_only_invalid_matches_nothing(self):
@@ -212,7 +207,6 @@ class TestLenientNormalization:
 
         result = filter_by_tag(["drum & bass"], "any", tracklist)
 
-        assert isinstance(result, TrackList)
         assert result.tracks == []
 
     def test_by_tag_all_with_one_invalid_matches_nothing(self):
@@ -221,7 +215,6 @@ class TestLenientNormalization:
 
         result = filter_by_tag(["genre:dnb", "drum & bass"], "all", tracklist)
 
-        assert isinstance(result, TrackList)
         assert result.tracks == []
 
     def test_by_tag_all_tolerates_duplicate_inputs(self):
@@ -229,7 +222,6 @@ class TestLenientNormalization:
 
         result = filter_by_tag(["genre:dnb", "Genre:DnB"], "all", tracklist)
 
-        assert isinstance(result, TrackList)
         assert [t.id for t in result.tracks] == [tracks[0].id]
 
     def test_over_length_value_matches_nothing(self):
@@ -237,5 +229,4 @@ class TestLenientNormalization:
 
         result = filter_by_tag(["x" * 65], "any", tracklist)
 
-        assert isinstance(result, TrackList)
         assert result.tracks == []

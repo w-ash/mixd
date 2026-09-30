@@ -52,7 +52,6 @@ class TestFilterByExplicit:
 
     def test_dual_mode_returns_transform(self):
         transform = filter_by_explicit(keep="clean")
-        assert callable(transform)
 
         tl = _tracklist_with_explicit({1: True, 2: False})
         result = transform(tl)

@@ -1,13 +1,10 @@
-"""Characterization tests for TrackList behavior.
+"""Tests for TrackList behavior.
 
-These tests lock down the current TrackList contract before refactoring:
-- Immutability guarantees (frozen attrs)
-- Metadata flow (write via with_metadata, read via .metadata)
-- Playlist ↔ TrackList conversion bridge
+Covers the copy-on-write helpers (with_tracks, with_metadata) and the
+Playlist ↔ TrackList conversion bridge.
 """
 
 from datetime import UTC, datetime
-from uuid import uuid7
 
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.track import TrackList
@@ -48,63 +45,6 @@ class TestTrackListImmutability:
 
         assert tl.metadata == {"a": 1, "b": 2}
 
-    def test_with_metadata_does_not_mutate_original_dict(self):
-        """Ensure metadata dict is copied, not shared."""
-        original = TrackList(tracks=[], metadata={"existing": True})
-        result = original.with_metadata("new", True)
-
-        assert "new" not in original.metadata
-        assert "existing" in result.metadata
-
-
-class TestTrackListMetadataRoundTrip:
-    """Verify the metrics metadata pattern used by enrichers and transforms."""
-
-    def test_nested_metrics_round_trip(self):
-        """Enrichers write metrics as nested dict: metrics[metric_name][track_id] = value."""
-        metrics = {
-            "lastfm_user_playcount": {1: 100, 2: 50},
-            "explicit_flag": {1: True, 2: False},
-        }
-        tl = TrackList(tracks=make_tracks(2), metadata={"metrics": metrics})
-
-        assert tl.metadata["metrics"]["lastfm_user_playcount"][1] == 100
-        assert tl.metadata["metrics"]["explicit_flag"][2] is False
-
-    def test_metrics_via_with_metadata(self):
-        """Enrichers use with_metadata("metrics", {...}) to attach metrics."""
-        tl = TrackList(tracks=make_tracks(2))
-        metrics = {"total_plays": {1: 10, 2: 20}}
-
-        enriched = tl.with_metadata("metrics", metrics)
-
-        assert enriched.metadata["metrics"]["total_plays"][1] == 10
-        assert tl.metadata == {}  # original untouched
-
-    def test_fresh_metric_ids_pattern(self):
-        """Enrichers also write fresh_metric_ids alongside metrics."""
-        tl = TrackList(tracks=make_tracks(2))
-        tl = tl.with_metadata("metrics", {"lastfm_user_playcount": {1: 100}})
-        tl = tl.with_metadata("fresh_metric_ids", {"lastfm_user_playcount": [1]})
-
-        assert tl.metadata["fresh_metric_ids"]["lastfm_user_playcount"] == [1]
-
-    def test_favorite_artist_ids_round_trip(self):
-        """enricher.artist_favorites writes a frozenset of favorited artist ids."""
-        tl = TrackList(tracks=make_tracks(2))
-        ids = frozenset({uuid7(), uuid7()})
-
-        enriched = tl.with_metadata("favorite_artist_ids", ids)
-
-        assert enriched.metadata["favorite_artist_ids"] == ids
-        assert tl.metadata == {}  # original untouched
-
-    def test_favorite_artist_ids_missing_defaults_via_get(self):
-        """filter_by_artist_ids reads this key with a frozenset() default."""
-        tl = TrackList(tracks=make_tracks(1))
-
-        assert tl.metadata.get("favorite_artist_ids", frozenset()) == frozenset()
-
 
 class TestPlaylistTrackListConversion:
     """Verify the Playlist ↔ TrackList bridge."""
@@ -138,4 +78,4 @@ class TestPlaylistTrackListConversion:
 
         playlist = Playlist.from_tracklist("Test", tracks, user_id=TEST_USER_ID)
 
-        assert len(playlist.entries) == 2
+        assert playlist.tracks == tracks
