@@ -186,6 +186,7 @@ class TestReownMovesTheTrackAndWhatBelongsToIt:
     async def test_track_mappings_and_metrics_all_change_owner(
         self, db_session: AsyncSession
     ):
+        """Live and retired mappings move together, and the chain stays linked."""
         track = await _track(db_session, user_id=_OWNER, suffix="move")
         connector_track = await _connector_track(db_session, suffix="move")
         live = await _mapping(
@@ -224,32 +225,9 @@ class TestReownMovesTheTrackAndWhatBelongsToIt:
             )
         ).scalars()
         assert set(owners) == {_USER}
-
-    async def test_retired_mappings_travel_with_their_successor(
-        self, db_session: AsyncSession
-    ):
-        """A supersession chain split across two tenants is C8 in slow motion:
-        the history survives but no single tenant can read all of it."""
-        track = await _track(db_session, user_id=_OWNER, suffix="chain")
-        live = await _mapping(
-            db_session,
-            user_id=_OWNER,
-            track=track,
-            connector_track=await _connector_track(db_session, suffix="chain_new"),
-        )
-        retired = await _mapping(
-            db_session,
-            user_id=_OWNER,
-            track=track,
-            connector_track=await _connector_track(db_session, suffix="chain_old"),
-            is_primary=False,
-            superseded_by=live,
-        )
-        await _depend(db_session, user_id=_USER, track=track)
-
-        _ = await reown(db_session, user=_USER, owner=_OWNER, track_ids=[track.id])
-        await db_session.flush()
-
+        # The retired row travels *with* its successor: a supersession chain
+        # split across two tenants is C8 in slow motion — the history survives
+        # but no single tenant can read all of it.
         still_linked = (
             await db_session.execute(
                 select(DBTrackMapping.superseded_by_id)
@@ -259,12 +237,15 @@ class TestReownMovesTheTrackAndWhatBelongsToIt:
         ).scalar_one()
         assert still_linked == live.id
 
-    async def test_the_users_own_plays_are_left_exactly_where_they_are(
-        self, db_session: AsyncSession
-    ):
-        """Re-owning is about the track, not about anyone's listening history."""
+    async def test_no_ones_plays_change_owner(self, db_session: AsyncSession):
+        """Re-owning is about the track, not about anyone's listening history.
+
+        The old owner's plays on the track stay the old owner's: moving them
+        would hand one tenant's history to another.
+        """
         track = await _track(db_session, user_id=_OWNER, suffix="plays")
         await _depend(db_session, user_id=_USER, track=track)
+        await _depend(db_session, user_id=_OWNER, track=track)
 
         _ = await reown(db_session, user=_USER, owner=_OWNER, track_ids=[track.id])
         await db_session.flush()
@@ -274,7 +255,15 @@ class TestReownMovesTheTrackAndWhatBelongsToIt:
                 select(DBTrackPlay.user_id).where(DBTrackPlay.track_id == track.id)
             )
         ).scalars()
-        assert set(play_owners) == {_USER}
+        assert sorted(play_owners) == sorted([_USER, _OWNER])
+        ledger_owners = (
+            await db_session.execute(
+                select(DBConnectorPlay.user_id).where(
+                    DBConnectorPlay.resolved_track_id == track.id
+                )
+            )
+        ).scalars()
+        assert sorted(ledger_owners) == sorted([_USER, _OWNER])
 
 
 class TestReownDiscoveryAndRefusals:
@@ -368,6 +357,9 @@ class TestCleanupPhaseThreeUnderRestrict:
             superseded_by=live,
         )
 
+        # ``live_rows.py`` hides superseded rows from every ORM select; an
+        # enumeration that honoured it would leave ``retired`` behind and the
+        # track DELETE would fail on RESTRICT against a row nobody counted.
         mapping_ids = await candidate_mapping_ids(db_session, [track.id])
         assert set(mapping_ids) == {live.id, retired.id}
 
@@ -377,44 +369,6 @@ class TestCleanupPhaseThreeUnderRestrict:
 
         assert (mappings_deleted, tracks_deleted) == (2, 1)
         assert await _owner_of(db_session, track.id) is None
-
-    async def test_retired_mappings_are_enumerated_despite_the_live_rows_filter(
-        self, db_session: AsyncSession
-    ):
-        """``live_rows.py`` hides superseded rows from every ORM select.
-
-        Right for the application, fatal here: an enumeration that sees only
-        live rows leaves the retired ones behind, and phase 3's track DELETE
-        then fails on RESTRICT against rows the script never counted. The
-        opt-out is ``execution_options(include_superseded=True)``.
-        """
-        track = await _track(db_session, user_id=_OWNER, suffix="livefilter")
-        live = await _mapping(
-            db_session,
-            user_id=_OWNER,
-            track=track,
-            connector_track=await _connector_track(db_session, suffix="lf_new"),
-        )
-        retired = await _mapping(
-            db_session,
-            user_id=_OWNER,
-            track=track,
-            connector_track=await _connector_track(db_session, suffix="lf_old"),
-            is_primary=False,
-            superseded_by=live,
-        )
-
-        unfiltered = (
-            await db_session.execute(
-                select(DBTrackMapping.id).where(DBTrackMapping.track_id == track.id)
-            )
-        ).scalars()
-        assert set(unfiltered) == {live.id}, "premise: the filter is active"
-
-        assert set(await candidate_mapping_ids(db_session, [track.id])) == {
-            live.id,
-            retired.id,
-        }
 
     async def test_resolution_events_naming_a_doomed_mapping_are_found_and_kept(
         self, db_session: AsyncSession
