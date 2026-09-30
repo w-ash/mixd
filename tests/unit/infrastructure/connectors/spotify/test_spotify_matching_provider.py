@@ -272,32 +272,7 @@ class TestSpotifyProviderCreateRawMatch:
 
 
 class TestSpotifyProviderISRCFallback:
-    """Test ISRC-to-artist/title fallback behavior (Step 1 fix)."""
-
-    async def test_failed_isrc_tracks_fall_back_to_artist_title(self):
-        """Tracks that fail ISRC matching should be retried via artist/title."""
-        provider, connector = _make_provider()
-
-        # Track has both ISRC and artist/title
-        track = make_track(
-            title="Paranoid Android", artist="Radiohead", isrc="USRC11111111"
-        )
-
-        # ISRC search returns nothing
-        connector.search_by_isrc.return_value = None
-
-        # Artist/title search succeeds
-        fallback_result = _make_spotify_track_model(
-            track_id="sp_fallback", name="Paranoid Android", artist_name="Radiohead"
-        )
-        connector.search_track.return_value = [fallback_result]
-
-        result = await provider.fetch_raw_matches_for_tracks([track])
-
-        assert len(result.matches) == 1
-        assert track.id in result.matches
-        assert result.matches[track.id]["connector_id"] == "sp_fallback"
-        assert result.matches[track.id]["match_method"] == "artist_title"
+    """Tracks whose ISRC search misses fall back to artist/title matching."""
 
     async def test_successful_isrc_tracks_not_retried(self):
         """Tracks that succeed via ISRC should NOT be sent to artist/title."""

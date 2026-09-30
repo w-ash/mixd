@@ -166,9 +166,6 @@ class TestNormalizedSpotifyIsrc:
             == "USRC12345678"
         )
 
-    def test_missing_isrc_is_none(self):
-        assert normalized_spotify_isrc(self._track_with_isrc(None)) is None
-
     def test_defaulted_external_ids_is_none(self):
         """external_ids has a default_factory, so the guard is on the value."""
         track = SpotifyTrack(

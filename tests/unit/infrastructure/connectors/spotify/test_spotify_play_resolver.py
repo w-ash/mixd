@@ -949,6 +949,32 @@ class TestResolverMetrics:
 
         assert set(empty.metrics.keys()) == set(resolved.metrics.keys())
 
+    @pytest.mark.parametrize(
+        "track_uris",
+        [
+            pytest.param([], id="empty-chunk"),
+            pytest.param(["invalid:uri:format"], id="id-less-chunk"),
+        ],
+    )
+    async def test_a_chunk_that_resolves_nothing_reports_zero_reused_tracks(
+        self, track_uris: list[str]
+    ):
+        """Paths that never reach the inward resolver still report counts.
+
+        No canonical was looked at, so none can have been reused.
+        """
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
+        uow = MagicMock()
+        attach_resolution_recorder(uow)
+        plays = [_make_connector_play(track_uri=uri) for uri in track_uris]
+
+        outcome = await resolver.resolve_connector_plays(
+            plays, uow, user_id="test-user"
+        )
+
+        assert outcome.metrics["reused_tracks"] == 0
+        assert outcome.metrics["new_tracks_count"] == 0
+
     async def test_mixed_play_metrics_correct(self):
         """Multiple plays with different outcomes should produce correct aggregate metrics."""
         connector = AsyncMock()

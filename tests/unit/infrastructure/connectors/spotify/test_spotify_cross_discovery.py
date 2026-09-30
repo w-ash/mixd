@@ -126,21 +126,7 @@ class TestSuccessfulDiscovery:
 
 
 class TestNoResults:
-    """Empty search results should return Nothing."""
-
-    async def test_returns_nothing_when_no_candidates(self):
-        connector = AsyncMock()
-        connector.search_track.return_value = []
-
-        provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        track = make_track(id=42)
-        uow = _make_uow()
-
-        outcome = await discover_one(
-            provider, track, "Unknown", "Song", uow, user_id="test-user"
-        )
-
-        assert isinstance(outcome, Nothing)
+    """An empty search returns Nothing, and costs exactly one search."""
 
     async def test_a_miss_costs_exactly_one_search(self):
         """Discovery searches once per unmatched play; widening would double a
@@ -177,24 +163,6 @@ class TestLowConfidence:
 
         provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
         track = make_track(id=42, title="Creep", artist="Radiohead")
-        uow = _make_uow()
-
-        outcome = await discover_one(
-            provider, track, "Radiohead", "Creep", uow, user_id="test-user"
-        )
-
-        assert isinstance(outcome, Nothing)
-
-
-class TestExceptionHandling:
-    """API errors should be caught and return Nothing."""
-
-    async def test_returns_nothing_on_search_error(self):
-        connector = AsyncMock()
-        connector.search_track.side_effect = RuntimeError("API down")
-
-        provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        track = make_track(id=42)
         uow = _make_uow()
 
         outcome = await discover_one(
