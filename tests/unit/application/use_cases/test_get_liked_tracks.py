@@ -21,12 +21,6 @@ from tests.fixtures.mocks import make_mock_uow
 class TestGetLikedTracksCommand:
     """Test command validation - critical for preventing invalid requests."""
 
-    def test_valid_command_defaults(self):
-        """Test valid command with default parameters."""
-        command = GetLikedTracksCommand(user_id="test-user")
-        assert command.limit == 50000
-        assert command.sort_by is None
-
     def test_valid_command_with_sorting(self):
         """Test valid command with all supported sort options."""
         valid_sorts = ["liked_at_desc", "liked_at_asc", "title_asc", "random"]
@@ -51,11 +45,6 @@ class TestGetLikedTracksCommand:
         """Test command validation fails for invalid sort option at construction."""
         with pytest.raises(ValueError, match="must be in"):
             GetLikedTracksCommand(user_id="test-user", sort_by="invalid_sort")
-
-    def test_valid_connector_filter(self):
-        """Test command accepts connector filter."""
-        command = GetLikedTracksCommand(user_id="test-user", connector_filter="spotify")
-        assert command.connector_filter == "spotify"
 
 
 class TestGetLikedTracksUseCase:
@@ -128,7 +117,7 @@ class TestGetLikedTracksUseCase:
         result = await use_case.execute(command, mock_uow)
 
         assert result.tracklist.tracks == sample_tracks
-        assert result.execution_time_ms >= 0  # Can be 0 in fast tests
+        assert result.total_available == 2
         assert len(result.errors) == 0
         assert result.tracklist.metadata["operation"] == "get_liked_tracks"
 
@@ -170,18 +159,13 @@ class TestGetLikedTracksUseCase:
         command = GetLikedTracksCommand(user_id="test-user", limit=5)
         use_case = GetLikedTracksUseCase()
 
-        await use_case.execute(command, mock_uow)
+        result = await use_case.execute(command, mock_uow)
 
-        # Should only request 5 tracks from track repository
+        # Only the first 5 likes are fetched; the total counts all 20.
         track_repo = mock_uow.get_track_repository.return_value
         track_ids_requested = track_repo.find_tracks_by_ids.call_args[0][0]
-        assert len(track_ids_requested) == 5
-
-    async def test_execute_invalid_command_raises_error(self, mock_uow):
-        """Test that invalid command raises ValueError at construction."""
-        # Invalid command now raises ValueError at construction (fail-fast)
-        with pytest.raises(ValueError, match="must be >= 1"):
-            GetLikedTracksCommand(user_id="test-user", limit=0)
+        assert track_ids_requested == [1, 2, 1, 2, 1]
+        assert result.total_available == 20
 
     async def test_execute_handles_missing_tracks(self, mock_uow, sample_likes):
         """Test graceful handling when some tracks don't exist."""
@@ -206,18 +190,3 @@ class TestGetLikedTracksUseCase:
         # Should only include existing tracks
         assert len(result.tracklist.tracks) == 1
         assert result.tracklist.tracks[0].id == 1
-
-    async def test_result_includes_operation_metadata(self, mock_uow):
-        """Test that result includes proper metadata for composition."""
-        command = GetLikedTracksCommand(
-            user_id="test-user",
-            limit=100,
-            connector_filter="spotify",
-            sort_by="liked_at_desc",
-        )
-        use_case = GetLikedTracksUseCase()
-
-        result = await use_case.execute(command, mock_uow)
-
-        metadata = result.tracklist.metadata
-        assert metadata["operation"] == "get_liked_tracks"

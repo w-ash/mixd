@@ -6,11 +6,18 @@ schedule to, and the validator derives from that one. The gap between the two is
 load-bearing, so it is asserted directly rather than implied. Pure functions.
 """
 
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
 import pytest
 
+from src.application.services import play_poll_policy
 from src.application.use_cases._shared.sync_targets import (
     SYNC_TARGETS,
     USER_SCHEDULABLE_TARGETS,
+    PollClaim,
+    PollOutcome,
+    TriggerContext,
     sync_result_failed,
     sync_target_label,
     validate_sync_target,
@@ -49,12 +56,29 @@ class TestDispatchableVersusSchedulable:
         assert _PLAY_POLL in SYNC_TARGETS
         assert _PLAY_POLL not in USER_SCHEDULABLE_TARGETS
 
-    def test_play_poll_carries_both_poll_hooks(self) -> None:
+    async def test_play_poll_hooks_delegate_to_the_poll_policy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # Supplied as a pair; one without the other would either never claim the
-        # lease or never release it.
+        # lease or never release it. Each hook must reach its own policy half.
+        claim = PollClaim(granted=False, veto_reason="backing off")
+        begin = AsyncMock(return_value=claim)
+        finish = AsyncMock()
+        monkeypatch.setattr(play_poll_policy, "try_begin_poll", begin)
+        monkeypatch.setattr(play_poll_policy, "finish_poll", finish)
+        context = TriggerContext(
+            user_id="u1", trigger="schedule", now=datetime(2025, 1, 1, tzinfo=UTC)
+        )
+        outcome = PollOutcome(context=context, claim=claim, succeeded=True)
         spec = SYNC_TARGETS[_PLAY_POLL]
+
         assert spec.try_begin_poll is not None
         assert spec.finish_poll is not None
+        assert await spec.try_begin_poll(context) is claim
+        await spec.finish_poll(outcome)
+
+        begin.assert_awaited_once_with(context)
+        finish.assert_awaited_once_with(outcome)
 
     def test_ordinary_targets_have_no_poll_hooks(self) -> None:
         assert SYNC_TARGETS["lastfm:plays"].try_begin_poll is None

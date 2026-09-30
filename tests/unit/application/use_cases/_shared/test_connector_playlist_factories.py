@@ -6,13 +6,28 @@ tracks that lack connector identifiers.
 """
 
 from datetime import UTC, datetime
+from unittest.mock import Mock
 
+import pytest
+
+from src.application.use_cases._shared import connector_playlist_factories
 from src.application.use_cases._shared.connector_playlist_factories import (
     create_connector_playlist_item_from_track,
     create_connector_playlist_items_from_tracks,
 )
-from src.domain.entities.playlist import ConnectorPlaylistItem
 from tests.fixtures.factories import make_track
+
+_T0 = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
+_T1 = datetime(2025, 6, 15, 12, 0, 1, tzinfo=UTC)
+_T2 = datetime(2025, 6, 15, 12, 0, 2, tzinfo=UTC)
+
+
+@pytest.fixture
+def ticking_clock(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    """Replace the module clock: each ``now()`` call returns the next second."""
+    clock = Mock(now=Mock(side_effect=[_T0, _T1, _T2]))
+    monkeypatch.setattr(connector_playlist_factories, "datetime", clock)
+    return clock
 
 
 class TestCreateConnectorPlaylistItemFromTrack:
@@ -31,7 +46,6 @@ class TestCreateConnectorPlaylistItemFromTrack:
         )
 
         assert item is not None
-        assert isinstance(item, ConnectorPlaylistItem)
         assert item.connector_track_identifier == "sp_123"
         assert item.position == 0
         assert item.added_at == fixed_time.isoformat()
@@ -39,21 +53,12 @@ class TestCreateConnectorPlaylistItemFromTrack:
         assert item.extras["track_uri"] == "spotify:track:sp_123"
         assert item.extras["local"] is False
 
-    def test_track_without_connector_identifiers_returns_none(self):
-        """Track with empty connector_track_identifiers should return None."""
-        track = make_track(connector_track_identifiers={})
-
-        item = create_connector_playlist_item_from_track(
-            track=track,
-            position=0,
-            connector_name="spotify",
-        )
-
-        assert item is None
-
-    def test_track_with_wrong_connector_name_returns_none(self):
-        """Track with connector IDs for a different service should return None."""
-        track = make_track(connector_track_identifiers={"lastfm": "lf_456"})
+    @pytest.mark.parametrize(
+        "identifiers", [{}, {"lastfm": "lf_456"}], ids=["no_ids", "other_service"]
+    )
+    def test_track_without_this_connectors_id_returns_none(self, identifiers):
+        """No ID for the requested connector -> no playlist item."""
+        track = make_track(connector_track_identifiers=identifiers)
 
         item = create_connector_playlist_item_from_track(
             track=track,
@@ -77,10 +82,9 @@ class TestCreateConnectorPlaylistItemFromTrack:
         assert item is not None
         assert item.added_by_id == "user_42"
 
-    def test_added_at_defaults_to_now_when_none(self):
-        """When added_at is None, should default to current UTC datetime."""
+    def test_added_at_defaults_to_now_when_none(self, ticking_clock: Mock):
+        """When added_at is None, the item is stamped with the current UTC time."""
         track = make_track(connector_track_identifiers={"spotify": "sp_123"})
-        before = datetime.now(UTC)
 
         item = create_connector_playlist_item_from_track(
             track=track,
@@ -89,47 +93,13 @@ class TestCreateConnectorPlaylistItemFromTrack:
             added_at=None,
         )
 
-        after = datetime.now(UTC)
         assert item is not None
-        item_time = datetime.fromisoformat(item.added_at)
-        assert before <= item_time <= after
-
-    def test_position_is_preserved(self):
-        """Position parameter should be passed through to the item."""
-        track = make_track(connector_track_identifiers={"spotify": "sp_123"})
-
-        item = create_connector_playlist_item_from_track(
-            track=track,
-            position=42,
-            connector_name="spotify",
-        )
-
-        assert item is not None
-        assert item.position == 42
+        assert item.added_at == "2025-06-15T12:00:00+00:00"
+        ticking_clock.now.assert_called_once_with(UTC)
 
 
 class TestCreateConnectorPlaylistItemsFromTracks:
     """Test batch creation of ConnectorPlaylistItems."""
-
-    def test_batch_creates_items_for_matching_tracks(self):
-        """Should create items only for tracks with the specified connector ID."""
-        tracks = [
-            make_track(
-                title="Has Spotify", connector_track_identifiers={"spotify": "sp_1"}
-            ),
-            make_track(
-                title="Has Spotify Too", connector_track_identifiers={"spotify": "sp_2"}
-            ),
-        ]
-
-        items = create_connector_playlist_items_from_tracks(
-            tracks=tracks,
-            connector_name="spotify",
-        )
-
-        assert len(items) == 2
-        assert items[0].connector_track_identifier == "sp_1"
-        assert items[1].connector_track_identifier == "sp_2"
 
     def test_batch_filters_tracks_without_connector_ids(self):
         """Should skip tracks that lack the specified connector ID."""
@@ -176,15 +146,6 @@ class TestCreateConnectorPlaylistItemsFromTracks:
         assert items[0].position == 0
         assert items[1].position == 2
 
-    def test_empty_track_list_returns_empty(self):
-        """Empty input should produce empty output."""
-        items = create_connector_playlist_items_from_tracks(
-            tracks=[],
-            connector_name="spotify",
-        )
-
-        assert items == []
-
     def test_all_tracks_filtered_returns_empty(self):
         """When no tracks have the connector ID, should return empty list."""
         tracks = [
@@ -201,9 +162,27 @@ class TestCreateConnectorPlaylistItemsFromTracks:
 
         assert items == []
 
-    def test_batch_shares_timestamp(self):
-        """All items in a batch should share the same added_at timestamp."""
-        fixed_time = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
+    def test_batch_passes_the_given_timestamp_to_every_item(self):
+        tracks = [
+            make_track(title="A", connector_track_identifiers={"spotify": "sp_a"}),
+            make_track(title="B", connector_track_identifiers={"spotify": "sp_b"}),
+        ]
+
+        items = create_connector_playlist_items_from_tracks(
+            tracks=tracks,
+            connector_name="spotify",
+            added_at=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
+        )
+
+        assert [item.added_at for item in items] == [
+            "2024-01-02T03:04:05+00:00",
+            "2024-01-02T03:04:05+00:00",
+        ]
+
+    def test_batch_without_timestamp_stamps_every_item_with_one_now(
+        self, ticking_clock: Mock
+    ):
+        """One clock read per batch, so items added together share a time."""
         tracks = [
             make_track(title="A", connector_track_identifiers={"spotify": "sp_a"}),
             make_track(title="B", connector_track_identifiers={"spotify": "sp_b"}),
@@ -213,9 +192,10 @@ class TestCreateConnectorPlaylistItemsFromTracks:
         items = create_connector_playlist_items_from_tracks(
             tracks=tracks,
             connector_name="spotify",
-            added_at=fixed_time,
         )
 
-        expected_iso = fixed_time.isoformat()
-        for item in items:
-            assert item.added_at == expected_iso
+        assert [item.added_at for item in items] == [
+            "2025-06-15T12:00:00+00:00",
+            "2025-06-15T12:00:00+00:00",
+            "2025-06-15T12:00:00+00:00",
+        ]

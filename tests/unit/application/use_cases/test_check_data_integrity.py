@@ -101,6 +101,7 @@ class TestWarnStatus:
         )
         assert orphan_check.status == "warn"
         assert orphan_check.count == 10
+        assert result.overall_status == "warn"
 
     @pytest.mark.asyncio
     async def test_duplicates_causes_warn(self):

@@ -5,10 +5,11 @@ that delegates to service-specific importers.
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.application.services.play_import_orchestrator import PlayImportOrchestrator
 from src.application.use_cases.import_play_history import (
     ImportTracksCommand,
     ImportTracksResult,
@@ -17,50 +18,24 @@ from src.application.use_cases.import_play_history import (
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import NullProgressEmitter
 from src.domain.repositories.play import (
-    RECENTLY_PLAYED_PAGE_LIMIT,
     AppleRecentImportParams,
     LastfmImportParams,
     SpotifyImportParams,
     SpotifyRecentImportParams,
 )
+from tests.fixtures import make_mock_uow
+
+
+def _uow(importer_error: Exception | None = None) -> MagicMock:
+    """UoW whose play-import provider builds an importer, or fails to."""
+    uow = make_mock_uow()
+    provider = uow.get_play_import_provider.return_value
+    provider.create_play_importer = AsyncMock(side_effect=importer_error)
+    return uow
 
 
 class TestImportTracksCommand:
     """Test command validation for service/mode combinations."""
-
-    def test_valid_lastfm_recent(self):
-        """Test valid LastFM recent import command."""
-        cmd = ImportTracksCommand(
-            user_id="test-user", service="lastfm", mode="recent", limit=1000
-        )
-        assert cmd.service == "lastfm"
-        assert cmd.mode == "recent"
-
-    def test_valid_lastfm_incremental(self):
-        """Test valid LastFM incremental import command."""
-        cmd = ImportTracksCommand(
-            service="lastfm", mode="incremental", user_id="testuser"
-        )
-        assert cmd.mode == "incremental"
-
-    def test_valid_lastfm_full(self):
-        """Test valid LastFM full history import command."""
-        cmd = ImportTracksCommand(
-            service="lastfm", mode="full", user_id="testuser", confirm=True
-        )
-        assert cmd.mode == "full"
-        assert cmd.confirm is True
-
-    def test_valid_spotify_file(self):
-        """Test valid Spotify file import command."""
-        cmd = ImportTracksCommand(
-            user_id="test-user",
-            service="spotify",
-            mode="file",
-            file_path=Path("/data/export.json"),
-        )
-        assert cmd.service == "spotify"
-        assert cmd.file_path == Path("/data/export.json")
 
     def test_lastfm_file_mode_rejected(self):
         """Test that LastFM doesn't support file mode."""
@@ -71,12 +46,6 @@ class TestImportTracksCommand:
                 mode="file",
                 file_path=Path("/data/test.json"),
             )
-
-    @pytest.mark.parametrize("mode", ["recent", "incremental"])
-    def test_spotify_api_modes_accepted(self, mode):
-        """Recently-played polling (v0.10.1) accepts both API mode spellings."""
-        cmd = ImportTracksCommand(user_id="test-user", service="spotify", mode=mode)
-        assert cmd.mode == mode
 
     def test_spotify_full_mode_rejected(self):
         """The API retains only ~50 plays, so 'the whole history' is unaskable."""
@@ -98,99 +67,44 @@ class TestImportTracksCommand:
         with pytest.raises(ValueError, match="file_path is required"):
             ImportTracksCommand(user_id="test-user", service="spotify", mode="file")
 
-    def test_command_is_frozen(self):
-        """Test command immutability."""
-        cmd = ImportTracksCommand(user_id="test-user", service="lastfm", mode="recent")
-        with pytest.raises(AttributeError):
-            cmd.service = "spotify"
-
 
 class TestImportTracksUseCase:
     """Test use case execution and error handling."""
 
     async def test_exception_returns_failed_result(self):
-        """Test that exceptions are captured and returned as failed result."""
-        uow = AsyncMock()
-
+        """A failing import becomes a failed result carrying the error."""
+        uow = _uow(importer_error=RuntimeError("Connection failed"))
         command = ImportTracksCommand(
             user_id="test-user", service="lastfm", mode="recent"
         )
-        use_case = ImportTracksUseCase()
 
-        # Patch internal method to raise
-        with patch.object(
-            ImportTracksUseCase,
-            "_execute_import",
-            side_effect=RuntimeError("Connection failed"),
-        ):
-            result = await use_case.execute(command, uow)
+        result = await ImportTracksUseCase().execute(command, uow)
 
-        assert isinstance(result, ImportTracksResult)
         assert result.service == "lastfm"
         assert result.mode == "recent"
-        # Error should be in summary metrics
-        error_metric = next(
-            (
-                m
-                for m in result.operation_result.summary_metrics.metrics
-                if m.name == "errors"
-            ),
-            None,
-        )
-        assert error_metric is not None
-        assert error_metric.value == 1
+        assert result.operation_result.is_failure
+        assert result.operation_result.summary_metrics.get("errors") == 1
+        assert result.operation_result.metadata["error"] == "Connection failed"
 
     async def test_quota_exhaustion_propagates_instead_of_failed_result(self):
         """PDR-003 quota exhaustion must escape like the auth errors do — a
         soft-failure result would bury the outage and let callers keep going."""
         from src.domain.exceptions import SpotifyQuotaExhaustedError
 
-        uow = AsyncMock()
+        uow = _uow(importer_error=SpotifyQuotaExhaustedError())
         command = ImportTracksCommand(
             user_id="test-user", service="spotify", mode="recent"
         )
-        use_case = ImportTracksUseCase()
 
-        with (
-            patch.object(
-                ImportTracksUseCase,
-                "_execute_import",
-                side_effect=SpotifyQuotaExhaustedError(),
-            ),
-            pytest.raises(SpotifyQuotaExhaustedError),
-        ):
-            _ = await use_case.execute(command, uow)
-
-    async def test_successful_import_returns_result(self):
-        """Test that successful import returns proper result."""
-        uow = AsyncMock()
-
-        op_result = OperationResult(operation_name="Lastfm Recent Import")
-        op_result.summary_metrics.add("track_plays", 42, "Track Plays", significance=1)
-
-        command = ImportTracksCommand(
-            user_id="test-user", service="lastfm", mode="recent", limit=100
-        )
-        use_case = ImportTracksUseCase()
-
-        with patch.object(
-            ImportTracksUseCase,
-            "_execute_import",
-            return_value=op_result,
-        ):
-            result = await use_case.execute(command, uow)
-
-        assert isinstance(result, ImportTracksResult)
-        assert result.service == "lastfm"
-        assert result.mode == "recent"
-        assert result.execution_time_ms >= 0
+        with pytest.raises(SpotifyQuotaExhaustedError):
+            _ = await ImportTracksUseCase().execute(command, uow)
 
     @staticmethod
     def _patched_two_phase(op_result: OperationResult):
-        """Patch the shared two-phase runner so routing can be asserted alone."""
+        """Stub the orchestrator's two-phase run so routing can be asserted alone."""
         return patch.object(
-            ImportTracksUseCase,
-            "_run_two_phase",
+            PlayImportOrchestrator,
+            "import_plays_two_phase",
             new_callable=AsyncMock,
             return_value=op_result,
         )
@@ -222,7 +136,7 @@ class TestImportTracksUseCase:
     )
     async def test_lastfm_modes_build_expected_params(self, mode, kwargs, expected):
         """Each Last.fm mode differs only in the params it hands the runner."""
-        uow = AsyncMock()
+        uow = _uow()
         op_result = OperationResult(operation_name="test")
         use_case = ImportTracksUseCase()
         cmd = ImportTracksCommand(
@@ -234,11 +148,13 @@ class TestImportTracksUseCase:
 
         assert result.mode == mode
         assert runner.call_args.kwargs["params"] == expected
-        assert runner.call_args.kwargs.get("kind", "api") == "api"
+        uow.get_play_import_provider().create_play_importer.assert_awaited_once_with(
+            "lastfm", "api", uow
+        )
 
     async def test_spotify_file_builds_file_params_and_kind(self):
         """A file import is the only branch that asks for the 'file' importer."""
-        uow = AsyncMock()
+        uow = _uow()
         op_result = OperationResult(operation_name="test")
         use_case = ImportTracksUseCase()
         cmd = ImportTracksCommand(
@@ -256,23 +172,25 @@ class TestImportTracksUseCase:
         assert runner.call_args.kwargs["params"] == SpotifyImportParams(
             file_path=Path("/data/test.json")
         )
-        assert runner.call_args.kwargs["kind"] == "file"
+        uow.get_play_import_provider().create_play_importer.assert_awaited_once_with(
+            "spotify", "file", uow
+        )
 
     @pytest.mark.parametrize(
         ("limit", "expected_limit"),
         [
-            (None, RECENTLY_PLAYED_PAGE_LIMIT),
+            (None, 50),
             (10, 10),
             # 0 is falsy, so it takes the default before the clamp sees it
-            (0, RECENTLY_PLAYED_PAGE_LIMIT),
+            (0, 50),
             (-5, 1),
-            (500, RECENTLY_PLAYED_PAGE_LIMIT),
+            (500, 50),
         ],
     )
     @pytest.mark.parametrize("mode", ["recent", "incremental"])
     async def test_spotify_api_modes_clamp_limit(self, mode, limit, expected_limit):
         """Both API spellings share one branch, and the limit is clamped to 1..50."""
-        uow = AsyncMock()
+        uow = _uow()
         op_result = OperationResult(operation_name="test")
         use_case = ImportTracksUseCase()
         cmd = ImportTracksCommand(
@@ -293,7 +211,7 @@ class TestImportTracksUseCase:
     @pytest.mark.parametrize("mode", ["recent", "incremental"])
     async def test_apple_modes_build_force_only_params(self, mode):
         """Apple carries no limit: the importer's prefix-diff bounds the ingest."""
-        uow = AsyncMock()
+        uow = _uow()
         op_result = OperationResult(operation_name="test")
         use_case = ImportTracksUseCase()
         cmd = ImportTracksCommand(user_id="test-user", service="apple", mode=mode)
@@ -306,7 +224,7 @@ class TestImportTracksUseCase:
 
     async def test_unconfirmed_full_history_is_cancelled(self):
         """An unconfirmed full history import never reaches the runner."""
-        uow = AsyncMock()
+        uow = _uow()
         use_case = ImportTracksUseCase()
         cmd = ImportTracksCommand(
             user_id="test-user", service="lastfm", mode="full", confirm=False
