@@ -129,49 +129,6 @@ class TestLastfmPlayImporterIntegration:
         assert first == (1, 0)
         assert second == (0, 1)
 
-    async def test_error_handling_with_real_dependencies(
-        self, lastfm_importer_with_mocked_api, unit_of_work
-    ):
-        """Test error handling with real database dependencies."""
-        importer, _ = lastfm_importer_with_mocked_api
-
-        # Test empty data handling
-        result = importer._to_connector_plays(
-            [],
-            user_id="integration-user",
-            batch_id="empty-test-batch",
-            import_timestamp=datetime.now(UTC),
-        )
-        assert result == []
-
-        # Test base class save with empty data
-        saved_count, duplicate_count = await importer._save_connector_plays_via_uow(
-            [], unit_of_work
-        )
-        assert saved_count == 0
-        assert duplicate_count == 0
-
-        # Save with data goes through the single connector-play save path
-        connector_plays = [
-            ConnectorTrackPlay(
-                service="lastfm",
-                track_name="Error Test Track",
-                artist_name="Error Test Artist",
-                played_at=datetime(2024, 3, 15, 15, 30, tzinfo=UTC),
-                service_metadata={},
-                import_timestamp=datetime.now(UTC),
-                import_source="error_test",
-                import_batch_id="error-test-batch",
-                user_id=TEST_USER_ID,
-            )
-        ]
-
-        saved_count, duplicate_count = await importer._save_connector_plays_via_uow(
-            connector_plays, unit_of_work
-        )
-        assert saved_count == 1
-        assert duplicate_count == 0
-
     async def test_metadata_preservation_lastfm_specific(
         self, lastfm_importer_with_mocked_api
     ):

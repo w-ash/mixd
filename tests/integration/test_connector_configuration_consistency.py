@@ -1,9 +1,11 @@
 """Integration tests for connector configuration consistency.
 
 Pins the configuration facts a connector's runtime behavior depends on: the
-Last.fm pacing ceiling and each connector's own error classifier.
+Last.fm pacing ceiling, retry settings, and each connector's own error
+classifier.
 """
 
+from src.config import settings
 from src.config.settings import APIConfig
 from src.infrastructure.connectors.lastfm import LastFMConnector
 from src.infrastructure.connectors.lastfm.models import LastFMAPIError
@@ -19,6 +21,31 @@ class TestConnectorConfigurationConsistency:
 
         assert rate_limit is not None
         assert 0 < rate_limit <= 5.0
+
+    def test_lastfm_retries_back_off_between_attempts(self):
+        """A zero base delay would retry Last.fm back-to-back with no backoff."""
+        assert APIConfig().lastfm.retry_base_delay > 0
+
+    def test_all_connectors_support_common_config_keys(self):
+        """Verify all connectors expose the same basic configuration fields."""
+        configs = [
+            settings.api.spotify,
+            settings.api.lastfm,
+            settings.api.discogs,
+        ]
+
+        common_fields = [
+            "batch_size",
+            "concurrency",
+            "retry_count",
+        ]
+
+        for config in configs:
+            for field in common_fields:
+                value = getattr(config, field)
+                assert value is not None
+                assert isinstance(value, (int, float))
+                assert value > 0
 
     def test_each_connector_wires_its_own_error_classifier(self):
         """Service-specific error codes classify, not the generic fallback.

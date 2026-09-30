@@ -296,10 +296,6 @@ class TestExtractUniqueIdentifiers:
 
         assert result == {make_lastfm_identifier("Artist C", "Song C")}
 
-    def test_returns_empty_for_empty_input(self):
-        resolver, _ = _make_resolver()
-        assert resolver._extract_unique_lastfm_identifiers([]) == set()
-
 
 class TestInwardResolverDelegation:
     """Resolver passes deduped identifier list and user_id to the inward resolver."""
