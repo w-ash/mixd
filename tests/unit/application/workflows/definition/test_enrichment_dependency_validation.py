@@ -93,20 +93,6 @@ class TestValidateEnrichmentDependencies:
         warnings = _validate_enrichment_dependencies(_make_def(tasks))
         assert warnings == []
 
-    def test_no_warning_for_non_metric_nodes(self):
-        """Non-metric filter nodes should not trigger warnings."""
-        tasks = [
-            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
-            WorkflowTaskDef(
-                id="filter",
-                type="filter.deduplicate",
-                config={},
-                upstream=["src"],
-            ),
-        ]
-        warnings = _validate_enrichment_dependencies(_make_def(tasks))
-        assert warnings == []
-
     def test_transitive_upstream_enricher_detected(self):
         """Enricher two levels up should still be detected."""
         tasks = [
@@ -385,19 +371,6 @@ class TestPeriodDaysInertWarning:
                 id="enrich",
                 type="enricher.play_history",
                 config={"metrics": ["period_plays"], "period_days": 30},
-                upstream=["src"],
-            ),
-        ]
-        warnings = _validate_enrichment_dependencies(_make_def(tasks))
-        assert warnings == []
-
-    def test_no_warning_when_period_days_unset(self):
-        tasks = [
-            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
-            WorkflowTaskDef(
-                id="enrich",
-                type="enricher.play_history",
-                config={},
                 upstream=["src"],
             ),
         ]

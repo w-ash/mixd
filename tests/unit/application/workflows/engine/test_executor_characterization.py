@@ -20,6 +20,7 @@ TaskGroup. Everything external is mocked; these run fast on the default gate
 
 import asyncio
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -110,11 +111,25 @@ class TestObserverEventSequence:
         async def mock_execute_node(node_type, context, config):
             return {"tracklist": sample_tracklist}
 
+        # Clock readings in call order: start/end per node, one node per level.
+        clock_ns = iter([
+            0,
+            7_000_000,
+            10_000_000,
+            25_000_000,
+            30_000_000,
+            30_999_999,
+        ])
+
         session_patch, ctx_patch = _patch_env()
         with (
             patch(
                 "src.application.workflows.engine.executor.execute_node",
                 side_effect=mock_execute_node,
+            ),
+            patch(
+                "src.application.workflows.engine.executor.time",
+                SimpleNamespace(perf_counter_ns=lambda: next(clock_ns)),
             ),
             session_patch,
             ctx_patch,
@@ -130,12 +145,15 @@ class TestObserverEventSequence:
             ("completed", "dest"),
         ]
 
-        # Completed events carry track counts and timing for the SSE payload.
+        # Completed events carry track counts and whole-millisecond timing
+        # (floored) for the SSE payload.
+        durations = {
+            node_id: event.duration_ms
+            for node_id, event in obs.completed_events.items()
+        }
+        assert durations == {"src": 7, "mid": 15, "dest": 0}
         for node_id in ("src", "mid", "dest"):
-            event = obs.completed_events[node_id]
-            assert event.output_track_count == 2
-            assert event.duration_ms is not None
-            assert event.duration_ms >= 0
+            assert obs.completed_events[node_id].output_track_count == 2
         assert obs.completed_events["src"].input_track_count is None  # no upstream
         assert obs.completed_events["mid"].input_track_count == 2
         assert obs.completed_events["dest"].input_track_count == 2
@@ -144,16 +162,19 @@ class TestObserverEventSequence:
         self, sample_tracklist
     ):
         """Degrade emits on_node_failed, skips on_node_completed, and the run
-        continues to completion with a status='degraded' record."""
+        continues to completion with a status='degraded' record that carries
+        the error; downstream nodes receive the upstream tracklist unchanged."""
         obs = _RecordingObserver()
         source_result = {"tracklist": sample_tracklist}
+        dest_inputs: list[object] = []
 
         async def mock_execute_node(node_type, context, config):
             if node_type == "source.playlist":
                 return source_result
             if node_type == "enricher.lastfm":
                 raise ConnectionError("Last.fm API is down")
-            return {"tracklist": context.get("mid", source_result)["tracklist"]}
+            dest_inputs.append(context["mid"]["tracklist"])
+            return {"tracklist": context["mid"]["tracklist"]}
 
         session_patch, ctx_patch = _patch_env()
         with (
@@ -180,6 +201,9 @@ class TestObserverEventSequence:
 
         statuses = {r.node_id: r.status for r in context["_node_records"]}
         assert statuses == {"src": "completed", "mid": "degraded", "dest": "completed"}
+        [degraded] = [r for r in context["_node_records"] if r.node_id == "mid"]
+        assert degraded.error_message == "Last.fm API is down"
+        assert dest_inputs == [sample_tracklist]
 
     async def test_fatal_node_emits_failed_and_downstream_never_starts(
         self, sample_tracklist
