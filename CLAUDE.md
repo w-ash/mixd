@@ -81,7 +81,7 @@ Every feature serves a persona ([docs/personas.md](docs/personas.md)) and a user
 
 ## Testing
 
-Write tests for every change (happy path + at least one error/edge case).
+Every behavior change ships with a test that fails without it. No behavior change, no new test → `.claude/rules/test-value.md`.
 Right test level — domain=unit, use case=unit+mocks, repository=integration.
 Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`).
 

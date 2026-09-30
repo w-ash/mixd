@@ -211,6 +211,31 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    def list_unlinked_credit_sources(
+        self,
+        *,
+        user_id: str,
+        after_track_id: UUID | None = None,
+        limit: int = 500,
+    ) -> Awaitable[list[tuple[Track, ConnectorTrack]]]:
+        """Tracks whose credits are unminted, paired with the payload that can mint them.
+
+        A track qualifies when it carries a credit with no ``artist_id`` and
+        its live primary mapping leads to a connector track whose own credits
+        carry at least one service artist id. The pair is what the minter
+        takes: the canonical to fill credits on, and the payload whose
+        ``artists`` name the connector artist records.
+
+        Keyset over ``tracks.id`` — ``after_track_id`` resumes a paged walk,
+        and a page is whole tracks, never a track split across two pages. One
+        page is one query; both credit collections arrive eager-loaded.
+        """
+        ...
+
+    def count_unlinked_credit_sources(self, *, user_id: str) -> Awaitable[int]:
+        """How many tracks :meth:`list_unlinked_credit_sources` would hand back."""
+        ...
+
     def get_primary_mapping_details(
         self, track_ids: list[UUID], connector: str
     ) -> Awaitable[dict[UUID, PrimaryMappingDetail]]:

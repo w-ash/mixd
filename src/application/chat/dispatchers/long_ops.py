@@ -19,6 +19,7 @@ The ``details`` contract each propose stores (consumed by the interface launcher
 - ``import_data`` — ``{operation, source, limit?, username?, force?}``
 - ``rebuild_play_history`` — ``{operation, dry_run}``
 - ``enrich_artists`` — ``{operation, limit?, refresh_older_than_days}``
+- ``mint_artists`` — ``{operation, limit?, dry_run}``
 """
 
 from collections.abc import Mapping
@@ -358,6 +359,49 @@ async def handle_enrich_artists(
     )
 
 
+# --- mint_artists ------------------------------------------------------------
+
+MINT_ARTISTS_INPUT_SCHEMA: JsonDict = {
+    "type": "object",
+    "properties": {
+        "limit": {
+            "type": "integer",
+            "description": "Cap how many tracks are walked (1-100000). Omit for all.",
+        },
+        "dry_run": {
+            "type": "boolean",
+            "description": "Report what would be minted without writing anything.",
+        },
+    },
+    "additionalProperties": False,
+}
+
+
+async def handle_mint_artists(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
+    # 0 is the "no cap" sentinel -> None (walk the whole library).
+    limit = opt_int(tool_input, "limit", default=0, minimum=1, maximum=100000)
+    dry_run = opt_bool(tool_input, "dry_run", default=False)
+    scope = f"{limit} track(s)" if limit else "every track"
+    action = "Preview minting" if dry_run else "Mint"
+    details: JsonDict = {
+        "operation": "mint_artists",
+        "limit": limit or None,
+        "dry_run": dry_run,
+        "changes": [
+            (
+                f"Read the stored connector credits on {scope} and "
+                "mint the canonical artists they name"
+                + ("" if dry_run else ", filling each credit's artist")
+            )
+        ],
+    }
+    return await propose_action(
+        ctx, "mint_artists", tool_input, f"{action} artists for {scope}", details
+    )
+
+
 SPECS: list[dict[str, object]] = [
     {
         "name": "run_workflow",
@@ -453,6 +497,21 @@ SPECS: list[dict[str, object]] = [
         "input_schema": ENRICH_ARTISTS_INPUT_SCHEMA,
         "dispatch": handle_enrich_artists,
         "use_cases": ("EnrichArtistsUseCase",),
+        "kind": "write",
+        "launches_operation": True,
+    },
+    {
+        "name": "mint_artists",
+        "description": (
+            "Call this when the user's artist list is empty or missing artists "
+            "even though their tracks have credits — it mints canonical artists "
+            "from the service artist ids already stored against the library, "
+            "which is what a library imported before v0.12.1 needs. Touches no "
+            "network. It runs in the background with progress."
+        ),
+        "input_schema": MINT_ARTISTS_INPUT_SCHEMA,
+        "dispatch": handle_mint_artists,
+        "use_cases": ("MintArtistsUseCase",),
         "kind": "write",
         "launches_operation": True,
     },

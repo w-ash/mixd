@@ -35,15 +35,6 @@ def _stub_workflow_background(monkeypatch):
     monkeypatch.setattr(_wf_exec_mod, "launch_background", _noop_launch)
 
 
-@pytest.fixture(autouse=True)
-def _release_leaked_slots():
-    """Drop slot claims the stubbed background task never releases —
-    otherwise three previews exhaust the cap and later kickoffs 429."""
-    before = set(_sse_ops._active_operations)
-    yield
-    _sse_ops._active_operations.intersection_update(before)
-
-
 class TestPreviewUnsavedWorkflow:
     """POST /workflows/preview — preview an unsaved definition."""
 

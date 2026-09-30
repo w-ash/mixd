@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.1
+ * OpenAPI spec version: 0.12.1.1
  */
 import {
   HttpResponse,
@@ -33,10 +33,11 @@ import {
   getEnrichArtistsApiV1ArtistsEnrichPostResponseMock,
   getFavoriteArtistApiV1ArtistsArtistIdFavoritePostResponseMock,
   getGetArtistDetailApiV1ArtistsArtistIdGetResponseMock,
-  getListArtistsApiV1ArtistsGetResponseMock
+  getListArtistsApiV1ArtistsGetResponseMock,
+  getMintArtistsApiV1ArtistsMintPostResponseMock
 } from './artists.faker.ts';
 
-export { getListArtistsApiV1ArtistsGetResponseMock, getEnrichArtistsApiV1ArtistsEnrichPostResponseMock, getGetArtistDetailApiV1ArtistsArtistIdGetResponseMock, getFavoriteArtistApiV1ArtistsArtistIdFavoritePostResponseMock } from './artists.faker.ts';
+export { getListArtistsApiV1ArtistsGetResponseMock, getEnrichArtistsApiV1ArtistsEnrichPostResponseMock, getMintArtistsApiV1ArtistsMintPostResponseMock, getGetArtistDetailApiV1ArtistsArtistIdGetResponseMock, getFavoriteArtistApiV1ArtistsArtistIdFavoritePostResponseMock } from './artists.faker.ts';
 
 
 export const getListArtistsApiV1ArtistsGetMockHandler = (overrideResponse?: PaginatedArtistsResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PaginatedArtistsResponse> | PaginatedArtistsResponse), options?: RequestHandlerOptions) => {
@@ -58,6 +59,18 @@ export const getEnrichArtistsApiV1ArtistsEnrichPostMockHandler = (overrideRespon
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getEnrichArtistsApiV1ArtistsEnrichPostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getMintArtistsApiV1ArtistsMintPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/artists/mint', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getMintArtistsApiV1ArtistsMintPostResponseMock(),
       { status: 200
       })
   }, options)
@@ -99,6 +112,7 @@ export const getUnfavoriteArtistApiV1ArtistsArtistIdFavoriteDeleteMockHandler = 
 export const getArtistsMock = () => [
   getListArtistsApiV1ArtistsGetMockHandler(),
   getEnrichArtistsApiV1ArtistsEnrichPostMockHandler(),
+  getMintArtistsApiV1ArtistsMintPostMockHandler(),
   getGetArtistDetailApiV1ArtistsArtistIdGetMockHandler(),
   getFavoriteArtistApiV1ArtistsArtistIdFavoritePostMockHandler(),
   getUnfavoriteArtistApiV1ArtistsArtistIdFavoriteDeleteMockHandler()

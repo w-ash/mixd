@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.1
+ * OpenAPI spec version: 0.12.1.1
  */
 import {
   useMutation,
@@ -43,6 +43,10 @@ import type {
 import type {
   ListArtistsApiV1ArtistsGetParams
 } from '../model/listArtistsApiV1ArtistsGetParams.ts';
+
+import type {
+  MintArtistsRequest
+} from '../model/mintArtistsRequest.ts';
 
 import type {
   OperationStartedResponse
@@ -308,6 +312,113 @@ export const useEnrichArtistsApiV1ArtistsEnrichPost = <TError = HTTPValidationEr
         TContext
       > => {
       return useMutation(useEnrichArtistsApiV1ArtistsEnrichPostMutationOptions(options), queryClient);
+    }
+    export type mintArtistsApiV1ArtistsMintPostResponse200 = {
+  data: OperationStartedResponse
+  status: 200
+}
+
+export type mintArtistsApiV1ArtistsMintPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type mintArtistsApiV1ArtistsMintPostResponseSuccess = (mintArtistsApiV1ArtistsMintPostResponse200) & {
+  headers: Headers;
+};
+export type mintArtistsApiV1ArtistsMintPostResponseError = (mintArtistsApiV1ArtistsMintPostResponse422) & {
+  headers: Headers;
+};
+
+export type mintArtistsApiV1ArtistsMintPostResponse = (mintArtistsApiV1ArtistsMintPostResponseSuccess | mintArtistsApiV1ArtistsMintPostResponseError)
+
+export const getMintArtistsApiV1ArtistsMintPostUrl = () => {
+
+
+
+
+  return `/api/v1/artists/mint`
+}
+
+/**
+ * Mint canonical artists from the library's stored connector credits.
+ * @summary Mint Artists
+ */
+export const mintArtistsApiV1ArtistsMintPost = async (mintArtistsRequest: MintArtistsRequest, options?: Parameters<typeof customFetch>[1]): Promise<mintArtistsApiV1ArtistsMintPostResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<mintArtistsApiV1ArtistsMintPostResponse>(getMintArtistsApiV1ArtistsMintPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(mintArtistsRequest)
+  }
+);}
+
+
+
+
+
+export const getMintArtistsApiV1ArtistsMintPostMutationKey = () => ['mintArtistsApiV1ArtistsMintPost'] as const;
+
+export const useMintArtistsApiV1ArtistsMintPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mintArtistsApiV1ArtistsMintPost>>, TError,MintArtistsApiV1ArtistsMintPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof mintArtistsApiV1ArtistsMintPost>>, TError,MintArtistsApiV1ArtistsMintPostMutationVariables, TContext> => {
+
+const mutationKey = getMintArtistsApiV1ArtistsMintPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mintArtistsApiV1ArtistsMintPost>>, MintArtistsApiV1ArtistsMintPostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  mintArtistsApiV1ArtistsMintPost(data,requestOptions)
+        }
+
+
+
+        const customOptions = withCacheTags({...mutationOptions, mutationFn}, { url: `/api/v1/artists/mint` });
+
+
+  return  customOptions}
+
+    export type MintArtistsApiV1ArtistsMintPostMutationResult = NonNullable<Awaited<ReturnType<typeof mintArtistsApiV1ArtistsMintPost>>>
+    export type MintArtistsApiV1ArtistsMintPostMutationBody = MintArtistsRequest
+    export type MintArtistsApiV1ArtistsMintPostMutationError = HTTPValidationError
+    export type MintArtistsApiV1ArtistsMintPostMutationVariables = {data: MintArtistsRequest}
+
+    /**
+ * @summary Mint Artists
+ */
+export const useMintArtistsApiV1ArtistsMintPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mintArtistsApiV1ArtistsMintPost>>, TError,MintArtistsApiV1ArtistsMintPostMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof mintArtistsApiV1ArtistsMintPost>>,
+        TError,
+        MintArtistsApiV1ArtistsMintPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(useMintArtistsApiV1ArtistsMintPostMutationOptions(options), queryClient);
     }
     export type getArtistDetailApiV1ArtistsArtistIdGetResponse200 = {
   data: ArtistDetailSchema

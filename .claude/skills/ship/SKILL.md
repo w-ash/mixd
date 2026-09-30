@@ -143,6 +143,9 @@ This gate mirrors `.github/workflows/ci.yml`. If you change one, change both —
 - `uv run ruff format .` — autoformat
 - `uv run vulture` — dead code. CI runs it and a red step here shipped unnoticed for a month pre-v0.8.17; never skip it.
 - `scripts/check_ratchet.sh` — bounds the sanctioned `# pyright: ignore` count so suppressions can't proliferate
+- `uv run python scripts/check_test_vacuity.py --base-ref origin/main` — fails when a flagged test is not in `tests/.vacuity_baseline.json`, or when it gains an id in a test file changed since main; ids in unchanged files are printed as notes (`.claude/rules/test-value.md`). CI passes `HEAD~1`, which is the base branch tip on a PR merge commit
+- `uvx deptry .` — undeclared and unused dependencies
+- `uv run lint-imports --no-cache` — layer contracts. `--no-cache` is load-bearing: a cached run under-reports
 - `uv run python scripts/check_backlog.py` — backlog hygiene (links, archive index, matrix ↔ files, changelog entry for the new version)
 
 **Frontend (run in parallel with backend):**
@@ -156,6 +159,32 @@ This gate mirrors `.github/workflows/ci.yml`. If you change one, change both —
 - **Playwright visual gate** — must run in the CI-pinned Docker image; native macOS runs false-fail. Procedure and current image tag live in `web/e2e/README.md`:
   `docker run --rm -e CI=true -v "$PWD":/work -w /work/web mcr.microsoft.com/playwright:v1.63.0-noble bash -c "corepack enable && corepack prepare pnpm@12.4.2 --activate && pnpm install --frozen-lockfile && pnpm test:e2e"`
   Then rerun `CI=true pnpm --prefix web install` on the host to restore native binaries. `CI=true` is required on both: pnpm 11 prompts before purging a `node_modules` built for another platform and aborts without a TTY.
+
+### Test-value checks (`/ship`-only, not in CI)
+
+These checks are too slow for every push, so CI does not run them. They cover the release diff: every change since the merge base with `main`, committed or not. Rules are in `.claude/rules/test-value.md`.
+
+```bash
+base=$(git merge-base main HEAD)
+changed() { { git diff --name-only --diff-filter=d "$base" -- "$@"; git ls-files --others --exclude-standard -- "$@"; } | sort -u; }
+```
+
+- **Red check:** run `bash scripts/check_tests_red.sh main`. It covers new pytest tests only; web tests are not red-checked. It lists new tests that already pass on the base branch. It only reports and always exits 0. A listed test does not guard this release's change: make it fail without the change, or say in the PR why it passes on base.
+- **Domain mutation**, when the diff touches `src/domain/**`. Use the `scripts/mutmut_run.py` wrapper, never bare `mutmut` (see its docstring). Each changed file becomes a mutant-name glob such as `src.domain.matching.algorithms.*`:
+  ```bash
+  mods=$(changed 'src/domain/*.py' | sed -E 's#\.py$##; s#/__init__$##; s#/#.#g')
+  [ -n "$mods" ] && uv run python scripts/mutmut_run.py run $(sed 's/$/.*/' <<<"$mods")
+  uv run python scripts/mutmut_run.py results | grep -F "$(sed 's/$/./' <<<"$mods")"
+  ```
+  `uv run python scripts/mutmut_run.py show <name>` prints one mutant's diff.
+- **Web mutation**, when the diff touches `web/src/lib/**` or `web/src/hooks/**`. Stryker takes the changed files as a comma-separated list, with paths relative to `web/`:
+  ```bash
+  files=$(changed web/src/lib web/src/hooks | grep -E '\.ts$' | grep -v '\.test\.ts$' | sed 's#^web/##' | paste -sd, -)
+  [ -n "$files" ] && pnpm --prefix web test:mutate --mutate "$files"
+  ```
+  Survivors print in the clear-text report. The HTML report is `web/reports/mutation/mutation.html`.
+
+**Survivors:** handle each per `.claude/rules/test-value.md` (Mutation survivors).
 
 ### Verifying results — read actual output, not wrappers
 

@@ -1,5 +1,16 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); printf '%s' \"$input\" | jq -r '.tool_input.file_path // empty' | grep -qE '(^|/)(tests/.+\\.py|web/src/.+\\.test\\.tsx?|web/e2e/.+\\.ts)$' || exit 0; printf '%s' \"$input\" | uv run --no-sync --quiet --project \"$CLAUDE_PROJECT_DIR\" python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard_test_edits.py 2>/dev/null || exit 0"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",

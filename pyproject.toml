@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.12.1"
+version = "0.12.1.1"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -79,6 +79,7 @@ dev = [
     "import-linter>=2.15",
     "testcontainers[postgres]>=4.15.0",
     "hypothesis>=6.168.0",
+    "mutmut>=3.8.0,<3.9",
 ]
 
 [tool.uv]
@@ -111,6 +112,9 @@ python-multipart = ["multipart", "python_multipart"]
 # time if it is absent. Base `fastapi` does not depend on it (only the `standard`
 # extra does), so we must declare it — and no import graph will ever see it.
 DEP002 = ["python-multipart"]
+# DEP004 = dev dependency imported outside tests. scripts/mutmut_run.py is dev
+# tooling that wraps the dev-group mutmut.
+DEP004 = ["mutmut"]
 
 [build-system]
 requires = ["hatchling"]
@@ -241,6 +245,22 @@ unfixable = []
     "yield-in-context-manager-in-async-generator", # streaming proxy MUST yield inside the LLM stream context; the SSE
                 # bridge's try/finally cancels the task on disconnect, which closes
                 # the context via GeneratorExit — cleanup is guaranteed cross-function
+]
+".claude/hooks/guard_test_edits.py" = [
+    "suspicious-subprocess-import",     # runs one fixed git command to read the branch
+    "subprocess-without-shell-equals-true",     # fixed git argv; only the edited file's directory varies, passed to -C
+    "start-process-with-partial-path",     # trusts PATH for git like any dev tool
+]
+"scripts/check_test_vacuity.py" = [
+    "suspicious-subprocess-import",     # --base-ref runs fixed git commands to read the base baseline
+    "subprocess-without-shell-equals-true",     # fixed git argv; the ref is validated (no leading '-')
+    "start-process-with-partial-path",     # trusts PATH for git like any dev tool
+]
+"tests/unit/scripts/test_check_test_vacuity.py" = [
+    "start-process-with-partial-path",     # builds throwaway git repos to exercise --base-ref
+]
+"tests/unit/scripts/test_guard_test_edits.py" = [
+    "start-process-with-partial-path",     # builds throwaway git repos to exercise the hook's branch check
 ]
 "tests/**/*.py" = [
     "assert",     # Allow assert in tests
@@ -450,6 +470,18 @@ ignore_names = [
     "do_GET",              # HTTP handler protocol
     "log_message",         # HTTP handler protocol
 ]
+
+# Mutation testing. How to run it, and why the config looks like this: the
+# scripts/mutmut_run.py docstring.
+[tool.mutmut]
+source_paths = ["src/"]
+only_mutate = ["src/domain/*"]
+pytest_add_cli_args_test_selection = ["tests/unit/domain/"]
+# test_status_matrix_export imports scripts/ and reads the web fixture it renders.
+also_copy = ["scripts/", "web/src/test/fixtures/"]
+# -n 0 overrides addopts' `-n auto`: mutmut runs tests in-process and forces -x.
+pytest_add_cli_args = ["-n", "0", "--hypothesis-profile", "mutmut"]
+mutate_only_covered_lines = true
 
 # Layer-boundary enforcement (import-linter 2.13+).
 #

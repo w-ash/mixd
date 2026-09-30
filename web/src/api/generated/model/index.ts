@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.12.1
+ * OpenAPI spec version: 0.12.1.1
  */
 
 export * from './activeAssignmentSchema.ts';
@@ -123,6 +123,7 @@ export * from './matchReviewSchemaConfidenceEvidence.ts';
 export * from './mergeTagsRequest.ts';
 export * from './mergeTrackRequest.ts';
 export * from './methodHealthStatSchema.ts';
+export * from './mintArtistsRequest.ts';
 export * from './musicKitConfigResponse.ts';
 export * from './nodeType.ts';
 export * from './nodeTypeInfoSchema.ts';

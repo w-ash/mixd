@@ -774,15 +774,17 @@ describe("Enrich artists", () => {
       .closest("div.rounded-xl") as HTMLElement;
   }
 
-  it("names the work rather than the mechanism", () => {
+  it("names the work, and points a pre-v0.12.1 library at minting first", () => {
     setupCheckpointsMock();
     renderWithProviders(<Sync />);
 
-    expect(
-      screen.getByText(
-        "Resolve artists against MusicBrainz: aliases, kind, and links to every connected service.",
-      ),
-    ).toBeInTheDocument();
+    const description = within(enrichCard()).getByText(/Resolve artists/);
+    expect(description).toHaveTextContent(
+      "Resolve artists against MusicBrainz: aliases, kind, and links to every connected service.",
+    );
+    // Enrichment reads existing artist rows, so a library with none needs the
+    // minting pass first — the copy is the only place that says so.
+    expect(description).toHaveTextContent("mixd artists mint");
   });
 
   it("starts the run and attaches its progress stream", async () => {

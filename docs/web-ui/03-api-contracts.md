@@ -942,6 +942,15 @@ POST   /artists/enrich
 - **Status**: ✅ Implemented (v0.12.1)
 - **Note**: Resolves artist identity against MusicBrainz. Subscribe to `/operations/{operation_id}/progress`; the terminal frame's `touched` carries `artists` + `tracks` + `operation-runs`.
 
+```
+POST   /artists/mint
+       { limit?: int, dry_run?: bool = false }
+       → { operation_id, run_id, ... }   (long operation → SSE)
+```
+- **Use case**: `MintArtistsUseCase` via `run_mint_artists`, `operation_type="artist_minting"`
+- **Status**: ✅ Implemented (v0.12.1.1)
+- **Note**: Mints canonical artists from the service artist ids already stored on the library's connector credits — what a library imported before v0.12.1 needs before enrichment has anything to resolve. No network. Resumable: a minted credit leaves the candidate query, so a repeat run continues where the last stopped. Same `touched` families as enrich.
+
 ---
 
 ## 5. Stats (Dashboard)

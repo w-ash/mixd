@@ -10,7 +10,7 @@ internal plumbing). This table is generated from
 `src/application/tools/registry.py` and enforced by
 `tests/unit/application/tools/test_registry_parity.py`.
 
-**97 capabilities: 85 covered, 12 excluded.**
+**98 capabilities: 86 covered, 12 excluded.**
 
 | Capability (use case) | Chat tool | Disposition | Rationale |
 | --- | --- | --- | --- |
@@ -77,6 +77,7 @@ internal plumbing). This table is generated from
 | MergeTagsUseCase | manage_tags | covered | — |
 | MergeTrackAndFetchDetailsUseCase | merge_tracks | covered | — |
 | MergeTracksUseCase | merge_tracks | covered | — |
+| MintArtistsUseCase | mint_artists | covered | — |
 | PreviewPlaylistSyncUseCase | query_playlist_links | covered | — |
 | PreviewWorkflowUseCase | preview_workflow | covered | — |
 | ReadCanonicalPlaylistUseCase | query_playlists | covered | — |
@@ -158,6 +159,7 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | import_data | write | chat-only (pending Tasks) | Call this to import listening data from a connector — Last.fm play history, Spotify likes, or the ~50 most recent Spotify plays (use that one for today's listening). |
 | rebuild_play_history | write | chat-only (pending Tasks) | Call this to re-derive the user's entire canonical play history from the imported observation ledger — converging duplicates and refreshing merged fields. |
 | enrich_artists | write | chat-only (pending Tasks) | Call this to resolve the user's artists against MusicBrainz — filling in MBIDs, alternate names and per-service links so artist pages and cross-service matching work. |
+| mint_artists | write | chat-only (pending Tasks) | Call this when the user's artist list is empty or missing artists even though their tracks have credits — it mints canonical artists from the service artist ids already stored against the library, which is what a library imported before v0.12.1 needs. |
 | get_discogs_snapshot | read | exposed | Call this to see the user's Discogs record collection as Discogs reports it: the total number of collected releases and the most recently added items (title, artist credits, year, physical formats, date added). |
 | get_tidal_snapshot | read | exposed | Call this to see the user's Tidal favorites as Tidal reports them: the total number of favorited tracks and the most recently added ones (title, artists, date favorited). |
 | code_execution | agentic | chat-only (agentic) | Server-side Python sandbox for batch computation over the user's library. |

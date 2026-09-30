@@ -87,6 +87,17 @@ class EnrichArtistsRequest(BaseModel):
     refresh_older_than_days: int = Field(default=30, ge=0, le=3650)
 
 
+class MintArtistsRequest(BaseModel):
+    """Body for ``POST /artists/mint``."""
+
+    limit: int | None = Field(
+        default=None, ge=1, le=100_000, description="Cap how many tracks to walk"
+    )
+    dry_run: bool = Field(
+        default=False, description="Report what would be minted, write nothing"
+    )
+
+
 def to_artist_summary(artist: Artist, result: ListArtistsResult) -> ArtistSummarySchema:
     """Project one listed artist plus its batched side-map values."""
     return ArtistSummarySchema(

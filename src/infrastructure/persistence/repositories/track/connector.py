@@ -79,6 +79,8 @@ from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBConnectorTrackArtist,
     DBResolutionNegative,
+    DBTrack,
+    DBTrackArtist,
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
@@ -102,6 +104,7 @@ from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.resolution import actively_suppressing
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
+from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 from src.infrastructure.services.resolution_recorder import ResolutionRecorder
 
 logger = get_logger(__name__)
@@ -142,6 +145,53 @@ def _key_of(track: ConnectorTrack) -> tuple[str, str]:
 def _connector_id_map(stored: Sequence[ConnectorTrack]) -> dict[tuple[str, str], UUID]:
     """Stored connector tracks keyed ``(connector, external id) -> row id``."""
     return {(ct.connector_name, ct.connector_track_identifier): ct.id for ct in stored}
+
+
+def _payload_has_identified_credit() -> ColumnElement[bool]:
+    """The correlated payload stores a credit naming a service artist record."""
+    return (
+        select(1)
+        .select_from(DBConnectorTrackArtist)
+        .where(
+            DBConnectorTrackArtist.connector_track_id == DBConnectorTrack.id,
+            DBConnectorTrackArtist.connector_artist_id.is_not(None),
+        )
+        .exists()
+    )
+
+
+def _has_unminted_credit(user_id: str) -> ColumnElement[bool]:
+    """The correlated track carries a credit no canonical artist owns yet."""
+    return (
+        select(1)
+        .select_from(DBTrackArtist)
+        .where(
+            DBTrackArtist.track_id == DBTrack.id,
+            DBTrackArtist.user_id == user_id,
+            DBTrackArtist.artist_id.is_(None),
+        )
+        .exists()
+    )
+
+
+def _has_identified_payload(user_id: str) -> ColumnElement[bool]:
+    """The correlated track's live primary mapping reaches identified credits."""
+    return (
+        select(1)
+        .select_from(DBTrackMapping)
+        .join(
+            DBConnectorTrack,
+            DBConnectorTrack.id == DBTrackMapping.connector_track_id,
+        )
+        .where(
+            DBTrackMapping.track_id == DBTrack.id,
+            DBTrackMapping.user_id == user_id,
+            DBTrackMapping.is_primary.is_(True),
+            live_only(DBTrackMapping),
+            _payload_has_identified_credit(),
+        )
+        .exists()
+    )
 
 
 def _vocabulary_match_method(value: str, *, row: UUID) -> MatchMethod:
@@ -1311,6 +1361,87 @@ class TrackConnectorRepository:
             ],
             mode="fill",
         )
+
+    @db_operation("list_unlinked_credit_sources")
+    async def list_unlinked_credit_sources(
+        self,
+        *,
+        user_id: str,
+        after_track_id: UUID | None = None,
+        limit: int = 500,
+    ) -> list[tuple[Track, ConnectorTrack]]:
+        """The user's unminted credits with the payload that names their artists.
+
+        One statement: an inner keyset page of ``tracks.id`` (so a page is
+        whole tracks) joined back out to every qualifying primary mapping, with
+        both credit collections eager-loaded the way each mapper reads them.
+
+        No ``populate_existing`` here, unlike :meth:`get_connector_track_by_id`:
+        the track mapper's ``mappings -> connector_track`` chain re-populates
+        the very payload instances this statement selects, and under
+        ``populate_existing`` that second pass discards the credit collection
+        loaded for them — the payload would arrive with no service ids and the
+        walk would mint nothing. It is safe to leave off because the keyset
+        only ever moves forward: a page reads tracks no earlier page wrote.
+        """
+        candidates = select(DBTrack.id).where(
+            DBTrack.user_id == user_id,
+            _has_unminted_credit(user_id),
+            _has_identified_payload(user_id),
+        )
+        if after_track_id is not None:
+            candidates = candidates.where(DBTrack.id > after_track_id)
+        page = candidates.order_by(DBTrack.id).limit(limit).scalar_subquery()
+        stmt = (
+            select(DBTrack, DBConnectorTrack)
+            .join(DBTrackMapping, DBTrackMapping.track_id == DBTrack.id)
+            .join(
+                DBConnectorTrack,
+                DBConnectorTrack.id == DBTrackMapping.connector_track_id,
+            )
+            .where(
+                DBTrack.id.in_(page),
+                DBTrackMapping.user_id == user_id,
+                DBTrackMapping.is_primary.is_(True),
+                live_only(DBTrackMapping),
+                _payload_has_identified_credit(),
+            )
+            .order_by(DBTrack.id, DBConnectorTrack.id)
+            .options(
+                *TrackMapper.get_default_relationships(),
+                # The mapper reads the service artist id through each credit
+                # row's record — the connector mapper's own load option.
+                selectinload(DBConnectorTrack.artist_credits).joinedload(
+                    DBConnectorTrackArtist.connector_artist
+                ),
+            )
+        )
+        result = await self.session.execute(stmt)
+        # A track with primaries on two services appears once per service, so
+        # the canonical is mapped once and reused across its pairs.
+        canonicals: dict[UUID, Track] = {}
+        pairs: list[tuple[Track, ConnectorTrack]] = []
+        for db_track, db_payload in result.tuples().all():
+            canonical = canonicals.get(db_track.id)
+            if canonical is None:
+                canonical = await TrackMapper.to_domain(db_track)
+                canonicals[db_track.id] = canonical
+            pairs.append((canonical, await ConnectorTrackMapper.to_domain(db_payload)))
+        return pairs
+
+    @db_operation("count_unlinked_credit_sources")
+    async def count_unlinked_credit_sources(self, *, user_id: str) -> int:
+        """How many tracks the unminted-credit walk would hand back."""
+        stmt = (
+            select(func.count())
+            .select_from(DBTrack)
+            .where(
+                DBTrack.user_id == user_id,
+                _has_unminted_credit(user_id),
+                _has_identified_payload(user_id),
+            )
+        )
+        return (await self.session.execute(stmt)).scalar_one()
 
     @db_operation("get_primary_mapping_details")
     async def get_primary_mapping_details(

@@ -121,6 +121,11 @@ _LAUNCHED_TOUCHES: Final[Mapping[str, tuple[CacheTag, ...]]] = {
     # dashboard totals hold — but every artist row's identity and service
     # badges move, and a track's credits carry the same artist ids.
     "artist_enrichment": (*_RUN_LOG, "artists", "tracks"),
+    # Minting is the other half: it creates artist rows and fills the credits
+    # that name them, so the artist list appears where it was empty and every
+    # track's credits gain their ids. Same families, one of them for the first
+    # time.
+    "artist_minting": (*_RUN_LOG, "artists", "tracks"),
 }
 
 # Scheduled fires (``sync_target_runner``) run the same imports but additionally

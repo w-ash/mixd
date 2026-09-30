@@ -5,13 +5,15 @@ expected arguments, and bad input produces a clean one-liner rather than a
 stack trace. Use-case behavior is covered by its own unit tests.
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import uuid7
 
 from typer.testing import CliRunner
 
 from src.application.use_cases.favorite_artist import FavoriteArtistResult
 from src.application.use_cases.list_artists import ListArtistsResult
+from src.application.use_cases.mint_artists import MintArtistsResult
+from src.domain.entities.operations import OperationResult
 from src.domain.exceptions import NotFoundError
 from src.interface.cli.app import app
 from tests.fixtures import make_artist
@@ -118,4 +120,43 @@ class TestFavoriteArtist:
             result = runner.invoke(app, ["artists", "favorite", str(uuid7())])
 
         assert result.exit_code == 1
+        assert "Traceback" not in result.output
+
+
+class TestMintArtists:
+    """``mixd artists mint`` — the launch contract, not the walk."""
+
+    @staticmethod
+    def _result() -> MintArtistsResult:
+        result = OperationResult(operation_name="Artist Minting", execution_time=0.0)
+        result.summary_metrics.add("artists_created", 4, "Artists Created")
+        return MintArtistsResult(result=result)
+
+    def test_forwards_the_limit_and_renders_the_summary(self) -> None:
+        with patch(
+            "src.application.use_cases.mint_artists.run_mint_artists",
+            new=AsyncMock(return_value=self._result()),
+        ) as run:
+            result = runner.invoke(app, ["artists", "mint", "--limit", "25"])
+
+        assert result.exit_code == 0
+        assert "Artists Created" in result.output
+        assert run.await_args.kwargs["limit"] == 25
+        assert run.await_args.kwargs["dry_run"] is False
+
+    def test_dry_run_says_nothing_was_written(self) -> None:
+        with patch(
+            "src.application.use_cases.mint_artists.run_mint_artists",
+            new=AsyncMock(return_value=self._result()),
+        ) as run:
+            result = runner.invoke(app, ["artists", "mint", "--dry-run"])
+
+        assert result.exit_code == 0
+        assert "Dry run" in result.output
+        assert run.await_args.kwargs["dry_run"] is True
+
+    def test_zero_limit_prints_clean_error(self) -> None:
+        result = runner.invoke(app, ["artists", "mint", "--limit", "0"])
+
+        assert result.exit_code == 2
         assert "Traceback" not in result.output
