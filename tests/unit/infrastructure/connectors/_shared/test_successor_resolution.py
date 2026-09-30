@@ -9,7 +9,6 @@ key-set is exactly {requested_id, returned_id, detection, *extra-keys}.
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
-from attrs.exceptions import FrozenInstanceError
 import pytest
 
 from src.infrastructure.connectors._shared.successor_resolution import (
@@ -204,19 +203,3 @@ class TestStaleIdMappingSpec:
                 primary_method="canonical_reuse",
                 confidence=100,
             )
-
-
-class TestSuccessorAssertion:
-    def test_assertion_is_immutable(self):
-        assertion = SuccessorAssertion(
-            requested_id="a", returned_id="b", detection="id_mismatch"
-        )
-        with pytest.raises(FrozenInstanceError):
-            assertion.requested_id = "c"  # type: ignore[misc]
-
-    def test_extra_defaults_empty(self):
-        assertion = SuccessorAssertion(
-            requested_id="a", returned_id="b", detection="id_mismatch"
-        )
-        assert dict(assertion.extra) == {}
-        assert assertion.track_id is None

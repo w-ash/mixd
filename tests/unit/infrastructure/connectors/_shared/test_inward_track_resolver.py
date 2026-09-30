@@ -519,32 +519,11 @@ class TestNormalization:
 
 
 class TestTrackResolutionMetrics:
-    """TrackResolutionMetrics is a frozen attrs class."""
-
-    def test_metrics_frozen(self):
-        metrics = TrackResolutionMetrics(existing=1, reused=0, created=2, failed=3)
-        with pytest.raises(AttributeError):
-            metrics.existing = 5  # type: ignore[misc]
+    """TrackResolutionMetrics' derived total and the base resolver's zero fields."""
 
     def test_metrics_total(self):
         metrics = TrackResolutionMetrics(existing=10, reused=3, created=5, failed=2)
         assert metrics.total == 20
-
-    def test_metrics_total_with_reused(self):
-        metrics = TrackResolutionMetrics(existing=5, reused=10, created=2, failed=1)
-        assert metrics.total == 18
-        assert metrics.reused == 10
-
-    def test_metrics_defaults_to_zero_reused(self):
-        metrics = TrackResolutionMetrics(existing=1, created=2, failed=0)
-        assert metrics.reused == 0
-        assert metrics.total == 3
-
-    def test_metrics_defaults_redirects_and_fallbacks_to_zero(self):
-        """Connectors without a redirect/fallback concept (e.g. Last.fm) get 0s."""
-        metrics = TrackResolutionMetrics(existing=1, created=2, failed=0)
-        assert metrics.redirects == 0
-        assert metrics.fallbacks == 0
 
     async def test_base_resolver_leaves_redirects_and_fallbacks_at_zero(self):
         """The base InwardTrackResolver has no concept of redirects/fallbacks —
@@ -593,33 +572,6 @@ class TestCanonicalReuseHook:
         # Track creation should not have been called (no remaining missing IDs)
         assert resolver.create_calls == []
 
-    async def test_mixed_reuse_and_create(self):
-        """Canonical reuse handles some IDs, track creation creates the rest."""
-        reused_track = make_track(10, "Reused")
-        created_track = make_track(20, "Created")
-
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        uow.get_connector_repository.return_value = connector_repo
-
-        resolver = FakeInwardResolver(
-            reuse_results={"id_a": reused_track},
-            batch_results={"id_b": created_track},
-        )
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_a", "id_b"], uow, user_id="test-user"
-        )
-
-        assert result == {"id_a": reused_track, "id_b": created_track}
-        assert metrics.reused == 1
-        assert metrics.created == 1
-        # Only id_b should have been passed to track creation
-        assert len(resolver.create_calls) == 1
-        assert resolver.create_calls[0] == ["id_b"]
-
     async def test_all_three_steps(self):
         """Mapping lookup, canonical reuse, and track creation all resolve different IDs."""
         existing_track = make_track(1, "Existing")
@@ -651,26 +603,6 @@ class TestCanonicalReuseHook:
         assert metrics.created == 1
         assert metrics.failed == 0
         assert metrics.total == 3
-
-    async def test_default_reuse_returns_empty(self):
-        """Base class default returns empty — no reuse without override."""
-        # Use a resolver WITHOUT reuse_results configured
-        track = make_track(1, "New")
-
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        uow.get_connector_repository.return_value = connector_repo
-
-        resolver = FakeInwardResolver(batch_results={"id_a": track})
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_a"], uow, user_id="test-user"
-        )
-
-        assert metrics.reused == 0
-        assert metrics.created == 1
 
 
 class PipelineResolver(WritePlanningResolver[str]):

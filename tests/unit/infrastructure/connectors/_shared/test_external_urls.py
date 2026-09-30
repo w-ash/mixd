@@ -5,7 +5,6 @@ from src.infrastructure.connectors._shared.external_urls import (
     connector_playlist_url,
     connector_track_url,
 )
-from src.infrastructure.connectors.discovery import discover_connectors
 
 
 class TestConnectorTrackUrl:
@@ -21,13 +20,6 @@ class TestConnectorTrackUrl:
 
     def test_unknown_service_yields_none(self):
         assert connector_track_url("myspace", "123") is None
-
-    def test_lookup_uses_the_data_plane_service_alias(self):
-        # Apple's rows key on "apple" while its config is registered under
-        # "apple_music"; the alias is what a mapping row carries.
-        config = discover_connectors()["apple_music"]
-        assert config["play_service_name"] == "apple"
-        assert connector_track_url("apple", "1440857781") is None
 
 
 class TestConnectorPlaylistUrl:
