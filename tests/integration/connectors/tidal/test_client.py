@@ -337,3 +337,14 @@ class TestFavoritesCount:
         # refresh token can no longer clobber a concurrent rotation.
         assert storage.saved == []
         assert token["refresh_token"] == "rt-1"
+
+    async def test_save_favorites_count_noop_without_token(
+        self, make_client, storage
+    ) -> None:
+        client = make_client(lambda _request: httpx2.Response(500))
+        storage.token = None
+
+        await client.save_favorites_count(7)
+
+        assert storage.saved == []
+        assert storage.token is None

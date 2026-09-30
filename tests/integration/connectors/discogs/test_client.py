@@ -371,6 +371,14 @@ class TestStoredTokenHelpers:
         assert client._storage.saved == []
         assert token["access_token"] == DISCOGS_TOKEN
 
+    async def test_save_collection_count_noop_without_token(self, make_client) -> None:
+        client = make_client(routed_handler)
+        client._storage.token = None
+
+        await client.save_collection_count(7)
+
+        assert client._storage.token is None
+
     async def test_save_account_name_backfills_and_preserves_siblings(
         self, make_client
     ) -> None:
@@ -389,3 +397,12 @@ class TestStoredTokenHelpers:
         assert token["extra_data"]["collection_count"] == 1
         # Narrow write: token columns never rewritten from a stale load.
         assert client._storage.saved == []
+
+    async def test_save_account_name_noop_without_token(self, make_client) -> None:
+        client = make_client(routed_handler)
+        client._storage.token = None
+
+        await client.save_account_name("attritus")
+
+        assert client._storage.saved == []
+        assert client._storage.token is None
