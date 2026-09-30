@@ -418,6 +418,14 @@ class TestConstraintWarnings:
         assert "['bogus']" in hits[0]["message"]
         validate_workflow_def(wf)
 
+    def test_task_ref_list_value_is_an_error_when_required(self):
+        # task_ref maps to str; a list on a required task_ref field is an error.
+        message, _ = _check_node_config(
+            "filter.by_tracks", {"exclusion_source": ["a"]}, "t"
+        )
+        assert message is not None
+        assert "must be str" in message
+
     def test_in_range_values_are_clean(self):
         wf = self._selector("selector.limit_tracks", {"count": 5, "method": "last"})
         assert validate_workflow_def_detailed(wf) == []

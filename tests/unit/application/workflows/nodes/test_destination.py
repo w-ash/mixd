@@ -139,7 +139,7 @@ class TestCreatePlaylist:
         assert command.description == "2 picks"
 
     async def test_create_dry_run_returns_tracklist_without_write(self, mock_context):
-        """Dry-run mode skips external write and returns tracklist."""
+        """Dry-run mode makes no use case or service call and returns the tracklist."""
         from src.application.workflows.nodes.destination import create_playlist
 
         mock_context["dry_run"] = True
@@ -148,6 +148,7 @@ class TestCreatePlaylist:
 
         assert "tracklist" in result
         mock_context["workflow_context"].execute_use_case.assert_not_called()
+        mock_context["workflow_context"].execute_service.assert_not_called()
 
 
 class TestUpdatePlaylist:
