@@ -114,6 +114,11 @@ class TestSyncResultFailed:
         r.summary_metrics.add("errors", 1, "Errors", significance=1)
         assert sync_result_failed(r) is True
 
+    def test_error_metadata_signals_failure(self) -> None:
+        r = OperationResult(operation_name="import")
+        r.metadata["error"] = "session expired"
+        assert sync_result_failed(r) is True
+
     def test_non_operation_result_is_not_failed(self) -> None:
         # A dispatch returning something else carries no failure signal to read.
         assert sync_result_failed(None) is False

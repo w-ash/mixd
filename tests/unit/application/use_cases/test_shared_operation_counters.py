@@ -9,6 +9,29 @@ from tests.fixtures import TEST_USER_ID
 class TestCountOperationTypes:
     """Tests for count_operation_types() utility function."""
 
+    def test_count_only_move_operations(self) -> None:
+        """Should correctly count only MOVE operations."""
+        track1 = Track(
+            title="Track 1",
+            artists=[ArtistCredit(credited_name="Artist 1")],
+            user_id=TEST_USER_ID,
+        )
+
+        operations = [
+            PlaylistOperation(
+                operation_type=PlaylistOperationType.MOVE,
+                track=track1,
+                position=0,
+                old_position=5,
+            ),
+        ]
+
+        result = count_operation_types(operations)
+
+        assert result.added == 0
+        assert result.removed == 0
+        assert result.moved == 1
+
     def test_count_mixed_operations(self) -> None:
         """Should correctly count mixed operation types."""
         tracks = [

@@ -376,6 +376,25 @@ class TestArtistFavoritesEnrichment:
             == "test-user"
         )
 
+    async def test_artist_favorites_enrichment_empty_result(self, use_case):
+        """No favorited artists → metadata["favorite_artist_ids"] is an empty frozenset."""
+        tracks = make_tracks(count=2)
+        tracklist = TrackList(tracks=tracks)
+
+        mock_favorite_repo = AsyncMock()
+        mock_favorite_repo.get_favorite_artist_ids.return_value = frozenset()
+        mock_uow = make_mock_uow(artist_favorite_repo=mock_favorite_repo)
+
+        config = EnrichmentConfig(enrichment_type="artist_favorites")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert result.enriched_tracklist.metadata["favorite_artist_ids"] == frozenset()
+        assert len(result.errors) == 0
+
 
 class TestEnrichmentConfig:
     """Test suite for EnrichmentConfig validation."""

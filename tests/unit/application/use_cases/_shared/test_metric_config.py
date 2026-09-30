@@ -18,3 +18,5 @@ class TestDefaultMetricConfig:
         assert provider.get_metric_label("lastfm_user_playcount") == (
             "Play Count (Last.fm)"
         )
+        # Last.fm play counts go stale after its declared 1 hour, not the 24 h fallback.
+        assert provider.get_metric_freshness("lastfm_user_playcount") == 1.0
