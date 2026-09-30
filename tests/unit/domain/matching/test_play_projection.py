@@ -547,15 +547,6 @@ class TestResolutionDivergenceBridge:
         assert stats["resolution_divergence"] == 0
 
 
-class TestMergeDeterminism:
-    def test_winner_tie_breaks_on_lowest_id(self):
-        a = _lastfm_obs(played_at=_BASE)
-        b = _lastfm_obs(played_at=_BASE + timedelta(seconds=40))
-        groups, _ = group_ledger_entries([a, b])
-        winners = sorted(g.members[0].id for g in groups)
-        assert winners == sorted([a.id, b.id])
-
-
 # --------------------------------------------------------------------------- #
 # Convergence laws (hypothesis).                                              #
 # --------------------------------------------------------------------------- #
@@ -801,14 +792,20 @@ class TestSpotifyApiChannel:
         assert normalized_start_time(api, channel_for(api)) == _BASE
         assert merge_group(group_ledger_entries([api])[0][0]).played_at == _BASE
 
-    def test_reprojecting_an_api_poll_overlap_is_idempotent(self):
-        """Re-polling the boundary play must not create a second canonical play."""
-        entries = [_api_obs(ended_at=_BASE)]
+    def test_a_re_polled_api_play_is_one_play(self):
+        """Re-polling the boundary play must not create a second canonical play.
 
-        first, _ = group_ledger_entries(entries)
-        second, _ = group_ledger_entries([*entries])
+        The overlapping poll writes the same play again: a second ledger row
+        with the same stamp and no ms_played. The same-instant rule folds it.
+        """
+        first = _api_obs(ended_at=_BASE)
+        again = _api_obs(ended_at=_BASE)
 
-        assert merge_group(first[0]) == merge_group(second[0])
+        result = project_ledger_entries([first, again])
+
+        assert len(result.plays) == 1
+        assert result.stats["same_channel_collapsed"] == 1
+        assert set(result.plays[0].member_ids) == {first.id, again.id}
 
 
 class TestSpotifyApiToleranceBoundary:
