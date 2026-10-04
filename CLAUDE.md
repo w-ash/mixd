@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Immutable domain** — pure transformations only
 - **User goal-focused** — design around "what is the user trying to accomplish?" not "what can our APIs do?"
 - **Multi-user** — design for concurrency, multi-tenancy (RLS), and shared-cache thundering-herd; `DEFAULT_USER_ID = "default"` is local-dev only
+- **Public repo** — everything committed here is public: no home address, account details, or details from Ash's vault, house project, or private repos, in code, docs, backlog notes, or commit messages
 
 ## Architecture
 
