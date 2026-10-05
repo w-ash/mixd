@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { toasts } from "#/lib/toasts";
 import { server } from "#/test/setup";
 import { renderWithProviders } from "#/test/test-utils";
 
@@ -15,19 +16,6 @@ vi.mock("react-router", async () => {
   return {
     ...actual,
     useNavigate: () => mockNavigate,
-  };
-});
-
-const mockToastSuccess = vi.fn();
-vi.mock("#/lib/toasts", async () => {
-  const actual =
-    await vi.importActual<typeof import("#/lib/toasts")>("#/lib/toasts");
-  return {
-    ...actual,
-    toasts: {
-      ...actual.toasts,
-      success: (...args: unknown[]) => mockToastSuccess(...args),
-    },
   };
 });
 
@@ -50,6 +38,9 @@ describe("SaveFiltersAsWorkflowDialog", () => {
 
   it("POSTs the serialized workflow and navigates to the editor on success", async () => {
     mockNavigate.mockReset();
+    const toastSuccess = vi
+      .spyOn(toasts, "success")
+      .mockImplementation(() => {});
     const capturedBody: unknown[] = [];
     server.use(
       http.post("*/api/v1/workflows", async ({ request }) => {
@@ -95,8 +86,9 @@ describe("SaveFiltersAsWorkflowDialog", () => {
     await vi.waitFor(() => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
       expect(mockNavigate).toHaveBeenCalledWith("/workflows/wf_new_123/edit");
-      expect(mockToastSuccess).toHaveBeenCalledWith('Saved "My Mix"');
+      expect(toastSuccess).toHaveBeenCalledWith('Saved "My Mix"');
     });
+    toastSuccess.mockRestore();
   });
 
   it("shows an inline error on failed save and leaves the dialog open", async () => {

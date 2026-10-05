@@ -112,16 +112,6 @@ describe("SyncConfirmationDialog", () => {
     );
   });
 
-  it("offers both direction options in one chooser", () => {
-    renderDialog();
-    expect(
-      screen.getByRole("radio", { name: /Spotify → Mixd/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("radio", { name: /Mixd → Spotify/ }),
-    ).toBeInTheDocument();
-  });
-
   it("does not render when closed", () => {
     renderDialog({ open: false });
     expect(screen.queryByText("Sync Preview")).not.toBeInTheDocument();
@@ -202,7 +192,7 @@ describe("SyncConfirmationDialog", () => {
     await waitFor(() => expect(onStarted).toHaveBeenCalledWith("op-1"));
   });
 
-  it("re-prompts and stays open on a stale-token 409", async () => {
+  it("re-prompts on a stale-token 409 and re-confirms with the fresh token", async () => {
     stubPreview({
       tracks_to_add: 0,
       tracks_to_remove: 147,
@@ -216,19 +206,32 @@ describe("SyncConfirmationDialog", () => {
       safety_total: 150,
       confirm_token: "tok1",
     });
+    const sentTokens: unknown[] = [];
     server.use(
-      http.post(SYNC_URL, () =>
-        HttpResponse.json(
-          {
-            error: {
-              code: "CONFIRMATION_REQUIRED",
-              message: "stale",
-              details: { confirm_token: "tok2", removals: "147", total: "150" },
+      http.post(SYNC_URL, async ({ request }) => {
+        const body = (await request.json()) as { confirm_token?: string };
+        sentTokens.push(body.confirm_token);
+        if (body.confirm_token !== "tok2") {
+          return HttpResponse.json(
+            {
+              error: {
+                code: "CONFIRMATION_REQUIRED",
+                message: "stale",
+                details: {
+                  confirm_token: "tok2",
+                  removals: "147",
+                  total: "150",
+                },
+              },
             },
-          },
-          { status: 409 },
-        ),
-      ),
+            { status: 409 },
+          );
+        }
+        return HttpResponse.json(
+          { operation_id: "op-2", run_id: "run-2" },
+          { status: 202 },
+        );
+      }),
     );
     const onStarted = vi.fn();
     renderDialog({ onStarted });
@@ -238,12 +241,20 @@ describe("SyncConfirmationDialog", () => {
     });
     await userEvent.click(btn);
 
+    // The dialog stays open and re-prompts instead of starting the sync.
     await waitFor(() =>
       expect(
         screen.getByText(/playlist changed since the preview/i),
       ).toBeInTheDocument(),
     );
     expect(onStarted).not.toHaveBeenCalled();
+
+    // Confirming again carries the 409's token, not the preview's.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove 147 tracks" }),
+    );
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith("op-2"));
+    expect(sentTokens).toEqual(["tok1", "tok2"]);
   });
 
   it("clears the 409-derived destructive state when the direction changes", async () => {

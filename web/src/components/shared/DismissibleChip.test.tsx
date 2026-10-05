@@ -26,9 +26,8 @@ describe("DismissibleChip", () => {
 
   it("applies font-mono when fontVariant='mono'", () => {
     render(<DismissibleChip label="abc123" fontVariant="mono" />);
-    // The badge is the innermost element carrying 'font-mono'.
-    const badge = screen.getByText("abc123").closest("[class*='font-mono']");
-    expect(badge).not.toBeNull();
+    // The label span sits directly inside the badge.
+    expect(screen.getByText("abc123").parentElement).toHaveClass("font-mono");
   });
 
   it("does NOT apply font-mono when fontVariant is 'display' (default)", () => {

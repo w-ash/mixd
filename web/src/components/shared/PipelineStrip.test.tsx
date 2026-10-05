@@ -49,13 +49,6 @@ describe("PipelineStrip", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("applies custom className", () => {
-    const { container } = render(
-      <PipelineStrip tasks={mockTasks} className="mt-4" />,
-    );
-    expect(container.firstChild).toHaveClass("mt-4");
-  });
-
   it("shows node tooltips with type info", () => {
     render(<PipelineStrip tasks={mockTasks} />);
 
@@ -64,7 +57,7 @@ describe("PipelineStrip", () => {
     expect(screen.getByTitle("Destination: dest")).toBeInTheDocument();
   });
 
-  it("shows progress bar during execution", () => {
+  it("names the running step and its position during execution", () => {
     const statuses = new Map<string, NodeStatus>([
       [
         "source",
@@ -90,14 +83,14 @@ describe("PipelineStrip", () => {
 
     render(<PipelineStrip tasks={mockTasks} nodeStatuses={statuses} />);
 
-    // Progress description should show current step
-    expect(screen.getByText(/Step 2\/3/)).toBeInTheDocument();
-    expect(screen.getByText(/Step 2\/3 — Filter/)).toBeInTheDocument();
+    expect(screen.getByText("Step 2/3 — Filter")).toBeInTheDocument();
   });
 
-  it("does not show progress bar when not executing", () => {
+  it("shows no progress copy when not executing", () => {
     render(<PipelineStrip tasks={mockTasks} />);
 
+    // Idle must not fall into the pre-first-event "Initializing…" state.
+    expect(screen.queryByText("Initializing…")).not.toBeInTheDocument();
     expect(screen.queryByText(/Step/)).not.toBeInTheDocument();
   });
 

@@ -13,14 +13,6 @@ import {
 import { CreatePlaylistModal } from "./CreatePlaylistModal";
 
 describe("CreatePlaylistModal", () => {
-  it("renders the trigger button", () => {
-    renderWithProviders(<CreatePlaylistModal />);
-
-    expect(
-      screen.getByRole("button", { name: "New Playlist" }),
-    ).toBeInTheDocument();
-  });
-
   it("opens dialog when trigger is clicked", async () => {
     const user = userEvent.setup();
     renderWithProviders(<CreatePlaylistModal />);
@@ -103,9 +95,11 @@ describe("CreatePlaylistModal", () => {
     });
   });
 
-  it("submits form and closes on success", async () => {
+  it("submits the trimmed name, omits a blank description, and closes", async () => {
+    const bodies: unknown[] = [];
     server.use(
-      http.post("*/api/v1/playlists", () => {
+      http.post("*/api/v1/playlists", async ({ request }) => {
+        bodies.push(await request.json());
         return HttpResponse.json(
           {
             id: 99,
@@ -130,8 +124,8 @@ describe("CreatePlaylistModal", () => {
       expect(screen.getByText("Create Playlist")).toBeInTheDocument();
     });
 
-    const nameInput = screen.getByLabelText("Name");
-    await user.type(nameInput, "My New Playlist");
+    await user.type(screen.getByLabelText("Name"), "  My New Playlist  ");
+    await user.type(screen.getByLabelText("Description"), "   ");
 
     const submitButton = screen.getByRole("button", { name: "Create" });
     await user.click(submitButton);
@@ -140,5 +134,6 @@ describe("CreatePlaylistModal", () => {
     await waitFor(() => {
       expect(screen.queryByText("Create Playlist")).not.toBeInTheDocument();
     });
+    expect(bodies).toEqual([{ name: "My New Playlist" }]);
   });
 });

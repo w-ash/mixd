@@ -36,23 +36,16 @@ const sampleTasks: WorkflowTaskDefSchemaInput[] = [
 ];
 
 describe("WorkflowGraph", () => {
-  it("renders without crashing with tasks", () => {
+  it("mounts the canvas under a loading overlay while computing layout", () => {
+    // The canvas must mount during measurement: layout reads the rendered
+    // node sizes, so an overlay-only state would never finish laying out.
     const { container } = renderWithProviders(
       <div style={{ width: 800, height: 600 }}>
         <WorkflowGraph tasks={sampleTasks} />
       </div>,
     );
-    // React Flow renders its container
-    expect(container.querySelector(".react-flow")).toBeInTheDocument();
-  });
-
-  it("shows loading overlay while computing layout", () => {
-    renderWithProviders(
-      <div style={{ width: 800, height: 600 }}>
-        <WorkflowGraph tasks={sampleTasks} />
-      </div>,
-    );
     expect(screen.getByText("Computing layout...")).toBeInTheDocument();
+    expect(container.querySelector(".react-flow")).toBeInTheDocument();
   });
 
   it("renders empty state without errors", () => {

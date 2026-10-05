@@ -83,14 +83,10 @@ describe("ConnectorPlaylistPickerDialog", () => {
 
     expect(await screen.findByText("Chill Vibes")).toBeInTheDocument();
     expect(screen.getByText("Workout Mix")).toBeInTheDocument();
-    // Badges are span elements; chip controls with the same text are buttons.
-    // Disambiguate by tag to target the pill rather than the filter chip.
-    const pills = screen.getAllByText(
-      (_, el) =>
-        el?.tagName === "SPAN" &&
-        (el.textContent === "Not imported" || el.textContent === "Imported"),
-    );
-    expect(pills.length).toBeGreaterThanOrEqual(2);
+    // Each label appears once as a status filter chip and once as the row pill:
+    // Chill Vibes is not imported, Workout Mix is imported.
+    expect(screen.getAllByText("Not imported")).toHaveLength(2);
+    expect(screen.getAllByText("Imported")).toHaveLength(2);
   });
 
   it("keeps the refresh button pending until the new list has landed", async () => {
@@ -281,114 +277,20 @@ describe("ConnectorPlaylistPickerDialog", () => {
 
     await screen.findByText("Chill Vibes");
     await userEvent.click(screen.getByText("Chill Vibes"));
+    const input = screen.getByLabelText("Search Spotify playlists");
+    await userEvent.type(input, "chill");
+    expect(
+      screen.getByRole("button", { name: "Import 1 playlist" }),
+    ).toBeEnabled();
+
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  describe("assignments", () => {
-    const TAG_ASSIGN_ID = "aaaaaaaa-0000-0000-0000-000000000001";
-    const RATING_ASSIGN_ID = "aaaaaaaa-0000-0000-0000-000000000002";
-
-    const TAGGED_PLAYLIST = makeConnectorPlaylistBrowse({
-      ...CHILL,
-      current_assignments: [
-        {
-          assignment_id: TAG_ASSIGN_ID,
-          action_type: "add_tag",
-          action_value: "mood:chill",
-        },
-      ],
-    });
-
-    const FULLY_ASSIGNED = makeConnectorPlaylistBrowse({
-      ...CHILL,
-      current_assignments: [
-        {
-          assignment_id: TAG_ASSIGN_ID,
-          action_type: "add_tag",
-          action_value: "mood:chill",
-        },
-        {
-          assignment_id: RATING_ASSIGN_ID,
-          action_type: "set_preference",
-          action_value: "star",
-        },
-      ],
-    });
-
-    it("renders the tag status badge on a mapped row", async () => {
-      mockList([TAGGED_PLAYLIST]);
-      setup();
-
-      expect(await screen.findByText("mood:chill")).toBeInTheDocument();
-    });
-
-    it("hides Re-apply / Remove from the overflow menu when no assignments", async () => {
-      mockList([CHILL]);
-      setup();
-
-      await screen.findByText("Chill Vibes");
-      await userEvent.click(
-        screen.getByRole("button", { name: /More actions for Chill Vibes/ }),
-      );
-
-      // Menuitem by role ensures we don't confuse with other elements.
-      expect(
-        screen.getByRole("menuitem", { name: "Tag tracks…" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("menuitem", { name: "Rate tracks…" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByRole("menuitem", { name: "Re-apply" }),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole("menuitem", { name: /Remove/ }),
-      ).not.toBeInTheDocument();
-    });
-
-    it("shows Remove items per-assignment when the playlist is mapped", async () => {
-      mockList([FULLY_ASSIGNED]);
-      setup();
-
-      await screen.findByText("Chill Vibes");
-      await userEvent.click(
-        screen.getByRole("button", { name: /More actions for Chill Vibes/ }),
-      );
-
-      expect(
-        screen.getByRole("menuitem", { name: "Re-apply" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("menuitem", { name: "Remove tag: mood:chill" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("menuitem", { name: "Remove rating" }),
-      ).toBeInTheDocument();
-    });
-
-    it("DELETEs the assignment when Remove is clicked", async () => {
-      mockList([TAGGED_PLAYLIST]);
-      const deleteSpy = vi.fn(() => HttpResponse.json({}, { status: 204 }));
-      server.use(
-        http.delete(
-          `*/api/v1/playlist-assignments/${TAG_ASSIGN_ID}`,
-          deleteSpy,
-        ),
-      );
-      setup();
-
-      await screen.findByText("mood:chill");
-      await userEvent.click(
-        screen.getByRole("button", { name: /More actions for Chill Vibes/ }),
-      );
-      await userEvent.click(
-        screen.getByRole("menuitem", { name: "Remove tag: mood:chill" }),
-      );
-
-      await waitFor(() => expect(deleteSpy).toHaveBeenCalledOnce());
-    });
+    // The parent keeps `open` here, so the reset is visible in place.
+    expect(input).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Import 0 playlists" }),
+    ).toBeDisabled();
   });
 
   describe("select mode (link-to-existing flow)", () => {

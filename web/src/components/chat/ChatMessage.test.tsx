@@ -17,16 +17,7 @@ function makeMessage(overrides: Partial<ChatMessageType>): ChatMessageType {
 
 describe("ChatMessage", () => {
   describe("user message", () => {
-    it("renders text content", () => {
-      renderWithProviders(
-        <ChatMessage
-          message={makeMessage({ role: "user", content: "Hello there" })}
-        />,
-      );
-      expect(screen.getByText("Hello there")).toBeInTheDocument();
-    });
-
-    it("renders as plain text (no markdown parsing)", () => {
+    it("renders the text verbatim, without markdown parsing", () => {
       renderWithProviders(
         <ChatMessage
           message={makeMessage({ role: "user", content: "**bold text**" })}
@@ -37,22 +28,16 @@ describe("ChatMessage", () => {
   });
 
   describe("assistant message", () => {
-    it("renders text content", () => {
-      renderWithProviders(
-        <ChatMessage
-          message={makeMessage({ content: "Here is your answer." })}
-        />,
-      );
-      expect(screen.getByText("Here is your answer.")).toBeInTheDocument();
-    });
-
-    it("renders bold text via Streamdown", () => {
+    it("renders the text with markdown bold via Streamdown", () => {
       renderWithProviders(
         <ChatMessage
           message={makeMessage({ content: "This is **important** info." })}
         />,
       );
-      expect(screen.getByText("important")).toBeInTheDocument();
+      expect(screen.getByText(/This is/)).toHaveTextContent(
+        "This is important info.",
+      );
+      expect(screen.getByText("important").tagName).toBe("STRONG");
     });
 
     it("renders a markdown table", () => {

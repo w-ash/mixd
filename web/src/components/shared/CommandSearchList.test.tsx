@@ -104,27 +104,26 @@ describe("CommandSearchList", () => {
     expect(screen.getByText("Spotify")).toBeInTheDocument();
   });
 
-  it("forwards the default limit of 10", async () => {
-    const urls = installTracks([]);
-    const user = userEvent.setup();
-    renderWithProviders(<CommandSearchList onSelect={() => {}} />);
+  it.each([
+    { limit: undefined, expected: "10" },
+    { limit: 20, expected: "20" },
+  ])(
+    "requests limit=$expected when limit is $limit",
+    async ({ limit, expected }) => {
+      const urls = installTracks([]);
+      const user = userEvent.setup();
+      renderWithProviders(
+        <CommandSearchList onSelect={() => {}} limit={limit} />,
+      );
 
-    await user.type(input(), "song");
+      await user.type(input(), "song");
 
-    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
-    expect(urls.at(-1)).toContain("limit=10");
-  });
-
-  it("forwards an explicit limit of 20", async () => {
-    const urls = installTracks([]);
-    const user = userEvent.setup();
-    renderWithProviders(<CommandSearchList onSelect={() => {}} limit={20} />);
-
-    await user.type(input(), "song");
-
-    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
-    expect(urls.at(-1)).toContain("limit=20");
-  });
+      await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+      const last = new URL(urls.at(-1) ?? "");
+      expect(last.searchParams.get("limit")).toBe(expected);
+      expect(last.searchParams.get("q")).toBe("song");
+    },
+  );
 
   it("suppresses the fetch when enabled is false, even at ≥2 chars", async () => {
     const urls = installTracks([makeTrack()]);

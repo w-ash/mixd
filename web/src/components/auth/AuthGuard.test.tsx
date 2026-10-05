@@ -9,9 +9,29 @@ vi.mock("@neondatabase/auth/react/ui", () => ({
   useAuthenticate: mockUseAuthenticate,
 }));
 
+import { Route, Routes } from "react-router";
+
 import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { AuthGuard } from "./AuthGuard";
+
+/** Guard a page at "/" next to the sign-in route the guard redirects to. */
+function renderGuardedApp() {
+  return renderWithProviders(
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <AuthGuard>
+            <div>Protected content</div>
+          </AuthGuard>
+        }
+      />
+      <Route path="/auth/sign-in" element={<div>Sign-in page</div>} />
+    </Routes>,
+    { routerProps: { initialEntries: ["/"] } },
+  );
+}
 
 describe("AuthGuard", () => {
   afterEach(() => {
@@ -25,14 +45,12 @@ describe("AuthGuard", () => {
       error: null,
     });
 
-    renderWithProviders(
-      <AuthGuard>
-        <div>Protected content</div>
-      </AuthGuard>,
-    );
+    renderGuardedApp();
 
     expect(screen.queryByText("Protected content")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // A session still resolving is not a signed-out user: no redirect yet.
+    expect(screen.queryByText("Sign-in page")).not.toBeInTheDocument();
   });
 
   it("shows error alert when auth fails", () => {
@@ -61,13 +79,9 @@ describe("AuthGuard", () => {
       error: null,
     });
 
-    renderWithProviders(
-      <AuthGuard>
-        <div>Protected content</div>
-      </AuthGuard>,
-      { routerProps: { initialEntries: ["/"] } },
-    );
+    renderGuardedApp();
 
+    expect(screen.getByText("Sign-in page")).toBeInTheDocument();
     expect(screen.queryByText("Protected content")).not.toBeInTheDocument();
   });
 

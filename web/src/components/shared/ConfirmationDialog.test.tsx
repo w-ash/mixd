@@ -27,16 +27,6 @@ function renderDialog(
 }
 
 describe("ConfirmationDialog", () => {
-  it("renders title and confirm button when open", async () => {
-    renderDialog();
-
-    await waitFor(() => {
-      expect(screen.getByText("Confirm Action")).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("button", { name: "Do it" })).toBeInTheDocument();
-  });
-
   it("does not render content when closed", () => {
     renderDialog({ open: false });
 
@@ -67,16 +57,6 @@ describe("ConfirmationDialog", () => {
     });
 
     expect(screen.getByText("Preview content here")).toBeInTheDocument();
-  });
-
-  it("renders cancel button with default label", async () => {
-    renderDialog();
-
-    await waitFor(() => {
-      expect(screen.getByText("Confirm Action")).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
   it("renders custom cancel label", async () => {
@@ -115,18 +95,11 @@ describe("ConfirmationDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("disables confirm button when isPending is true", async () => {
-    renderDialog({ isPending: true });
-
-    await waitFor(() => {
-      expect(screen.getByText("Confirm Action")).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("button", { name: "Do it" })).toBeDisabled();
-  });
-
-  it("disables confirm button when disabled is true", async () => {
-    renderDialog({ disabled: true });
+  it.each([
+    { prop: "isPending", props: { isPending: true } },
+    { prop: "disabled", props: { disabled: true } },
+  ])("disables confirm button when $prop is true", async ({ props }) => {
+    renderDialog(props);
 
     await waitFor(() => {
       expect(screen.getByText("Confirm Action")).toBeInTheDocument();
