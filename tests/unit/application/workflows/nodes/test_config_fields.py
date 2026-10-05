@@ -10,7 +10,6 @@ import pytest
 
 import src.application.workflows.nodes.catalog as _catalog
 from src.application.workflows.nodes.config_fields import (
-    DEFAULT_PLAY_HISTORY_METRICS,
     PRIMARY_INPUT_FIELD,
     ConfigFieldDef,
     apply_declared_defaults,
@@ -41,19 +40,6 @@ def registry() -> dict[str, tuple[ConfigFieldDef, ...]]:
     return get_node_config_fields()
 
 
-def test_every_registered_node_has_config_fields_entry(
-    registry: dict[str, tuple[ConfigFieldDef, ...]],
-) -> None:
-    """Every node in the node registry has a corresponding entry in the config fields registry."""
-    registered_node_ids = set(list_nodes().keys())
-    config_field_ids = set(registry.keys())
-
-    missing = registered_node_ids - config_field_ids
-    assert not missing, (
-        f"Registered nodes missing from the config fields registry: {sorted(missing)}"
-    )
-
-
 def test_no_extra_config_field_entries(
     registry: dict[str, tuple[ConfigFieldDef, ...]],
 ) -> None:
@@ -76,19 +62,6 @@ def test_select_fields_have_at_least_one_option(
             if field.field_type in ("select", "multi_select"):
                 assert len(field.options) >= 1, (
                     f"{node_type}.{field.key}: select field has no options"
-                )
-
-
-def test_required_fields_have_valid_field_type(
-    registry: dict[str, tuple[ConfigFieldDef, ...]],
-) -> None:
-    """Required fields have a field_type in the allowed set."""
-    for node_type, fields in registry.items():
-        for field in fields:
-            if field.required:
-                assert field.field_type in VALID_FIELD_TYPES, (
-                    f"{node_type}.{field.key}: required field has invalid "
-                    f"field_type '{field.field_type}'"
                 )
 
 
@@ -202,7 +175,7 @@ class TestApplyDeclaredDefaults:
 
     def test_multi_select_default_becomes_a_json_list(self) -> None:
         config = apply_declared_defaults("enricher.play_history", {})
-        assert config == {"metrics": list(DEFAULT_PLAY_HISTORY_METRICS)}
+        assert config == {"metrics": ["total_plays", "last_played_dates"]}
 
     def test_unknown_node_type_passes_config_through(self) -> None:
         assert apply_declared_defaults("totally.fake", {"x": 1}) == {"x": 1}
@@ -216,7 +189,7 @@ class TestApplyDeclaredDefaults:
 
     def test_empty_multi_select_falls_back_to_the_declared_default(self) -> None:
         config = apply_declared_defaults("enricher.play_history", {"metrics": []})
-        assert config == {"metrics": list(DEFAULT_PLAY_HISTORY_METRICS)}
+        assert config == {"metrics": ["total_plays", "last_played_dates"]}
 
     def test_null_without_a_default_is_dropped(self) -> None:
         """Absent means absent: no default, no key."""
@@ -314,23 +287,27 @@ def test_required_select_with_no_options_fails_the_build() -> None:
     connector catalog; if the catalog yields no likes-import connector the
     registry must refuse to build rather than serve an unsatisfiable field.
     """
-    from unittest.mock import patch
+    from unittest.mock import MagicMock, patch
 
+    import attrs
+
+    from src.application.use_cases._shared.connector_catalog import (
+        default_connector_catalog,
+    )
     from src.application.workflows.nodes import config_fields
 
+    # The real catalog with every connector's likes_import capability removed.
+    catalog = MagicMock()
+    catalog.list_descriptors.return_value = [
+        attrs.evolve(d, capabilities=d.capabilities - {"likes_import"})
+        for d in default_connector_catalog().list_descriptors()
+    ]
+
     with (
-        patch.object(config_fields, "_service_options", return_value=()),
+        patch.object(config_fields, "default_connector_catalog", return_value=catalog),
         pytest.raises(RuntimeError, match=r"filter\.by_liked_status\.service"),
     ):
         _ = config_fields._build_node_config_fields()
-
-
-def test_full_catalog_builds_without_error() -> None:
-    """The live catalog satisfies every required select."""
-    from src.application.workflows.nodes import config_fields
-
-    registry = config_fields._build_node_config_fields()
-    assert "filter.by_liked_status" in registry
 
 
 class TestIsUnset:

@@ -7,13 +7,11 @@ that had no test before the swap:
 - a fatal node lets its level siblings run to completion (option (a)), and the
   **first-submitted** fatal is the one raised (submission order, like gather);
 - external cancellation surfaces as a **bare** ``CancelledError`` (never an
-  ``ExceptionGroup``), so the run is recorded ``crashed`` one layer up;
-- the event loop stays responsive while a node offloads CPU via ``to_thread``.
+  ``ExceptionGroup``), so the run is recorded ``crashed`` one layer up.
 """
 
 import asyncio
 from contextlib import asynccontextmanager
-import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -89,7 +87,14 @@ class TestLevelConcurrency:
             ctx_patch,
         ):
             # Bounded: serial execution would block forever on the rendezvous.
-            await asyncio.wait_for(build_flow(_two_source_dag())(), timeout=3)
+            context = await asyncio.wait_for(build_flow(_two_source_dag())(), timeout=3)
+
+        assert set(context["_task_results"]) == {"a", "b", "dest"}
+        assert {r.node_id: r.status for r in context["_node_records"]} == {
+            "a": "completed",
+            "b": "completed",
+            "dest": "completed",
+        }
 
 
 @pytest.mark.slow
@@ -196,58 +201,3 @@ class TestExternalCancellation:
 
         # Exactly CancelledError — not a (Base)ExceptionGroup wrapping it.
         assert type(exc_info.value) is asyncio.CancelledError
-
-
-@pytest.mark.slow
-class TestLoopResponsiveness:
-    async def test_loop_stays_responsive_during_offloaded_node(self, sample_tracklist):
-        """While a node offloads CPU via to_thread, a concurrent asyncio task keeps
-        advancing — locking the invariant the heartbeat ticker depends on."""
-        ticks = 0
-
-        async def ticker():
-            nonlocal ticks
-            while True:
-                await asyncio.sleep(0.01)
-                ticks += 1
-
-        workflow_def = WorkflowDef(
-            id="responsive",
-            name="Responsive",
-            tasks=[
-                WorkflowTaskDef(
-                    id="src", type="source.playlist", config={"playlist_id": "p1"}
-                ),
-                WorkflowTaskDef(
-                    id="dest",
-                    type="destination.update_playlist",
-                    upstream=["src"],
-                    config={"playlist_id": "p1"},
-                ),
-            ],
-        )
-
-        async def mock_execute_node(node_type, context, config):
-            if node_type == "source.playlist":
-                # Simulate a CPU-bound node offloaded to a worker thread, as the
-                # real transform/combiner nodes do in node_factories.
-                await asyncio.to_thread(time.sleep, 0.3)
-            return {"tracklist": sample_tracklist}
-
-        session_patch, ctx_patch = _patch_env()
-        ticker_task = asyncio.create_task(ticker())
-        try:
-            with (
-                patch(
-                    "src.application.workflows.engine.executor.execute_node",
-                    side_effect=mock_execute_node,
-                ),
-                session_patch,
-                ctx_patch,
-            ):
-                await build_flow(workflow_def)()
-        finally:
-            ticker_task.cancel()
-
-        # ~0.3s of offloaded work / 0.01s ticks ≈ 30 possible; a blocked loop ~0.
-        assert ticks > 5

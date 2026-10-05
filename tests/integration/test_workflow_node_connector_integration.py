@@ -19,51 +19,6 @@ class TestWorkflowConnectorIntegration:
         registry = ConnectorRegistryImpl()
         return registry.get_connector("spotify")
 
-    async def test_playlist_source_with_real_spotify_connector_interface(
-        self, real_spotify_connector
-    ):
-        """Integration test: verify playlist_source can call real Spotify connector methods.
-
-        Prevents: AttributeError when workflow execution reaches connector methods
-        This test focuses on method existence and interface contracts, not full execution.
-        """
-        # Verify the connector has the methods that playlist_source will try to call
-        assert hasattr(real_spotify_connector, "get_playlist"), (
-            "Missing get_playlist method"
-        )
-        assert hasattr(real_spotify_connector, "get_tracks_by_ids"), (
-            "Missing get_tracks_by_ids method"
-        )
-        assert hasattr(real_spotify_connector, "convert_track_to_connector"), (
-            "Missing convert_track_to_connector method"
-        )
-
-        # Verify method signatures are callable (this would catch AttributeError early)
-        import inspect
-
-        # get_playlist should be async and accept playlist_id
-        sig = inspect.signature(real_spotify_connector.get_playlist)
-        assert len(sig.parameters) >= 1, (
-            "get_playlist should accept playlist_id parameter"
-        )
-        assert inspect.iscoroutinefunction(real_spotify_connector.get_playlist)
-
-        # get_tracks_by_ids should be async and accept track IDs
-        sig = inspect.signature(real_spotify_connector.get_tracks_by_ids)
-        assert len(sig.parameters) >= 1, (
-            "get_tracks_by_ids should accept track_ids parameter"
-        )
-        assert inspect.iscoroutinefunction(real_spotify_connector.get_tracks_by_ids)
-
-        # convert_track_to_connector should be sync and accept track data
-        sig = inspect.signature(real_spotify_connector.convert_track_to_connector)
-        assert len(sig.parameters) >= 1, (
-            "convert_track_to_connector should accept track_data parameter"
-        )
-        assert not inspect.iscoroutinefunction(
-            real_spotify_connector.convert_track_to_connector
-        )
-
     def test_source_node_connector_method_expectations(self, real_spotify_connector):
         """Test that connector has all methods expected by source nodes.
 

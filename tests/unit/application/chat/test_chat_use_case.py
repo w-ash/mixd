@@ -105,27 +105,6 @@ async def test_tool_call_dispatches_through_registry_and_feeds_result() -> None:
     assert texts[-1].text == "Here are the nodes."
 
 
-async def test_pause_turn_continues_the_loop() -> None:
-    turns: list[_Turn] = [
-        (
-            [],
-            LLMResponse(
-                stop_reason="pause_turn",
-                content=[],
-                raw_content=[{"type": "text", "text": "thinking"}],
-            ),
-        ),
-        (
-            [TextDelta(text="done")],
-            LLMResponse(stop_reason="end_turn", content=[]),
-        ),
-    ]
-    events = await _collect(ChatUseCase(_FakeLLM(turns), execute_tool), _command())
-
-    texts = [e for e in events if isinstance(e, TextDelta)]
-    assert texts[-1].text == "done"
-
-
 async def test_paused_rounds_do_not_burn_the_model_turn_budget() -> None:
     # A pause_turn round carries empty content, which would otherwise read as a
     # non-sandbox round and consume a model turn (C2). With max_turns=1 several
@@ -161,9 +140,16 @@ async def test_refusal_raises_rather_than_ending_silently() -> None:
     # A refusal carries no tool_use blocks, so without its own branch it would
     # fall through to the empty-content return and end the turn as a success —
     # leaving an un-errored empty message that poisons the next request.
-    turns: list[_Turn] = [([], LLMResponse(stop_reason="refusal", content=[]))]
-    with pytest.raises(ChatRefusedError):
+    # stop_details is nullable even on a genuine refusal, so no category is the
+    # common case: the error still raises, without a category suffix.
+    turns: list[_Turn] = [
+        ([], LLMResponse(stop_reason="refusal", content=[], refusal_category=None))
+    ]
+    with pytest.raises(ChatRefusedError) as exc:
         await _collect(ChatUseCase(_FakeLLM(turns), execute_tool), _command())
+    assert str(exc.value) == (
+        "Anthropic's safety systems declined this request. Try rephrasing it."
+    )
 
 
 async def test_refusal_message_names_the_category() -> None:
@@ -171,15 +157,6 @@ async def test_refusal_message_names_the_category() -> None:
         ([], LLMResponse(stop_reason="refusal", content=[], refusal_category="cyber"))
     ]
     with pytest.raises(ChatRefusedError, match="cyber"):
-        await _collect(ChatUseCase(_FakeLLM(turns), execute_tool), _command())
-
-
-async def test_refusal_without_a_category_still_raises() -> None:
-    # stop_details is nullable even on a genuine refusal.
-    turns: list[_Turn] = [
-        ([], LLMResponse(stop_reason="refusal", content=[], refusal_category=None))
-    ]
-    with pytest.raises(ChatRefusedError):
         await _collect(ChatUseCase(_FakeLLM(turns), execute_tool), _command())
 
 

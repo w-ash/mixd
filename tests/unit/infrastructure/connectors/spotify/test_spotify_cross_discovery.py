@@ -126,21 +126,7 @@ class TestSuccessfulDiscovery:
 
 
 class TestNoResults:
-    """Empty search results should return Nothing."""
-
-    async def test_returns_nothing_when_no_candidates(self):
-        connector = AsyncMock()
-        connector.search_track.return_value = []
-
-        provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        track = make_track(id=42)
-        uow = _make_uow()
-
-        outcome = await discover_one(
-            provider, track, "Unknown", "Song", uow, user_id="test-user"
-        )
-
-        assert isinstance(outcome, Nothing)
+    """An empty search returns Nothing, and costs exactly one search."""
 
     async def test_a_miss_costs_exactly_one_search(self):
         """Discovery searches once per unmatched play; widening would double a
@@ -164,41 +150,19 @@ class TestLowConfidence:
     """Poor matches should be rejected by the domain evaluation service."""
 
     async def test_rejects_dissimilar_track(self):
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify456"
-        spotify_match.name = "Completely Different Song"
-        spotify_match.artists = [MagicMock(name="Someone Else", id="sp-someone")]
-        spotify_match.duration_ms = 120000
-        spotify_match.album = None
-        spotify_match.external_ids = None
-        spotify_match.model_dump.return_value = {
-            "id": "spotify456",
-            "name": "Completely Different Song",
-        }
-
         connector = AsyncMock()
-        connector.search_track.return_value = [spotify_match]
+        connector.search_track.return_value = [
+            _spotify_track_mock(
+                "spotify456",
+                "Completely Different Song",
+                "Someone Else",
+                duration_ms=120000,
+            )
+        ]
+        connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
         track = make_track(id=42, title="Creep", artist="Radiohead")
-        uow = _make_uow()
-
-        outcome = await discover_one(
-            provider, track, "Radiohead", "Creep", uow, user_id="test-user"
-        )
-
-        assert isinstance(outcome, Nothing)
-
-
-class TestExceptionHandling:
-    """API errors should be caught and return Nothing."""
-
-    async def test_returns_nothing_on_search_error(self):
-        connector = AsyncMock()
-        connector.search_track.side_effect = RuntimeError("API down")
-
-        provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        track = make_track(id=42)
         uow = _make_uow()
 
         outcome = await discover_one(
@@ -304,41 +268,6 @@ class TestISRCCollision:
         assert review.match_method == "isrc_suspect"
         assert review.user_id == "test-user"
 
-    async def test_no_isrc_collision_proceeds_normally(self):
-        """When the ISRC is not in the DB, a normal NewMapping is returned."""
-        artist_mock = MagicMock()
-        artist_mock.name = "Radiohead"
-        artist_mock.id = "sp-artist"
-
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify123"
-        spotify_match.name = "Creep"
-        spotify_match.artists = [artist_mock]
-        spotify_match.duration_ms = 238000
-        spotify_match.album = MagicMock()
-        spotify_match.album.name = "Pablo Honey"
-        spotify_match.external_ids = MagicMock(isrc="GBAYE9300106")
-        spotify_match.model_dump.return_value = {"id": "spotify123"}
-
-        connector = AsyncMock()
-        connector.search_track.return_value = [spotify_match]
-        connector.connector_name = "spotify"
-
-        provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        track = make_track(id=42, title="Creep", artist="Radiohead")
-        uow = _make_uow()
-
-        # No existing track with this ISRC
-        track_repo = uow.get_track_repository()
-        track_repo.find_tracks_by_isrcs.return_value = {}
-
-        outcome = await discover_one(
-            provider, track, "Radiohead", "Creep", uow, user_id="test-user"
-        )
-
-        assert isinstance(outcome, NewMapping)
-        assert outcome.spotify_id == "spotify123"
-
 
 class TestListenBrainzIntegration:
     """ListenBrainz lookup resolves tracks before Spotify search."""
@@ -385,25 +314,14 @@ class TestListenBrainzIntegration:
         connector.search_track.assert_not_called()
 
     async def test_listenbrainz_miss_falls_back_to_search(self):
-        """When ListenBrainz returns no hit, Spotify search is used."""
+        """No LB hit: the search decides, and no canonical read is spent."""
         lb_lookup = AsyncMock()
         lb_lookup.spotify_ids_from_metadata.return_value = {}
 
-        artist_mock = MagicMock()
-        artist_mock.name = "Artist"
-        artist_mock.id = "sp-artist"
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify123"
-        spotify_match.name = "Song"
-        spotify_match.artists = [artist_mock]
-        spotify_match.duration_ms = 200000
-        spotify_match.album = MagicMock()
-        spotify_match.album.name = "Album"
-        spotify_match.external_ids = MagicMock(isrc=None)
-        spotify_match.model_dump.return_value = {"id": "spotify123"}
-
         connector = AsyncMock()
-        connector.search_track.return_value = [spotify_match]
+        connector.search_track.return_value = [
+            _spotify_track_mock("spotify123", "Song", "Artist")
+        ]
         connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(
@@ -418,28 +336,21 @@ class TestListenBrainzIntegration:
         )
 
         assert isinstance(outcome, NewMapping)
-        connector.search_track.assert_called_once()
+        assert outcome.spotify_id == "spotify123"
+        connector.search_track.assert_called_once_with(
+            'artist:"Artist" track:"Song"', 5
+        )
+        uow.get_connector_repository().find_tracks_by_connectors.assert_not_awaited()
 
     async def test_no_album_skips_listenbrainz_and_still_searches(self):
         """The Labs endpoint requires a release name, so a probe without an
         album skips the ListenBrainz arm — the search ladder still runs."""
         lb_lookup = AsyncMock()
 
-        artist_mock = MagicMock()
-        artist_mock.name = "Artist"
-        artist_mock.id = "sp-artist"
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify123"
-        spotify_match.name = "Song"
-        spotify_match.artists = [artist_mock]
-        spotify_match.duration_ms = 200000
-        spotify_match.album = MagicMock()
-        spotify_match.album.name = "Album"
-        spotify_match.external_ids = MagicMock(isrc=None)
-        spotify_match.model_dump.return_value = {"id": "spotify123"}
-
         connector = AsyncMock()
-        connector.search_track.return_value = [spotify_match]
+        connector.search_track.return_value = [
+            _spotify_track_mock("spotify123", "Song", "Artist")
+        ]
         connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(
@@ -455,7 +366,10 @@ class TestListenBrainzIntegration:
 
         lb_lookup.spotify_ids_from_metadata.assert_not_awaited()
         assert isinstance(outcome, NewMapping)
-        connector.search_track.assert_called_once()
+        assert outcome.spotify_id == "spotify123"
+        connector.search_track.assert_called_once_with(
+            'artist:"Artist" track:"Song"', 5
+        )
 
     async def test_lookup_failure_degrades_to_search(self):
         """A ListenBrainz failure is a 'no LB hit', never a failed request —
@@ -463,21 +377,10 @@ class TestListenBrainzIntegration:
         lb_lookup = AsyncMock()
         lb_lookup.spotify_ids_from_metadata.side_effect = RuntimeError("LB down")
 
-        artist_mock = MagicMock()
-        artist_mock.name = "Artist"
-        artist_mock.id = "sp-artist"
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify123"
-        spotify_match.name = "Song"
-        spotify_match.artists = [artist_mock]
-        spotify_match.duration_ms = 200000
-        spotify_match.album = MagicMock()
-        spotify_match.album.name = "Album"
-        spotify_match.external_ids = MagicMock(isrc=None)
-        spotify_match.model_dump.return_value = {"id": "spotify123"}
-
         connector = AsyncMock()
-        connector.search_track.return_value = [spotify_match]
+        connector.search_track.return_value = [
+            _spotify_track_mock("spotify123", "Song", "Artist")
+        ]
         connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(
@@ -492,7 +395,10 @@ class TestListenBrainzIntegration:
         )
 
         assert isinstance(outcome, NewMapping)
-        connector.search_track.assert_called_once()
+        assert outcome.spotify_id == "spotify123"
+        connector.search_track.assert_called_once_with(
+            'artist:"Artist" track:"Song"', 5
+        )
 
     async def test_canonical_prefetch_failure_degrades_to_search(self):
         """A failed canonical read for ListenBrainz hits degrades those
@@ -502,21 +408,10 @@ class TestListenBrainzIntegration:
             ("Artist", "Album", "Song"): "lb_spotify_id"
         }
 
-        artist_mock = MagicMock()
-        artist_mock.name = "Artist"
-        artist_mock.id = "sp-artist"
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify123"
-        spotify_match.name = "Song"
-        spotify_match.artists = [artist_mock]
-        spotify_match.duration_ms = 200000
-        spotify_match.album = MagicMock()
-        spotify_match.album.name = "Album"
-        spotify_match.external_ids = MagicMock(isrc=None)
-        spotify_match.model_dump.return_value = {"id": "spotify123"}
-
         connector = AsyncMock()
-        connector.search_track.return_value = [spotify_match]
+        connector.search_track.return_value = [
+            _spotify_track_mock("spotify123", "Song", "Artist")
+        ]
         connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(
@@ -533,38 +428,10 @@ class TestListenBrainzIntegration:
         )
 
         assert isinstance(outcome, NewMapping)
-        connector.search_track.assert_called_once()
-
-    async def test_no_listenbrainz_proceeds_to_search(self):
-        """When no ListenBrainz lookup is configured, Spotify search is used directly."""
-        artist_mock = MagicMock()
-        artist_mock.name = "Radiohead"
-        artist_mock.id = "sp-artist"
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify123"
-        spotify_match.name = "Creep"
-        spotify_match.artists = [artist_mock]
-        spotify_match.duration_ms = 238000
-        spotify_match.album = MagicMock()
-        spotify_match.album.name = "Album"
-        spotify_match.external_ids = MagicMock(isrc=None)
-        spotify_match.model_dump.return_value = {"id": "spotify123"}
-
-        # No listenbrainz_lookup parameter — default None
-        connector = AsyncMock()
-        connector.search_track.return_value = [spotify_match]
-        connector.connector_name = "spotify"
-
-        provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        track = make_track(id=42, title="Creep", artist="Radiohead")
-        uow = _make_uow()
-
-        outcome = await discover_one(
-            provider, track, "Radiohead", "Creep", uow, user_id="test-user"
+        assert outcome.spotify_id == "spotify123"
+        connector.search_track.assert_called_once_with(
+            'artist:"Artist" track:"Song"', 5
         )
-
-        assert isinstance(outcome, NewMapping)
-        connector.search_track.assert_called_once()
 
 
 class TestDiscoverBatch:

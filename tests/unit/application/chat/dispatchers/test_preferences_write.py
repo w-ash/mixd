@@ -1,7 +1,8 @@
 """Unit tests for the ``set_preferences`` write dispatcher (propose + commit).
 
 The propose half stores a pending action (never mutates); the commit half runs
-the use case behind a monkeypatched ``execute_use_case``. The pending-action
+the use case behind a monkeypatched ``execute_use_case`` (for ``set``, the real
+factory runs into a patched use-case ``execute`` to see the Command built). The pending-action
 store is swapped for a fresh instance (patched on ``_common``, where
 ``propose_action`` reads it) so proposals never leak across tests.
 """
@@ -13,7 +14,11 @@ import pytest
 from src.application.chat.dispatchers import _common, preferences_write
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.use_cases.set_track_preference import SetTrackPreferenceResult
+from src.application.use_cases.set_track_preference import (
+    SetTrackPreferenceCommand,
+    SetTrackPreferenceResult,
+    SetTrackPreferenceUseCase,
+)
 from src.application.use_cases.sync_preferences_from_likes import (
     SyncPreferencesFromLikesResult,
 )
@@ -35,6 +40,23 @@ def _fake_runner(result: object):
         return result
 
     return _run
+
+
+def _capture(monkeypatch: pytest.MonkeyPatch, result: object) -> dict[str, object]:
+    """Run the dispatcher's real factory; record the Command and runner user_id."""
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
+        return result
+
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(SetTrackPreferenceUseCase, "execute", _execute)
+    monkeypatch.setattr(_common, "execute_use_case", _run)
+    return seen
 
 
 async def _pending(
@@ -105,48 +127,41 @@ class TestSetPreferencesPropose:
 
 
 class TestExecSetPreferences:
-    async def test_set_commits_through_use_case(
-        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("state", ["star", None], ids=["set", "clear"])
+    async def test_set_commits_the_proposed_state(
+        self,
+        fresh_store: InMemoryPendingActionStore,
+        monkeypatch: pytest.MonkeyPatch,
+        state: str | None,
     ) -> None:
         track_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(
-                SetTrackPreferenceResult(track_id=track_id, state="star", changed=True)
-            ),
+        seen = _capture(
+            monkeypatch,
+            SetTrackPreferenceResult(track_id=track_id, state=state, changed=True),
         )
         action = await _pending(
             fresh_store,
-            {"operation": "set", "track_id": str(track_id), "state": "star"},
+            {"operation": "set", "track_id": str(track_id), "state": state},
         )
 
-        result = await preferences_write.exec_set_preferences(action, "default")
+        result = await preferences_write.exec_set_preferences(action, "user-7")
 
-        assert isinstance(result, dict)
-        assert result["status"] == "confirmed"
-        assert result["state"] == "star"
-        assert result["changed"] is True
-
-    async def test_clear_commits_with_none_state(
-        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        track_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(
-                SetTrackPreferenceResult(track_id=track_id, state=None, changed=True)
-            ),
-        )
-        action = await _pending(
-            fresh_store,
-            {"operation": "set", "track_id": str(track_id), "state": None},
-        )
-
-        result = await preferences_write.exec_set_preferences(action, "default")
-
-        assert result["state"] is None
+        command = seen["command"]
+        assert isinstance(command, SetTrackPreferenceCommand)
+        assert command.track_id == track_id
+        assert command.state == state
+        # An assistant-made preference is recorded as a manual (user) choice.
+        assert command.source == "manual"
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
+        assert result == {
+            "status": "confirmed",
+            "operation": "set",
+            "description": "do it",
+            "track_id": str(track_id),
+            "state": state,
+            "changed": True,
+        }
 
     async def test_sync_commits_through_use_case(
         self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch

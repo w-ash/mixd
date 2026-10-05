@@ -319,6 +319,30 @@ class TestHTTPErrorClassifierTextPatterns:
             or "service" in error_description.lower()
         )
 
+    # SINGLE-KEYWORD CASES: each input matches exactly one keyword, so removing
+    # that keyword from the classifier drops the input to no match.
+
+    @pytest.mark.parametrize(
+        ("error_text", "expected_type", "expected_code"),
+        [
+            ("token expired", "permanent", "auth"),
+            ("invalid_grant error", "permanent", "auth"),
+            ("invalid_client provided", "permanent", "auth"),
+            ("access_denied by user", "permanent", "auth"),
+            ("Internal error - please retry", "temporary", "text"),
+        ],
+    )
+    def test_single_keyword_classification(
+        self, classifier, error_text, expected_type, expected_code
+    ):
+        """OAuth error codes and plain keywords classify with no other keyword present."""
+        result = classifier.classify_text_patterns(error_text)
+
+        assert result is not None
+        error_type, error_code, _ = result
+        assert error_type == expected_type
+        assert error_code == expected_code
+
     # NO MATCH CASES
 
     @pytest.mark.parametrize(
@@ -336,60 +360,6 @@ class TestHTTPErrorClassifierTextPatterns:
         result = classifier.classify_text_patterns(error_text)
 
         assert result is None
-
-
-class TestHTTPErrorClassifierIntegration:
-    """Test how HTTP status and text pattern methods work together."""
-
-    @pytest.fixture
-    def classifier(self):
-        """Create test classifier instance."""
-        return TestHTTPErrorClassifierImplementation()
-
-    def test_http_status_takes_precedence_over_text_patterns(self, classifier):
-        """Test that HTTP status classification takes precedence."""
-
-        # Create exception with both HTTP status and rate limit text
-        class TestException(Exception):
-            def __init__(self, message):
-                super().__init__(message)
-                self.status_code = 500  # Server error
-
-        exc = TestException("Rate limit exceeded")  # Text says rate limit
-
-        result = classifier.classify_error(exc)
-        error_type, error_code, _ = result
-
-        # Should use HTTP status (temporary) not text pattern (rate_limit)
-        assert error_type == "temporary"
-        assert error_code == "500"
-
-    def test_text_patterns_used_when_no_http_status(self, classifier):
-        """Test that text patterns are used when HTTP status isn't available."""
-        exc = Exception("Rate limit exceeded")
-
-        result = classifier.classify_error(exc)
-        error_type, error_code, _ = result
-
-        # Should use text pattern classification
-        assert error_type == "rate_limit"
-        assert error_code == "text"
-
-    def test_unknown_fallback_when_no_classification_matches(self, classifier):
-        """Test fallback to unknown when neither HTTP nor text patterns match."""
-
-        class TestException(Exception):
-            def __init__(self, message):
-                super().__init__(message)
-                # No status_code attribute
-
-        exc = TestException("Completely unrecognized error")
-
-        result = classifier.classify_error(exc)
-        error_type, error_code, _ = result
-
-        assert error_type == "unknown"
-        assert error_code == "N/A"
 
 
 class _TemplateOnlyClassifier(HTTPErrorClassifier):
@@ -454,6 +424,21 @@ class TestTemplateFallthrough:
 
         assert error_type == "permanent"
         assert error_code == "403"
+
+    def test_http_status_takes_precedence_over_text_patterns(
+        self, classifier: HTTPErrorClassifier
+    ) -> None:
+        """A 500 whose message reads like a rate limit is still a server error."""
+        request = httpx2.Request("GET", "https://api.example.com/test")
+        response = httpx2.Response(500, request=request)
+        exc = httpx2.HTTPStatusError(
+            "Rate limit exceeded", request=request, response=response
+        )
+
+        error_type, error_code, _ = classifier.classify_error(exc)
+
+        assert error_type == "temporary"
+        assert error_code == "500"
 
     def test_plain_request_error_is_temporary(
         self, classifier: HTTPErrorClassifier

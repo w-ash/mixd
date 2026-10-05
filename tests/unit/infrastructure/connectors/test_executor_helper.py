@@ -50,16 +50,6 @@ class TestExecutorHelperFunctions:
         with pytest.raises(ValueError, match="Test error"):
             run_async(failing_coro())
 
-    def test_run_async_handles_async_arguments(self):
-        """run_async() should work with parameterized coroutines."""
-        from src.interface.cli.async_runner import run_async
-
-        async def coro_with_args(a: int, b: str):
-            return f"{a}-{b}"
-
-        result = run_async(coro_with_args(42, "test"))
-        assert result == "42-test"
-
     @pytest.mark.slow
     def test_run_async_provides_high_concurrency(self):
         """Helper should provide 200-thread executor for high concurrency."""
@@ -99,35 +89,16 @@ class TestExecutorHelperFunctions:
         )
         assert result["results_count"] == 50
 
-    def test_run_async_loops_are_independent(self):
-        """Each call should use an independent event loop (no state leakage)."""
+    def test_run_async_closes_its_event_loop(self):
+        """Each call closes the loop it ran on, so repeated CLI calls leak none."""
         from src.interface.cli.async_runner import run_async
 
-        # Use task-local state to verify independence
-        async def set_and_check_task_name(name: str):
-            """Set a task name and verify only this task sees it."""
-            task = asyncio.current_task()
-            task.set_name(name)
-            return task.get_name()
+        async def capture_loop() -> asyncio.AbstractEventLoop:
+            return asyncio.get_running_loop()
 
-        name_1 = run_async(set_and_check_task_name("call_1"))
-        name_2 = run_async(set_and_check_task_name("call_2"))
+        first = run_async(capture_loop())
+        second = run_async(capture_loop())
 
-        # Each call should see its own task name (proves loop independence)
-        assert name_1 == "call_1"
-        assert name_2 == "call_2"
-
-    def test_run_async_cleans_up_loop(self):
-        """Helper should clean up the event loop after execution."""
-        from src.interface.cli.async_runner import run_async
-
-        async def simple_coro():
-            return "done"
-
-        # Run multiple times - should not leak event loops
-        for _ in range(5):
-            result = run_async(simple_coro())
-            assert result == "done"
-
-        # If loops weren't cleaned up, we'd see warnings or errors
-        # This test passing means cleanup is working
+        assert first.is_closed()
+        assert second.is_closed()
+        assert first is not second

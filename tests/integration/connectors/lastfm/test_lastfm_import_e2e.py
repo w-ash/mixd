@@ -7,10 +7,11 @@ Tests the complete import pipeline from use case to database:
 - Critical error paths and recovery
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import Mock, patch
 
 import pytest
+from sqlalchemy import select
 
 from src.application.use_cases.import_play_history import (
     ImportTracksCommand,
@@ -23,6 +24,7 @@ from src.infrastructure.connectors._shared.inward_track_resolver import (
 from src.infrastructure.connectors.lastfm.play_resolver import (
     LastfmConnectorPlayResolver,
 )
+from src.infrastructure.persistence.database.models import DBTrackPlay
 from tests.fixtures import TEST_USER_ID
 
 
@@ -41,9 +43,9 @@ class TestLastfmImportE2E:
 
     # E2E TEST 1: Complete Incremental Import Success Path
     async def test_complete_incremental_import_success(
-        self, unit_of_work, test_data_tracker
+        self, unit_of_work, db_session, test_data_tracker
     ):
-        """Test complete incremental import from use case to database."""
+        """The one scrobble in the window lands as a track play on its track."""
 
         # Create test track in database before starting the test
         from src.domain.entities import ArtistCredit, Track
@@ -104,12 +106,20 @@ class TestLastfmImportE2E:
                 use_case = ImportTracksUseCase()
                 result = await use_case.execute(command, unit_of_work)
 
-                # Assert - Verify successful import
+                # Assert - the scrobble reached the ledger as one track play
                 assert result.operation_result.summary_metrics.get("errors") == 0
-                assert result.operation_result.summary_metrics.get("track_plays") >= 0
-                assert result.service == "lastfm"
-                assert result.mode == "incremental"
-                assert result.execution_time_ms > 0
+                played = (
+                    (
+                        await db_session.execute(
+                            select(DBTrackPlay.played_at).where(
+                                DBTrackPlay.track_id == test_track.id
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                assert played == [datetime(2024, 1, 1, 12, 0, tzinfo=UTC)]
 
     # E2E TEST 2: Error Recovery - API Failure
     async def test_api_failure_error_handling(self, unit_of_work, test_data_tracker):
@@ -188,7 +198,7 @@ class TestLastfmImportE2E:
 
     # E2E TEST 4: Critical Path - Checkpoint Persistence
     async def test_checkpoint_persistence_e2e(self, unit_of_work, test_data_tracker):
-        """Test checkpoint creation and persistence through complete workflow."""
+        """The first run persists its cursor; a dateless run resumes from it."""
 
         # Create test track in database before starting the test
         from src.domain.entities import ArtistCredit, Track
@@ -210,10 +220,12 @@ class TestLastfmImportE2E:
 
             # Make the connector method async - track calls to differentiate between imports
             call_count = 0
+            requested_from: list[datetime] = []
 
             async def mock_get_recent_tracks_checkpoint(*args, **kwargs):
                 nonlocal call_count
                 call_count += 1
+                requested_from.append(kwargs["from_time"])
                 # First call (explicit dates) returns data, second call (checkpoint) returns empty
                 if call_count == 1:
                     return [
@@ -250,10 +262,19 @@ class TestLastfmImportE2E:
                 use_case = ImportTracksUseCase()
                 result = await use_case.execute(command, unit_of_work)
 
-                # Assert - Import succeeded
+                # Assert - Import succeeded and committed its window's cursor:
+                # the window's last day, tagged with the Last.fm account.
                 assert result.operation_result.summary_metrics.get("errors") == 0
+                checkpoint = (
+                    await unit_of_work.get_checkpoint_repository().get_sync_checkpoint(
+                        "checkpoint_test_user", "lastfm", "plays"
+                    )
+                )
+                assert checkpoint is not None
+                assert checkpoint.cursor == "2024-02-16@checkpoint_test_user"
 
-                # Verify checkpoint was created by running another incremental import
+                # A dateless incremental run resumes from that cursor
+                first_run_calls = len(requested_from)
                 incremental_command = ImportTracksCommand(
                     service="lastfm",
                     mode="incremental",
@@ -261,7 +282,6 @@ class TestLastfmImportE2E:
                     # No dates - should use checkpoint
                 )
 
-                # This should succeed without error (checkpoint exists)
                 incremental_result = await use_case.execute(
                     incremental_command, unit_of_work
                 )
@@ -269,3 +289,6 @@ class TestLastfmImportE2E:
                     incremental_result.operation_result.summary_metrics.get("errors")
                     == 0
                 )
+                # The cursor day is re-fetched first (late scrobbles), not the
+                # 30-day default window.
+                assert requested_from[first_run_calls].date() == date(2024, 2, 16)

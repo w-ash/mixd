@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock
 
 from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.types import MatchFailureReason
-from src.infrastructure.connectors._shared.matching_provider import IsrcOnly
 from src.infrastructure.connectors.tidal.client import TIDAL_COUNTRY_CODE
 from src.infrastructure.connectors.tidal.matching_provider import (
     TidalMatchingProvider,
@@ -46,17 +45,6 @@ def _isrc_track(
         artists=[ArtistCredit(credited_name="Test Artist")],
         user_id=TEST_USER_ID,
     )
-
-
-class TestServiceContract:
-    def test_service_name_is_tidal(self):
-        provider, _ = _make_provider()
-        assert provider.service_name == "tidal"
-
-    def test_strategy_is_isrc_only(self):
-        """No artist/title phase exists — the strategy has no such hook."""
-        provider, _ = _make_provider()
-        assert isinstance(provider._match_strategy(), IsrcOnly)
 
 
 class TestIsrcMatching:

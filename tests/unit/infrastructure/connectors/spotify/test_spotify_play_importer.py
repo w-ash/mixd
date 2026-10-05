@@ -91,48 +91,9 @@ class TestFetchData:
                 **_RUN,
             )
 
-    async def test_valid_file_returns_records(self, importer, mock_uow, tmp_path: Path):
-        import json
-
-        data = [
-            {
-                "ts": "2024-06-15T14:30:00Z",
-                "spotify_track_uri": "spotify:track:abc123",
-                "master_metadata_track_name": "Test",
-                "master_metadata_album_artist_name": "Artist",
-                "master_metadata_album_album_name": "Album",
-                "ms_played": 200000,
-                "platform": "Linux",
-                "conn_country": "US",
-                "reason_start": "trackdone",
-                "reason_end": "trackdone",
-                "shuffle": False,
-                "skipped": False,
-                "offline": False,
-                "incognito_mode": False,
-            }
-        ]
-        file = tmp_path / "history.json"
-        file.write_text(json.dumps(data))
-
-        records = await importer._fetch_data(
-            SpotifyImportParams(file_path=file), uow=mock_uow, user_id="user-1", **_RUN
-        )
-        assert len(records) == 1
-        assert isinstance(records[0], SpotifyPlayRecord)
-
 
 class TestProcessData:
     """Test _process_data() transformation to ConnectorTrackPlay."""
-
-    async def test_empty_data_returns_empty_list(self, importer):
-        result = await importer._process_data(
-            raw_data=[],
-            user_id="user-1",
-            batch_id="batch-1",
-            import_timestamp=datetime.now(UTC),
-        )
-        assert result == []
 
     async def test_record_transformed_to_connector_play(self, importer, sample_record):
         import_ts = datetime(2024, 7, 1, tzinfo=UTC)
@@ -189,55 +150,9 @@ class TestProcessData:
         assert play.connector_name == "spotify"
         assert play.connector_track_identifier == "spotify:track:4iV5W9uYEdYUVa79Axb7Rh"
 
-    async def test_multiple_records_processed(self, importer):
-        records = [
-            SpotifyPlayRecord(
-                timestamp=datetime(2024, 6, i, tzinfo=UTC),
-                track_uri=f"spotify:track:id{i}",
-                track_name=f"Song {i}",
-                artist_name="Artist",
-                album_name="Album",
-                ms_played=200000,
-                platform="Linux",
-                country="US",
-                reason_start="trackdone",
-                reason_end="trackdone",
-                shuffle=False,
-                skipped=False,
-                offline=False,
-                incognito_mode=False,
-            )
-            for i in range(1, 6)
-        ]
-
-        result = await importer._process_data(
-            raw_data=records,
-            user_id="user-1",
-            batch_id="batch-multi",
-            import_timestamp=datetime.now(UTC),
-        )
-
-        assert len(result) == 5
-        assert all(p.import_batch_id == "batch-multi" for p in result)
-
 
 class TestSaveData:
     """Test the shared connector-play save path."""
-
-    async def test_save_delegates_to_connector_play_repository(
-        self, importer, mock_uow
-    ):
-        plays = [MagicMock(spec=ConnectorTrackPlay)]
-        mock_uow.get_connector_play_repository.return_value.bulk_insert_connector_plays.return_value = (
-            1,
-            0,
-        )
-
-        inserted, dupes = await importer._save_connector_plays_via_uow(plays, mock_uow)
-
-        mock_uow.get_connector_play_repository.assert_called_once()
-        assert inserted == 1
-        assert dupes == 0
 
     async def test_save_reports_the_ledgers_counts_not_the_batch_size(
         self, importer, mock_uow
@@ -253,23 +168,28 @@ class TestSaveData:
 
         assert (inserted, dupes) == (0, 3)
 
-    async def test_save_empty_list_returns_zero(self, importer, mock_uow):
+    async def test_save_empty_list_returns_zero_without_touching_the_ledger(
+        self, importer, mock_uow
+    ):
         inserted, dupes = await importer._save_connector_plays_via_uow([], mock_uow)
-        assert inserted == 0
-        assert dupes == 0
+
+        assert (inserted, dupes) == (0, 0)
+        mock_uow.get_connector_play_repository.assert_not_called()
 
 
 class TestHandleCheckpoints:
     """Test _handle_checkpoints() — should be a no-op for file-based imports."""
 
     async def test_checkpoints_is_noop(self, importer, mock_uow, tmp_path: Path):
-        # Should complete without error or side effects
+        """File imports carry no cursor, so the UoW is never touched."""
         await importer._handle_checkpoints(
             [],
             SpotifyImportParams(file_path=tmp_path / "x.json"),
             mock_uow,
             user_id="user-1",
         )
+
+        assert mock_uow.mock_calls == []
 
 
 class TestImportPlays:

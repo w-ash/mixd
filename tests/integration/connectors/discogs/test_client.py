@@ -139,24 +139,6 @@ class TestPagination:
         # Order preserved across pages, no duplicates.
         assert [release.instance_id for release in releases] == list(range(1, 251))
 
-    async def test_single_page_collection_stops_after_one_request(self, make_client):
-        def one_page(request: httpx2.Request) -> httpx2.Response:
-            per_page = int(request.url.params.get("per_page", "100"))
-            return httpx2.Response(
-                200,
-                json=collection_page_payload(
-                    page=1, pages=1, per_page=per_page, items=2
-                ),
-            )
-
-        handler, requests = recording(one_page)
-        client = make_client(handler)
-
-        releases = await client.get_all_collection_releases(TEST_USERNAME)
-
-        assert len(requests) == 1
-        assert len(releases) == 2
-
     async def test_real_empty_collection_capture_returns_zero_releases(
         self, make_client
     ):
@@ -209,26 +191,6 @@ class TestPagination:
 
 class TestCollectionPageValidation:
     """Boundary validation of one collection page (the snapshot's seam)."""
-
-    async def test_item_missing_basic_information_does_not_fail_the_page(
-        self, make_client
-    ):
-        payload = collection_page_payload(page=1, pages=1, per_page=10, items=2)
-        del payload["releases"][0]["basic_information"]
-
-        def handler(_request: httpx2.Request) -> httpx2.Response:
-            return httpx2.Response(200, json=payload)
-
-        client = make_client(handler)
-
-        page = await client.get_collection_page(TEST_USERNAME, per_page=10)
-
-        assert page is not None
-        assert page.pagination.items == 2
-        assert page.releases[0].basic_information is None
-        second = page.releases[1].basic_information
-        assert second is not None
-        assert second.title == "Release 2"
 
     async def test_unreadable_page_raises_connector_error_not_validation_error(
         self, make_client

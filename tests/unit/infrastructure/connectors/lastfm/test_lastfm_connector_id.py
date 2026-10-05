@@ -10,6 +10,8 @@ the normalized composite, minted from Last.fm-CORRECTED names when available.
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from src.domain.entities import Track
 from src.domain.matching.protocols import Nothing
 from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
@@ -62,17 +64,17 @@ def _lastfm_connector_ids(uow) -> list[str]:
 class TestLastfmIdentifierNormalization:
     """Dedup identifiers used by the resolution service."""
 
-    def test_identifier_is_lowercased_for_dedup(self):
-        id1 = make_lastfm_identifier("Radiohead", "Creep")
-        id2 = make_lastfm_identifier("radiohead", "creep")
-
-        assert id1 == id2
-
-    def test_identifier_strips_whitespace(self):
-        id1 = make_lastfm_identifier("Radiohead", "Creep")
-        id2 = make_lastfm_identifier("  Radiohead  ", "  Creep  ")
-
-        assert id1 == id2
+    @pytest.mark.parametrize(
+        ("artist", "title"),
+        [
+            ("Radiohead", "Creep"),
+            ("radiohead", "creep"),
+            ("RADIOHEAD", "CREEP"),
+            ("  Radiohead  ", "  Creep  "),
+        ],
+    )
+    def test_identifier_is_lowercased_and_stripped(self, artist, title):
+        assert make_lastfm_identifier(artist, title) == "radiohead::creep"
 
 
 class TestInwardResolverUsesCompositeFormat:
@@ -172,26 +174,3 @@ class TestInwardResolverUsesCompositeFormat:
         assert _lastfm_connector_ids(uow) == [
             make_lastfm_identifier("radiohead", "creep")
         ]
-
-    async def test_bulk_lookup_finds_existing_url_tracks(self):
-        """Mapping lookup should find tracks stored with artist::title dedup key."""
-        resolver = LastfmInwardResolver(
-            lastfm_client=AsyncMock(),
-        )
-
-        existing_track = make_track(id=10)
-        uow = _make_uow(
-            existing_tracks={("lastfm", "radiohead::creep"): existing_track}
-        )
-
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow, user_id="test-user"
-        )
-
-        # Should find the existing track via bulk lookup
-        assert result["radiohead::creep"] == existing_track
-        assert metrics.existing == 1
-        assert metrics.created == 0
-
-        # Verify find_tracks_by_connectors was called
-        uow.get_connector_repository().find_tracks_by_connectors.assert_called_once()

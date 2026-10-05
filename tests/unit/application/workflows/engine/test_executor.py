@@ -6,6 +6,7 @@ Validation and DAG scheduling tests live in test_validation.py.
 """
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -35,14 +36,18 @@ class TestExtractWorkflowResult:
             ],
         )
 
+        # The destination holds a filtered subset, so reading any other task's
+        # tracklist gives a different answer.
+        final_tracklist = TrackList(tracks=sample_tracklist.tracks[:1])
         task_results = {
             "src_1": {"tracklist": sample_tracklist},
-            "dest_1": {"tracklist": sample_tracklist},
+            "dest_1": {"tracklist": final_tracklist},
         }
 
         result = extract_workflow_result(workflow_def, task_results, 1.0)
 
-        assert result.tracks == sample_tracklist.tracks
+        assert [t.title for t in result.tracks] == ["Track A"]
+        assert result.tracklist is final_tracklist
         assert result.operation_name == "test_workflow"
 
     def test_extracts_metrics_from_task_results(self, sample_tracklist):
@@ -127,38 +132,52 @@ class TestAggregateWorkflowMetrics:
 
 
 class TestOrchestratorWarnings:
-    """Tests for orchestrator-level 0-track warnings."""
+    """Tests for orchestrator-level track-count diagnostics."""
 
-    def test_no_warning_for_source_nodes(self):
-        """Source nodes have no upstream, so there is no primary input to count."""
-        from src.application.workflows.engine.executor import _primary_upstream_id
-
-        task_def = WorkflowTaskDef(
-            id="src_1",
-            type="source.playlist",
-        )
-
-        # None means no upstream — the input_track_count guard (> 0) won't fire
-        assert _primary_upstream_id(task_def) is None
-
-    def test_none_input_track_count_no_type_error(self):
+    async def test_none_input_track_count_no_type_error(self, sample_tracklist):
         """Regression: None input_track_count must not raise TypeError in > comparison.
 
-        When source nodes (no upstream) produce output, the zero-output warning
-        guard must handle None gracefully instead of raising
+        When source nodes (no upstream) produce output, the track-count
+        diagnostics must handle None gracefully instead of raising
         TypeError("'>' not supported between instances of 'NoneType' and 'int'").
         """
-        # Simulate the guard condition from build_flow's inner loop
-        input_track_count: int | None = None
-        output_track_count = 62  # Source produced tracks
+        from src.application.workflows.engine.executor import build_flow
+        from src.application.workflows.nodes import catalog
 
-        # This mirrors the zero-output warning guard in executor.py — must not raise
-        should_warn = (
-            input_track_count is not None
-            and input_track_count > 0
-            and output_track_count == 0
+        assert catalog  # registers source.playlist for the category lookup
+        source_output = TrackList(tracks=sample_tracklist.tracks * 31)
+
+        async def mock_execute_node(node_type, context, config):
+            return {"tracklist": source_output}
+
+        mock_wf_ctx = AsyncMock()
+        mock_wf_ctx.connectors.aclose = AsyncMock()
+        workflow_def = WorkflowDef(
+            id="source-only",
+            name="Source Only",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src", type="source.playlist", config={"playlist_id": "p1"}
+                )
+            ],
         )
-        assert should_warn is False
+
+        with (
+            patch(
+                "src.application.workflows.engine.executor.execute_node",
+                side_effect=mock_execute_node,
+            ),
+            patch(
+                "src.application.workflows.context.create_workflow_context",
+                return_value=mock_wf_ctx,
+            ),
+        ):
+            context = await build_flow(workflow_def)()
+
+        [record] = context["_node_records"]
+        assert record.status == "completed"
+        assert record.input_track_count is None
+        assert record.output_track_count == 62
 
 
 class TestPrimaryUpstreamId:
@@ -168,6 +187,14 @@ class TestPrimaryUpstreamId:
     input_track_count diagnostic all read this one helper, so it is the single
     place a combiner with ``primary_input=upstream[1]`` can go wrong.
     """
+
+    def test_node_without_upstream_has_no_primary_input(self):
+        """Source nodes have no upstream, so there is no primary input to count."""
+        from src.application.workflows.engine.executor import _primary_upstream_id
+
+        task_def = WorkflowTaskDef(id="src_1", type="source.playlist")
+
+        assert _primary_upstream_id(task_def) is None
 
     def test_uses_primary_input_branch_not_first_upstream(self):
         from src.application.workflows.engine.executor import _primary_upstream_id

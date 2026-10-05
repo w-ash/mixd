@@ -8,6 +8,7 @@ deliberately a single request rather than a paginate-to-completion loop.
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
+import httpx2
 import pytest
 
 from src.domain.exceptions import ConnectorSyncError
@@ -96,10 +97,16 @@ class TestGetRecentlyPlayedParsing:
 
     async def test_suppressed_failure_returns_none(self, spotify_client):
         """_SUPPRESS_ERRORS turns transport failures into None, not an exception."""
-        mock_impl = AsyncMock(return_value=None)
+        request = httpx2.Request(
+            "GET", "https://api.spotify.com/v1/me/player/recently-played"
+        )
+        transport = AsyncMock()
+        transport.request = AsyncMock(
+            return_value=httpx2.Response(503, request=request)
+        )
+        spotify_client._client = transport
 
-        with patch.object(SpotifyAPIClient, "_request_json", mock_impl):
-            assert await spotify_client.get_recently_played() is None
+        assert await spotify_client.get_recently_played() is None
 
     async def test_malformed_body_surfaces_the_connector_flavored_error(
         self, spotify_client

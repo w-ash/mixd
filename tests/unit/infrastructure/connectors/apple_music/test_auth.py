@@ -16,15 +16,17 @@ import pytest
 
 from src.config.settings import CredentialsConfig, settings
 import src.infrastructure.connectors.apple_music.auth as auth_module
-from src.infrastructure.connectors.apple_music.auth import (
-    _DEVELOPER_TOKEN_TTL,
-    _REMINT_MARGIN,
-    DeveloperTokenProvider,
-)
+from src.infrastructure.connectors.apple_music.auth import DeveloperTokenProvider
 
 TEAM_ID = "TEAM123456"
 KEY_ID = "KEYID12345"
 ORIGIN = "https://mixd.example.com"
+
+# Apple rejects developer tokens whose exp lies more than 15777000 s (6 months)
+# after iat — https://developer.apple.com/documentation/applemusicapi/generating_developer_tokens
+APPLE_MAX_TOKEN_LIFETIME_SECONDS = 15_777_000
+# The provider re-mints once a cached token is within one day of expiry.
+REMINT_MARGIN = timedelta(days=1)
 
 
 @pytest.fixture(scope="module")
@@ -95,19 +97,24 @@ def fake_clock(monkeypatch: pytest.MonkeyPatch) -> type[_FakeDatetime]:
 class TestMint:
     """Freshly minted tokens carry the right claims and header."""
 
-    def test_claims_and_header(self, configured: None, key_pair: tuple[str, str]):
-        before = datetime.now(UTC)
+    def test_claims_and_header(
+        self,
+        configured: None,
+        key_pair: tuple[str, str],
+        fake_clock: type[_FakeDatetime],
+    ):
         token = DeveloperTokenProvider().get_token()
-        after = datetime.now(UTC)
 
         claims = _decode(token, key_pair[1])
         assert claims["iss"] == TEAM_ID
         iat = claims["iat"]
         exp = claims["exp"]
-        assert isinstance(iat, int)
         assert isinstance(exp, int)
-        assert int(before.timestamp()) <= iat <= int(after.timestamp())
-        assert exp - iat == int(_DEVELOPER_TOKEN_TTL.total_seconds())
+        assert iat == 1_787_313_600  # 2026-08-21T12:00:00Z, the fake clock
+        # Apple's lifetime cap; and longer than the re-mint margin, or no
+        # cached token could ever be served.
+        assert REMINT_MARGIN.total_seconds() < exp - iat
+        assert exp - iat <= APPLE_MAX_TOKEN_LIFETIME_SECONDS
 
         header = jwt.get_unverified_header(token)
         assert header["kid"] == KEY_ID
@@ -146,10 +153,17 @@ class TestCache:
     ):
         provider = DeveloperTokenProvider()
         first = provider.get_token()
-        fake_clock.fixed_now += (
-            _DEVELOPER_TOKEN_TTL - _REMINT_MARGIN + timedelta(hours=1)
+        first_exp = jwt.decode(first, options={"verify_signature": False})["exp"]
+        # Half a day before expiry: inside the one-day re-mint margin.
+        fake_clock.fixed_now = datetime.fromtimestamp(first_exp, UTC) - timedelta(
+            hours=12
         )
-        assert provider.get_token() != first
+
+        second = provider.get_token()
+
+        assert second != first
+        second_exp = jwt.decode(second, options={"verify_signature": False})["exp"]
+        assert second_exp > first_exp
 
 
 class TestMissingConfig:

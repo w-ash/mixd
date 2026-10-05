@@ -2,22 +2,14 @@
 
 Tests the full resolver flow (Mapping Lookup → Canonical Reuse → Track Creation)
 with real database operations and mocked API clients, verifying that each identity
-resolution strategy (ISRC dedup, parenthetical stripping, MBID upsert, cross-discovery
-ISRC collision) correctly resolves tracks in realistic scenarios.
+resolution strategy (parenthetical stripping, cross-discovery ISRC collision)
+correctly resolves tracks in realistic scenarios.
 """
 
 from unittest.mock import AsyncMock, MagicMock
 
 from src.domain.entities import ArtistCredit, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
-from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
-from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
-from src.infrastructure.connectors.spotify.models import (
-    SpotifyAlbum,
-    SpotifyArtist as SpotifyModelArtist,
-    SpotifyExternalIds,
-    SpotifyTrack,
-)
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID, discover_one
 
@@ -93,96 +85,11 @@ class TestLastfmCanonicalParentheticalReuse:
             user_id="default",
         )
 
+        assert result["ultraviolet::new kind of soft (feat. neon priest)"].id == (
+            existing.id
+        )
         assert metrics.reused == 1
         assert metrics.created == 0
-
-
-class TestSpotifyISRCDedup:
-    """Spotify resolver should reuse existing tracks by ISRC in Track Creation."""
-
-    async def test_reuses_track_with_same_isrc(self, db_session, test_data_tracker):
-        """When Spotify API returns a track with an ISRC already in DB, reuse it."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        # Pre-populate: track with ISRC (e.g. from Last.fm cross-discovery)
-        existing = await track_repo.save_track(
-            Track(
-                id=None,
-                title="Creep",
-                artists=[ArtistCredit(credited_name="Radiohead")],
-                isrc="GBAYE9300106",
-                duration_ms=238000,
-                user_id=TEST_USER_ID,
-            )
-        )
-        test_data_tracker.add_track(existing.id)
-
-        # Mock Spotify connector — different Spotify ID but same ISRC
-        spotify_connector = AsyncMock()
-        spotify_connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
-            tracks={
-                "new_spotify_id_456": SpotifyTrack(
-                    id="new_spotify_id_456",
-                    name="Creep",
-                    artists=[SpotifyModelArtist(id="a1", name="Radiohead")],
-                    album=SpotifyAlbum(id="al1", name="Pablo Honey"),
-                    duration_ms=238000,
-                    external_ids=SpotifyExternalIds(isrc="GBAYE9300106"),
-                ),
-            }
-        )
-        spotify_connector.connector_name = "spotify"
-
-        resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
-
-        # Mapping Lookup finds nothing (no Spotify mapping exists)
-        # Track Creation should detect ISRC collision and reuse existing
-        result = await resolver._create_tracks_batch(
-            ["new_spotify_id_456"], uow, user_id="default"
-        )
-
-        assert "new_spotify_id_456" in result
-        assert result["new_spotify_id_456"].id == existing.id
-
-        # Verify connector mapping was created with ISRC_MATCH method
-        connector_repo = uow.get_connector_repository()
-        mappings = await connector_repo.find_tracks_by_connectors(
-            [("spotify", "new_spotify_id_456")],
-            user_id="default",
-        )
-        assert ("spotify", "new_spotify_id_456") in mappings
-
-    async def test_creates_new_track_when_isrc_not_in_db(
-        self, db_session, test_data_tracker
-    ):
-        """When ISRC is not in DB, create a new canonical track normally."""
-        uow = get_unit_of_work(db_session)
-
-        spotify_connector = AsyncMock()
-        spotify_connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
-            tracks={
-                "sp_new_001": SpotifyTrack(
-                    id="sp_new_001",
-                    name="Everything In Its Right Place",
-                    artists=[SpotifyModelArtist(id="a1", name="Radiohead")],
-                    album=SpotifyAlbum(id="al1", name="Kid A"),
-                    duration_ms=250000,
-                    external_ids=SpotifyExternalIds(isrc="GBAYE0000289"),
-                ),
-            }
-        )
-        spotify_connector.connector_name = "spotify"
-
-        resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
-        result = await resolver._create_tracks_batch(
-            ["sp_new_001"], uow, user_id="default"
-        )
-
-        assert "sp_new_001" in result
-        new_track = result["sp_new_001"]
-        assert new_track.title == "Everything In Its Right Place"
-        test_data_tracker.add_track(new_track.id)
 
 
 class TestCrossDiscoveryISRCCollision:

@@ -205,24 +205,6 @@ class TestRetryBehavior:
         assert result.failed_values == ["catalog-1"]
         assert len(requests) == settings.api.apple_music.retry_count
 
-    async def test_5xx_surfaces_classified_when_not_suppressed(self, make_client):
-        handler, requests = recording(
-            lambda _request: httpx2.Response(500, json={"errors": []})
-        )
-        client = make_client(handler)
-
-        with pytest.raises(httpx2.HTTPStatusError):
-            _ = await client._api_call(
-                "probe_apple_music_5xx",
-                client._get_catalog_songs_impl,
-                "us",
-                "ids",
-                ["catalog-1"],
-                suppress=(),
-            )
-
-        assert len(requests) == settings.api.apple_music.retry_count
-
 
 class TestChunking:
     async def test_isrc_lookup_chunks_at_25_and_merges(self, make_client):

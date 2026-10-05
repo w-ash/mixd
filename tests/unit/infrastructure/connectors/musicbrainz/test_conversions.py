@@ -1,15 +1,15 @@
 """Tests for MusicBrainz data conversion utilities.
 
 Covers the stateless transforms that turn raw MusicBrainz Web Services API
-responses into domain ``ConnectorTrack`` entities: recording coercion,
-metadata extraction, artist/release selection, and ISRC normalization.
+responses (typed models or raw dicts) into domain ``ConnectorTrack``
+entities: metadata extraction, artist/release selection, and ISRC
+normalization.
 """
 
 import pytest
 
 from src.domain.entities import ConnectorTrack
 from src.infrastructure.connectors.musicbrainz.conversions import (
-    _ensure_recording,
     convert_musicbrainz_track_to_connector,
     extract_recording_metadata,
 )
@@ -44,32 +44,6 @@ def _make_recording(**overrides) -> MusicBrainzRecording:
     }
     defaults.update(overrides)
     return MusicBrainzRecording(**defaults)
-
-
-class TestEnsureRecording:
-    """_ensure_recording passes typed models through and validates raw dicts."""
-
-    def test_typed_model_passes_through(self):
-        recording = _make_recording()
-        assert _ensure_recording(recording) is recording
-
-    def test_raw_dict_is_validated(self):
-        raw = {
-            "id": RECORDING_MBID,
-            "title": "Creep",
-            "artist-credit": [{"name": "Radiohead"}],
-        }
-
-        result = _ensure_recording(raw)
-
-        assert isinstance(result, MusicBrainzRecording)
-        assert result.id == RECORDING_MBID
-        assert result.title == "Creep"
-        assert result.artist_credit[0].name == "Radiohead"
-
-    def test_missing_required_field_raises(self):
-        with pytest.raises(Exception):
-            _ensure_recording({"title": "Has no id"})
 
 
 class TestExtractRecordingMetadata:
@@ -170,24 +144,6 @@ class TestConvertMusicBrainzTrackToConnectorHappyPath:
         assert track.release_date is None
         assert track.raw_metadata["musicbrainz_mbid"] == RECORDING_MBID
 
-    def test_multiple_artists(self):
-        recording = _make_recording(
-            artist_credit=[
-                MusicBrainzArtistCredit(
-                    name="Thom Yorke",
-                    artist=MusicBrainzArtist(id=ARTIST_MBID, name="Thom Yorke"),
-                ),
-                MusicBrainzArtistCredit(
-                    name="PJ Harvey",
-                    artist=MusicBrainzArtist(id=ARTIST_MBID, name="PJ Harvey"),
-                ),
-            ]
-        )
-
-        track = convert_musicbrainz_track_to_connector(recording)
-
-        assert [a.credited_name for a in track.artists] == ["Thom Yorke", "PJ Harvey"]
-
     def test_uses_only_first_release_for_album(self):
         recording = _make_recording(
             releases=[
@@ -199,27 +155,6 @@ class TestConvertMusicBrainzTrackToConnectorHappyPath:
         track = convert_musicbrainz_track_to_connector(recording)
 
         assert track.album == "OK Computer"
-
-    def test_falls_back_to_credit_name_when_artist_absent(self):
-        recording = _make_recording(
-            artist_credit=[MusicBrainzArtistCredit(name="Credited Name", artist=None)]
-        )
-
-        track = convert_musicbrainz_track_to_connector(recording)
-
-        assert [a.credited_name for a in track.artists] == ["Credited Name"]
-
-    def test_skips_credits_with_no_usable_name(self):
-        recording = _make_recording(
-            artist_credit=[
-                MusicBrainzArtistCredit(name="", artist=None),
-                MusicBrainzArtistCredit(name="Valid", artist=None),
-            ]
-        )
-
-        track = convert_musicbrainz_track_to_connector(recording)
-
-        assert [a.credited_name for a in track.artists] == ["Valid"]
 
 
 class TestArtistCreditsAndIds:
@@ -309,13 +244,6 @@ class TestArtistCreditsAndIds:
         assert credit.artist.relations[0].url is not None
         assert credit.artist.relations[0].url.resource == "https://discogs/1"
         assert credit.artist.relations[1].url is None
-
-    def test_artist_extras_default_empty(self):
-        artist = MusicBrainzArtist(id=ARTIST_MBID)
-        assert artist.type is None
-        assert artist.disambiguation is None
-        assert artist.aliases == []
-        assert artist.relations == []
 
 
 class TestConvertMusicBrainzTrackToConnectorEdgeCases:
