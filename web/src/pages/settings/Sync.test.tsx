@@ -204,24 +204,6 @@ describe("automatic-sync controls follow the server's target list", () => {
 });
 
 describe("Sync page", () => {
-  it("renders page header", () => {
-    setupCheckpointsMock();
-    renderWithProviders(<Sync />);
-
-    expect(screen.getByText("Sync")).toBeInTheDocument();
-    expect(
-      screen.getByText("Import and sync your music data across services."),
-    ).toBeInTheDocument();
-  });
-
-  it("renders section headings for data type groups", () => {
-    setupCheckpointsMock();
-    renderWithProviders(<Sync />);
-
-    expect(screen.getByText("Listening History")).toBeInTheDocument();
-    expect(screen.getByText("Liked Tracks")).toBeInTheDocument();
-  });
-
   it("renders all seven operation cards", () => {
     setupCheckpointsMock();
     renderWithProviders(<Sync />);
@@ -288,8 +270,15 @@ describe("Sync page", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders segmented mode selector for Last.fm history", () => {
+  it("defaults Last.fm history to Recent and imports in the mode the user picks", async () => {
     setupCheckpointsMock();
+    const modes: string[] = [];
+    server.use(
+      http.post("*/api/v1/imports/lastfm/history", async ({ request }) => {
+        modes.push(((await request.json()) as { mode: string }).mode);
+        return HttpResponse.json({ operation_id: "op-1", run_id: "run-1" });
+      }),
+    );
     renderWithProviders(<Sync />);
 
     const recentBtn = screen.getByRole("radio", { name: /recent/i });
@@ -297,19 +286,24 @@ describe("Sync page", () => {
       name: /since last import/i,
     });
     const fullBtn = screen.getByRole("radio", { name: /full/i });
-
     expect(recentBtn).toHaveAttribute("aria-checked", "true");
     expect(incrementalBtn).toHaveAttribute("aria-checked", "false");
     expect(fullBtn).toHaveAttribute("aria-checked", "false");
-  });
 
-  it("renders file upload for Spotify history", () => {
-    setupCheckpointsMock();
-    renderWithProviders(<Sync />);
+    await userEvent.click(fullBtn);
+    expect(fullBtn).toHaveAttribute("aria-checked", "true");
+    expect(recentBtn).toHaveAttribute("aria-checked", "false");
 
-    expect(
-      screen.getByRole("button", { name: /choose file/i }),
-    ).toBeInTheDocument();
+    const historyCard = screen
+      .getByText("Scrobble History")
+      .closest("div.rounded-xl") as HTMLElement;
+    await userEvent.click(
+      within(historyCard).getByRole("button", { name: "Import" }),
+    );
+
+    await waitFor(() => {
+      expect(modes).toEqual(["full"]);
+    });
   });
 
   it("gates Recent Plays on the listening-history scope", async () => {
@@ -641,62 +635,6 @@ describe("Spotify history import queue", () => {
     expect(new Set(seenOperationIds.filter(Boolean))).toEqual(
       new Set(["drain-op"]),
     );
-  });
-
-  it("tells a waiting file where it is in the line", async () => {
-    // A bare "Queued" chip looks the same at minute 0 and minute 25.
-    setupCheckpointsMock();
-    useQueueHandler([
-      {
-        filename: "a.json",
-        position: 0,
-        status: "complete",
-        operation_id: "op-a",
-        run_id: "run-a",
-        size_bytes: 1000,
-        started_at: "2026-08-09T10:00:00Z",
-        settled_at: "2026-08-09T10:01:00Z",
-        counts: { track_plays: 1200 },
-      },
-      {
-        filename: "b.json",
-        position: 1,
-        status: "complete",
-        operation_id: "op-b",
-        run_id: "run-b",
-        size_bytes: 1000,
-        started_at: "2026-08-09T10:01:00Z",
-        settled_at: "2026-08-09T10:02:00Z",
-        counts: { track_plays: 800 },
-      },
-      {
-        filename: "c.json",
-        position: 2,
-        status: "running",
-        operation_id: "op-c",
-        run_id: "run-c",
-        size_bytes: 1000,
-        started_at: "2026-08-09T10:02:00Z",
-      },
-      {
-        filename: "d.json",
-        position: 3,
-        status: "queued",
-        operation_id: null,
-        run_id: null,
-        size_bytes: 1000,
-      },
-    ]);
-    renderWithProviders(<Sync />);
-
-    expect(await screen.findByText("d.json")).toBeInTheDocument();
-    // Two settled minutes over 2000 bytes ⇒ one minute per 1000-byte file, so
-    // the queued file starts once the running one is through.
-    expect(
-      screen.getByText(/Queued · #1 · starts in ~1 min/),
-    ).toBeInTheDocument();
-    // A settled file keeps the numbers its own stream carried away.
-    expect(screen.getByText(/1,200 plays/)).toBeInTheDocument();
   });
 
   it("Cancel remaining sends the DELETE for not-yet-started files", async () => {

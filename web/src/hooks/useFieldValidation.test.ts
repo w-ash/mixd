@@ -142,24 +142,38 @@ describe("useFieldValidation", () => {
     expect(result.current.hasErrors).toBe(false);
   });
 
-  it("after attemptSave, blurField shows validation errors", () => {
-    const { result } = renderHook(() =>
-      useFieldValidation(schema, { name: "", connector: "spotify" }, "n1"),
+  it("after a save attempt, blur re-validates the field's current value", () => {
+    const { result, rerender } = renderHook(
+      ({ config }) => useFieldValidation(schema, config, "n1"),
+      {
+        initialProps: {
+          config: { name: "My Workflow", connector: "spotify" } as Record<
+            string,
+            unknown
+          >,
+        },
+      },
     );
 
-    // First trigger save attempt to enable blur validation
     act(() => {
       result.current.attemptSave();
     });
+    expect(result.current.hasErrors).toBe(false);
 
-    expect(result.current.getError("name")).toBe("Name is required");
-
-    // Blur on name should still show error (value is still empty)
+    // Cleared after the save: the blur shows it without waiting for another save.
+    rerender({ config: { name: "", connector: "spotify" } });
     act(() => {
       result.current.blurField("name");
     });
-
     expect(result.current.getError("name")).toBe("Name is required");
+
+    // Fixed again: the next blur clears it.
+    rerender({ config: { name: "Renamed", connector: "spotify" } });
+    act(() => {
+      result.current.blurField("name");
+    });
+    expect(result.current.getError("name")).toBeUndefined();
+    expect(result.current.hasErrors).toBe(false);
   });
 
   it("changeField clears error when value is corrected", () => {
@@ -174,12 +188,18 @@ describe("useFieldValidation", () => {
 
     expect(result.current.getError("name")).toBe("Name is required");
 
-    // Simulate changing the field to a valid value
+    // Whitespace is still blank: the error stays.
+    act(() => {
+      result.current.changeField("name", "   ");
+    });
+    expect(result.current.getError("name")).toBe("Name is required");
+
     act(() => {
       result.current.changeField("name", "My Workflow");
     });
 
     expect(result.current.getError("name")).toBeUndefined();
+    expect(result.current.hasErrors).toBe(false);
   });
 
   it("changeField does not set error on field without prior error", () => {
@@ -195,42 +215,17 @@ describe("useFieldValidation", () => {
     expect(result.current.getError("name")).toBeUndefined();
   });
 
-  it("number min validation works", () => {
-    const { result } = renderHook(() =>
-      useFieldValidation(schema, { name: "test", connector: "spotify" }, "n1"),
-    );
-
-    // Trigger save first, then set a number error
-    act(() => {
-      result.current.attemptSave();
-    });
-
-    // No error on limit since it's optional and undefined
-    expect(result.current.getError("limit")).toBeUndefined();
-
-    // Now let's test with a value below min — need to re-render with bad config
-    const { result: result2 } = renderHook(() =>
-      useFieldValidation(
-        schema,
-        { name: "test", connector: "spotify", limit: 0 },
-        "n2",
-      ),
-    );
-
-    let errors = new Map<string, string>();
-    act(() => {
-      errors = result2.current.attemptSave();
-    });
-
-    expect(errors.get("limit")).toBe("Must be at least 1");
-    expect(result2.current.getError("limit")).toBe("Must be at least 1");
-  });
-
-  it("number max validation works", () => {
+  // Bounds are inclusive: the declared min and max are themselves valid.
+  it.each([
+    [0, "Must be at least 1"],
+    [1, undefined],
+    [100, undefined],
+    [101, "Must be at most 100"],
+  ])("limit %i against min 1 / max 100 → %s", (limit, expected) => {
     const { result } = renderHook(() =>
       useFieldValidation(
         schema,
-        { name: "test", connector: "spotify", limit: 200 },
+        { name: "test", connector: "spotify", limit },
         "n1",
       ),
     );
@@ -240,28 +235,8 @@ describe("useFieldValidation", () => {
       errors = result.current.attemptSave();
     });
 
-    expect(errors.get("limit")).toBe("Must be at most 100");
-    expect(result.current.getError("limit")).toBe("Must be at most 100");
-  });
-
-  it("getError returns undefined for valid fields", () => {
-    const { result } = renderHook(() =>
-      useFieldValidation(
-        schema,
-        { name: "My Workflow", connector: "spotify", limit: 50 },
-        "n1",
-      ),
-    );
-
-    act(() => {
-      result.current.attemptSave();
-    });
-
-    expect(result.current.getError("name")).toBeUndefined();
-    expect(result.current.getError("connector")).toBeUndefined();
-    expect(result.current.getError("limit")).toBeUndefined();
-    expect(result.current.getError("description")).toBeUndefined();
-    expect(result.current.getError("nonexistent_key")).toBeUndefined();
+    expect(errors.get("limit")).toBe(expected);
+    expect(result.current.getError("limit")).toBe(expected);
   });
 
   it("resets errors when selectedNodeId changes", () => {
@@ -348,7 +323,9 @@ describe("useFieldValidation", () => {
       act(() => {
         result.current.attemptSave();
       });
-      expect(result.current.getError("exclusion_source")).toBeDefined();
+      expect(result.current.getError("exclusion_source")).toBe(
+        "Must be one of this node's upstream tasks",
+      );
 
       act(() => {
         result.current.changeField("exclusion_source", "src_1");

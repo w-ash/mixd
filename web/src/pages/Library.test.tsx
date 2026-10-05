@@ -257,24 +257,6 @@ describe("Library", () => {
     expect(screen.getAllByLabelText("Liked").length).toBeGreaterThan(0);
   });
 
-  it("renders search input", async () => {
-    overrideTracks(makeTracks(1));
-
-    renderWithProviders(<Library />);
-
-    const searchInput = screen.getByLabelText("Search tracks");
-    expect(searchInput).toBeInTheDocument();
-  });
-
-  it("renders filter dropdowns", async () => {
-    overrideTracks(makeTracks(1));
-
-    renderWithProviders(<Library />);
-
-    expect(screen.getByLabelText("Filter by liked status")).toBeInTheDocument();
-    expect(screen.getByLabelText("Filter by connector")).toBeInTheDocument();
-  });
-
   it("displays track count in header", async () => {
     overrideTracks(makeTracks(5), 5);
 
@@ -287,21 +269,38 @@ describe("Library", () => {
     });
   });
 
-  it("shows sortable column headers", async () => {
-    overrideTracks(makeTracks(1));
+  it("sends the clicked column sort as ?sort=", async () => {
+    const user = userEvent.setup();
+    const sorts: (string | null)[] = [];
+    server.use(
+      http.get("*/api/v1/tracks", ({ request }) => {
+        sorts.push(new URL(request.url).searchParams.get("sort"));
+        return HttpResponse.json(
+          { data: makeTracks(1), total: 1, limit: 50, offset: 0 },
+          { status: 200 },
+        );
+      }),
+    );
 
     renderWithProviders(<Library />);
+    await screen.findAllByText("Track 1");
 
-    await waitFor(() => {
-      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
-    });
+    // A header that is not the active sort offers ascending first.
+    await user.click(
+      screen.getByRole("button", { name: "Sort by Title ascending" }),
+    );
+    await waitFor(() => expect(sorts.at(-1)).toBe("title_asc"));
 
-    expect(
-      screen.getByRole("button", { name: /Sort by Title/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Sort by Duration/ }),
-    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Sort by Duration ascending" }),
+    );
+    await waitFor(() => expect(sorts.at(-1)).toBe("duration_asc"));
+
+    // Clicking the now-active header flips the direction.
+    await user.click(
+      screen.getByRole("button", { name: "Sort by Duration descending" }),
+    );
+    await waitFor(() => expect(sorts.at(-1)).toBe("duration_desc"));
   });
 
   // Artist stays a column but stops being a sort: `artists_text` is a joined

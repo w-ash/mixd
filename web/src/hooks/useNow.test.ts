@@ -35,8 +35,8 @@ describe("useNow", () => {
     expect(result.current).toBe(start + 3000);
   });
 
-  it("schedules nothing when the interval is zero or negative", () => {
-    const { result } = renderHook(() => useNow(0));
+  it.each([0, -1000])("schedules nothing for an interval of %i", (interval) => {
+    const { result } = renderHook(() => useNow(interval));
     const start = result.current;
 
     act(() => void vi.advanceTimersByTime(60_000));

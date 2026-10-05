@@ -9,6 +9,8 @@ import {
   useEditorStore,
 } from "./editor-store";
 
+// layoutWorkflow runs the async ELK layout; these tests read only the
+// store's synchronous node/edge/config state, so stub the layout out.
 vi.mock("#/lib/workflow-layout", () => ({
   layoutWorkflow: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
   buildEdges: vi.fn().mockReturnValue({ flowEdges: [] }),

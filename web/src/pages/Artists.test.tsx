@@ -1,4 +1,4 @@
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { makeArtistSummary } from "#/test/factories";
@@ -134,7 +134,7 @@ describe("Artists", () => {
     });
   });
 
-  it("favorites then unfavorites an artist through the heart", async () => {
+  it("flips the list heart before the server answers, then unfavorites", async () => {
     const user = userEvent.setup();
     const calls: string[] = [];
     // Stateful backend: the refetch that follows each write has to agree with
@@ -155,7 +155,8 @@ describe("Artists", () => {
           { status: 200 },
         ),
       ),
-      http.post("*/api/v1/artists/:id/favorite", ({ params }) => {
+      http.post("*/api/v1/artists/:id/favorite", async ({ params }) => {
+        await delay(150);
         calls.push(`POST ${params.id}`);
         favorited.add(String(params.id));
         return HttpResponse.json({ id: params.id, is_favorited: true });
@@ -174,10 +175,18 @@ describe("Artists", () => {
       screen.getByRole("button", { name: "Favorite Brian Eno" }),
     );
 
+    // Found while the POST is still in flight: the cached list row flipped,
+    // not a refetch after the write.
     const pressed = await screen.findByRole("button", {
       name: "Unfavorite Brian Eno",
     });
-    expect(calls).toEqual(["POST artist-1"]);
+    expect(pressed).toHaveAttribute("aria-pressed", "true");
+    expect(calls).toEqual([]);
+    // Only the clicked row flips.
+    expect(
+      screen.getByRole("button", { name: "Favorite David Bowie" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    await waitFor(() => expect(calls).toEqual(["POST artist-1"]));
 
     await user.click(pressed);
 

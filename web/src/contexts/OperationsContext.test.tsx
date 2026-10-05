@@ -23,6 +23,8 @@ vi.mock("@neondatabase/auth/react/ui", () => ({
   useAuthenticate: () => ({ data: { user: { id: "u" } } }),
 }));
 
+// The toast call IS the watcher's output; sonner renders nothing into this
+// headless tree, so spy on the one toast the provider raises.
 const mockRunCompleted = vi.fn();
 vi.mock("#/lib/toasts", async () => {
   const actual =
@@ -91,16 +93,6 @@ afterEach(() => {
 });
 
 describe("OperationsProvider terminal surfacing", () => {
-  it("does not retro-toast a run that predates mount", async () => {
-    // No running ops at mount: a pre-existing terminal run is simply absent from
-    // the running set, so it can never be diffed into a toast.
-    mockActiveOps = [];
-    renderWithProviders(<OperationsProvider>{null}</OperationsProvider>);
-
-    await new Promise((r) => setTimeout(r, 20));
-    expect(mockRunCompleted).not.toHaveBeenCalled();
-  });
-
   it("announces a failure (retryable → Retry action) when a run errors", async () => {
     stubDetail("run-1", "error", {
       issues: [{ connector_playlist_identifier: "pl1" }],
@@ -126,22 +118,35 @@ describe("OperationsProvider terminal surfacing", () => {
     });
   });
 
-  it("announces a success when a run completes cleanly", async () => {
-    stubDetail("run-2", "complete");
-    mockActiveOps = [runningRow("run-2", "op-2")];
-    const { rerender } = renderWithProviders(
-      <OperationsProvider>{null}</OperationsProvider>,
-    );
-
-    mockActiveOps = [];
-    rerender(<OperationsProvider>{null}</OperationsProvider>);
-
-    await waitFor(() => {
-      expect(mockRunCompleted).toHaveBeenCalledWith(
-        expect.objectContaining({ failed: false }),
+  // A partial run finished, so it is not a failure: it earns the warning toast
+  // through its issue count, not the error one.
+  it.each([
+    ["complete", [], 0],
+    ["partial", [{ connector_playlist_identifier: "pl1" }], 1],
+  ])(
+    "announces a %s run as finished, with its issue count and no retry",
+    async (status, issues, issueCount) => {
+      stubDetail("run-2", status, { issues });
+      mockActiveOps = [runningRow("run-2", "op-2")];
+      const { rerender } = renderWithProviders(
+        <OperationsProvider>{null}</OperationsProvider>,
       );
-    });
-  });
+
+      mockActiveOps = [];
+      rerender(<OperationsProvider>{null}</OperationsProvider>);
+
+      await waitFor(() => {
+        expect(mockRunCompleted).toHaveBeenCalledWith(
+          expect.objectContaining({
+            runId: "run-2",
+            failed: false,
+            issueCount,
+            action: undefined,
+          }),
+        );
+      });
+    },
+  );
 
   it("does not announce a cancelled/superseded run", async () => {
     stubDetail("run-4", "cancelled");

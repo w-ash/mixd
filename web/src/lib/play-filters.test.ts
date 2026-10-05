@@ -19,13 +19,11 @@ describe("recency presets", () => {
     );
   });
 
-  it("every preset carries both bounds so callers never narrow", () => {
+  it("every preset bounds exactly one direction", () => {
     for (const preset of RECENCY_PRESETS) {
-      expect(preset).toHaveProperty("playedWithin");
-      expect(preset).toHaveProperty("notPlayedWithin");
-      // Exactly one direction per preset.
       expect(
         (preset.playedWithin === null) !== (preset.notPlayedWithin === null),
+        preset.value,
       ).toBe(true);
     }
   });

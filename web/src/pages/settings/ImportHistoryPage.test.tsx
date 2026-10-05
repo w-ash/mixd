@@ -7,7 +7,12 @@ import type {
   OperationRunSummarySchema,
 } from "#/api/generated/model";
 import { server } from "#/test/setup";
-import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  waitFor,
+  within,
+} from "#/test/test-utils";
 
 import { ImportHistoryPage } from "./ImportHistoryPage";
 
@@ -48,15 +53,6 @@ function setupDetailMock(detail: OperationRunDetailSchema) {
 }
 
 describe("ImportHistoryPage", () => {
-  it("renders the page header", async () => {
-    setupListMock([]);
-    renderWithProviders(<ImportHistoryPage />);
-
-    expect(
-      await screen.findByRole("heading", { name: "Import History" }),
-    ).toBeInTheDocument();
-  });
-
   it("shows the empty state when there are no runs", async () => {
     setupListMock([]);
     renderWithProviders(<ImportHistoryPage />);
@@ -64,7 +60,7 @@ describe("ImportHistoryPage", () => {
     expect(await screen.findByText(/No imports yet/i)).toBeInTheDocument();
   });
 
-  it("renders each run with the operation label and status", async () => {
+  it("lists each run with its operation label, status and issue count", async () => {
     setupListMock([
       makeSummary({
         id: "00000000-0000-0000-0000-000000000001",
@@ -73,40 +69,34 @@ describe("ImportHistoryPage", () => {
       }),
       makeSummary({
         id: "00000000-0000-0000-0000-000000000002",
-        operation_type: "apply_assignments_bulk",
-        status: "error",
-      }),
-    ]);
-    renderWithProviders(<ImportHistoryPage />);
-
-    expect(await screen.findByText("Spotify likes import")).toBeInTheDocument();
-    expect(screen.getByText("Apply all assignments")).toBeInTheDocument();
-    expect(screen.getByText("Complete")).toBeInTheDocument();
-    expect(screen.getByText("Error")).toBeInTheDocument();
-  });
-
-  it("distinguishes a partial run from a failed one in the list", async () => {
-    setupListMock([
-      makeSummary({
-        id: "00000000-0000-0000-0000-000000000001",
         operation_type: "import_spotify_history",
         status: "partial",
         counts: { track_plays: 98, errors: 2 },
         issue_count: 3,
       }),
       makeSummary({
-        id: "00000000-0000-0000-0000-000000000002",
+        id: "00000000-0000-0000-0000-000000000003",
         operation_type: "apply_assignments_bulk",
         status: "error",
       }),
     ]);
     renderWithProviders(<ImportHistoryPage />);
 
+    const rows = await screen.findAllByRole("button", { expanded: false });
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Spotify likes import"),
+      expect.stringContaining("Spotify history import"),
+      expect.stringContaining("Apply all assignments"),
+    ]);
+    // A partial run is told apart from both a clean and a failed one.
+    expect(within(rows[0]).getByText("Complete")).toBeInTheDocument();
     expect(
-      await screen.findByText("Completed with issues"),
+      within(rows[1]).getByText("Completed with issues"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Error")).toBeInTheDocument();
-    expect(screen.getByText("3 issues")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("3 issues")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("Error")).toBeInTheDocument();
+    // Only a run with issues shows a count.
+    expect(within(rows[0]).queryByText(/issue/)).not.toBeInTheDocument();
   });
 
   it("lists the exact unresolved tracks as legible rows, not JSON blobs", async () => {
