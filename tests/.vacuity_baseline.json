@@ -4,38 +4,23 @@
       "tests/integration/repositories/test_mapping_vocabulary_constraints.py::TestVocabularyMembersAreAccepted::test_mapping_with_a_manual_override_origin",
       "tests/integration/repositories/test_mapping_vocabulary_constraints.py::TestVocabularyMembersAreAccepted::test_mapping_with_a_vocabulary_method",
       "tests/integration/repositories/test_mapping_vocabulary_constraints.py::TestVocabularyMembersAreAccepted::test_review_with_a_vocabulary_method",
-      "tests/integration/repositories/test_pending_action_store.py::TestCancel::test_cancel_is_idempotent",
-      "tests/integration/repositories/test_schedule_repository.py::TestAdaptiveIntervalCadence::test_set_poll_interval_is_a_noop_without_a_row",
-      "tests/integration/repositories/test_workflow_run_repository.py::TestWorkflowRunCRUD::test_terminal_write_to_missing_run_is_silent",
       "tests/integration/repositories/test_workflow_version_repository.py::TestDeleteVersionsForWorkflow::test_noop_when_no_versions_exist",
-      "tests/integration/test_progress_coordination.py::TestProgressConsoleCoordination::test_multiple_operations_coordination",
-      "tests/integration/test_progress_integration.py::TestProgressIntegration::test_external_cancellation_of_gather_is_absorbed",
-      "tests/integration/test_progress_integration.py::TestProgressIntegration::test_invalid_progress_is_dropped_not_raised",
       "tests/unit/application/services/test_play_poll_policy.py::TestAuthHooks::test_a_failure_never_breaks_the_auth_flow",
       "tests/unit/application/services/test_play_poll_policy.py::TestAuthHooks::test_a_failure_never_breaks_the_disconnect_flow",
       "tests/unit/application/services/test_run_lifecycle.py::TestBumpHeartbeat::test_suppresses_errors",
       "tests/unit/application/use_cases/_shared/test_batch_commit.py::TestCommitBatchNoOp::test_noop_without_commit_batch",
       "tests/unit/application/workflows/engine/test_executor.py::TestSafeEmit::test_swallows_observer_exception",
       "tests/unit/application/workflows/nodes/test_registry_validation.py::TestValidateRegistry::test_valid_dependency_declarations_pass",
-      "tests/unit/config/test_logging.py::TestConsoleOutputCoordination::test_restore_without_enable_is_safe",
-      "tests/unit/config/test_logging.py::TestWorkflowRunLogger::test_remove_nonexistent_handle_is_safe",
       "tests/unit/infrastructure/connectors/_shared/test_rate_limiting.py::TestApplyRateHeaders::test_unconfigured_limiter_is_guarded",
       "tests/unit/infrastructure/connectors/_shared/test_rate_limiting.py::TestCallSlot::test_connector_call_slot_is_a_no_op_for_unmanaged_services",
       "tests/unit/infrastructure/connectors/_shared/test_retry_policies.py::TestBackoffHandlerBrakesTheLimiter::test_unpaced_service_is_handled_without_a_limiter",
       "tests/unit/infrastructure/persistence/database/test_default_user_guard.py::TestGuard::test_default_user_on_localhost_is_allowed",
       "tests/unit/infrastructure/services/test_base_play_importer.py::TestRequireUniformTenancy::test_empty_batch_passes",
       "tests/unit/infrastructure/services/test_base_play_importer.py::TestRequireUniformTenancy::test_uniformly_stamped_batch_passes",
-      "tests/unit/interface/api/services/test_progress.py::TestSSEOperationRegistry::test_unregister_unknown_is_noop",
-      "tests/unit/interface/api/services/test_progress.py::TestSSEProgressSubscriber::test_ignores_unregistered_operations",
-      "tests/unit/interface/api/services/test_sse_operations.py::TestOnTerminalCallback::test_callback_failure_does_not_break_teardown",
       "tests/unit/interface/api/test_oauth_redirect_guard.py::TestRedirectSchemeGuard::test_http_loopback_allowed",
       "tests/unit/interface/api/test_oauth_redirect_guard.py::TestRedirectSchemeGuard::test_https_any_host_allowed",
       "tests/unit/interface/api/test_rate_limit.py::TestSlidingWindow::test_keys_are_independent",
       "tests/unit/interface/api/test_rate_limit.py::TestSlidingWindow::test_window_slides_as_time_advances",
-      "tests/unit/interface/shared/test_cli_helpers.py::TestValidateDateRange::test_equal_dates_passes",
-      "tests/unit/interface/shared/test_cli_helpers.py::TestValidateDateRange::test_none_dates_passes",
-      "tests/unit/interface/shared/test_cli_helpers.py::TestValidateDateRange::test_partial_none_passes",
-      "tests/unit/interface/shared/test_cli_helpers.py::TestValidateDateRange::test_valid_date_range_passes",
       "tests/unit/interface/shared/test_cli_helpers.py::TestValidateFilePath::test_valid_file_path_passes",
       "tests/unit/scripts/test_cleanup_mistenanted_spotify_tracks.py::TestWindowGuard::test_an_empty_candidate_set_passes",
       "tests/unit/scripts/test_cleanup_mistenanted_spotify_tracks.py::TestWindowGuard::test_rows_at_or_after_the_window_pass"
@@ -106,19 +91,10 @@
       "tests/unit/interface/api/test_auth_gate.py::TestNonHttpScope::test_websocket_scope_passes_through"
     ],
     "V3": [
-      "tests/integration/repositories/test_base_repo_contracts.py::TestFindByConditionForms::test_find_one_by_dict_conditions",
       "tests/integration/repositories/test_mapping_origin.py::TestIngestSkipsManualOverride::test_full_confidence_mapping_is_stamped_too",
-      "tests/integration/repositories/test_resolution_events.py::TestRejectedPairsAreNotReProposed::test_rejecting_a_candidate_materializes_its_connector_track",
-      "tests/integration/test_primary_mapping_integration.py::TestPrimaryMappingDatabaseIntegration::test_constraint_exists",
-      "tests/integration/test_primary_mapping_integration.py::TestPrimaryMappingDatabaseIntegration::test_repository_method_available",
-      "tests/integration/test_progress_coordination.py::TestProgressConsoleCoordination::test_console_restoration_after_coordination",
-      "tests/integration/test_progress_coordination.py::TestProgressConsoleCoordination::test_progress_coordination_context_provides_unified_console",
-      "tests/integration/test_progress_coordination.py::TestProgressConsoleCoordination::test_progress_subscriber_console_coordination",
       "tests/unit/application/workflows/nodes/test_config_fields.py::test_boolean_fields_default_to_real_booleans",
       "tests/unit/application/workflows/nodes/test_config_fields.py::test_select_fields_have_at_least_one_option",
       "tests/unit/application/workflows/nodes/test_registry_validation.py::TestValidateRegistry::test_production_catalog_passes",
-      "tests/unit/config/test_import_settings.py::TestSettingsAccessibility::test_settings_structure_completeness",
-      "tests/unit/config/test_logging.py::TestGetLogger::test_returns_bound_logger",
       "tests/unit/domain/matching/test_canonical_resolution.py::TestNameLeaders::test_two_masters_of_different_lengths_each_keep_their_canonical",
       "tests/unit/domain/matching/test_canonical_resolution.py::TestNameOwners::test_an_unknown_length_is_never_reused_on_names_alone",
       "tests/unit/domain/matching/test_canonical_resolution.py::TestStrongIdOwners::test_a_suspect_collision_is_never_folded_onto_a_name_match",
@@ -129,13 +105,7 @@
       "tests/unit/infrastructure/connectors/spotify/test_factory.py::TestCreateCrossDiscoveryProvider::test_arms_the_listenbrainz_lookup",
       "tests/unit/infrastructure/connectors/spotify/test_spotify_cross_discovery.py::TestLowConfidence::test_rejects_dissimilar_track",
       "tests/unit/infrastructure/connectors/spotify/test_spotify_cross_discovery.py::TestNoResults::test_a_miss_costs_exactly_one_search",
-      "tests/unit/infrastructure/persistence/repositories/test_repo_decorator.py::TestDbOperationDecorator::test_decorator_accepts_async_function",
-      "tests/unit/infrastructure/persistence/repositories/test_token_encryption.py::TestSensitiveFields::test_is_frozenset",
-      "tests/unit/infrastructure/services/test_play_import_registry.py::TestDeclaredCombos::test_declared_combo_resolves",
-      "tests/unit/interface/api/services/test_import_queue.py::TestDrainAsOneOperation::test_the_drain_is_streamable_before_the_first_file_starts",
-      "tests/unit/interface/api/services/test_progress.py::TestSSEOperationRegistry::test_register_returns_queue",
-      "tests/unit/interface/test_console_context.py::TestContextClassComparison::test_both_contexts_support_console_operations",
-      "tests/unit/interface/test_console_context.py::TestSimpleConsoleContext::test_console_access"
+      "tests/unit/interface/api/services/test_import_queue.py::TestDrainAsOneOperation::test_the_drain_is_streamable_before_the_first_file_starts"
     ],
     "V5": [
       "tests/unit/domain/test_playlist_link.py::TestSyncDirection::test_pull_value",
@@ -157,13 +127,6 @@
       "tests/unit/application/use_cases/test_match_and_identify_tracks.py::TestReviewQueueConsultsTheCannotLinkStore::test_nothing_is_queued_when_every_candidate_is_rejected"
     ],
     "V9": [],
-    "DUP": [
-      "tests/integration/repositories/test_playlist_repository_integration.py::TestPlaylistRepositoryIntegration::test_playlist_connector_mapping_creation",
-      "tests/integration/repositories/test_playlist_repository_integration.py::TestPlaylistRepositoryIntegration::test_playlist_with_connector_identifiers",
-      "tests/integration/repositories/test_workflow_run_repository.py::TestLatestRunQueries::test_batch_latest_runs_empty_ids",
-      "tests/integration/repositories/test_workflow_run_repository.py::TestLatestRunQueries::test_batch_latest_runs_missing_workflow",
-      "tests/integration/repositories/test_workflow_run_repository.py::TestSuccessfulRunCounts::test_empty_ids_short_circuits",
-      "tests/integration/repositories/test_workflow_run_repository.py::TestSuccessfulRunCounts::test_unknown_workflow_is_absent"
-    ]
+    "DUP": []
   }
 }
