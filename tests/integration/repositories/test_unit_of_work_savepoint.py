@@ -6,11 +6,15 @@ continue-on-error item loops (inward resolvers) survive one bad item instead
 of cascading every later statement into ``InFailedSqlTransaction``.
 """
 
+from uuid import uuid4
+
 import pytest
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
+from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
+from tests.fixtures import TEST_USER_ID
 
 
 class TestSavepoint:
@@ -26,10 +30,19 @@ class TestSavepoint:
         assert value == 1
 
     async def test_successful_savepoint_preserves_writes(self, db_session):
+        """A clean exit releases the savepoint: its write stays in the transaction."""
         uow = DatabaseUnitOfWork(db_session)
+        title = f"TEST_savepoint_{uuid4().hex[:8]}"
 
         async with uow.savepoint():
-            _ = await db_session.execute(text("SELECT 1"))
+            db_session.add(
+                DBTrack(title=title, artists={"names": ["A"]}, user_id=TEST_USER_ID)
+            )
+            await db_session.flush()
 
-        value = (await db_session.execute(text("SELECT 2"))).scalar_one()
-        assert value == 2
+        count = (
+            await db_session.execute(
+                select(func.count()).select_from(DBTrack).where(DBTrack.title == title)
+            )
+        ).scalar_one()
+        assert count == 1
