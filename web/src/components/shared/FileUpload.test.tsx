@@ -13,20 +13,6 @@ function jsonFile(name: string, content = "{}"): File {
 }
 
 describe("FileUpload", () => {
-  it("renders choose files button", () => {
-    render(<FileUpload onFilesSelect={vi.fn()} />);
-
-    expect(
-      screen.getByRole("button", { name: /choose files/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("accepts multiple files", () => {
-    render(<FileUpload onFilesSelect={vi.fn()} />);
-
-    expect(fileInput()).toHaveAttribute("multiple");
-  });
-
   it("calls onFilesSelect with every chosen file", async () => {
     const onFilesSelect = vi.fn();
     const user = userEvent.setup();

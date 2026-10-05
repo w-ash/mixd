@@ -19,41 +19,39 @@ const wf: WorkflowSummarySchema = {
 const NONE: ReadonlySet<string> = new Set<string>();
 
 describe("WorkflowRow", () => {
-  it("renders Edit, Duplicate, and Run actions in the card variant", () => {
-    renderWithProviders(
-      <WorkflowRow
-        wf={wf}
-        runningWorkflowIds={NONE}
-        localRunWorkflowId={null}
-        variant="card"
-      />,
-    );
-
-    expect(screen.getByText("Flow A")).toBeInTheDocument();
-    expect(screen.getByTitle("Edit workflow")).toBeInTheDocument();
-    expect(screen.getByTitle("Duplicate workflow")).toBeInTheDocument();
-    expect(screen.getByTitle("Run workflow")).toBeInTheDocument();
-  });
-
-  it("renders the same actions in the table variant (one shared renderer)", () => {
-    renderWithProviders(
-      <Table>
-        <TableBody>
+  it.each([
+    ["card", (row: React.ReactElement) => row],
+    [
+      "table",
+      (row: React.ReactElement) => (
+        <Table>
+          <TableBody>{row}</TableBody>
+        </Table>
+      ),
+    ],
+  ] as const)(
+    "renders the title link and Edit, Duplicate, Run actions in the %s variant",
+    (variant, wrap) => {
+      renderWithProviders(
+        wrap(
           <WorkflowRow
             wf={wf}
             runningWorkflowIds={NONE}
             localRunWorkflowId={null}
-            variant="table"
-          />
-        </TableBody>
-      </Table>,
-    );
+            variant={variant}
+          />,
+        ),
+      );
 
-    expect(screen.getByText("Flow A")).toBeInTheDocument();
-    expect(screen.getByTitle("Edit workflow")).toBeInTheDocument();
-    expect(screen.getByTitle("Duplicate workflow")).toBeInTheDocument();
-    expect(screen.getByTitle("Run workflow")).toBeInTheDocument();
-  });
+      expect(screen.getByRole("link", { name: "Flow A" })).toHaveAttribute(
+        "href",
+        `/workflows/${wf.id}`,
+      );
+      expect(screen.getByTitle("Edit workflow")).toBeInTheDocument();
+      expect(screen.getByTitle("Duplicate workflow")).toBeInTheDocument();
+      expect(screen.getByTitle("Run workflow")).toBeInTheDocument();
+    },
+  );
 
   it("links the Edit action to the workflow editor", () => {
     renderWithProviders(

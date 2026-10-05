@@ -1,6 +1,7 @@
 import { fireEvent } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
+import { useGetAssistantStatusApiV1AssistantStatusGet } from "#/api/generated/assistant/assistant";
 import { useChatStore } from "#/stores/chat-store";
 import { server } from "#/test/setup";
 import {
@@ -18,6 +19,12 @@ function stubChatAvailable(connected: boolean) {
       HttpResponse.json({ connected, source: connected ? "user" : null }),
     ),
   );
+}
+
+/** Renders "status settled" once the assistant-status query has resolved. */
+function StatusSettledProbe() {
+  const { isSuccess } = useGetAssistantStatusApiV1AssistantStatusGet();
+  return isSuccess ? <span>status settled</span> : null;
 }
 
 describe("PageLayout", () => {
@@ -122,17 +129,23 @@ describe("PageLayout", () => {
     it("gated off: no edge tab and Cmd+K is inert without a key", async () => {
       stubChatAvailable(false);
       mockMatchMedia(1280);
-      renderWithProviders(<PageLayout />);
+      renderWithProviders(
+        <>
+          <PageLayout />
+          <StatusSettledProbe />
+        </>,
+      );
 
-      // Main shell renders; the assistant surface never appears.
-      await screen.findByRole("navigation", { name: /main navigation/i });
+      // Assert only after the status answered, or the check passes while loading.
+      await screen.findByText("status settled");
+      expect(
+        screen.getByRole("navigation", { name: /main navigation/i }),
+      ).toBeInTheDocument();
       fireEvent.keyDown(window, { key: "k", metaKey: true });
 
-      await waitFor(() =>
-        expect(
-          screen.queryByRole("button", { name: /open chat assistant/i }),
-        ).not.toBeInTheDocument(),
-      );
+      expect(
+        screen.queryByRole("button", { name: /open chat assistant/i }),
+      ).not.toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: /close chat/i }),
       ).not.toBeInTheDocument();

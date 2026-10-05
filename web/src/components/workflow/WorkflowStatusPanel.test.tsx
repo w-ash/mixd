@@ -108,17 +108,20 @@ describe("WorkflowStatusPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("idle: does not duplicate the last run's status or track count", () => {
+  it("idle and unscheduled: shows the manual-run cadence, not the last run's status or track count", () => {
     renderWithProviders(
       <WorkflowStatusPanel
         {...baseProps}
         lastRun={lastRun}
         currentDefinitionVersion={3}
         activeRun={null}
-        nextRunLabel="Not scheduled — run manually"
+        nextRunLabel={null}
       />,
     );
 
+    expect(
+      screen.getByText("Not scheduled — run manually"),
+    ).toBeInTheDocument();
     // The table below owns this; the panel must not re-show it.
     expect(screen.queryByText(/120/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Completed/i)).not.toBeInTheDocument();

@@ -36,11 +36,6 @@ describe("TagFilter", () => {
     expect(screen.queryByRole("group")).not.toBeInTheDocument();
   });
 
-  it("renders chips for active filter tags", () => {
-    setup({ tags: ["mood:chill"] });
-    expect(screen.getByText("mood:chill")).toBeInTheDocument();
-  });
-
   it("removes a tag when its chip × is clicked", async () => {
     const { onTagsChange } = setup({ tags: ["mood:chill", "banger"] });
     await userEvent.click(

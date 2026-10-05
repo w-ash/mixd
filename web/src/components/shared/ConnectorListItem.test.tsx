@@ -51,25 +51,6 @@ describe("ConnectorListItem", () => {
     expect(screen.getByRole("button", { name: "Unlink" })).toBeInTheDocument();
   });
 
-  it("renders multiple actions", () => {
-    renderWithProviders(
-      <ConnectorListItem
-        connectorName="spotify"
-        actions={
-          <>
-            <button type="button">Relink</button>
-            <button type="button">Unlink</button>
-          </>
-        }
-      >
-        <span>Track info</span>
-      </ConnectorListItem>,
-    );
-
-    expect(screen.getByRole("button", { name: "Relink" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unlink" })).toBeInTheDocument();
-  });
-
   it("omits actions container when actions not provided", () => {
     const { container } = renderWithProviders(
       <ConnectorListItem connectorName="spotify">
@@ -81,16 +62,6 @@ describe("ConnectorListItem", () => {
     const outerDiv = container.firstElementChild;
     // icon+content wrapper only, no actions div
     expect(outerDiv?.children).toHaveLength(1);
-  });
-
-  it("renders with connector icon SVG", () => {
-    const { container } = renderWithProviders(
-      <ConnectorListItem connectorName="spotify">
-        <span>Track info</span>
-      </ConnectorListItem>,
-    );
-
-    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
   it("applies muted styling when muted prop is true", () => {

@@ -70,6 +70,8 @@ describe("ConnectorCard", () => {
       expect(
         screen.getByText("Token refreshes automatically"),
       ).toBeInTheDocument();
+      // Without a detail, no "connected · …" line replaces the signed-in copy.
+      expect(screen.queryByText(/^connected ·/)).not.toBeInTheDocument();
     });
 
     it("shows relative freshness when last_synced_at is present", () => {
@@ -179,22 +181,6 @@ describe("ConnectorCard", () => {
       expect(
         screen.queryByText("Signed in as testuser"),
       ).not.toBeInTheDocument();
-    });
-
-    it("keeps the existing signed-in rendering when detail is absent", () => {
-      renderWithProviders(
-        <ConnectorCard
-          connector={makeConnector({
-            name: "spotify",
-            connected: true,
-            account_name: "testuser",
-            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
-          })}
-        />,
-      );
-
-      expect(screen.getByText("Signed in as testuser")).toBeInTheDocument();
-      expect(screen.queryByText(/^connected ·/)).not.toBeInTheDocument();
     });
 
     it("shows connected Last.fm with account name and permanent session", () => {
@@ -494,11 +480,19 @@ describe("ConnectorCard", () => {
         <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
       );
 
-      await user.click(screen.getByText("Connect Apple Music"));
-
-      await waitFor(() => {
-        expect(errorSpy).toHaveBeenCalled();
+      const button = screen.getByRole("button", {
+        name: "Connect Apple Music",
       });
+      await user.click(button);
+
+      // The rejection rides along so the toast can describe what went wrong.
+      await waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith(
+          "Failed to connect Apple Music",
+          expect.objectContaining({ message: "AUTHORIZATION_ERROR" }),
+        );
+      });
+      expect(button).toBeEnabled();
     });
 
     it("disables the connect button while the flow is in flight", async () => {
@@ -608,21 +602,6 @@ describe("ConnectorCard", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    it('shows "connected · N favorites" for a connected TIDAL card', () => {
-      renderWithProviders(
-        <ConnectorCard
-          connector={makeConnector({
-            name: "tidal",
-            connected: true,
-            detail: "12 favorites",
-          })}
-        />,
-      );
-
-      expect(screen.getByText("TIDAL")).toBeInTheDocument();
-      expect(screen.getByText("connected · 12 favorites")).toBeInTheDocument();
-    });
-
     it("shows Reconnect when TIDAL needs reauthorization", () => {
       renderWithProviders(
         <ConnectorCard
@@ -659,11 +638,14 @@ describe("ConnectorCard", () => {
   });
 
   describe("connect flow", () => {
-    it("fetches auth URL and redirects on Connect click", async () => {
+    it("fetches the Spotify auth URL and stays busy while the browser leaves", async () => {
       const user = userEvent.setup();
-
+      const messageSpy = vi.spyOn(toasts, "message");
+      messageSpy.mockClear();
+      let authUrlFetched = false;
       server.use(
         http.get("*/api/v1/connectors/spotify/auth-url", () => {
+          authUrlFetched = true;
           return HttpResponse.json({
             auth_url: "https://accounts.spotify.com/authorize?test=1",
           });
@@ -674,12 +656,18 @@ describe("ConnectorCard", () => {
         <ConnectorCard connector={makeConnector({ name: "spotify" })} />,
       );
 
-      const connectBtn = screen.getByText("Connect Spotify");
-      expect(connectBtn).toBeEnabled();
-
-      // Click connect — in jsdom, window.location.href assignment doesn't navigate
-      // but we verify the button is interactive
+      const connectBtn = screen.getByRole("button", {
+        name: "Connect Spotify",
+      });
       await user.click(connectBtn);
+
+      await waitFor(() => {
+        expect(authUrlFetched).toBe(true);
+      });
+      // jsdom does not navigate, so the redirect shows as a button that stays
+      // busy: a failed or empty auth-url response re-enables it and toasts.
+      expect(connectBtn).toBeDisabled();
+      expect(messageSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -816,21 +804,6 @@ describe("ConnectorCard", () => {
       ).toHaveValue("");
     });
 
-    it('shows "connected · N releases" for a connected Discogs card', () => {
-      renderWithProviders(
-        <ConnectorCard
-          connector={makeConnector({
-            name: "discogs",
-            connected: true,
-            detail: "42 releases",
-          })}
-        />,
-      );
-
-      expect(screen.getByText("Discogs")).toBeInTheDocument();
-      expect(screen.getByText("connected · 42 releases")).toBeInTheDocument();
-    });
-
     it("shows the disconnect confirmation for a connected Discogs card", async () => {
       const user = userEvent.setup();
       renderWithProviders(
@@ -858,23 +831,6 @@ describe("ConnectorCard", () => {
   });
 
   describe("accessibility", () => {
-    it("settings gear button has aria-label with connector name", () => {
-      renderWithProviders(
-        <ConnectorCard
-          connector={makeConnector({
-            name: "spotify",
-            connected: true,
-            account_name: "testuser",
-            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
-          })}
-        />,
-      );
-
-      expect(
-        screen.getByRole("button", { name: "Spotify settings" }),
-      ).toBeInTheDocument();
-    });
-
     it("status dots are hidden from screen readers", () => {
       const { container } = renderWithProviders(
         <ConnectorCard

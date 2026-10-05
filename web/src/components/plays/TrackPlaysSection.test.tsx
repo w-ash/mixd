@@ -60,27 +60,41 @@ describe("TrackPlaysSection", () => {
 
   it("skips the chart below the play threshold", async () => {
     overridePlays([makeEvent()]);
+    let histogramRequests = 0;
+    server.use(
+      http.get("*/api/v1/plays/histogram", () => {
+        histogramRequests += 1;
+        return HttpResponse.json(
+          {
+            bins: [{ bucket_start: "2026-08-03T00:00:00Z", count: 4 }],
+            bucket: "week",
+          },
+          { status: 200 },
+        );
+      }),
+    );
 
     renderWithProviders(
-      <TrackPlaysSection trackId={TRACK_ID} totalPlays={3} />,
+      <TrackPlaysSection trackId={TRACK_ID} totalPlays={4} />,
     );
 
     await waitFor(() => {
       expect(screen.getByText("3h ago")).toBeInTheDocument();
     });
-    // The histogram query is disabled — no chart region rendered.
+    // Below 5 plays the histogram is never fetched, so no chart can render.
+    expect(histogramRequests).toBe(0);
     expect(screen.queryByTestId("plays-bar-chart")).toBeNull();
   });
 
-  it("renders the chart at or above the threshold", async () => {
+  it("renders the chart at the 5-play threshold", async () => {
     overridePlays([makeEvent()]);
     overrideHistogram([
       { bucket_start: "2026-08-03T00:00:00Z", count: 4 },
-      { bucket_start: "2026-08-10T00:00:00Z", count: 2 },
+      { bucket_start: "2026-08-10T00:00:00Z", count: 1 },
     ]);
 
     renderWithProviders(
-      <TrackPlaysSection trackId={TRACK_ID} totalPlays={6} />,
+      <TrackPlaysSection trackId={TRACK_ID} totalPlays={5} />,
     );
 
     await waitFor(() => {

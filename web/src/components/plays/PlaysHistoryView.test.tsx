@@ -177,6 +177,6 @@ describe("PlaysHistoryView", () => {
     });
     expect(
       screen.getByRole("button", { name: "Clear date range" }),
-    ).toBeTruthy();
+    ).toBeVisible();
   });
 });

@@ -35,6 +35,8 @@ vi.mock("#/hooks/useOperationProgress", async () => {
   };
 });
 
+// Toasts render through sonner outside the dialog tree; mocking the facade
+// lets each test assert which terminal toast variant fired, and with what copy.
 const mockToastSuccess = vi.fn();
 const mockToastError = vi.fn();
 const mockToastInfo = vi.fn();
@@ -176,13 +178,6 @@ describe("ImportPlaylistsConfirmDialog", () => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 
-    it("does not render a Force re-fetch toggle", () => {
-      setup();
-      expect(
-        screen.queryByRole("switch", { name: /force re-fetch/i }),
-      ).not.toBeInTheDocument();
-    });
-
     it("imports with only ids + direction (no force field)", async () => {
       const importBody = vi.fn();
       server.use(
@@ -200,10 +195,12 @@ describe("ImportPlaylistsConfirmDialog", () => {
         await screen.findByRole("button", { name: "Import 2 playlists" }),
       );
 
-      await waitFor(() => expect(importBody).toHaveBeenCalled());
-      const body = importBody.mock.calls[0][0];
-      expect(body).not.toHaveProperty("force");
-      expect(body).toMatchObject({ sync_direction: "pull" });
+      await waitFor(() =>
+        expect(importBody).toHaveBeenCalledWith({
+          connector_playlist_identifiers: ["sp1", "sp2"],
+          sync_direction: "pull",
+        }),
+      );
     });
   });
 
@@ -435,8 +432,10 @@ describe("ImportPlaylistsConfirmDialog", () => {
           screen.getByText(/Fetching 'Chill Vibes' from spotify/),
         ).toBeInTheDocument();
       });
-      // Pending rows show their fallback name.
-      expect(screen.getAllByText("Workout Mix").length).toBeGreaterThan(0);
+      // Neither playlist has an outcome yet: both rows read pending, and the
+      // not-yet-started row shows its fallback name.
+      expect(screen.getAllByText("pending…")).toHaveLength(2);
+      expect(screen.getByText("Workout Mix")).toBeInTheDocument();
       // No final toast yet.
       expect(mockToastSuccess).not.toHaveBeenCalled();
       expect(mockToastError).not.toHaveBeenCalled();

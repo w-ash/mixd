@@ -33,43 +33,29 @@ describe("OperationProgress", () => {
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
-  it("renders pending state", () => {
-    render(
-      <OperationProgress
-        progress={makeProgress({ status: "pending", message: "Connecting..." })}
-      />,
-    );
+  it.each([
+    ["pending", "Waiting"],
+    ["running", "Running"],
+    ["reconnecting", "Reconnecting"],
+    ["completed", "Complete"],
+    ["failed", "Failed"],
+    ["cancelled", "Cancelled"],
+  ] as const)(
+    "announces the %s status as %s with the message",
+    (status, label) => {
+      render(
+        <OperationProgress
+          progress={makeProgress({ status, message: "Syncing playlist" })}
+        />,
+      );
 
-    expect(screen.getByText("Connecting...")).toBeInTheDocument();
-  });
-
-  it("renders completed state", () => {
-    render(
-      <OperationProgress
-        progress={makeProgress({
-          status: "completed",
-          message: "Complete",
-          completionPercentage: 100,
-        })}
-      />,
-    );
-
-    expect(screen.getByText("Complete")).toBeInTheDocument();
-    expect(screen.getByText("100%")).toBeInTheDocument();
-  });
-
-  it("renders failed state", () => {
-    render(
-      <OperationProgress
-        progress={makeProgress({
-          status: "failed",
-          message: "Operation failed",
-        })}
-      />,
-    );
-
-    expect(screen.getByText("Operation failed")).toBeInTheDocument();
-  });
+      expect(
+        screen.getByRole("status", {
+          name: `Operation ${label}: Syncing playlist`,
+        }),
+      ).toHaveTextContent("Syncing playlist");
+    },
+  );
 
   it("renders rate and ETA when available", () => {
     render(
@@ -96,13 +82,6 @@ describe("OperationProgress", () => {
     );
 
     expect(screen.queryByText(/~10s/)).not.toBeInTheDocument();
-  });
-
-  it("has accessible aria-label", () => {
-    render(<OperationProgress progress={makeProgress()} />);
-
-    const output = screen.getByLabelText("Operation Running: Processing...");
-    expect(output).toBeInTheDocument();
   });
 
   it("formats slow rates as per-minute", () => {
@@ -160,11 +139,12 @@ describe("OperationProgress", () => {
     expect(
       screen.getByText("Fetching playlist from Spotify"),
     ).toBeInTheDocument();
-    // Should NOT show a count within the sub-operation section
-    const subOutput = screen.getByLabelText(
-      "Sub-operation: Fetching playlist from Spotify",
-    );
-    expect(subOutput.querySelector(".font-mono")).not.toBeInTheDocument();
+    // An unknown total shows the message only, with no count.
+    expect(
+      screen.getByRole("status", {
+        name: "Sub-operation: Fetching playlist from Spotify",
+      }),
+    ).toHaveTextContent(/^Fetching playlist from Spotify$/);
   });
 
   it("does not render sub-operation when null", () => {
