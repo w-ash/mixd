@@ -218,9 +218,6 @@ class TestCompilingCachedRows:
         assert equivalence.same(TEED, FULL_NAME)
         assert not equivalence.same(TEED, "Tourist")
 
-    def test_a_name_with_no_cached_rows_compiles_to_nothing(self):
-        assert equivalence_from_alias_rows({}, {}).groups == {}
-
     def test_a_reached_artist_whose_rows_are_missing_is_skipped(self):
         # The second query can come back short — the alias rows are a cache,
         # and a concurrent refresh replaces them wholesale.

@@ -4,13 +4,17 @@ Tests playlist creation workflow: track persistence, connector mapping,
 and transaction management.
 """
 
+from datetime import UTC, datetime, timedelta
+from itertools import chain, repeat
+from unittest.mock import Mock
+
 import pytest
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
-    CreateCanonicalPlaylistResult,
     CreateCanonicalPlaylistUseCase,
 )
+from src.application.utilities import timing
 from src.domain.entities.track import TrackList
 from tests.fixtures import TEST_USER_ID, make_mock_metric_config, make_track
 from tests.fixtures.mocks import make_mock_uow
@@ -35,48 +39,15 @@ def mock_uow():
 
 
 class TestCreateCanonicalPlaylistCommand:
-    """Test command construction and validation."""
-
-    def test_valid_command(self):
-        """Test creating a valid command."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = CreateCanonicalPlaylistCommand(
-            user_id="test-user",
-            name="My Playlist",
-            tracklist=tracklist,
-        )
-        assert cmd.name == "My Playlist"
-        assert len(cmd.tracklist.tracks) == 1
+    """Test command validation."""
 
     def test_empty_name_rejected(self):
         """Test that empty playlist name is rejected."""
         tracklist = TrackList(tracks=[make_track()])
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="must be a non-empty string"):
             CreateCanonicalPlaylistCommand(
                 user_id="test-user", name="", tracklist=tracklist
             )
-
-    def test_command_with_connector_mapping(self):
-        """Test command with connector name and ID for external mapping."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = CreateCanonicalPlaylistCommand(
-            user_id="test-user",
-            name="Discover Weekly",
-            tracklist=tracklist,
-            connector_name="spotify",
-            connector_id="37i9dQZF1DX0XUsuxWHRQd",
-        )
-        assert cmd.connector_name == "spotify"
-        assert cmd.connector_id == "37i9dQZF1DX0XUsuxWHRQd"
-
-    def test_command_is_frozen(self):
-        """Test command immutability."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = CreateCanonicalPlaylistCommand(
-            user_id="test-user", name="Test", tracklist=tracklist
-        )
-        with pytest.raises(AttributeError):
-            cmd.name = "Modified"
 
 
 class TestCreateCanonicalPlaylistUseCase:
@@ -97,28 +68,14 @@ class TestCreateCanonicalPlaylistUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert isinstance(result, CreateCanonicalPlaylistResult)
-        assert result.playlist.name == "Test Playlist"
+        saved = mock_uow.get_playlist_repository().save_playlist.call_args[0][0]
+        assert saved.name == "Test Playlist"
+        assert saved.description == "A test playlist"
+        assert [t.title for t in saved.tracks] == ["Song A", "Song B"]
+        assert result.playlist is saved
+        assert result.tracks_created == 2
         assert not result.errors
         mock_uow.commit.assert_called_once()
-
-    async def test_tracks_with_uuids_not_resaved(self, mock_uow):
-        """Test that tracks with UUIDs are not re-saved (all tracks have UUIDs now)."""
-        track = make_track(title="Existing Song")
-        tracklist = TrackList(tracks=[track])
-
-        command = CreateCanonicalPlaylistCommand(
-            user_id="test-user",
-            name="Playlist With Existing Tracks",
-            tracklist=tracklist,
-        )
-        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
-
-        await use_case.execute(command, mock_uow)
-
-        # Track repo should NOT have been called — tracks already have UUIDs
-        track_repo = mock_uow.get_track_repository()
-        track_repo.save_track.assert_not_called()
 
     async def test_connector_identifier_mapping(self, mock_uow):
         """Test that connector name/ID creates playlist-level mapping."""
@@ -182,8 +139,15 @@ class TestCreateCanonicalPlaylistUseCase:
 
         mock_uow.rollback.assert_called_once()
 
-    async def test_result_includes_execution_time(self, mock_uow):
-        """Test that result includes non-negative execution time."""
+    async def test_result_reports_the_timed_duration(
+        self, mock_uow, monkeypatch: pytest.MonkeyPatch
+    ):
+        """execution_time_ms is the timer reading taken when the work ends."""
+        t0 = datetime(2025, 1, 1, tzinfo=UTC)
+        clock = Mock(
+            now=Mock(side_effect=chain([t0], repeat(t0 + timedelta(milliseconds=42))))
+        )
+        monkeypatch.setattr(timing, "datetime", clock)
         tracklist = TrackList(tracks=[make_track()])
         command = CreateCanonicalPlaylistCommand(
             user_id="test-user", name="Timed", tracklist=tracklist
@@ -192,7 +156,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert result.execution_time_ms >= 0
+        assert result.execution_time_ms == 42
 
 
 class TestCreateCanonicalPlaylistUnresolved:

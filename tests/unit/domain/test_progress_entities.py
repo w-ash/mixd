@@ -45,24 +45,6 @@ class TestOperationStatus:
 class TestProgressEvent:
     """Test ProgressEvent domain entity."""
 
-    def test_create_valid_progress_event(self):
-        """Test creating a valid progress event."""
-        event = ProgressEvent(
-            operation_id="test-op-123",
-            current=50,
-            total=100,
-            message="Processing items",
-            status=ProgressStatus.IN_PROGRESS,
-        )
-
-        assert event.operation_id == "test-op-123"
-        assert event.current == 50
-        assert event.total == 100
-        assert event.message == "Processing items"
-        assert event.status == ProgressStatus.IN_PROGRESS
-        assert isinstance(event.timestamp, datetime)
-        assert event.metadata == {}
-
     def test_completion_percentage_calculation(self):
         """Test completion percentage calculation."""
         event = ProgressEvent(
@@ -174,33 +156,6 @@ class TestProgressEvent:
 
 class TestProgressOperation:
     """Test ProgressOperation domain entity."""
-
-    def test_create_valid_operation(self):
-        """Test creating a valid progress operation."""
-        operation = ProgressOperation(
-            operation_id="test-op-456",
-            description="Import tracks",
-            total_items=1000,
-            status=OperationStatus.PENDING,
-        )
-
-        assert operation.operation_id == "test-op-456"
-        assert operation.description == "Import tracks"
-        assert operation.total_items == 1000
-        assert operation.status == OperationStatus.PENDING
-        assert isinstance(operation.start_time, datetime)
-        assert operation.end_time is None
-        assert operation.metadata == {}
-
-    def test_operation_with_defaults(self):
-        """Test operation creation with default values."""
-        operation = ProgressOperation(description="Test operation")
-
-        assert operation.description == "Test operation"
-        assert operation.operation_id is not None  # UUID generated
-        assert len(operation.operation_id) > 0
-        assert operation.total_items is None
-        assert operation.status == OperationStatus.PENDING
 
     def test_duration_calculation(self):
         """Test duration calculation for completed operations."""
@@ -341,7 +296,6 @@ class TestFactoryFunctions:
         assert operation.total_items == 500
         assert operation.metadata["source"] == "spotify"
         assert operation.metadata["playlist_id"] == "playlist-456"
-        assert len(operation.operation_id) > 0  # UUID generated
 
 
 class TestOperationLedger:
@@ -448,14 +402,22 @@ class TestOperationLedger:
         """Test completing an operation."""
         await coordinator.start_operation(sample_operation)
 
+        before = datetime.now(UTC)
         completed_operation = await coordinator.complete_operation(
             sample_operation.operation_id, OperationStatus.COMPLETED
         )
+        after = datetime.now(UTC)
 
         assert completed_operation.status == OperationStatus.COMPLETED
+        # The ledger stamps completion with the wall clock (no clock seam).
         assert completed_operation.end_time is not None
-        assert completed_operation.duration_seconds is not None
-        assert completed_operation.duration_seconds >= 0
+        assert before <= completed_operation.end_time <= after
+        assert (
+            completed_operation.duration_seconds
+            == (
+                completed_operation.end_time - sample_operation.start_time
+            ).total_seconds()
+        )
 
     async def test_complete_nonexistent_operation_fails(self, coordinator):
         """Test completing nonexistent operation fails."""

@@ -21,33 +21,28 @@ config = create_matching_config()
 class TestCalculateTitleSimilarity:
     """Test cases for title similarity calculation."""
 
-    def test_identical_titles(self):
-        """Test that identical titles return perfect similarity."""
-        result = calculate_title_similarity(
-            "Paranoid Android", "Paranoid Android", config
-        )
-        assert result == 1.0
+    @pytest.mark.parametrize(
+        ("title1", "title2"),
+        [
+            ("Paranoid Android", "Paranoid Android"),
+            ("Paranoid Android", "paranoid android"),
+        ],
+    )
+    def test_titles_equal_ignoring_case_score_identical(self, title1, title2):
+        assert calculate_title_similarity(title1, title2, config) == 1.0
 
-    def test_different_case(self):
-        """Test that case differences don't affect similarity."""
-        result = calculate_title_similarity(
-            "Paranoid Android", "paranoid android", config
-        )
-        assert result == 1.0
-
-    def test_live_variation(self):
-        """Test that live variations are detected and penalized."""
-        result = calculate_title_similarity(
-            "Paranoid Android", "Paranoid Android - Live", config
-        )
-        assert result == 0.6  # Should detect variation marker
-
-    def test_remix_variation(self):
-        """Test that remix variations are detected and penalized."""
-        result = calculate_title_similarity(
-            "Karma Police", "Karma Police (Remix)", config
-        )
-        assert result == 0.6  # Should detect variation marker
+    @pytest.mark.parametrize(
+        ("title1", "title2"),
+        [
+            ("Paranoid Android", "Paranoid Android - Live"),
+            ("Karma Police", "Karma Police (Remix)"),
+            # The longer title can sit on either side of the comparison.
+            ("Karma Police (Remix)", "Karma Police"),
+        ],
+    )
+    def test_a_variation_marker_scores_as_a_variation(self, title1, title2):
+        """A title plus a variation marker is a variant, penalized to 0.6."""
+        assert calculate_title_similarity(title1, title2, config) == 0.6
 
     def test_completely_different_titles(self):
         """Test that completely different titles return low similarity."""
@@ -64,7 +59,13 @@ class TestCalculateConfidence:
     """
 
     def test_perfect_isrc_match(self):
-        """ISRC matches with identical metadata should score very high."""
+        """ISRC match with identical metadata: every attribute at its top level.
+
+        Each score is the level's log-likelihood ratio ln(m/u) from the
+        Fellegi-Sunter table: title exact ln(0.95/0.005), artist exact
+        ln(0.95/0.002), duration close ln(0.95/0.10), ISRC exact
+        ln(0.99/0.0001). Their sum saturates the sigmoid at 100.
+        """
         internal_track = {
             "title": "Paranoid Android",
             "artists": ["Radiohead"],
@@ -80,9 +81,18 @@ class TestCalculateConfidence:
             internal_track, service_track, "isrc", config
         )
 
-        assert confidence >= 95  # Very high for ISRC + perfect metadata
-        assert evidence.final_score == confidence
-        assert evidence.match_weight > 0  # Positive evidence for match
+        assert confidence == 100
+        assert evidence.as_dict() == {
+            "base_score": 100,
+            "title_score": 5.25,
+            "artist_score": 6.16,
+            "duration_score": 2.25,
+            "title_similarity": 1.0,
+            "artist_similarity": 1.0,
+            "duration_diff_ms": 0,
+            "final_score": 100,
+            "match_weight": 22.8619,
+        }
 
     def test_good_artist_title_match(self):
         """Good artist/title matches should score well."""
@@ -264,27 +274,6 @@ class TestCalculateConfidence:
         )
         assert evidence.match_weight < correct_evidence.match_weight
 
-    def test_confidence_bounds(self):
-        """Confidence scores must stay within 0-100."""
-        # Test with terrible match
-        internal_track = {
-            "title": "Track A",
-            "artists": ["Artist A"],
-            "duration_ms": 100000,
-        }
-        service_track = {
-            "title": "Completely Different Track",
-            "artist": "Different Artist",
-            "duration_ms": 500000,  # Very different duration
-        }
-
-        confidence, evidence = calculate_confidence(
-            internal_track, service_track, "artist_title", config
-        )
-
-        assert 0 <= confidence <= 100  # Must stay within bounds
-        assert evidence.final_score == confidence
-
     def test_isrc_suspect_reduces_weight(self):
         """Suspect ISRC (large duration diff) should produce lower weight."""
         internal_track = {
@@ -332,74 +321,81 @@ class TestCalculateConfidence:
         )
 
         assert confidence >= 90  # Should score very high despite diacritic diff
-        assert evidence.artist_similarity >= 0.85  # Phonetic or normalized match
+        # Normalization strips the diacritic: an exact artist match, not a
+        # phonetic near-miss.
+        assert evidence.artist_similarity == 1.0
 
 
 class TestConfidenceEvidence:
-    """Test ConfidenceEvidence type."""
+    """Serialization of evidence for track_mappings.confidence_evidence."""
 
-    def test_as_dict(self):
-        """Test conversion to dictionary."""
+    def test_as_dict_rounds_scores_and_emits_set_flags(self):
         evidence = ConfidenceEvidence(
             base_score=90,
-            title_score=-5.0,
-            artist_score=-2.5,
-            duration_score=-1.0,
-            title_similarity=0.85,
-            artist_similarity=0.92,
+            title_score=-5.456,
+            artist_score=-2.456,
+            duration_score=-1.0149,
+            title_similarity=0.8549,
+            artist_similarity=0.9251,
             duration_diff_ms=2000,
             final_score=82,
+            isrc_suspect=True,
+            duration_missing=True,
+            match_weight=1.234_56,
         )
 
-        result = evidence.as_dict()
+        assert evidence.as_dict() == {
+            "base_score": 90,
+            "title_score": -5.46,
+            "artist_score": -2.46,
+            "duration_score": -1.01,
+            "title_similarity": 0.85,
+            "artist_similarity": 0.93,
+            "duration_diff_ms": 2000,
+            "final_score": 82,
+            "isrc_suspect": True,
+            "duration_missing": True,
+            "match_weight": 1.2346,
+        }
 
-        assert result["base_score"] == 90
-        assert result["title_score"] == -5.0
-        assert result["artist_score"] == -2.5
-        assert result["duration_score"] == -1.0
-        assert result["title_similarity"] == 0.85
-        assert result["artist_similarity"] == 0.92
-        assert result["duration_diff_ms"] == 2000
-        assert result["final_score"] == 82
+    def test_as_dict_omits_unset_flags_and_a_zero_weight(self):
+        stored = ConfidenceEvidence(base_score=90, final_score=90).as_dict()
 
-    def test_immutable(self):
-        """Test that ConfidenceEvidence is immutable."""
-        evidence = ConfidenceEvidence(base_score=90)
-
-        with pytest.raises(AttributeError):
-            evidence.base_score = 95  # Should not be allowed
+        assert "isrc_suspect" not in stored
+        assert "duration_missing" not in stored
+        assert "match_weight" not in stored
 
 
 class TestMatchResult:
-    """Test MatchResult type."""
+    """The derived views a MatchResult gives its consumers."""
 
-    def test_match_result_creation(self):
-        """Test creating a MatchResult."""
-        evidence = ConfidenceEvidence(base_score=90, final_score=85)
-
+    @pytest.mark.parametrize(
+        ("success", "review_required", "zone"),
+        [
+            (True, False, "accept"),
+            (False, True, "review"),
+            (False, False, "reject"),
+        ],
+    )
+    def test_zone_follows_the_decision_booleans(self, success, review_required, zone):
         result = MatchResult(
-            track="mock_track",  # Using string for test
-            success=True,
-            connector_id="spotify:123",
-            confidence=85,
-            match_method="isrc",
-            service_data={"title": "Test"},
-            evidence=evidence,
+            track="mock_track",
+            success=success,
+            review_required=review_required,
+            match_method="artist_title",
         )
 
-        assert result.success is True
-        assert result.connector_id == "spotify:123"
-        assert result.confidence == 85
-        assert result.match_method == "isrc"
-        assert result.service_data == {"title": "Test"}
-        assert result.evidence == evidence
+        assert result.zone == zone
 
-    def test_immutable(self):
-        """Test that MatchResult is immutable."""
-        result = MatchResult(track="mock", success=True, match_method="isrc")
+    def test_evidence_dict_serializes_present_evidence_and_is_none_without(self):
+        evidence = ConfidenceEvidence(base_score=85, final_score=85)
+        with_evidence = MatchResult(
+            track="mock", success=True, match_method="isrc", evidence=evidence
+        )
+        without = MatchResult(track="mock", success=True, match_method="isrc")
 
-        with pytest.raises(AttributeError):
-            result.success = False  # Should not be allowed
+        assert with_evidence.evidence_dict == evidence.as_dict()
+        assert without.evidence_dict is None
 
 
 class TestSelectBestByTitleSimilarity:

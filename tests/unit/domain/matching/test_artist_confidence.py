@@ -38,13 +38,11 @@ def evaluator() -> MatchEvaluationService:
 
 
 class TestIdentityGradeEvidence:
-    @pytest.mark.parametrize("level", ["connector_id", "mbid"])
-    def test_an_id_anchor_auto_accepts(self, level: ArtistEvidenceLevel):
+    @pytest.mark.parametrize("level", ["connector_id", "mbid", "alias_name"])
+    def test_an_id_anchor_or_curated_alias_auto_accepts(
+        self, level: ArtistEvidenceLevel
+    ):
         evidence = calculate_artist_confidence(level, config=make_config())
-        assert evaluator().should_accept_match(evidence.final_score, "mb_url_rel")
-
-    def test_a_curated_alias_auto_accepts(self):
-        evidence = calculate_artist_confidence("alias_name", config=make_config())
         assert evaluator().should_accept_match(evidence.final_score, "mb_url_rel")
 
     def test_an_id_anchor_ignores_the_name_string(self):
@@ -137,4 +135,5 @@ class TestEvidenceSerialization:
         stored = evidence.as_dict()
         assert stored["name_similarity"] == 0.88
         assert stored["lastfm"] is True
-        assert isinstance(stored["match_weight"], float)
+        assert stored["match_weight"] == round(evidence.match_weight, 4)
+        assert stored["match_weight"] != 0

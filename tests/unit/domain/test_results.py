@@ -38,15 +38,29 @@ class TestCreateImportResult:
         assert result.operation_name == "test_import"
 
     def test_import_metrics_populated(self):
-        """Factory should populate summary metrics from import data."""
+        """Non-zero counts become metrics; success rate is imported / attempted.
+
+        Attempted = imported + duplicates + errors, so 8 of 10 is 80%. Zero
+        counts (filtered, new/updated tracks, errors) add no metric at all.
+        """
         import_data = ImportResultData(
             raw_data_count=10,
             imported_count=8,
             duplicate_count=2,
             batch_id="batch-123",
+            checkpoint_timestamp=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
         )
 
         result = create_import_result("test_import", import_data)
 
-        assert result.metadata["batch_id"] == "batch-123"
-        assert result.summary_metrics.get("raw_plays") == 10
+        assert {m.name: m.value for m in result.summary_metrics.metrics} == {
+            "raw_plays": 10,
+            "imported": 8,
+            "duplicates": 2,
+            "success_rate": 80.0,
+        }
+        assert result.summary_metrics.metrics[-1].format == "percent"
+        assert result.metadata == {
+            "batch_id": "batch-123",
+            "checkpoint_timestamp": "2026-01-02T03:04:05+00:00",
+        }

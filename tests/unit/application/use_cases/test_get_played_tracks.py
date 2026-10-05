@@ -5,14 +5,15 @@ Following test pyramid: focus on business rules and validation.
 """
 
 from datetime import UTC, datetime
+from unittest.mock import Mock
 
 import pytest
 
+from src.application.use_cases import get_played_tracks
 from src.application.use_cases.get_played_tracks import (
     GetPlayedTracksCommand,
     GetPlayedTracksUseCase,
 )
-from src.config.constants import BusinessLimits
 from src.domain.entities import Track, TrackPlay
 from src.domain.entities.track import ArtistCredit
 from tests.fixtures import TEST_USER_ID
@@ -21,25 +22,6 @@ from tests.fixtures.mocks import make_mock_uow
 
 class TestGetPlayedTracksCommand:
     """Test command validation - critical for preventing invalid requests."""
-
-    def test_valid_command_defaults(self):
-        """Test valid command with default parameters."""
-        command = GetPlayedTracksCommand(user_id="test-user")
-        assert command.limit == BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
-        assert command.days_back is None
-        assert command.sort_by is None
-
-    def test_valid_command_with_all_options(self):
-        """Test valid command with all options."""
-        command = GetPlayedTracksCommand(
-            user_id="test-user",
-            limit=1000,
-            days_back=30,
-            connector_filter="spotify",
-            sort_by="played_at_desc",
-        )
-        assert command.limit == 1000
-        assert command.days_back == 30
 
     def test_valid_sort_options(self):
         """Test all valid sort options are accepted."""
@@ -66,20 +48,16 @@ class TestGetPlayedTracksCommand:
         with pytest.raises(ValueError, match="must be <="):
             GetPlayedTracksCommand(user_id="test-user", limit=1_000_001)
 
-    def test_invalid_days_back_zero(self):
-        """Test validation fails for zero days_back at construction."""
+    @pytest.mark.parametrize("days_back", [0, -1])
+    def test_non_positive_days_back_invalid(self, days_back):
+        """Test validation fails for zero or negative days_back at construction."""
         with pytest.raises(ValueError, match="must be > 0"):
-            GetPlayedTracksCommand(user_id="test-user", days_back=0)
+            GetPlayedTracksCommand(user_id="test-user", days_back=days_back)
 
     def test_invalid_sort_option(self):
         """Test validation fails for invalid sort option at construction."""
         with pytest.raises(ValueError, match="must be in"):
             GetPlayedTracksCommand(user_id="test-user", sort_by="invalid_sort")
-
-    def test_negative_days_back_invalid(self):
-        """Test validation fails for negative days_back at construction."""
-        with pytest.raises(ValueError, match="must be > 0"):
-            GetPlayedTracksCommand(user_id="test-user", days_back=-1)
 
 
 class TestGetPlayedTracksUseCase:
@@ -158,59 +136,69 @@ class TestGetPlayedTracksUseCase:
         result = await use_case.execute(command, mock_uow)
 
         assert result.tracklist.tracks == sample_tracks
-        assert result.execution_time_ms >= 0  # Can be 0 in fast tests
+        assert result.total_available == 2
         assert len(result.errors) == 0
         assert result.tracklist.metadata["operation"] == "get_played_tracks"
 
     async def test_execute_passes_sort_to_repository(self, mock_uow):
         """Test that sort_by parameter is passed to repository."""
         command = GetPlayedTracksCommand(
-            user_id="test-user", sort_by="total_plays_desc"
+            user_id="test-user", limit=100, sort_by="total_plays_desc"
         )
         use_case = GetPlayedTracksUseCase()
 
         await use_case.execute(command, mock_uow)
 
-        # Verify repository was called with sort_by parameter
+        # Over-fetches plays 2x, since several plays can share one track.
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.assert_called_once_with(
             user_id="test-user",
-            limit=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT * 2,
+            limit=200,
             sort_by="total_plays_desc",
         )
 
-    async def test_execute_with_days_back_filter(self, mock_uow):
-        """Test that days_back creates proper time window."""
+    async def test_days_back_sets_the_aggregation_window(
+        self, mock_uow, monkeypatch: pytest.MonkeyPatch
+    ):
+        """days_back=30 aggregates play metrics from exactly 30 days before now."""
+        clock = Mock(now=Mock(return_value=datetime(2025, 3, 31, 12, tzinfo=UTC)))
+        monkeypatch.setattr(get_played_tracks, "datetime", clock)
         command = GetPlayedTracksCommand(user_id="test-user", days_back=30)
-        use_case = GetPlayedTracksUseCase()
 
-        result = await use_case.execute(command, mock_uow)
+        await GetPlayedTracksUseCase().execute(command, mock_uow)
 
-        # Verify play aggregations were called with time window
         plays_repo = mock_uow.get_plays_repository.return_value
-        plays_aggregations_call = plays_repo.get_play_aggregations.call_args
-        assert plays_aggregations_call.kwargs["period_start"] is not None
+        call = plays_repo.get_play_aggregations.call_args
+        assert call.kwargs["period_start"] == datetime(2025, 3, 1, 12, tzinfo=UTC)
+        assert call.kwargs["user_id"] == "test-user"
 
-    async def test_execute_applies_connector_filter(self, mock_uow, sample_plays):
-        """Test that connector filter is applied to plays."""
-        # Mock plays with mixed services
+    async def test_all_time_query_has_no_aggregation_window(self, mock_uow):
+        command = GetPlayedTracksCommand(user_id="test-user")
+
+        await GetPlayedTracksUseCase().execute(command, mock_uow)
+
+        plays_repo = mock_uow.get_plays_repository.return_value
+        assert plays_repo.get_play_aggregations.call_args.kwargs["period_start"] is None
+
+    async def test_execute_applies_connector_filter(self, mock_uow):
+        """Only tracks played on the filtered service are fetched."""
         mixed_plays = [
             TrackPlay(
                 track_id=1,
                 service="spotify",
-                played_at=datetime.now(UTC),
+                played_at=datetime(2024, 1, 1, tzinfo=UTC),
                 user_id=TEST_USER_ID,
             ),
             TrackPlay(
                 track_id=2,
                 service="lastfm",
-                played_at=datetime.now(UTC),
+                played_at=datetime(2024, 1, 2, tzinfo=UTC),
                 user_id=TEST_USER_ID,
             ),
             TrackPlay(
                 track_id=3,
                 service="spotify",
-                played_at=datetime.now(UTC),
+                played_at=datetime(2024, 1, 3, tzinfo=UTC),
                 user_id=TEST_USER_ID,
             ),
         ]
@@ -220,39 +208,34 @@ class TestGetPlayedTracksUseCase:
         command = GetPlayedTracksCommand(
             user_id="test-user", connector_filter="spotify"
         )
-        use_case = GetPlayedTracksUseCase()
 
-        result_with_filter = await use_case.execute(command, mock_uow)
+        result = await GetPlayedTracksUseCase().execute(command, mock_uow)
 
-        # Should filter to only spotify plays (track_ids 1 and 3)
         track_repo = mock_uow.get_track_repository.return_value
-        track_repo.find_tracks_by_ids.call_args[0][0]
+        assert sorted(track_repo.find_tracks_by_ids.call_args[0][0]) == [1, 3]
+        assert result.total_available == 2
 
-        # The exact filtering logic may vary, but we should see filtering effect in track count
-        assert result_with_filter.tracklist.metadata["operation"] == "get_played_tracks"
-
-    async def test_execute_respects_limit(self, mock_uow, sample_plays):
-        """Test that limit is properly applied."""
-        # Mock many plays
-        many_plays = sample_plays * 10  # 20 plays total
+    async def test_execute_respects_limit(self, mock_uow):
+        """Only `limit` distinct tracks are fetched; the total counts them all."""
+        plays = [
+            TrackPlay(
+                track_id=i,
+                service="spotify",
+                played_at=datetime(2024, 1, i, tzinfo=UTC),
+                user_id=TEST_USER_ID,
+            )
+            for i in range(1, 9)
+        ]
         plays_repo = mock_uow.get_plays_repository.return_value
-        plays_repo.get_recent_plays.return_value = many_plays
+        plays_repo.get_recent_plays.return_value = plays
 
         command = GetPlayedTracksCommand(user_id="test-user", limit=5)
-        use_case = GetPlayedTracksUseCase()
 
-        await use_case.execute(command, mock_uow)
+        result = await GetPlayedTracksUseCase().execute(command, mock_uow)
 
-        # Track IDs should be limited
         track_repo = mock_uow.get_track_repository.return_value
-        track_ids_requested = track_repo.find_tracks_by_ids.call_args[0][0]
-        assert len(track_ids_requested) <= 5
-
-    async def test_execute_invalid_command_raises_error(self, mock_uow):
-        """Test that invalid command raises ValueError at construction."""
-        # Invalid command now raises ValueError at construction (fail-fast)
-        with pytest.raises(ValueError, match="must be >= 1"):
-            GetPlayedTracksCommand(user_id="test-user", limit=0)
+        assert len(track_repo.find_tracks_by_ids.call_args[0][0]) == 5
+        assert result.total_available == 8
 
     async def test_execute_handles_empty_plays(self, mock_uow):
         """Test graceful handling when no plays exist."""
@@ -276,11 +259,17 @@ class TestGetPlayedTracksUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        metadata = result.tracklist.metadata
-        assert metadata["operation"] == "get_played_tracks"
-        assert "metrics" in metadata
-        assert "total_plays" in metadata["metrics"]
-        assert "last_played_dates" in metadata["metrics"]
+        # The repository's aggregations land under the canonical metrics key.
+        assert result.tracklist.metadata == {
+            "operation": "get_played_tracks",
+            "metrics": {
+                "total_plays": {1: 5, 2: 3},
+                "last_played_dates": {
+                    1: datetime(2024, 1, 1, tzinfo=UTC),
+                    2: datetime(2024, 1, 2, tzinfo=UTC),
+                },
+            },
+        }
 
     async def test_execute_filters_none_track_ids(self, mock_uow):
         """Test that plays with None track_id are filtered out."""
@@ -315,6 +304,4 @@ class TestGetPlayedTracksUseCase:
         # Should only request tracks for valid track_ids (1, 2)
         track_repo = mock_uow.get_track_repository.return_value
         track_ids_requested = track_repo.find_tracks_by_ids.call_args[0][0]
-        assert None not in track_ids_requested
-        assert 1 in track_ids_requested
-        assert 2 in track_ids_requested
+        assert sorted(track_ids_requested) == [1, 2]

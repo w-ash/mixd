@@ -67,12 +67,14 @@ class TestTracking:
         assert runs_in_flight() == 0
 
     async def test_count_never_goes_negative(self) -> None:
-        # Defensive clamp: an unbalanced release must not drive the count below
-        # zero, which would strand the sweeper at the active cadence once a real
-        # run later decremented past it.
+        # A reset while a run is in flight leaves that run's release unbalanced.
+        # The count must clamp at zero, or the next real run would read as idle.
         async with track_run():
-            pass
+            reset_run_activity()
         assert runs_in_flight() == 0
+
+        async with track_run():
+            assert runs_in_flight() == 1
 
 
 class TestWakeSignal:

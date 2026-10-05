@@ -245,10 +245,18 @@ class TestNaiveDatetimesAreNormalized:
             # A value that already carries an offset passes through untouched.
             assert command.until == aware
 
-    def test_naive_bounds_reach_the_repository_as_aware(self):
+    @pytest.mark.asyncio
+    async def test_naive_bounds_reach_the_repository_as_aware(self):
         """A naive ``since`` on the feed does not raise — psycopg would
         reinterpret it against the session TimeZone and return wrong rows."""
         aware = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-        command = ListPlaysCommand(user_id="u1", since=_naive(aware))
+        plays_repo = make_mock_plays_repo(list_play_events=([], None))
+        uow = make_mock_uow(plays_repo=plays_repo, track_repo=make_mock_track_repo())
 
-        assert command.since == aware
+        _ = await ListPlaysUseCase().execute(
+            ListPlaysCommand(user_id="u1", since=_naive(aware)), uow
+        )
+
+        since = plays_repo.list_play_events.await_args.kwargs["since"]
+        assert since == aware
+        assert since.tzinfo is UTC

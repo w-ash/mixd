@@ -12,19 +12,15 @@ import pytest
 
 from src.domain.entities import (
     OperationResult,
-    PlayRecord,
     SyncCheckpoint,
     create_lastfm_play_record,
     ensure_utc,
 )
-from src.domain.entities.operations import TrackContextFields
 from src.domain.entities.track import (
     ArtistCredit,
     ConnectorArtistCredit,
     ConnectorTrack,
     Track,
-    TrackLike,
-    TrackList,
     credits_display,
 )
 from tests.fixtures import TEST_USER_ID
@@ -32,27 +28,6 @@ from tests.fixtures import TEST_USER_ID
 
 class TestTrackEntity:
     """Test core track entity behavior and business rules."""
-
-    def test_track_creation_with_valid_data(self):
-        """Test creating a track with valid data."""
-        artist = ArtistCredit(credited_name="Radiohead")
-        track = Track(
-            title="Paranoid Android",
-            artists=[artist],
-            album="OK Computer",
-            duration_ms=383000,
-            isrc="GBUM71505078",
-            user_id=TEST_USER_ID,
-        )
-
-        assert track.title == "Paranoid Android"
-        assert track.artists == (artist,)
-        assert track.album == "OK Computer"
-        assert track.duration_ms == 383000
-        assert track.isrc == "GBUM71505078"
-        assert isinstance(track.id, UUID)
-        assert track.connector_track_identifiers == {}
-        assert track.connector_metadata == {}
 
     def test_track_requires_at_least_one_artist(self):
         """Test that track creation fails without artists."""
@@ -135,24 +110,6 @@ class TestTrackEntity:
 class TestArtistCredit:
     """Credit value object: validation and the optional identity fields."""
 
-    def test_defaults_carry_no_identity(self):
-        credit = ArtistCredit(credited_name="Caribou")
-        assert credit.artist_id is None
-        assert credit.join_phrase is None
-        assert credit.role is None
-
-    def test_carries_identity_and_join_phrase(self):
-        artist_id = uuid7()
-        credit = ArtistCredit(
-            credited_name="Daphni",
-            artist_id=artist_id,
-            join_phrase=" & ",
-            role="remixer",
-        )
-        assert credit.artist_id == artist_id
-        assert credit.join_phrase == " & "
-        assert credit.role == "remixer"
-
     def test_credited_name_must_be_str(self):
         with pytest.raises(TypeError):
             ArtistCredit(credited_name=cast(str, 123))
@@ -160,12 +117,6 @@ class TestArtistCredit:
     def test_artist_id_must_be_uuid(self):
         with pytest.raises(TypeError):
             ArtistCredit(credited_name="X", artist_id=cast(UUID, "not-a-uuid"))
-
-    def test_equal_by_value(self):
-        assert ArtistCredit(credited_name="X") == ArtistCredit(credited_name="X")
-        assert ArtistCredit(credited_name="X") != ArtistCredit(
-            credited_name="X", artist_id=uuid7()
-        )
 
 
 class TestCreditsDisplay:
@@ -232,36 +183,9 @@ class TestCreditsDisplay:
         assert track.artists_display == "A x B"
         assert connector_track.artists_display == "A x B"
 
-    def test_connector_credits_display_through_the_same_function(self):
-        credits = [
-            ConnectorArtistCredit(
-                credited_name="Thom Yorke",
-                connector_artist_identifier="mb-1",
-                join_phrase=" & ",
-            ),
-            ConnectorArtistCredit(credited_name="PJ Harvey"),
-        ]
-        assert credits_display(credits) == "Thom Yorke & PJ Harvey"
-
 
 class TestConnectorArtistCredit:
     """A service's own credit: its artist id is the service's, never a canonical one."""
-
-    def test_identifier_join_phrase_and_role_default_to_none(self):
-        credit = ConnectorArtistCredit(credited_name="Tycho")
-        assert credit.connector_artist_identifier is None
-        assert credit.join_phrase is None
-        assert credit.role is None
-
-    def test_carries_the_service_identifier(self):
-        credit = ConnectorArtistCredit(
-            credited_name="Tycho", connector_artist_identifier="sp-1", role="remixer"
-        )
-        assert credit.connector_artist_identifier == "sp-1"
-        assert credit.role == "remixer"
-
-    def test_has_no_canonical_artist_id_slot(self):
-        assert not hasattr(ConnectorArtistCredit(credited_name="Tycho"), "artist_id")
 
     def test_connector_track_rejects_canonical_credits(self):
         with pytest.raises(TypeError, match="Expected ConnectorArtistCredit"):
@@ -272,116 +196,20 @@ class TestTrackCredits:
     """``Track.artists`` / ``ConnectorTrack.artists`` are tuples of credits."""
 
     def test_list_literal_is_converted_to_tuple(self):
-        track = Track(
-            title="T", artists=[ArtistCredit(credited_name="A")], user_id=TEST_USER_ID
-        )
-        assert isinstance(track.artists, tuple)
+        credit = ArtistCredit(credited_name="A")
+        track = Track(title="T", artists=[credit], user_id=TEST_USER_ID)
+        assert track.artists == (credit,)
 
     def test_connector_track_list_literal_is_converted_to_tuple(self):
-        connector_track = ConnectorTrack(
-            "spotify", "sp1", "T", [ConnectorArtistCredit(credited_name="A")]
-        )
-        assert isinstance(connector_track.artists, tuple)
-
-    def test_credit_without_artist_id_is_valid(self):
-        track = Track(
-            title="T",
-            artists=[ArtistCredit(credited_name="Various", artist_id=None)],
-            user_id=TEST_USER_ID,
-        )
-        assert track.artists[0].artist_id is None
+        credit = ConnectorArtistCredit(credited_name="A")
+        connector_track = ConnectorTrack("spotify", "sp1", "T", [credit])
+        assert connector_track.artists == (credit,)
 
     def test_non_credit_element_is_rejected(self):
         with pytest.raises(TypeError, match="Expected ArtistCredit"):
             Track(
                 title="T", artists=cast(list[ArtistCredit], ["A"]), user_id=TEST_USER_ID
             )
-
-
-class TestTrackListEntity:
-    """Test track list entity behavior for processing pipelines."""
-
-    def test_track_list_creation(self):
-        """Test creating a track list."""
-        tracks = [
-            Track(
-                title="Song 1",
-                artists=[ArtistCredit(credited_name="Artist 1")],
-                user_id=TEST_USER_ID,
-            ),
-            Track(
-                title="Song 2",
-                artists=[ArtistCredit(credited_name="Artist 2")],
-                user_id=TEST_USER_ID,
-            ),
-        ]
-
-        track_list = TrackList(tracks=tracks)
-
-        assert track_list.tracks == tracks
-        assert track_list.metadata == {}
-
-    def test_track_list_with_tracks(self):
-        """Test creating new track list with different tracks."""
-        original_tracks = [
-            Track(
-                title="Song 1",
-                artists=[ArtistCredit(credited_name="Artist 1")],
-                user_id=TEST_USER_ID,
-            )
-        ]
-        new_tracks = [
-            Track(
-                title="Song 2",
-                artists=[ArtistCredit(credited_name="Artist 2")],
-                user_id=TEST_USER_ID,
-            )
-        ]
-
-        track_list = TrackList(tracks=original_tracks)
-        updated_list = track_list.with_tracks(new_tracks)
-
-        assert updated_list.tracks == new_tracks
-        assert updated_list != track_list  # Immutability
-        assert track_list.tracks == original_tracks  # Original unchanged
-
-    def test_track_list_with_metadata(self):
-        """Test adding metadata to track list."""
-        track_list = TrackList(tracks=[])
-
-        updated_list = track_list.with_metadata("source", "spotify_playlist")
-
-        assert updated_list.metadata["source"] == "spotify_playlist"
-        assert updated_list != track_list  # Immutability
-        assert track_list.metadata == {}  # Original unchanged
-
-
-class TestTrackLikeEntity:
-    """Test track like entity behavior."""
-
-    def test_track_like_creation(self):
-        """Test creating a track like."""
-        timestamp = datetime.now(UTC)
-        track_uuid = uuid7()
-
-        like = TrackLike(
-            track_id=track_uuid,
-            service="spotify",
-            liked_at=timestamp,
-            user_id=TEST_USER_ID,
-        )
-
-        assert like.track_id == track_uuid
-        assert like.service == "spotify"
-        assert like.liked_at == timestamp
-        assert isinstance(like.id, UUID)
-
-    def test_track_like_defaults(self):
-        """Test track like default values."""
-        track_uuid = uuid7()
-        like = TrackLike(track_id=track_uuid, service="spotify", user_id=TEST_USER_ID)
-
-        assert like.liked_at is None
 
 
 class TestSyncCheckpoint:
@@ -432,25 +260,6 @@ class TestSyncCheckpoint:
 class TestPlayRecord:
     """Test PlayRecord and factory functions."""
 
-    def test_play_record_creation(self):
-        """Test PlayRecord creation with all fields."""
-        played_at = datetime.now(UTC)
-        record = PlayRecord(
-            artist_name="Artist",
-            track_name="Song",
-            played_at=played_at,
-            service="spotify",
-            album_name="Album",
-            ms_played=240000,
-        )
-
-        assert record.artist_name == "Artist"
-        assert record.track_name == "Song"
-        assert record.played_at == played_at
-        assert record.service == "spotify"
-        assert record.album_name == "Album"
-        assert record.ms_played == 240000
-
     def test_create_lastfm_play_record(self):
         """Test LastFM play record creation factory function."""
         scrobbled_at = datetime.now(UTC)
@@ -470,8 +279,7 @@ class TestPlayRecord:
         assert record.service == "lastfm"
         assert record.album_name == "Album"
         assert (
-            record.service_metadata[TrackContextFields.LASTFM_TRACK_URL]
-            == "https://last.fm/track/123"
+            record.service_metadata["lastfm_track_url"] == "https://last.fm/track/123"
         )
         assert record.service_metadata["mbid"] == "123-456-789"
         assert record.service_metadata["loved"] is True
@@ -511,6 +319,8 @@ class TestEnsureUtc:
         """Test naive datetime is converted to UTC."""
         naive_dt = datetime(2023, 1, 1, 12, 0, 0, tzinfo=None)  # ruff:ignore[call-datetime-without-tzinfo]
         utc_dt = ensure_utc(naive_dt)
+        # The wall-clock reading is kept and labelled UTC, not shifted from local time.
+        assert utc_dt == datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         assert utc_dt.tzinfo == UTC
 
     def test_ensure_utc_already_utc(self):

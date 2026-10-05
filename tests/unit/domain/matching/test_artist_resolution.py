@@ -22,6 +22,7 @@ from src.domain.matching.artist_resolution import (
     plan_artist_resolution,
 )
 from src.domain.matching.canonical_resolution import Described
+from src.domain.repositories.mapping import PrimaryCandidate
 from tests.fixtures import TEST_USER_ID
 
 CONFIG = create_matching_config()
@@ -214,14 +215,45 @@ class TestArtistWrites:
 
         assert [a.name for a in writes.artists] == ["Caribou", "Koushik"]
         caribou, koushik = writes.artists
-        (row_1, row_2) = writes.mapping_rows
-        assert row_1["artist_id"] == caribou.id
-        assert row_1["connector_artist_id"] == stored["sp-1"].id
-        assert row_1["match_method"] == "direct"
-        assert row_1["is_primary"] is True
-        assert row_1["last_seen_at"] == NOW
-        assert row_2["artist_id"] == koushik.id
-        assert [p.owner_id for p in writes.primaries] == [caribou.id, koushik.id]
+        assert {a.user_id for a in writes.artists} == {TEST_USER_ID}
+        # The model owns the number; this contract is the decision. A connector
+        # artist id is identity-grade, so each row is priced at that level and
+        # clears the auto-accept bar (85), and the row records the evidence score.
+        priced = ("confidence", "confidence_evidence")
+        assert [
+            {k: v for k, v in row.items() if k not in priced}
+            for row in writes.mapping_rows
+        ] == [
+            {
+                "user_id": TEST_USER_ID,
+                "artist_id": caribou.id,
+                "connector_artist_id": stored["sp-1"].id,
+                "connector_name": "spotify",
+                "match_method": "direct",
+                "origin": "automatic",
+                "is_primary": True,
+                "last_seen_at": NOW,
+            },
+            {
+                "user_id": TEST_USER_ID,
+                "artist_id": koushik.id,
+                "connector_artist_id": stored["sp-2"].id,
+                "connector_name": "spotify",
+                "match_method": "direct",
+                "origin": "automatic",
+                "is_primary": True,
+                "last_seen_at": NOW,
+            },
+        ]
+        for row in writes.mapping_rows:
+            evidence = row["confidence_evidence"]
+            assert evidence["level"] == "connector_id"
+            assert row["confidence"] >= 85
+            assert evidence["final_score"] == row["confidence"]
+        assert writes.primaries == (
+            PrimaryCandidate(caribou.id, "spotify", stored["sp-1"].id),
+            PrimaryCandidate(koushik.id, "spotify", stored["sp-2"].id),
+        )
         assert writes.assignments == (
             (canonical.id, 0, caribou.id),
             (canonical.id, 1, koushik.id),

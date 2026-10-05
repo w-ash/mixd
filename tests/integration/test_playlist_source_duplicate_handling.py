@@ -203,13 +203,9 @@ class TestPlaylistSourceDuplicateHandling:
                 empty_connector_playlist, uow, user_id="default"
             )
 
-            # Verify: Processing service returns valid empty TrackList
-            assert processed_tracklist is not None
-            assert len(processed_tracklist.tracks) == 0
-            assert processed_tracklist.metadata is not None
-
-            # Verify: Metadata contains processing information
-            assert "connector_playlist_processed" in processed_tracklist.metadata
+            # Verify: Processing service returns an empty playlist, not an error
+            assert processed_tracklist.entries == []
+            assert processed_tracklist.name == "Empty Test Playlist"
             assert processed_tracklist.metadata["connector_playlist_processed"] is True
             assert processed_tracklist.metadata["original_item_count"] == 0
             assert processed_tracklist.metadata["preserved_track_count"] == 0

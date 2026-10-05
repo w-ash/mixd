@@ -11,13 +11,13 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 from src.application.services.operation_run_reaper import (
-    PROCESS_DIED_ERROR_MESSAGE,
-    REAP_AGE_BOUND,
-    REAP_MAX_BATCH,
     count_running_runs,
     reap_dead_runs,
 )
 from tests.fixtures import make_mock_uow, make_operation_run
+
+# Twice the longest measured single run (4-6h un-batched Last.fm full history).
+AGE_BOUND = timedelta(hours=12)
 
 
 def _uow_with_running(runs: list) -> tuple[object, AsyncMock]:
@@ -36,19 +36,26 @@ class TestReapDeadRuns:
         )
         uow, repo = _uow_with_running([stale])
 
+        before = datetime.now(UTC)
         reaped = await reap_dead_runs(uow)
+        after = datetime.now(UTC)
 
         assert reaped == 1
         update_kwargs = repo.update_status.await_args.kwargs
         assert repo.update_status.await_args.args == (stale.id,)
         assert update_kwargs["user_id"] == "alice"
         assert update_kwargs["status"] == "error"
-        assert update_kwargs["ended_at"] is not None
-        assert update_kwargs["counts"] == {"error_message": PROCESS_DIED_ERROR_MESSAGE}
+        assert before <= update_kwargs["ended_at"] <= after
+        assert update_kwargs["counts"] == {
+            "error_message": "process died before the run finished"
+        }
+        assert repo.append_issues.await_args.args == (stale.id,)
+        assert repo.append_issues.await_args.kwargs["user_id"] == "alice"
         issues = repo.append_issues.await_args.kwargs["issues"]
         assert len(issues) == 1
         assert "process died" in issues[0]["message"]
-        assert "minutes after start" in issues[0]["message"]
+        # 13h since start, floored to whole minutes.
+        assert "780 minutes after start" in issues[0]["message"]
 
     async def test_status_and_issue_share_one_commit(self) -> None:
         # A crash between the status write and the issue append would durably
@@ -69,11 +76,8 @@ class TestReapDeadRuns:
         after = datetime.now(UTC)
 
         cutoff = repo.list_running_started_before.await_args.args[0]
-        assert before - REAP_AGE_BOUND <= cutoff <= after - REAP_AGE_BOUND
-        assert (
-            repo.list_running_started_before.await_args.kwargs["limit"]
-            == REAP_MAX_BATCH
-        )
+        assert before - AGE_BOUND <= cutoff <= after - AGE_BOUND
+        assert repo.list_running_started_before.await_args.kwargs["limit"] == 100
 
     async def test_no_stale_rows_writes_nothing(self) -> None:
         uow, repo = _uow_with_running([])
@@ -117,23 +121,7 @@ class TestCountRunningRuns:
         after = datetime.now(UTC)
 
         cutoff = repo.count_running_started_since.await_args.args[0]
-        assert before - REAP_AGE_BOUND <= cutoff <= after - REAP_AGE_BOUND
-
-    async def test_reaper_dead_phantom_does_not_block_the_gate(self) -> None:
-        # A row past REAP_AGE_BOUND is dead by the reaper's own definition,
-        # but the reaper only runs at startup — and the deploy this gate
-        # guards is exactly the restart that would reap it. The exclusion now
-        # lives in the SQL predicate: the cutoff handed to the count is never
-        # older than the age bound, so a phantom started before it can never
-        # be counted (row-level exclusion is pinned in the repository's
-        # integration tests).
-        uow, repo = _uow_with_counts(0)
-
-        before = datetime.now(UTC)
-        await count_running_runs(uow)
-
-        cutoff = repo.count_running_started_since.await_args.args[0]
-        assert cutoff >= before - REAP_AGE_BOUND
+        assert before - AGE_BOUND <= cutoff <= after - AGE_BOUND
 
     async def test_stale_window_complements_the_live_window(self) -> None:
         # The stale count reuses the SAME cutoff with the complementary

@@ -9,6 +9,7 @@ from src.application.use_cases.list_playlist_links import (
     ListPlaylistLinksUseCase,
 )
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
+from src.domain.exceptions import NotFoundError
 from tests.fixtures import make_mock_uow, make_playlist
 
 _PLAYLIST_ID = uuid7()
@@ -42,16 +43,14 @@ class TestListPlaylistLinksHappyPath:
         assert result.links[0].connector_playlist_identifier == "abc123"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_for_unlinked_playlist(self):
-        pid = uuid7()
+    async def test_another_users_playlist_is_not_found(self):
+        """Links are listed only after the ownership gate passes."""
         uow = make_mock_uow()
-        uow.get_playlist_link_repository().get_links_for_playlist.return_value = []
-        uow.get_playlist_repository().get_playlist_by_id.return_value = make_playlist(
-            id=pid
-        )
+        uow.get_playlist_repository().is_owned_by.return_value = False
 
-        result = await ListPlaylistLinksUseCase().execute(
-            ListPlaylistLinksCommand(user_id="test-user", playlist_id=pid), uow
-        )
+        with pytest.raises(NotFoundError):
+            await ListPlaylistLinksUseCase().execute(
+                ListPlaylistLinksCommand(user_id="test-user", playlist_id=uuid7()), uow
+            )
 
-        assert result.links == []
+        uow.get_playlist_link_repository().get_links_for_playlist.assert_not_called()

@@ -10,10 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.application.services.operation_run_reaper import (
-    PROCESS_DIED_ERROR_MESSAGE,
-    reap_dead_runs,
-)
+from src.application.services.operation_run_reaper import reap_dead_runs
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.operation_run import (
     OperationRunRepository,
@@ -55,7 +52,9 @@ class TestReaperTick:
         assert stale_row is not None
         assert stale_row.status == "error"
         assert stale_row.ended_at is not None
-        assert stale_row.counts == {"error_message": PROCESS_DIED_ERROR_MESSAGE}
+        assert stale_row.counts == {
+            "error_message": "process died before the run finished"
+        }
         assert len(stale_row.issues) == 1
         assert "process died" in str(stale_row.issues[0]["message"])
 
@@ -100,9 +99,3 @@ class TestReaperTick:
         row = await repo.get_by_id_for_user(stale.id, user_id="alice")
         assert row is not None
         assert len(row.issues) == 1
-
-    async def test_tick_on_empty_table_is_a_no_op(
-        self, db_session: AsyncSession
-    ) -> None:
-        assert await reap_dead_runs(get_unit_of_work(db_session)) == 0
-        assert await reap_dead_runs(get_unit_of_work(db_session)) == 0

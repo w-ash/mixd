@@ -154,7 +154,6 @@ class TestFilterByArtistIdsDualMode:
     def test_dual_mode_returns_transform_without_tracklist(self):
         target = uuid4()
         transform = filter_by_artist_ids(frozenset({target}))
-        assert callable(transform)
 
         track = make_track(artists=[ArtistCredit("Match", artist_id=target)])
         result = transform(TrackList(tracks=[track]))

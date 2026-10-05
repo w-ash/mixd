@@ -173,19 +173,6 @@ def _recording_ingest(calls: list[int]):
 
 
 class TestBulkIngestFailureIsContained:
-    async def test_per_track_retry_recovers_every_track(self, db_session: AsyncSession):
-        """The retry loop's whole purpose — reachable only if the transaction
-        survived the bulk failure."""
-        uow = get_unit_of_work(db_session)
-        service = ConnectorPlaylistProcessingService()
-
-        with _bulk_fails_batch_succeeds_singly(db_session):
-            resolved = await service._resolve_and_ingest_tracks(
-                BATCH, CONNECTOR, uow, user_id=USER
-            )
-
-        assert sorted(resolved) == ["sp_aaaaa", "sp_bbbbb", "sp_ccccc"]
-
     async def test_the_recovered_tracks_are_really_persisted(
         self, db_session: AsyncSession
     ):
@@ -252,8 +239,10 @@ class TestBulkIngestFailureIsContained:
     async def test_a_bad_batch_still_takes_the_per_track_path(
         self, db_session: AsyncSession
     ):
-        """The contention branch must not swallow the ordinary case: an error
-        that isn't contention is still answered one track at a time."""
+        """The retry loop's whole purpose — reachable only if the transaction
+        survived the bulk failure. The contention branch must not swallow this
+        ordinary case: an error that isn't contention is still answered one
+        track at a time, and every track is recovered."""
         uow = get_unit_of_work(db_session)
         service = ConnectorPlaylistProcessingService()
         calls: list[int] = []

@@ -72,8 +72,7 @@ class TestStatusLifecycle:
         assert out.tracks_removed == 1
         assert out.tracks_unmatched == 2
         statuses = [c.args[1] for c in link_repo.update_sync_status.call_args_list]
-        assert SyncStatus.SYNCING in statuses
-        assert SyncStatus.SYNCED in statuses
+        assert statuses == [SyncStatus.SYNCING, SyncStatus.SYNCED]
 
     async def test_connector_failure_marks_error_and_reraises(self):
         link = _link()
@@ -93,7 +92,7 @@ class TestStatusLifecycle:
             c.args[1]
             for c in uow.get_playlist_link_repository().update_sync_status.call_args_list
         ]
-        assert SyncStatus.ERROR in statuses
+        assert statuses == [SyncStatus.SYNCING, SyncStatus.ERROR]
 
     async def test_confirmation_required_restores_prior_status(self):
         link = _link(status=SyncStatus.SYNCED)
@@ -118,8 +117,7 @@ class TestStatusLifecycle:
             for c in uow.get_playlist_link_repository().update_sync_status.call_args_list
         ]
         # Restored to the prior status, never marked ERROR for a confirmation.
-        assert SyncStatus.SYNCED in statuses
-        assert SyncStatus.ERROR not in statuses
+        assert statuses == [SyncStatus.SYNCING, SyncStatus.SYNCED]
 
     async def test_link_under_another_playlist_raises(self):
         """A nested route naming playlist A cannot sync playlist B's link."""

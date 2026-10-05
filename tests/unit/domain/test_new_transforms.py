@@ -23,16 +23,6 @@ class TestReverseTransform:
 
         assert [t.id for t in result.tracks] == [3, 2, 1]
 
-    def test_reverse_empty(self):
-        result = reverse_tracks(tracklist=TrackList())
-        assert result.tracks == []
-
-    def test_reverse_single(self):
-        tl = TrackList(tracks=[make_track(1)])
-        result = reverse_tracks(tracklist=tl)
-        assert len(result.tracks) == 1
-        assert result.tracks[0].id == 1
-
     def test_reverse_preserves_metadata(self):
         tl = TrackList(
             tracks=[make_track(1), make_track(2)],
@@ -174,10 +164,10 @@ class TestIntersect:
 
 
 class TestSelectByPercentage:
-    def test_basic_percentage(self):
+    def test_basic_percentage_takes_the_first_tracks(self):
         tracks = [make_track(i) for i in range(1, 11)]  # 10 tracks
         result = select_by_percentage(percentage=50, tracklist=TrackList(tracks=tracks))
-        assert len(result.tracks) == 5
+        assert [t.id for t in result.tracks] == [1, 2, 3, 4, 5]
 
     def test_rounds_correctly(self):
         tracks = [make_track(i) for i in range(1, 8)]  # 7 tracks
@@ -190,8 +180,8 @@ class TestSelectByPercentage:
         result = select_by_percentage(
             percentage=0.1, tracklist=TrackList(tracks=tracks)
         )
-        # 100 * 0.001 = 0.1 -> max(1, round(0.1)) = 1
-        assert len(result.tracks) >= 1
+        # 100 * 0.001 = 0.1 rounds to 0, but a selection never comes back empty.
+        assert [t.id for t in result.tracks] == [1]
 
     def test_100_percent(self):
         tracks = [make_track(i) for i in range(1, 6)]
@@ -208,11 +198,6 @@ class TestSelectByPercentage:
         # 10 * 0.30 = 3 tracks from the end
         assert len(result.tracks) == 3
         assert [t.id for t in result.tracks] == [8, 9, 10]
-
-    def test_small_list(self):
-        tracks = [make_track(1), make_track(2)]
-        result = select_by_percentage(percentage=50, tracklist=TrackList(tracks=tracks))
-        assert len(result.tracks) == 1
 
 
 def _track_released(track_id: int, year: int | None) -> Track:
@@ -236,13 +221,6 @@ class TestFilterByReleaseYear:
             min_year=2010, max_year=2019, tracklist=TrackList(tracks=tracks)
         )
         assert [t.id for t in result.tracks] == [2, 3, 4]
-
-    def test_boundary_years_are_inclusive(self):
-        tracks = [_track_released(1, 2010), _track_released(2, 2019)]
-        result = filter_by_release_year(
-            min_year=2010, max_year=2019, tracklist=TrackList(tracks=tracks)
-        )
-        assert len(result.tracks) == 2
 
     def test_only_min_year(self):
         tracks = [_track_released(1, 2008), _track_released(2, 2012)]
@@ -277,7 +255,6 @@ class TestFilterByReleaseYear:
 
     def test_dual_mode_returns_transform_without_tracklist(self):
         transform = filter_by_release_year(min_year=2010)
-        assert callable(transform)  # Transform is a Callable alias, not isinstance-able
         tracks = [_track_released(1, 2008), _track_released(2, 2012)]
         result = transform(TrackList(tracks=tracks))
         assert [t.id for t in result.tracks] == [2]

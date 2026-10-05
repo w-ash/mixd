@@ -395,7 +395,7 @@ class TestPerItemAtomicity:
         assert [f.connector_playlist_identifier for f in result.failed] == ["sp2"]
         # Only B rolled back; A's commit (plus the pre-loop cache commit) landed.
         uow.rollback.assert_awaited_once()
-        assert uow.commit_batch.await_count >= 2
+        assert uow.commit_batch.await_count == 2
 
     async def test_post_commit_emit_failure_does_not_double_count(self) -> None:
         """A progress-emit failure *after* an item committed must not re-record it
@@ -484,28 +484,6 @@ class TestProgressEmission:
     for failures) — enough signal for the UI to render a per-playlist result
     list without inspecting the HTTP response.
     """
-
-    async def test_no_emitter_no_events(self) -> None:
-        """Default code path — zero events fire. Preserves CLI + test behavior."""
-        from src.domain.entities.progress import NullProgressEmitter
-
-        cp = _cp("sp1")
-        uow, _ = make_mock_uow_with_connector(get_playlist_return=cp)
-        emitter = NullProgressEmitter()
-        # Wrap to observe any accidental emission.
-        emitter.start_operation = AsyncMock(wraps=emitter.start_operation)  # type: ignore[method-assign]
-        emitter.complete_operation = AsyncMock(wraps=emitter.complete_operation)  # type: ignore[method-assign]
-
-        with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result())):
-            _ = await _use_case().execute(
-                _cmd(["sp1"]),
-                uow,
-                progress_emitter=None,
-                progress_broker=None,
-            )
-
-        emitter.start_operation.assert_not_called()
-        emitter.complete_operation.assert_not_called()
 
     async def test_emits_top_level_and_per_playlist_sub_ops(self) -> None:
         """With a real emitter + manager, top-level op starts once and each
