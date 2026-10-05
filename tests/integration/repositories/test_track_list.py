@@ -340,48 +340,6 @@ class TestListTracksCombinedFilters:
 class TestListTracksKeysetPagination:
     """Keyset (cursor) pagination — O(1) seeks via WHERE (sort_col, id) > (v, id)."""
 
-    async def test_keyset_title_asc_matches_offset(
-        self, db_session: AsyncSession
-    ) -> None:
-        """Keyset forward navigation produces the same results as offset."""
-        await _insert_track(db_session, "Alpha")
-        await _insert_track(db_session, "Beta")
-        await _insert_track(db_session, "Gamma")
-        await _insert_track(db_session, "Delta")
-
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        # Page 1 via offset
-        p1_off = await track_repo.list_tracks(
-            user_id="default", sort_by="title_asc", limit=2, offset=0
-        )
-        # Page 1 also via keyset (no cursor = first page)
-        p1_key = await track_repo.list_tracks(
-            user_id="default", sort_by="title_asc", limit=2
-        )
-        assert [t.title for t in p1_off["tracks"]] == [
-            t.title for t in p1_key["tracks"]
-        ]
-        assert p1_key["next_page_key"] is not None
-
-        # Page 2 via offset
-        p2_off = await track_repo.list_tracks(
-            user_id="default", sort_by="title_asc", limit=2, offset=2
-        )
-        # Page 2 via keyset
-        sort_val, last_id = p1_key["next_page_key"]
-        p2_key = await track_repo.list_tracks(
-            user_id="default",
-            sort_by="title_asc",
-            limit=2,
-            after_value=sort_val,
-            after_id=last_id,
-        )
-        assert [t.title for t in p2_off["tracks"]] == [
-            t.title for t in p2_key["tracks"]
-        ]
-
     async def test_keyset_title_desc(self, db_session: AsyncSession) -> None:
         """Descending sort uses < operator for keyset."""
         await _insert_track(db_session, "Alpha")
@@ -432,21 +390,6 @@ class TestListTracksKeysetPagination:
             after_id=last_id,
         )
         assert [t.title for t in p2["tracks"]] == ["Long"]
-
-    async def test_keyset_last_page_returns_none(
-        self, db_session: AsyncSession
-    ) -> None:
-        """When the page is not full, next_page_key is None (no more pages)."""
-        await _insert_track(db_session, "Only Track")
-
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        page = await track_repo.list_tracks(
-            user_id="default", sort_by="title_asc", limit=50
-        )
-        assert len(page["tracks"]) == 1
-        assert page["next_page_key"] is None
 
     async def test_keyset_exactly_full_last_page_yields_no_key(
         self, db_session: AsyncSession
@@ -705,3 +648,6 @@ class TestListTracksPlaySortsAndFilters:
         top = page["tracks"][0]
         assert top.play_count == 50
         assert top.last_played_at is not None
+        # "Middle" was seeded 30 days ago; first_played_at was left NULL.
+        age = datetime.now(UTC) - top.last_played_at
+        assert timedelta(days=29) < age < timedelta(days=31)

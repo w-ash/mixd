@@ -5,19 +5,12 @@ which connector track is returned for queries, metadata lookups, and bulk
 operations against a real PostgreSQL database.
 """
 
-from uuid import UUID
-
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.application.services.track_resolution import TrackResolutionService
-from src.domain.entities import (
-    ArtistCredit,
-    ConnectorArtistCredit,
-    ConnectorTrack,
-    Track,
-)
+from src.domain.entities import ArtistCredit, Track
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.domain.repositories.mapping import PrimaryCandidate
 from src.infrastructure.persistence.database.models import (
@@ -25,7 +18,6 @@ from src.infrastructure.persistence.database.models import (
     DBTrack,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
 )
@@ -34,25 +26,58 @@ from tests.fixtures import TEST_USER_ID
 
 
 class TestPrimaryMappingDatabaseIntegration:
-    """Minimal integration tests for primary mapping with real database."""
+    """The database admits one live primary per (user, track, connector)."""
 
-    async def test_constraint_exists(self, db_session):
-        """Test that the partial unique index exists in database."""
-        from sqlalchemy import text
-
-        result = await db_session.execute(
-            text(
-                "SELECT indexname FROM pg_indexes "
-                "WHERE tablename = 'track_mappings' AND indexname LIKE '%primary%'"
+    async def test_a_second_live_primary_for_one_pair_is_refused(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """``uq_primary_mapping`` is what every election relies on: a writer
+        that promotes without deposing must fail, not leave two primaries."""
+        db_track = DBTrack(
+            title="Two Primaries", artists={"names": ["Artist"]}, user_id=TEST_USER_ID
+        )
+        db_session.add(db_track)
+        await db_session.flush()
+        test_data_tracker.add_track(db_track.id)
+        first_ct, second_ct = (
+            DBConnectorTrack(
+                connector_name="spotify",
+                connector_track_identifier=identifier,
+                title="Two Primaries",
+                artists={"names": ["Artist"]},
+                raw_metadata={},
+            )
+            for identifier in ("sp_two_primaries_a", "sp_two_primaries_b")
+        )
+        db_session.add_all([first_ct, second_ct])
+        await db_session.flush()
+        db_session.add(
+            DBTrackMapping(
+                track_id=db_track.id,
+                connector_track_id=first_ct.id,
+                connector_name="spotify",
+                match_method="direct",
+                confidence=100,
+                is_primary=True,
+                user_id=TEST_USER_ID,
             )
         )
-        indexes = result.fetchall()
-        assert len(indexes) > 0
+        await db_session.flush()
 
-    async def test_repository_method_available(self, db_session):
-        """The one election spelling is on the repository."""
-        repo = TrackConnectorRepository(db_session)
-        assert callable(repo.ensure_primaries)
+        db_session.add(
+            DBTrackMapping(
+                track_id=db_track.id,
+                connector_track_id=second_ct.id,
+                connector_name="spotify",
+                match_method="direct",
+                confidence=100,
+                is_primary=True,
+                user_id=TEST_USER_ID,
+            )
+        )
+        with pytest.raises(IntegrityError, match="uq_primary_mapping"):
+            async with db_session.begin_nested():
+                await db_session.flush()
 
 
 class TestPrimaryMappingQueries:
@@ -171,49 +196,6 @@ class TestPrimaryMappingQueries:
 
         assert db_track.id in result
         assert result[db_track.id] == {"explicit": True}
-
-    async def test_ingest_bulk_sets_primary_per_track(
-        self, db_session: AsyncSession, test_data_tracker
-    ):
-        """TrackResolutionService.ingest sets exactly one primary mapping per track."""
-        tracks = [
-            ConnectorTrack(
-                connector_name="spotify",
-                connector_track_identifier=f"bulk_sp_{i}",
-                title=f"Bulk Track {i}",
-                artists=[ConnectorArtistCredit(credited_name=f"Bulk Artist {i}")],
-                raw_metadata={"explicit": i % 2 == 0},
-            )
-            for i in range(3)
-        ]
-
-        domain_tracks = await TrackResolutionService().ingest(
-            "spotify", tracks, get_unit_of_work(db_session), user_id="default"
-        )
-        await db_session.commit()
-
-        for dt in domain_tracks:
-            if dt.id is not None:
-                test_data_tracker.add_track(dt.id)
-
-        # Each canonical track must have exactly one primary mapping for spotify
-        seen_ids: set[UUID] = set()
-        for dt in domain_tracks:
-            if dt.id is None or dt.id in seen_ids:
-                continue
-            seen_ids.add(dt.id)
-
-            result = await db_session.execute(
-                select(DBTrackMapping).where(
-                    DBTrackMapping.track_id == dt.id,
-                    DBTrackMapping.connector_name == "spotify",
-                )
-            )
-            mappings = result.scalars().all()
-            primary_count = sum(1 for m in mappings if m.is_primary)
-            assert primary_count == 1, (
-                f"Track {dt.id} has {primary_count} primary mappings, expected 1"
-            )
 
     async def test_relinking_single_primary_survives(
         self, db_session: AsyncSession, test_data_tracker

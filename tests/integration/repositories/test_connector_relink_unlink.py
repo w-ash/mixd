@@ -101,18 +101,11 @@ class TestGetMappingById:
 
 
 class TestDeleteMapping:
-    """delete_mapping removes the row and returns pre-deletion entity."""
+    """delete_mapping refuses an id it cannot find.
 
-    async def test_deletes_and_returns_entity(
-        self, db_session: AsyncSession, connector_repo
-    ) -> None:
-        _, _, mapping_id = await _setup_track_with_mapping(db_session)
-
-        result = await connector_repo.delete_mapping(mapping_id, user_id="default")
-
-        assert result.id == mapping_id
-        lookup = await connector_repo.get_mapping_by_id(mapping_id, user_id="default")
-        assert lookup is None
+    The retire-and-read-as-absent half lives in test_resolution_events.py
+    (TestRetirementReplacesDeletion).
+    """
 
     async def test_raises_not_found_for_missing(
         self, db_session: AsyncSession, connector_repo
@@ -301,21 +294,54 @@ class TestEnsurePrimaryForConnector:
     async def test_noop_when_primary_exists(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
-        track_id, _, _ = await _setup_track_with_mapping(db_session, is_primary=True)
-
-        # Should not raise or change anything
-        await connector_repo.ensure_primary_for_connector(track_id, "spotify")
-
-        # Verify by querying the database directly
-        result = await db_session.execute(
-            select(DBTrackMapping).where(
-                DBTrackMapping.track_id == track_id,
-                DBTrackMapping.connector_name == "spotify",
+        """An existing primary is kept even when a higher-confidence mapping
+        sits beside it — this fills a vacancy, it does not re-elect."""
+        track_id, primary_ct_id, _ = await _setup_track_with_mapping(
+            db_session, is_primary=True, confidence=60
+        )
+        stronger = DBConnectorTrack(
+            connector_name="spotify",
+            connector_track_identifier=f"sp:{uuid4().hex[:8]}:stronger",
+            title="T",
+            artists={"names": ["A"]},
+            raw_metadata={},
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(stronger)
+        await db_session.flush()
+        db_session.add(
+            DBTrackMapping(
+                track_id=track_id,
+                connector_track_id=stronger.id,
+                connector_name="spotify",
+                match_method="isrc",
+                confidence=100,
+                is_primary=False,
+                user_id=TEST_USER_ID,
             )
         )
-        mappings = result.scalars().all()
-        primaries = [m for m in mappings if m.is_primary]
-        assert len(primaries) == 1
+        await db_session.flush()
+
+        await connector_repo.ensure_primary_for_connector(track_id, "spotify")
+
+        # populate_existing: a promote is Core DML, so the identity map would
+        # otherwise answer with the pre-write instances added above.
+        primaries = (
+            (
+                await db_session.execute(
+                    select(DBTrackMapping.connector_track_id)
+                    .where(
+                        DBTrackMapping.track_id == track_id,
+                        DBTrackMapping.connector_name == "spotify",
+                        DBTrackMapping.is_primary.is_(True),
+                    )
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert primaries == [primary_ct_id]
 
 
 class TestGetConnectorTrackById:
@@ -330,6 +356,7 @@ class TestGetConnectorTrackById:
 
         assert result is not None
         assert result.connector_name == "spotify"
+        assert result.connector_track_identifier == "spotify:abc123"
 
     async def test_returns_none_when_missing(
         self, db_session: AsyncSession, connector_repo

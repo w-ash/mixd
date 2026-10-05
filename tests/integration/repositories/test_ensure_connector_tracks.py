@@ -7,10 +7,11 @@ Covers round-trip persistence, idempotency, and FK compatibility with MatchRevie
 
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.match_review import MatchReview
-from src.infrastructure.persistence.database.models import DBTrack
+from src.infrastructure.persistence.database.models import DBConnectorTrack, DBTrack
 from src.infrastructure.persistence.repositories.match_review import (
     MatchReviewRepository,
 )
@@ -58,13 +59,27 @@ class TestEnsureConnectorTracks:
 
         result = await repo.ensure_connector_tracks("spotify", tracks_data)
 
-        assert len(result) == 2
-        assert ("spotify", "sp_abc123") in result
-        assert ("spotify", "sp_def456") in result
-
-        # UUIDs are distinct
-        ids = list(result.values())
-        assert ids[0] != ids[1]
+        assert set(result) == {("spotify", "sp_abc123"), ("spotify", "sp_def456")}
+        # Each returned id names the stored row for its own external id.
+        rows = {
+            row.id: row
+            for row in (
+                await db_session.execute(
+                    select(DBConnectorTrack).where(
+                        DBConnectorTrack.id.in_(list(result.values()))
+                    )
+                )
+            ).scalars()
+        }
+        first = rows[result["spotify", "sp_abc123"]]
+        assert first.connector_track_identifier == "sp_abc123"
+        assert first.title == "Song A"
+        assert first.album == "Album X"
+        assert first.duration_ms == 210000
+        assert first.isrc == "USRC10000001"
+        second = rows[result["spotify", "sp_def456"]]
+        assert second.connector_track_identifier == "sp_def456"
+        assert second.title == "Song B"
 
     async def test_idempotent_on_rerun(self, db_session: AsyncSession):
         """Calling twice with same data returns same UUIDs, no duplicates."""

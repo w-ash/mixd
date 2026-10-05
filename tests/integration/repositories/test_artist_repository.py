@@ -49,13 +49,16 @@ class TestSaveAndGet:
             Artist(name="Jungle", user_id=user_id),
         ]
 
+        before = datetime.now(UTC)
         saved = await repo.save_artists(wanted)
+        after = datetime.now(UTC)
 
         assert [a.name for a in saved] == ["Caribou", "Jungle"]
         assert [a.id for a in saved] == [a.id for a in wanted]
         assert saved[0].mbid == "mb-1"
         assert saved[0].kind == "person"
         assert saved[0].created_at is not None
+        assert before <= saved[0].created_at <= after
 
     async def test_get_by_id_is_scoped_to_the_owner(self, db_session):
         repo = get_unit_of_work(db_session).get_artist_repository()
@@ -266,14 +269,15 @@ class TestEnrichmentQueue:
     async def test_artists_without_an_mbid_are_queued_oldest_first(self, db_session):
         repo = get_unit_of_work(db_session).get_artist_repository()
         user_id = _user()
-        anchored, unknown = await _save_artists(repo, user_id, "Anchored", "Unknown")
+        anchored, older = await _save_artists(repo, user_id, "Anchored", "Older")
+        (newer,) = await _save_artists(repo, user_id, "Newer")
         await repo.set_identity(
             anchored.id, user_id=user_id, mbid="mb-anchor", kind="group"
         )
 
         queued = await repo.list_needing_enrichment(user_id=user_id)
 
-        assert [a.id for a in queued] == [unknown.id]
+        assert [a.id for a in queued] == [older.id, newer.id]
 
     async def test_older_than_widens_the_queue_to_stale_anchors(self, db_session):
         repo = get_unit_of_work(db_session).get_artist_repository()
@@ -288,19 +292,17 @@ class TestEnrichmentQueue:
 
         assert [a.id for a in widened] == [anchored.id]
 
-    async def test_touch_moves_updated_at(self, db_session):
+    async def test_touch_sends_an_artist_to_the_back_of_the_queue(self, db_session):
+        """Touch is the "seen, nothing found" mark: the next run tries others first."""
         repo = get_unit_of_work(db_session).get_artist_repository()
         user_id = _user()
-        (artist,) = await _save_artists(repo, user_id, "Touched")
-        before = artist.updated_at
+        (seen,) = await _save_artists(repo, user_id, "Seen")
+        (waiting,) = await _save_artists(repo, user_id, "Waiting")
 
-        await repo.touch([artist.id], user_id=user_id)
+        await repo.touch([seen.id], user_id=user_id)
 
-        refreshed = await repo.get_artist_by_id(artist.id, user_id=user_id)
-        assert refreshed is not None
-        assert before is not None
-        assert refreshed.updated_at is not None
-        assert refreshed.updated_at >= before
+        queued = await repo.list_needing_enrichment(user_id=user_id)
+        assert [a.id for a in queued] == [waiting.id, seen.id]
 
 
 class TestCredits:

@@ -20,51 +20,6 @@ from tests.fixtures import TEST_USER_ID, make_track
 class TestImportIdempotency:
     """Integration tests for import idempotency with real database operations."""
 
-    async def test_duplicate_import_creates_no_duplicates(self, db_session):
-        """CRITICAL: Test that importing the same play twice doesn't create duplicates."""
-        uow = get_unit_of_work(db_session)
-        plays_repo = uow.get_plays_repository()
-        track_repo = uow.get_track_repository()
-
-        test_track = make_track(
-            title="TEST_IdempotencyTrack",
-            artist="TEST_IdempotencyArtist",
-            connector_track_identifiers={},
-        )
-        saved_track = await track_repo.save_track(test_track)
-
-        batch_id = f"TEST_BATCH_{uuid4()}"
-
-        test_play = TrackPlay(
-            track_id=saved_track.id,
-            service="spotify",
-            played_at=datetime(2023, 1, 15, 14, 30, 22, tzinfo=UTC),
-            ms_played=180000,
-            context={"test": "data"},
-            import_timestamp=datetime.now(UTC),
-            import_source="test_import",
-            import_batch_id=batch_id,
-            user_id=TEST_USER_ID,
-        )
-
-        await plays_repo.bulk_insert_plays([test_play])
-        await plays_repo.bulk_insert_plays([test_play])
-
-        all_plays = await plays_repo.find_plays_in_window(
-            datetime(2023, 1, 15, tzinfo=UTC),
-            datetime(2023, 1, 16, tzinfo=UTC),
-            user_id="default",
-        )
-
-        assert len(all_plays) == 1, (
-            f"Expected 1 play, got {len(all_plays)}. Import is NOT idempotent!"
-        )
-
-        play = all_plays[0]
-        assert play.track_id == saved_track.id
-        assert play.service == "spotify"
-        assert play.ms_played == 180000
-
     async def test_overlapping_batch_imports_prevent_duplicates(self, db_session):
         """Test that overlapping imports with different batch IDs don't create duplicates."""
         uow = get_unit_of_work(db_session)
@@ -118,8 +73,13 @@ class TestImportIdempotency:
 
         # ON CONFLICT DO NOTHING: the first batch's insert claims the row; the
         # second batch is a no-op, so only batch_1's play exists.
-        assert len(all_plays) == 1
-        assert all_plays[0].import_batch_id == batch_1
+        assert len(all_plays) == 1, "Re-import created a duplicate play"
+        play = all_plays[0]
+        assert play.import_batch_id == batch_1
+        assert play.context == {"batch": "first"}
+        assert play.track_id == saved_track.id
+        assert play.service == "lastfm"
+        assert play.ms_played == 240000
 
 
 class TestNullMsPlayedIdempotency:

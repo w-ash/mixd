@@ -1,7 +1,8 @@
-"""Integration tests for ConnectorTrackRepository.get_match_method_stats(user_id="default").
+"""Integration tests for ConnectorTrackRepository.get_match_method_stats.
 
-Tests the SQL aggregation query against a real SQLite database, verifying
-correct grouping, counting, confidence aggregation, and recent-window filtering.
+Tests the SQL aggregation query against a real PostgreSQL database, verifying
+correct grouping, counting, confidence aggregation, band distribution, and
+recent-window filtering.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -191,40 +192,16 @@ class TestMatchMethodStatsConfidence:
 class TestMatchMethodStatsBands:
     """Verify confidence-band distribution counts (FILTER aggregation, Q1)."""
 
-    async def test_band_distribution_per_method(self, db_session):
-        t1, t2, t3, t4 = (
-            _make_db_track(),
-            _make_db_track(),
-            _make_db_track(),
-            _make_db_track(),
-        )
-        ct1 = _make_connector_track("spotify")
-        ct2 = _make_connector_track("spotify")
-        ct3 = _make_connector_track("spotify")
-        ct4 = _make_connector_track("spotify")
-
-        await _insert_mapping(db_session, t1, ct1, "artist_title", 10)  # reject
-        await _insert_mapping(db_session, t2, ct2, "artist_title", 60)  # review
-        await _insert_mapping(db_session, t3, ct3, "artist_title", 90)  # accept
-        await _insert_mapping(db_session, t4, ct4, "artist_title", 100)  # certain
-        await db_session.commit()
-
-        uow = get_unit_of_work(db_session)
-        repo = uow.get_connector_repository()
-        result = await repo.get_match_method_stats(user_id="default")
-
-        assert len(result) == 1
-        row = result[0]
-        assert row["band_reject"] == 1
-        assert row["band_review"] == 1
-        assert row["band_accept"] == 1
-        assert row["band_certain"] == 1
-
     async def test_band_boundaries(self, db_session):
-        """Boundary confidences land in the correct band (49/50/84/85/99/100)."""
-        tracks = [_make_db_track() for _ in range(6)]
-        cts = [_make_connector_track("spotify") for _ in range(6)]
-        confidences = [49, 50, 84, 85, 99, 100]
+        """Each confidence lands in its band, boundaries included.
+
+        Bands: reject <50, review 50-84, accept 85-99, certain =100. Each band
+        gets a different count, so a band filter copied from its neighbour
+        cannot pass.
+        """
+        confidences = [49, 50, 84, 85, 92, 99, 100, 100, 100, 100]
+        tracks = [_make_db_track() for _ in confidences]
+        cts = [_make_connector_track("spotify") for _ in confidences]
 
         for track, ct, confidence in zip(tracks, cts, confidences, strict=True):
             await _insert_mapping(db_session, track, ct, "artist_title", confidence)
@@ -236,11 +213,11 @@ class TestMatchMethodStatsBands:
 
         assert len(result) == 1
         row = result[0]
-        assert row["total_count"] == 6
+        assert row["total_count"] == 10
         assert row["band_reject"] == 1  # 49
         assert row["band_review"] == 2  # 50, 84
-        assert row["band_accept"] == 2  # 85, 99
-        assert row["band_certain"] == 1  # 100
+        assert row["band_accept"] == 3  # 85, 92, 99
+        assert row["band_certain"] == 4  # 100 x4
 
     async def test_bands_are_per_method_and_connector_group(self, db_session):
         """Bands are scoped to each (match_method, connector_name) group, not global."""

@@ -48,19 +48,19 @@ async def _create_track_with_mapping(
     track_id = tracks[0].id
     assert track_id is not None
 
-    # Set origin and confidence on the mapping
-    update_values: dict[str, object] = {}
+    # Set origin and confidence on the mapping. Clear last_seen_at, which the
+    # first assertion stamps, so only a re-encounter can set it again.
+    update_values: dict[str, object] = {"last_seen_at": None}
     if origin != "automatic":
         update_values["origin"] = origin
     if confidence != 100:
         update_values["confidence"] = confidence
-    if update_values:
-        await db_session.execute(
-            update(DBTrackMapping)
-            .where(DBTrackMapping.track_id == track_id)
-            .values(**update_values)
-        )
-        await db_session.flush()
+    await db_session.execute(
+        update(DBTrackMapping)
+        .where(DBTrackMapping.track_id == track_id)
+        .values(**update_values)
+    )
+    await db_session.flush()
 
     result = await db_session.execute(
         select(DBTrackMapping.id).where(DBTrackMapping.track_id == track_id)
