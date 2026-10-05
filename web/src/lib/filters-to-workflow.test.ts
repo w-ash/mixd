@@ -177,7 +177,11 @@ describe("filtersToWorkflowDef", () => {
 
   it("liked=true with no preference → source.liked_tracks (no special config)", () => {
     const wf = filtersToWorkflowDef({ liked: true }, { name: "Liked Only" });
-    expect(tasksOf(wf)[0].type).toBe("source.liked_tracks");
+    expect(tasksOf(wf)[0]).toEqual({
+      id: "source",
+      type: "source.liked_tracks",
+      config: {},
+    });
   });
 });
 
@@ -194,10 +198,13 @@ describe("summarizeFilters", () => {
       liked: true,
       connector: "spotify",
     });
-    expect(summary).toContain("preference=star");
-    expect(summary).toContain("mood:chill AND energy:low");
-    expect(summary).toContain("liked");
-    expect(summary).toContain("connector=spotify");
+    expect(summary).toBe(
+      "Saved filter: preference=star, tags=mood:chill AND energy:low, liked, connector=spotify",
+    );
+  });
+
+  it("names an explicit not-liked filter", () => {
+    expect(summarizeFilters({ liked: false })).toBe("Saved filter: not liked");
   });
 
   it("uses OR joiner for tagMode=or", () => {

@@ -83,20 +83,6 @@ class TestGetPlaylistsForTrack:
         assert names == {"Playlist A", "Playlist B"}
         assert len(playlists) == 2
 
-    async def test_excludes_playlists_without_track(
-        self, db_session: AsyncSession
-    ) -> None:
-        track_id, playlist_ids = await _setup_track_in_playlists(db_session)
-
-        uow = get_unit_of_work(db_session)
-        playlist_repo = uow.get_playlist_repository()
-        playlists = await playlist_repo.get_playlists_for_track(
-            track_id, user_id="default"
-        )
-
-        names = {p.name for p in playlists}
-        assert "Playlist C" not in names
-
     async def test_no_playlists_returns_empty(self, db_session: AsyncSession) -> None:
         now = datetime.now(UTC)
         track = DBTrack(

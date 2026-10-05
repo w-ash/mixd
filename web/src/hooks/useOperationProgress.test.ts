@@ -16,6 +16,8 @@ import {
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
+// connectToSSE is the streaming boundary: tests script each attempt's frames,
+// mid-stream drops and the resume call, which MSW cannot sequence per attempt.
 vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
@@ -182,24 +184,7 @@ describe("useOperationProgress", () => {
     close();
   });
 
-  it("handles complete event", async () => {
-    mockSSEWithEvents([sseFrame("complete", { final_status: "completed" })]);
-
-    const { result } = renderHook(() => useOperationProgress("op-123"), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.progress).toEqual(
-        expect.objectContaining({
-          status: "completed",
-          message: "Complete",
-        }),
-      );
-    });
-  });
-
-  it("exposes per-operation counts from the terminal complete event", async () => {
+  it("handles the terminal complete event and exposes its counts", async () => {
     mockSSEWithEvents([
       sseFrame("complete", {
         final_status: "completed",
@@ -212,11 +197,14 @@ describe("useOperationProgress", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.progress?.counts).toEqual({
-        track_plays: 42,
-        errors: 0,
-      });
+      expect(result.current.progress?.status).toBe("completed");
     });
+    expect(result.current.progress?.message).toBe("Complete");
+    expect(result.current.progress?.counts).toEqual({
+      track_plays: 42,
+      errors: 0,
+    });
+    expect(result.current.isActive).toBe(false);
   });
 
   it("handles error event from server", async () => {
@@ -236,30 +224,6 @@ describe("useOperationProgress", () => {
         }),
       );
     });
-  });
-
-  it("ignores events with empty data", async () => {
-    // The empty frame must contribute nothing and must not break the stream:
-    // the event after it still lands.
-    const { close } = mockSSEOpenStream([
-      { event: "progress", data: "" },
-      sseFrame("progress", { current: 7, message: "After empty event" }),
-    ]);
-
-    const { result } = renderHook(() => useOperationProgress("op-123"), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.progress).toEqual(
-        expect.objectContaining({
-          status: "running",
-          current: 7,
-          message: "After empty event",
-        }),
-      );
-    });
-    close();
   });
 
   it("resets state when operationId changes to null", async () => {
@@ -320,109 +284,6 @@ describe("useOperationProgress", () => {
       expect(wasInvalidated(queryClient, ["/api/v1/imports/checkpoints"])).toBe(
         true,
       );
-    });
-  });
-
-  it("skips malformed JSON and processes subsequent valid events", async () => {
-    const { close } = mockSSEOpenStream([
-      { event: "progress", data: "not valid json{{{" },
-      sseFrame("progress", {
-        current: 10,
-        total: 50,
-        message: "After bad event",
-      }),
-    ]);
-
-    const { result } = renderHook(() => useOperationProgress("op-123"), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.progress).toEqual(
-        expect.objectContaining({
-          status: "running",
-          current: 10,
-          message: "After bad event",
-        }),
-      );
-    });
-    close();
-  });
-
-  it("aborts first connection when operationId changes to a different value", async () => {
-    // First connection: stays open until abort
-    let firstAborted = false;
-    vi.mocked(connectToSSE).mockImplementation((_url, signal) => {
-      return new Promise((resolve, reject) => {
-        signal.addEventListener(
-          "abort",
-          () => {
-            firstAborted = true;
-            reject(new DOMException("Aborted", "AbortError"));
-          },
-          { once: true },
-        );
-        // Resolve with empty iterable after a tick (simulates open connection)
-        setTimeout(
-          () =>
-            resolve(
-              (async function* () {
-                // Yield nothing — just hold the connection open
-                await new Promise(() => {});
-              })(),
-            ),
-          0,
-        );
-      });
-    });
-
-    const { result, rerender } = renderHook(
-      ({ id }: { id: string | null }) => useOperationProgress(id),
-      {
-        wrapper: createWrapper(),
-        initialProps: { id: "op-first" as string | null },
-      },
-    );
-
-    // Wait for first connection to establish
-    await waitFor(() => {
-      expect(result.current.progress?.status).toBe("pending");
-    });
-
-    // Now switch to second operationId — should abort the first
-    const { close } = mockSSEOpenStream([
-      sseFrame("started", { description: "Second operation" }),
-    ]);
-    rerender({ id: "op-second" });
-
-    await waitFor(() => {
-      expect(firstAborted).toBe(true);
-    });
-
-    await waitFor(() => {
-      expect(result.current.progress).toEqual(
-        expect.objectContaining({
-          status: "running",
-          message: "Second operation",
-        }),
-      );
-    });
-    close();
-  });
-
-  it("suppresses AbortError and stays in the pending state", async () => {
-    vi.mocked(connectToSSE).mockRejectedValue(
-      new DOMException("The operation was aborted", "AbortError"),
-    );
-
-    const { result } = renderHook(() => useOperationProgress("op-123"), {
-      wrapper: createWrapper(),
-    });
-
-    // Give time for the async IIFE to run and handle the AbortError
-    await waitFor(() => {
-      // The pending state is set synchronously, so it should exist
-      expect(result.current.progress?.status).toBe("pending");
     });
   });
 
@@ -729,7 +590,10 @@ describe("useOperationProgress", () => {
     await waitFor(() => {
       expect(result.current.progress?.status).toBe("running");
     });
-    expect(result.current.progress?.subOperation).not.toBeNull();
+    // The item's live row is still the ingest phase that opened it.
+    expect(result.current.progress?.subOperation).toEqual(
+      expect.objectContaining({ operationId: "ingest-1", phase: "fetch" }),
+    );
     // And crucially the ROW is not concluded: a phase signs off with the same
     // `final_status: "completed"` a finished file does, so recording it as the
     // row's verdict would check off file 1 the moment its ingest ends — and

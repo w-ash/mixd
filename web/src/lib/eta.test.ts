@@ -11,26 +11,19 @@ import { describe, expect, it } from "vitest";
 import { formatEta, formatProgressLabel, formatRate } from "./eta";
 
 describe("formatProgressLabel", () => {
-  it("falls back to indeterminate copy when total is null", () => {
-    const result = formatProgressLabel({
-      current: 5,
-      total: null,
-      message: "Fetching things",
-    });
-    expect(result.hasEta).toBe(false);
-    expect(result.label).toBe("Fetching 5 items…");
-  });
-
-  it("shows base count without ETA when itemsPerSecond is missing", () => {
-    const result = formatProgressLabel({
-      current: 12,
-      total: 87,
-      message: "Enriching tracks",
-      etaSeconds: 6,
-    });
-    expect(result.hasEta).toBe(false);
-    expect(result.label).toBe("Enriching 12/87 tracks…");
-  });
+  // Spec (module header): indeterminate unless total is known and > 0.
+  it.each([null, undefined, 0])(
+    "falls back to indeterminate copy when total is %s",
+    (total) => {
+      const result = formatProgressLabel({
+        current: 5,
+        total,
+        message: "Fetching things",
+      });
+      expect(result.hasEta).toBe(false);
+      expect(result.label).toBe("Fetching 5 items…");
+    },
+  );
 
   it("shows ETA when rate, eta, and completion are all healthy", () => {
     const result = formatProgressLabel({
@@ -44,49 +37,26 @@ describe("formatProgressLabel", () => {
     expect(result.label).toBe("Enriching 12/87 tracks · 13/sec · ETA 6s");
   });
 
-  it("hides ETA when completion >= 80%", () => {
-    const result = formatProgressLabel({
-      current: 80,
-      total: 87,
-      message: "Enriching tracks",
-      itemsPerSecond: 12,
-      etaSeconds: 1,
-    });
-    expect(result.hasEta).toBe(false);
-  });
-
-  it("hides ETA when eta_seconds <= 3 (don't show flickery sub-3s ETAs)", () => {
-    const result = formatProgressLabel({
-      current: 12,
-      total: 87,
-      message: "Enriching tracks",
-      itemsPerSecond: 12,
-      etaSeconds: 2,
-    });
-    expect(result.hasEta).toBe(false);
-  });
-
-  it("rounds rate to integer when items_per_second >= 10", () => {
-    const result = formatProgressLabel({
-      current: 12,
-      total: 87,
-      message: "Enriching tracks",
-      itemsPerSecond: 12.7,
-      etaSeconds: 6,
-    });
-    expect(result.label).toContain("13/sec");
-  });
-
-  it("shows one decimal when rate is < 10/sec", () => {
-    const result = formatProgressLabel({
-      current: 12,
-      total: 87,
-      message: "Enriching tracks",
-      itemsPerSecond: 4.2,
-      etaSeconds: 18,
-    });
-    expect(result.label).toContain("4.2/sec");
-  });
+  // Spec (module header): ETA only when rate > 0, completion < 80%, ETA > 3s.
+  // Each row sits on the boundary that hides it; everything else is healthy.
+  it.each([
+    ["the rate is missing", 12, 87, undefined, 6, "Enriching 12/87 tracks…"],
+    ["the rate is zero", 12, 87, 0, 6, "Enriching 12/87 tracks…"],
+    ["completion reaches 80%", 80, 100, 12, 10, "Enriching 80/100 tracks…"],
+    ["the ETA is exactly 3s", 12, 87, 12, 3, "Enriching 12/87 tracks…"],
+  ] as const)(
+    "hides the ETA when %s",
+    (_, current, total, itemsPerSecond, etaSeconds, label) => {
+      const result = formatProgressLabel({
+        current,
+        total,
+        message: "Enriching tracks",
+        itemsPerSecond,
+        etaSeconds,
+      });
+      expect(result).toEqual({ hasEta: false, label });
+    },
+  );
 });
 
 describe("formatRate", () => {
@@ -94,8 +64,10 @@ describe("formatRate", () => {
     expect(formatRate(0.5)).toBe("30.0/min");
   });
 
-  it("keeps one decimal below 10/sec and none above", () => {
+  it("keeps one decimal from 1/sec up to 10/sec, and none from 10/sec", () => {
+    expect(formatRate(1)).toBe("1.0/sec");
     expect(formatRate(2.5)).toBe("2.5/sec");
+    expect(formatRate(10)).toBe("10/sec");
     expect(formatRate(13.4)).toBe("13/sec");
   });
 });

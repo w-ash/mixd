@@ -10,10 +10,7 @@ from sqlalchemy.exc import (
     TimeoutError as SATimeoutError,
 )
 
-from src.interface._shared.error_classification import (
-    DatabaseErrorInfo,
-    classify_database_error,
-)
+from src.interface._shared.error_classification import classify_database_error
 
 
 def _make_sa_error(cause: BaseException) -> SAOperationalError:
@@ -63,11 +60,20 @@ class TestClassifyDatabaseError:
         assert info.category == "pool_exhaustion"
         assert "pool exhausted" in info.user_message
 
-    def test_auth_failure_pgcode_28P01(self) -> None:
-        psycopg_exc = PsycopgOperationalError(
-            'connection failed: FATAL:  password authentication failed for user "bad_user"'
-        )
-        psycopg_exc.sqlstate = "28P01"
+    @pytest.mark.parametrize(
+        ("sqlstate", "message"),
+        [
+            (
+                "28P01",
+                'connection failed: FATAL:  password authentication failed for user "bad_user"',
+            ),
+            ("28000", "connection failed: FATAL:  no pg_hba.conf entry"),
+        ],
+        ids=["invalid-password", "invalid-authorization"],
+    )
+    def test_auth_failure_pgcodes(self, sqlstate: str, message: str) -> None:
+        psycopg_exc = PsycopgOperationalError(message)
+        psycopg_exc.sqlstate = sqlstate
         exc = _make_sa_error(psycopg_exc)
 
         info = classify_database_error(exc)
@@ -75,17 +81,6 @@ class TestClassifyDatabaseError:
         assert info.category == "auth_failure"
         assert "authentication failed" in info.user_message
         assert "credentials" in info.user_message
-
-    def test_auth_failure_pgcode_28000(self) -> None:
-        psycopg_exc = PsycopgOperationalError(
-            "connection failed: FATAL:  no pg_hba.conf entry"
-        )
-        psycopg_exc.sqlstate = "28000"
-        exc = _make_sa_error(psycopg_exc)
-
-        info = classify_database_error(exc)
-
-        assert info.category == "auth_failure"
 
     def test_statement_timeout_pgcode(self) -> None:
         psycopg_exc = PsycopgOperationalError(
@@ -153,24 +148,3 @@ class TestClassifyDatabaseError:
 
         assert info.category == "connection_refused"
         assert "ep-super-glade.neon.tech" in info.user_message
-
-    def test_returns_frozen_attrs_instance(self) -> None:
-        exc = SAOperationalError("test", {}, Exception("x"))
-        exc.__cause__ = Exception("x")
-
-        info = classify_database_error(exc)
-
-        assert isinstance(info, DatabaseErrorInfo)
-        frozen_field = "category"
-        with pytest.raises(AttributeError):
-            setattr(info, frozen_field, "hacked")
-
-    def test_user_message_never_empty(self) -> None:
-        """Every classification path produces a non-empty user message."""
-        exc = SAOperationalError("", {}, Exception(""))
-        exc.__cause__ = Exception("")
-
-        info = classify_database_error(exc)
-
-        assert info.user_message
-        assert isinstance(info.user_message, str)

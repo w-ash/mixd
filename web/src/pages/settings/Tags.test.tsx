@@ -5,8 +5,15 @@ import type {
   TagOperationResult,
   TagSummarySchema,
 } from "#/api/generated/model";
+import { toasts } from "#/lib/toasts";
 import { server } from "#/test/setup";
-import { renderWithProviders, screen, userEvent } from "#/test/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "#/test/test-utils";
 
 import { Tags } from "./Tags";
 
@@ -32,25 +39,24 @@ function setupListMock(tags: TagSummarySchema[] = sampleTags) {
 }
 
 describe("Tags settings page", () => {
-  it("renders page header and search input", async () => {
+  it("renders one table row per tag with namespace, count, and last-used date", async () => {
     setupListMock();
     renderWithProviders(<Tags />);
 
-    expect(await screen.findByText("Tags")).toBeInTheDocument();
-    expect(screen.getByLabelText("Filter tags")).toBeInTheDocument();
-  });
-
-  it("renders the tag table with namespace, count, and last-used", async () => {
-    setupListMock();
-    renderWithProviders(<Tags />);
-
-    await screen.findAllByText("mood:chill");
-    expect(screen.getAllByText("mood:chill").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("banger").length).toBeGreaterThan(0);
-    expect(screen.getByText("mood")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
-    expect(screen.getByText("12")).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
+    await screen.findByRole("cell", { name: "mood:chill" });
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(
+      rows.map((row) =>
+        within(row)
+          .getAllByRole("cell")
+          .slice(0, 4)
+          .map((cell) => cell.textContent),
+      ),
+    ).toEqual([
+      ["mood:chill", "mood", "12", "Apr 1, 2026"],
+      // A tag with no namespace shows a dash, not an empty cell.
+      ["banger", "—", "3", "Mar 15, 2026"],
+    ]);
   });
 
   it("shows empty state when no tags exist", async () => {
@@ -97,17 +103,19 @@ describe("Tags settings page", () => {
     ).toBeInTheDocument();
   });
 
-  it("submits a rename and shows the affected count in the success toast", async () => {
+  it("submits a rename and shows the server's affected count in the success toast", async () => {
     setupListMock();
-    const renameSpy = vi.fn();
+    const renames: { tag: string; newTag: string }[] = [];
     server.use(
-      http.patch("*/api/v1/tags/:tag", async ({ request }) => {
+      http.patch("*/api/v1/tags/:tag", async ({ request, params }) => {
         const body = (await request.json()) as { new_tag: string };
-        renameSpy(body.new_tag);
-        const result: TagOperationResult = { affected_count: 12 };
+        renames.push({ tag: params.tag as string, newTag: body.new_tag });
+        // The server's count, not the list's stale 12, is what the toast reports.
+        const result: TagOperationResult = { affected_count: 11 };
         return HttpResponse.json(result);
       }),
     );
+    const successSpy = vi.spyOn(toasts, "success").mockImplementation(() => "");
     renderWithProviders(<Tags />);
 
     await screen.findAllByText("mood:chill");
@@ -119,7 +127,14 @@ describe("Tags settings page", () => {
       screen.getByRole("button", { name: /Rename across 12 tracks/ }),
     );
 
-    expect(renameSpy).toHaveBeenCalledWith("mood:ambient");
+    await waitFor(() => {
+      expect(successSpy).toHaveBeenCalledWith(
+        'Renamed "mood:chill" → "mood:ambient" across 11 tracks',
+      );
+    });
+    expect(renames).toEqual([{ tag: "mood:chill", newTag: "mood:ambient" }]);
+    expect(screen.queryByText("Rename tag")).not.toBeInTheDocument();
+    successSpy.mockRestore();
   });
 
   it("opens delete dialog with affected-track count in the description", async () => {

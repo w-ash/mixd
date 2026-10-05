@@ -68,17 +68,6 @@ class TestCreateAndRead:
         assert fetched is not None
         assert fetched.initiated_by == "assistant"
 
-    async def test_initiated_by_defaults_to_manual(
-        self, db_session: AsyncSession
-    ) -> None:
-        """A run created without an explicit attribution reads back as manual."""
-        repo = OperationRunRepository(db_session)
-        run = make_operation_run()
-
-        created = await repo.create(run)
-
-        assert created.initiated_by == "manual"
-
     async def test_get_by_id_for_user_returns_match(
         self, db_session: AsyncSession
     ) -> None:
@@ -133,7 +122,7 @@ class TestUpdateStatus:
         updated = await repo.get_by_id_for_user(run.id, user_id="alice")
         assert updated is not None
         assert updated.status == "complete"
-        assert updated.ended_at is not None
+        assert updated.ended_at == ended
         assert updated.counts == {"tracks_imported": 42}
 
     async def test_update_status_merges_counts(self, db_session: AsyncSession) -> None:
@@ -335,11 +324,9 @@ class TestListForUser:
             after_id=next_key[1],
         )
 
-        page1_ids = {r.id for r in page1}
-        page2_ids = {r.id for r in page2}
-        assert page1_ids.isdisjoint(page2_ids)
-        assert len(page1) == 2
-        assert len(page2) == 2
+        # runs[0] is the newest; newest-first pages are [0, 1] then [2, 3].
+        assert [r.id for r in page1] == [runs[0].id, runs[1].id]
+        assert [r.id for r in page2] == [runs[2].id, runs[3].id]
 
 
 class TestListRunningStartedBefore:

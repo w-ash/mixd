@@ -19,17 +19,17 @@ class TestListWorkflows:
 
         assert response.status_code == 200
         body = response.json()
-        # A fresh user starts with no workflows; just verify the envelope shape.
-        assert "data" in body
-        assert "total" in body
-        assert isinstance(body["data"], list)
+        # A fresh user starts with no workflows — templates are not user rows.
+        assert body["data"] == []
+        assert body["total"] == 0
 
     async def test_list_after_create(self, client: httpx2.AsyncClient) -> None:
         await client.post("/api/v1/workflows", json={"definition": _valid_definition()})
 
         response = await client.get("/api/v1/workflows")
         body = response.json()
-        assert body["total"] >= 1
+        assert body["total"] == 1
+        assert [w["name"] for w in body["data"]] == ["Test Workflow"]
 
 
 class TestCreateWorkflow:
@@ -66,23 +66,30 @@ class TestWorkflowTemplates:
         response = await client.get("/api/v1/workflows/templates")
 
         assert response.status_code == 200
-        body = response.json()
-        assert isinstance(body, list)
-        assert len(body) >= 1  # built-in definitions are bundled with the app
-        first = body[0]
-        assert {"id", "name", "task_count", "node_types"} <= set(first)
+        # Built-in definitions are bundled with the app; Hidden Gems is one.
+        by_id = {t["id"]: t for t in response.json()}
+        hidden_gems = by_id["hidden_gems"]
+        assert hidden_gems["name"] == "Hidden Gems Discovery"
+        assert hidden_gems["task_count"] == 6
+        # node_types are the distinct node categories in the pipeline.
+        assert set(hidden_gems["node_types"]) == {
+            "source",
+            "enricher",
+            "filter",
+            "sorter",
+            "selector",
+            "destination",
+        }
 
     async def test_use_template_creates_editable_user_workflow(
         self, client: httpx2.AsyncClient
     ) -> None:
-        templates = (await client.get("/api/v1/workflows/templates")).json()
-        template_id = templates[0]["id"]
-
-        response = await client.post(f"/api/v1/workflows/templates/{template_id}/use")
+        response = await client.post("/api/v1/workflows/templates/hidden_gems/use")
 
         assert response.status_code == 201
         body = response.json()
-        assert body["task_count"] >= 1
+        assert body["name"] == "Hidden Gems Discovery"
+        assert body["task_count"] == 6
         wf_id = body["id"]
 
         # The instantiated workflow is a real, editable user workflow (not read-only).
@@ -268,8 +275,7 @@ class TestDefinitionVersion:
 
         resp = await client.get("/api/v1/workflows")
         workflows = resp.json()["data"]
-        # At least one workflow has definition_version
-        assert any(w.get("definition_version") is not None for w in workflows)
+        assert [w["definition_version"] for w in workflows] == [1]
 
 
 class TestListNodeTypes:
@@ -332,11 +338,8 @@ class TestListNodeTypes:
 
         metric_field = next(f for f in fields if f["key"] == "metric_name")
         assert metric_field["field_type"] == "select"
-        assert len(metric_field["options"]) > 0
-        # Verify option structure
-        opt = metric_field["options"][0]
-        assert "value" in opt
-        assert "label" in opt
+        # Options come from the enrichers' metrics, play history's among them.
+        assert "total_plays" in {opt["value"] for opt in metric_field["options"]}
 
     async def test_task_ref_and_multi_select_field_types(
         self, client: httpx2.AsyncClient

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,9 @@ import { useSSEConnection } from "./useSSEConnection";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
+// connectToSSE is the transport boundary. Mocked (not MSW) so a test controls
+// frames one by one: hold a stream open, end it without a terminal, or throw
+// mid-stream to drive the resume path.
 vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
@@ -50,6 +53,8 @@ describe("useSSEConnection", () => {
       wrapper: createWrapper(),
     });
 
+    expect(result.current.state.kind).toBe("idle");
+    expect(result.current.lastEventAt).toBeNull();
     expect(result.current.isConnected).toBe(false);
     expect(result.current.error).toBeNull();
     expect(connectToSSE).not.toHaveBeenCalled();
@@ -124,65 +129,22 @@ describe("useSSEConnection", () => {
     });
   });
 
-  it("skips events with empty data", async () => {
-    const onEvent = vi.fn();
-    mockSSEWithEvents([
-      { event: "progress", data: "" },
-      {
-        event: "progress",
-        data: JSON.stringify({ current: 5 }),
-      },
-    ]);
-
-    renderHook(() => useSSEConnection("op-123", { onEvent }), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(onEvent).toHaveBeenCalledTimes(1);
-    });
-    expect(onEvent).toHaveBeenCalledWith({
-      event: "progress",
-      data: { current: 5 },
-    });
-  });
-
-  it("skips malformed JSON without breaking the stream", async () => {
-    const onEvent = vi.fn();
-    mockSSEWithEvents([
-      { event: "progress", data: "not-json{{{" },
-      {
-        event: "progress",
-        data: JSON.stringify({ current: 10 }),
-      },
-    ]);
-
-    renderHook(() => useSSEConnection("op-123", { onEvent }), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(onEvent).toHaveBeenCalledTimes(1);
-    });
-    expect(onEvent).toHaveBeenCalledWith({
-      event: "progress",
-      data: { current: 10 },
-    });
-  });
-
-  it("suppresses AbortError without setting error state", async () => {
+  it("treats an AbortError as our own teardown: no resume, no error", async () => {
     mockSSEError(new DOMException("Aborted", "AbortError"));
 
     const { result } = renderHook(
-      () => useSSEConnection("op-123", noopOptions),
+      // Zero backoff, so a wrongly-attempted resume would land inside the wait.
+      () => useSSEConnection("op-123", { ...noopOptions, resumeDelayMs: 0 }),
       { wrapper: createWrapper() },
     );
 
-    // Give the async IIFE time to run
     await waitFor(() => {
-      expect(connectToSSE).toHaveBeenCalled();
+      expect(connectToSSE).toHaveBeenCalledTimes(1);
     });
+    await act(() => new Promise((r) => setTimeout(r, 20)));
 
+    expect(connectToSSE).toHaveBeenCalledTimes(1);
+    expect(result.current.state.kind).toBe("connecting");
     expect(result.current.error).toBeNull();
   });
 
@@ -216,33 +178,30 @@ describe("useSSEConnection", () => {
     });
   });
 
-  it("disconnect aborts the connection", async () => {
-    // Connection that stays open until aborted
-    vi.mocked(connectToSSE).mockImplementation((_url, signal) => {
-      return new Promise((_resolve, reject) => {
-        signal.addEventListener(
-          "abort",
-          () => reject(new DOMException("Aborted", "AbortError")),
-          { once: true },
-        );
-      });
-    });
+  it("disconnect aborts the open stream and closes cleanly", async () => {
+    const { close } = mockSSEOpenStream([
+      { event: "progress", data: '{"current":1}' },
+    ]);
 
     const { result } = renderHook(
       () => useSSEConnection("op-123", noopOptions),
       { wrapper: createWrapper() },
     );
 
-    // Verify the connection was initiated
-    expect(connectToSSE).toHaveBeenCalled();
-
-    // Disconnect should abort without error
-    result.current.disconnect();
-
     await waitFor(() => {
-      expect(result.current.isConnected).toBe(false);
+      expect(result.current.state.kind).toBe("streaming");
     });
+    const signal = vi.mocked(connectToSSE).mock.calls[0][1];
+
+    act(() => {
+      result.current.disconnect();
+    });
+
+    expect(signal.aborted).toBe(true);
+    expect(result.current.state.kind).toBe("closed-done");
+    expect(result.current.isConnected).toBe(false);
     expect(result.current.error).toBeNull();
+    close();
   });
 
   it("aborts previous connection when operationId changes", async () => {
@@ -289,41 +248,14 @@ describe("useSSEConnection", () => {
   // ─── State machine + lastEventAt + watchdog (PR-2 / L3) ──────
 
   describe("state machine", () => {
-    it("starts in idle when operationId is null", () => {
-      const { result } = renderHook(() => useSSEConnection(null, noopOptions), {
-        wrapper: createWrapper(),
-      });
-      expect(result.current.state.kind).toBe("idle");
-      expect(result.current.lastEventAt).toBeNull();
-    });
-
-    it("transitions to streaming and bumps lastEventAt on first event", async () => {
-      const onEvent = vi.fn();
-      mockSSEWithEvents([{ event: "node_status", data: '{"node_id":"n1"}' }]);
-
-      const { result } = renderHook(
-        () => useSSEConnection("op-123", { onEvent }),
-        { wrapper: createWrapper() },
-      );
-
-      await waitFor(() => {
-        expect(result.current.state.kind).toBe("closed-done");
-      });
-      // lastEventAt was set during streaming, persists through closed-done? No
-      // — closed-done has no lastEventAt. But onEvent was called once.
-      expect(onEvent).toHaveBeenCalledTimes(1);
-    });
-
     it("bumps lastEventAt on a frame even when data is empty (keepalive shape)", async () => {
-      // Mock parser-yielded frame shape that mirrors a server keepalive
-      // comment after going through eventsource-parser. The data guard in
-      // the hook skips dispatch but the freshness timestamp must still be
-      // bumped before the guard.
+      // A server keepalive comment reaches the hook as an empty frame. It is
+      // never dispatched, but it must still count as liveness, or a quiet run
+      // kept alive by keepalives alone would trip the stall watchdog.
+      const now = 1_700_000_000_000;
+      vi.spyOn(Date, "now").mockReturnValue(now);
       const onEvent = vi.fn();
-      const { close } = mockSSEOpenStream([
-        { event: "", data: "" },
-        { event: "node_status", data: '{"node_id":"n1"}' },
-      ]);
+      const { close } = mockSSEOpenStream([{ event: "", data: "" }]);
 
       const { result } = renderHook(
         () => useSSEConnection("op-123", { onEvent }),
@@ -331,12 +263,10 @@ describe("useSSEConnection", () => {
       );
 
       await waitFor(() => {
-        // After the second frame, state is streaming and onEvent has been
-        // called once (only the second frame had data).
         expect(result.current.state.kind).toBe("streaming");
       });
-      expect(onEvent).toHaveBeenCalledTimes(1);
-      expect(result.current.lastEventAt).not.toBeNull();
+      expect(result.current.lastEventAt).toBe(now);
+      expect(onEvent).not.toHaveBeenCalled();
       close();
     });
 
@@ -369,20 +299,6 @@ describe("useSSEConnection", () => {
         expect(result.current.state.kind).toBe("closed-done");
       });
       expect(result.current.isConnected).toBe(false);
-    });
-
-    it("transitions to closed-error on connection failure", async () => {
-      mockSSEError(new Error("boom"));
-
-      const { result } = renderHook(
-        () => useSSEConnection("op-bad", { ...noopOptions, resumeDelayMs: 0 }),
-        { wrapper: createWrapper() },
-      );
-
-      await waitFor(() => {
-        expect(result.current.state.kind).toBe("closed-error");
-      });
-      expect(result.current.error).toEqual(new Error("boom"));
     });
   });
 

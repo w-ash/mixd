@@ -7,6 +7,7 @@ import {
   screen,
   userEvent,
   waitFor,
+  within,
 } from "#/test/test-utils";
 
 import { WorkflowRunDetail } from "./WorkflowRunDetail";
@@ -179,7 +180,8 @@ const mockRun = {
       metric_name: "play_count",
       metric_value: 12,
     },
-  ],
+  ] as Record<string, unknown>[],
+  metric_columns: [] as string[],
 };
 
 function setupHandlers(
@@ -213,19 +215,17 @@ describe("WorkflowRunDetail", () => {
     expect(backLink).toHaveAttribute("href", "/workflows/1");
   });
 
-  it("renders run header with status and Run Again button", async () => {
-    setupHandlers();
+  it("renders the run number, the run's own status and Run Again in the header", async () => {
+    // No node rows, so the header badge is the only status on the page.
+    setupHandlers({ status: "failed", nodes: [] });
 
     renderWithProviders(<WorkflowRunDetail />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Run #5")).toBeInTheDocument();
-    });
-
-    // Multiple "Completed" badges exist (header + per-node), so check count
-    const completedBadges = screen.getAllByText("Completed");
-    expect(completedBadges.length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Run Again")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Run #5" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run Again" })).toBeEnabled();
   });
 
   it("shows version mismatch warning when definition changed", async () => {
@@ -254,26 +254,29 @@ describe("WorkflowRunDetail", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders run metadata (started, duration, output)", async () => {
+  it("renders the run's duration and output track count", async () => {
     setupHandlers();
 
     renderWithProviders(<WorkflowRunDetail />);
 
-    await waitFor(() => {
-      expect(screen.getByText("15 tracks")).toBeInTheDocument();
-    });
+    // 90 000 ms of run time reads as 1:30; the header line, not a node row.
+    expect(await screen.findByText("1:30")).toBeInTheDocument();
+    expect(screen.getByText("15 tracks")).toBeInTheDocument();
   });
 
-  it("renders node execution details", async () => {
-    setupHandlers();
+  it("lists node executions in execution order, whatever order the API sends", async () => {
+    const [source, filter, update] = mockRun.nodes;
+    setupHandlers({ nodes: [update, source, filter] });
 
     renderWithProviders(<WorkflowRunDetail />);
 
-    await waitFor(() => {
-      expect(screen.getByText("source")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("filter")).toBeInTheDocument();
+    await screen.findByText("Node Execution Details");
+    expect(
+      screen
+        .getAllByText(/^(source|filter|update)$/)
+        .map((el) => el.textContent),
+    ).toEqual(["source", "filter", "update"]);
+    // Category badge per row.
     expect(screen.getByText("Source")).toBeInTheDocument();
     expect(screen.getByText("Filter")).toBeInTheDocument();
   });
@@ -308,17 +311,44 @@ describe("WorkflowRunDetail", () => {
     expect(screen.getByText("Removed from playlist (1)")).toBeInTheDocument();
   });
 
-  it("renders output tracks table", async () => {
-    setupHandlers();
+  it("renders each output track as a row with rank, title, artist and its metric", async () => {
+    setupHandlers({
+      metric_columns: ["play_count"],
+      output_tracks: [
+        {
+          track_id: 1,
+          title: "Midnight City",
+          artists: "M83",
+          rank: 1,
+          metrics: { play_count: 12 },
+        },
+        {
+          track_id: 3,
+          title: "Teardrop",
+          artists: "Massive Attack",
+          rank: 2,
+          metrics: { play_count: 9 },
+        },
+      ],
+    });
 
     renderWithProviders(<WorkflowRunDetail />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Output Tracks")).toBeInTheDocument();
-    });
-
-    expect(screen.getAllByText("Midnight City").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("M83").length).toBeGreaterThan(0);
+    await screen.findByText("Output Tracks");
+    expect(
+      screen.getByRole("columnheader", { name: "Play Count" }),
+    ).toBeInTheDocument();
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(
+      rows.map((row) =>
+        within(row)
+          .getAllByRole("cell")
+          .map((cell) => cell.textContent),
+      ),
+    ).toEqual([
+      ["1", "Midnight City", "M83", "12"],
+      ["2", "Teardrop", "Massive Attack", "9"],
+    ]);
   });
 
   it("renders error state for nonexistent run", async () => {

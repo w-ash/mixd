@@ -47,7 +47,7 @@ describe("customFetch", () => {
 
     expect(result.data).toEqual({ name: "test" });
     expect(result.status).toBe(200);
-    expect(result.headers).toBeInstanceOf(Headers);
+    expect(result.headers.get("content-type")).toBe("application/json");
   });
 
   it("throws ApiError with parsed envelope on error response", async () => {

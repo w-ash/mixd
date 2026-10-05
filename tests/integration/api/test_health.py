@@ -11,15 +11,31 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx2
+from pydantic import SecretStr
+import pytest
 
 from src import __version__
 from src.application.services.operation_run_reaper import RunningRunCounts
+from src.config.settings import settings
 
 
 class TestHealthEndpoint:
     """GET /api/v1/health returns service status."""
 
-    async def test_health_returns_ok(self, client: httpx2.AsyncClient) -> None:
+    @pytest.mark.parametrize(
+        ("server_key", "configured"), [("sk-ant-server", True), ("", False)]
+    )
+    async def test_health_returns_ok(
+        self,
+        client: httpx2.AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+        server_key: str,
+        configured: bool,
+    ) -> None:
+        monkeypatch.setattr(
+            settings.credentials, "anthropic_api_key", SecretStr(server_key)
+        )
+
         response = await client.get("/api/v1/health")
 
         assert response.status_code == 200
@@ -29,7 +45,7 @@ class TestHealthEndpoint:
         # chat_available was removed (X2): the real chat gate is per-user
         # (/assistant/status), so the honest server-only field replaces it.
         assert "chat_available" not in body
-        assert isinstance(body["server_anthropic_key_configured"], bool)
+        assert body["server_anthropic_key_configured"] is configured
 
     async def test_health_content_type_is_json(
         self, client: httpx2.AsyncClient

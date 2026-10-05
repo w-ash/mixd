@@ -1,4 +1,4 @@
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
 import type { MatchMethodHealthSchema } from "#/api/generated/model";
@@ -114,11 +114,26 @@ const mockMatchingHealth: MatchMethodHealthSchema = {
 };
 
 describe("Dashboard", () => {
-  it("renders loading skeleton while fetching", () => {
+  it("holds a stat-card skeleton while the stats are still loading", async () => {
+    // Stats never answer; matching health does, so its own skeleton is gone and
+    // any skeleton left on the page belongs to the stat cards.
+    server.use(
+      http.get("*/api/v1/stats/dashboard", async () => {
+        await delay("infinite");
+        return HttpResponse.json(mockStats);
+      }),
+      http.get("*/api/v1/stats/matching", () =>
+        HttpResponse.json(mockMatchingHealth),
+      ),
+    );
+
     renderWithProviders(<Dashboard />);
 
-    const skeletons = document.querySelectorAll('[data-slot="skeleton"]');
-    expect(skeletons.length).toBeGreaterThan(0);
+    expect(await screen.findByText("Match Method Health")).toBeInTheDocument();
+    expect(
+      document.querySelectorAll('[data-slot="skeleton"]'),
+    ).not.toHaveLength(0);
+    expect(screen.queryByText("Total Plays")).not.toBeInTheDocument();
   });
 
   it("renders stat cards with formatted counts", async () => {

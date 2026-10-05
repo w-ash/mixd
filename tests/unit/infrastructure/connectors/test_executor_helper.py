@@ -7,7 +7,6 @@ for CLI command handlers.
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
-import time
 
 import pytest
 
@@ -50,44 +49,34 @@ class TestExecutorHelperFunctions:
         with pytest.raises(ValueError, match="Test error"):
             run_async(failing_coro())
 
-    @pytest.mark.slow
-    def test_run_async_provides_high_concurrency(self):
-        """Helper should provide 200-thread executor for high concurrency."""
+    def test_run_async_installs_connector_executor_as_loop_default(self):
+        """Blocking work in run_async() runs on the connector pool, not asyncio's default pool.
+
+        The barrier needs more parties than asyncio's default pool holds (at most 32
+        workers), so it releases only when the connector pool is the loop default.
+        The barrier waits for every party, so machine load cannot fail the test.
+        """
         from src.interface.cli.async_runner import run_async
 
-        async def test_concurrency():
-            """Test that we get a high-concurrency executor."""
+        parties = 40
+        assert settings.api.lastfm.concurrency >= parties
+        barrier = threading.Barrier(parties, timeout=10)
 
-            def blocking_work(work_id: int) -> dict:
-                """Simulate blocking I/O work."""
-                time.sleep(0.1)
-                return {
-                    "id": work_id,
-                    "thread": threading.get_ident(),
-                }
+        def blocking_work() -> str:
+            barrier.wait()
+            return threading.current_thread().name
 
-            # Create 50 concurrent tasks (more than default executor limit of ~32-36)
-            start_time = time.time()
-            tasks = [asyncio.to_thread(blocking_work, i) for i in range(50)]
-            results = await asyncio.gather(*tasks)
-            duration = time.time() - start_time
+        async def fan_out() -> list[str]:
+            return list(
+                await asyncio.gather(
+                    *(asyncio.to_thread(blocking_work) for _ in range(parties))
+                )
+            )
 
-            unique_threads = len({r["thread"] for r in results})
+        thread_names = run_async(fan_out())
 
-            return {
-                "duration": duration,
-                "unique_threads": unique_threads,
-                "results_count": len(results),
-            }
-
-        result = run_async(test_concurrency())
-
-        # With 200-thread executor, all 50 should run concurrently
-        # Duration should be ~0.1s (one blocking call duration), not 50 * 0.1s
-        assert result["unique_threads"] >= 40, (
-            f"Not using enough threads: {result['unique_threads']}"
-        )
-        assert result["results_count"] == 50
+        assert len(thread_names) == parties
+        assert all(name.startswith("mixd_io") for name in thread_names), thread_names
 
     def test_run_async_closes_its_event_loop(self):
         """Each call closes the loop it ran on, so repeated CLI calls leak none."""

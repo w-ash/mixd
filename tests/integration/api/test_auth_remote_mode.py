@@ -142,7 +142,9 @@ class TestAuthUrlRoutesEndToEnd:
         resp = await user_client.get(f"/api/v1/connectors/{service}/auth-url")
 
         assert resp.status_code == 200, resp.text
-        assert resp.json()["auth_url"]
+        assert resp.json()["auth_url"].startswith(
+            "https://accounts.spotify.com/authorize?"
+        )
 
 
 class TestAppleTokenPostEndToEnd:

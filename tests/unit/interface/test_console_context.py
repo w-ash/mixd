@@ -1,130 +1,25 @@
-"""Unit tests for console context classes.
+"""Unit tests for the progress-display console context.
 
-Tests the explicit SimpleConsoleContext and ProgressDisplayContext classes
-that replaced anonymous nested classes for better code organization.
+``SimpleConsoleContext`` (no broker) is covered through the real factory in
+``tests/integration/test_progress_coordination.py``.
 """
 
 from unittest.mock import Mock
 
 from rich.console import Console
 
-from src.interface.cli.console import ProgressDisplayContext, SimpleConsoleContext
-
-
-class TestSimpleConsoleContext:
-    """Test SimpleConsoleContext for commands without progress tracking."""
-
-    def test_initialization(self):
-        """Test that SimpleConsoleContext initializes correctly."""
-        console = Console()
-        context = SimpleConsoleContext(console)
-
-        assert context.console is console
-        assert context.get_progress_broker() is None
-
-    def test_console_access(self):
-        """Test that console can be used for output."""
-        console = Console()
-        context = SimpleConsoleContext(console)
-
-        # Should be able to access console methods
-        assert hasattr(context.console, "print")
-        assert hasattr(context.console, "status")
-
-    def test_no_progress_broker(self):
-        """Test that progress manager is None when not needed."""
-        console = Console()
-        context = SimpleConsoleContext(console)
-
-        progress_broker = context.get_progress_broker()
-        assert progress_broker is None
+from src.interface.cli.console import ProgressDisplayContext
 
 
 class TestProgressDisplayContext:
-    """Test ProgressDisplayContext for commands with progress tracking."""
+    def test_uses_the_provider_console_and_exposes_the_broker(self):
+        """Output goes through the subscriber's console so logs layer above bars."""
+        provider_console = Console()
+        provider = Mock()
+        provider.get_console.return_value = provider_console
+        broker = Mock()
 
-    def test_initialization(self):
-        """Test that ProgressDisplayContext initializes correctly."""
-        mock_provider = Mock()
-        mock_console = Console()
-        mock_provider.get_console.return_value = mock_console
-        mock_manager = Mock()
+        context = ProgressDisplayContext(provider, broker)
 
-        context = ProgressDisplayContext(mock_provider, mock_manager)
-
-        assert context.provider is mock_provider
-        assert context.console is mock_console
-        assert context.progress_broker is mock_manager
-
-    def test_console_from_provider(self):
-        """Test that console is obtained from provider."""
-        mock_provider = Mock()
-        mock_console = Console()
-        mock_provider.get_console.return_value = mock_console
-        mock_manager = Mock()
-
-        context = ProgressDisplayContext(mock_provider, mock_manager)
-
-        # Verify provider.get_console() was called
-        mock_provider.get_console.assert_called_once()
-        assert context.console is mock_console
-
-    def test_progress_broker_access(self):
-        """Test that progress manager is available."""
-        mock_provider = Mock()
-        mock_provider.get_console.return_value = Console()
-        mock_manager = Mock()
-
-        context = ProgressDisplayContext(mock_provider, mock_manager)
-
-        progress_broker = context.get_progress_broker()
-        assert progress_broker is mock_manager
-
-
-class TestContextClassComparison:
-    """Test the differences between context classes."""
-
-    def test_simple_vs_progress_context_differences(self):
-        """Test key differences between simple and progress contexts."""
-        console = Console()
-        simple_context = SimpleConsoleContext(console)
-
-        mock_provider = Mock()
-        mock_provider.get_console.return_value = console
-        mock_manager = Mock()
-        progress_context = ProgressDisplayContext(mock_provider, mock_manager)
-
-        # Both should have console access
-        assert hasattr(simple_context, "console")
-        assert hasattr(progress_context, "console")
-
-        # Both should have get_progress_broker method
-        assert hasattr(simple_context, "get_progress_broker")
-        assert hasattr(progress_context, "get_progress_broker")
-
-        # But only progress context should have actual progress manager
-        assert simple_context.get_progress_broker() is None
-        assert progress_context.get_progress_broker() is not None
-
-        # Progress context should have provider reference
-        assert hasattr(progress_context, "provider")
-        assert not hasattr(simple_context, "provider")
-
-    def test_both_contexts_support_console_operations(self):
-        """Test that both contexts support basic console operations."""
-        console = Console()
-
-        simple_context = SimpleConsoleContext(console)
-
-        mock_provider = Mock()
-        mock_provider.get_console.return_value = console
-        mock_manager = Mock()
-        progress_context = ProgressDisplayContext(mock_provider, mock_manager)
-
-        # Both should support console operations
-        contexts = [simple_context, progress_context]
-
-        for context in contexts:
-            assert hasattr(context.console, "print")
-            assert hasattr(context.console, "status")
-            assert hasattr(context.console, "rule")
+        assert context.console is provider_console
+        assert context.get_progress_broker() is broker

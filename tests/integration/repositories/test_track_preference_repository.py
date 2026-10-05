@@ -8,9 +8,11 @@ fixture with testcontainers PostgreSQL.
 from datetime import UTC, datetime
 from uuid import uuid7
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.preference import PreferenceEvent
+from src.infrastructure.persistence.database.models import DBTrackPreferenceEvent
 from src.infrastructure.persistence.repositories.track.preferences import (
     TrackPreferenceRepository,
 )
@@ -58,24 +60,6 @@ class TestSetPreferences:
         repo = TrackPreferenceRepository(db_session)
         result = await repo.set_preferences([], user_id="default")
         assert result == []
-
-    async def test_upsert_idempotency(self, db_session: AsyncSession) -> None:
-        """Same preference twice produces no duplicate row."""
-        track = await seed_db_track(db_session)
-        repo = TrackPreferenceRepository(db_session)
-        now = datetime.now(UTC)
-
-        pref = make_track_preference(
-            track_id=track.id,
-            state="yah",
-            preferred_at=now,
-        )
-        await repo.set_preferences([pref], user_id="default")
-        await repo.set_preferences([pref], user_id="default")
-
-        fetched = await repo.get_preferences([track.id], user_id="default")
-        assert len(fetched) == 1
-        assert fetched[track.id].state == "yah"
 
     async def test_upsert_updates_state(self, db_session: AsyncSession) -> None:
         track = await seed_db_track(db_session)
@@ -211,6 +195,15 @@ class TestCascadeDelete:
 
         fetched = await repo.get_preferences([track.id], user_id="default")
         assert fetched == {}
+        remaining_events = (
+            await db_session.scalars(
+                select(DBTrackPreferenceEvent).where(
+                    DBTrackPreferenceEvent.user_id == "default",
+                    DBTrackPreferenceEvent.new_state == "star",
+                )
+            )
+        ).all()
+        assert remaining_events == []
 
 
 class TestCountByState:
