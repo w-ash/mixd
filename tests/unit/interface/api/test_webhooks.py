@@ -144,8 +144,8 @@ class TestUserBeforeCreate:
         result = webhooks_mod._handle_user_before_create(event_data)
 
         assert result["allowed"] is False
-        assert "error_message" in result
-        assert "error_code" in result
+        assert result["error_code"] == "SIGNUP_DENIED"
+        assert result["error_message"]
 
     @patch.object(webhooks_mod.settings.server, "allowed_emails", "")
     def test_no_allowlist_permits_all(self):
