@@ -108,9 +108,7 @@ class TestConnect:
 def _snapshot_result(
     total: int, recent: tuple[DiscogsSnapshotItem, ...] = ()
 ) -> GetDiscogsSnapshotResult:
-    return GetDiscogsSnapshotResult(
-        username="attritus", total_items=total, recent=recent
-    )
+    return GetDiscogsSnapshotResult(username="alice", total_items=total, recent=recent)
 
 
 class TestSnapshot:
@@ -128,7 +126,7 @@ class TestSnapshot:
         result = runner.invoke(app, ["discogs", "snapshot"])
 
         assert result.exit_code == 0
-        assert "attritus" in result.output
+        assert "alice" in result.output
         assert "42" in result.output
         assert "Rio" in result.output
         assert "Duran Duran" in result.output
