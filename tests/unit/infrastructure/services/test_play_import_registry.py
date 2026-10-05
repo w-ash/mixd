@@ -22,20 +22,24 @@ class TestDeclaredCombos:
     """Every combination a shipped connector declares resolves to an importer."""
 
     @pytest.mark.parametrize(
-        ("service", "kind"),
+        ("service", "kind", "importer_class"),
         [
-            ("spotify", "file"),
-            ("spotify", "api"),
-            ("lastfm", "api"),
-            ("apple", "api"),
+            ("spotify", "file", "SpotifyPlayImporter"),
+            ("spotify", "api", "SpotifyRecentlyPlayedImporter"),
+            ("lastfm", "api", "LastfmPlayImporter"),
+            ("apple", "api", "AppleMusicRecentlyPlayedImporter"),
         ],
     )
-    async def test_declared_combo_resolves(self, service: str, kind: str) -> None:
+    async def test_declared_combo_resolves_to_its_importer(
+        self, service: str, kind: str, importer_class: str
+    ) -> None:
+        # A Spotify export file and the recently-played API are different
+        # channels; swapping their factories would import through the wrong one.
         registry = get_play_import_registry()
 
         importer = await registry.create_play_importer(service, kind, make_mock_uow())
 
-        assert importer is not None
+        assert type(importer).__name__ == importer_class
 
     async def test_apple_resolver_keys_on_data_plane_name(self) -> None:
         # apple_music's config declares play_service_name="apple" — the name

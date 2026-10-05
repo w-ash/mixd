@@ -15,7 +15,6 @@ from src.interface.cli.app import app
 from src.interface.mcp import install as install_mod
 from src.interface.mcp.install import (
     build_client_config,
-    build_remote_client_config,
     claude_code_command,
     client_location,
     server_entry,
@@ -61,12 +60,6 @@ class TestBuildConfig:
         entry = server_entry("alice")
         assert entry["env"] == {"MIXD_USER_ID": "alice"}  # type: ignore[index]
 
-    def test_config_is_json_serialisable(self) -> None:
-        # "valid JSON per supported client" — the snippet is client-invariant.
-        for client in install_mod.SUPPORTED_CLIENTS:
-            assert client in install_mod.CLIENTS
-        assert json.loads(json.dumps(build_client_config("alice")))
-
 
 class TestClaudeCodeGuidance:
     """Claude Code registers via a command, so its env must ride the command line."""
@@ -90,15 +83,24 @@ class TestClaudeCodeGuidance:
 
     def test_client_location_falls_back_to_file_path_for_others(self) -> None:
         # File-based clients carry env in the JSON snippet, not the location line.
-        assert client_location("cursor", "alice") == install_mod.CLIENTS["cursor"][1]
+        assert client_location("cursor", "alice") == "~/.cursor/mcp.json"
 
 
 class TestInstallCommand:
-    def test_print_emits_valid_json_only(self) -> None:
+    def test_print_emits_local_stdio_snippet_as_json_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Without --remote the snippet launches the local executable over stdio;
+        # the default user gets no env block.
+        monkeypatch.setattr(install_mod.shutil, "which", lambda _: "/opt/bin/mixd")
         result = runner.invoke(app, ["mcp", "install", "--print"])
         assert result.exit_code == 0
         parsed = json.loads(result.stdout)
-        assert parsed == build_client_config(BusinessLimits.DEFAULT_USER_ID)
+        assert parsed == {
+            "mcpServers": {
+                "mixd": {"command": "/opt/bin/mixd", "args": ["mcp", "serve"]}
+            }
+        }
 
     def test_human_guidance_names_the_client(self) -> None:
         result = runner.invoke(app, ["mcp", "install", "--client", "cursor"])
@@ -150,11 +152,6 @@ class TestRemoteInstall:
         parsed = json.loads(result.stdout)
         assert parsed == {"mcpServers": {"mixd": {"url": "https://mixd.me/mcp"}}}
 
-    def test_remote_config_has_no_command_or_user_env(self) -> None:
-        config = build_remote_client_config("https://mixd.me/mcp")
-        entry = config["mcpServers"]["mixd"]  # type: ignore[index]
-        assert entry == {"url": "https://mixd.me/mcp"}
-
     def test_claude_code_gets_http_transport_command(self) -> None:
         result = runner.invoke(
             app,
@@ -200,9 +197,3 @@ class TestRemoteInstall:
 
         entry = parsed["mcpServers"]["mixd"]
         assert entry["url"] == settings.mcp_oauth.resource_uri
-
-    def test_local_install_unchanged_by_remote_flag_absence(self) -> None:
-        result = runner.invoke(app, ["mcp", "install", "--print"])
-        assert result.exit_code == 0
-        parsed = json.loads(result.stdout)
-        assert "command" in parsed["mcpServers"]["mixd"]

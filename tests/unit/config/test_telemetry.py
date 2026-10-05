@@ -1,5 +1,11 @@
 """Unit tests for the chunk probe's contextvar mechanics."""
 
+from collections.abc import Iterator
+from types import SimpleNamespace
+
+import pytest
+
+from src.config import telemetry
 from src.config.telemetry import (
     ChunkProbe,
     current_probe,
@@ -9,6 +15,16 @@ from src.config.telemetry import (
     record_api_call,
     record_statement,
 )
+
+
+def _fake_clock(monkeypatch: pytest.MonkeyPatch, *ticks_ns: int) -> None:
+    """Make ``perf_counter_ns`` return ``ticks_ns`` in order."""
+    ticks: Iterator[int] = iter(ticks_ns)
+
+    def clock() -> int:
+        return next(ticks)
+
+    monkeypatch.setattr(telemetry, "time", SimpleNamespace(perf_counter_ns=clock))
 
 
 class TestNoAmbientProbe:
@@ -37,11 +53,13 @@ class TestMeasureChunk:
         assert outer.statements == 2
         assert inner.statements == 1
 
-    async def test_stamps_wall_time(self):
+    async def test_stamps_wall_time(self, monkeypatch: pytest.MonkeyPatch):
+        _fake_clock(monkeypatch, 1_000, 4_500)
+
         async with measure_chunk() as probe:
             pass
 
-        assert probe.wall_ns > 0
+        assert probe.wall_ns == 3_500
 
 
 class TestOperationScope:
@@ -71,15 +89,17 @@ class TestOperationScope:
 
 
 class TestPhase:
-    async def test_accumulates_across_re_entry(self):
+    async def test_accumulates_across_re_entry(self, monkeypatch: pytest.MonkeyPatch):
+        # chunk start, api 100->130, api 200->250, chunk end
+        _fake_clock(monkeypatch, 0, 100, 130, 200, 250, 300)
+
         async with measure_chunk() as probe:
             async with phase("api"):
                 pass
-            first = probe.phases["api"]
             async with phase("api"):
                 pass
 
-        assert probe.phases["api"] > first
+        assert probe.phases["api"] == 80
 
     async def test_is_a_no_op_without_a_probe(self):
         async with phase("api"):

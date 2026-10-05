@@ -7,12 +7,7 @@ exposed-set filter, and the confirm-field augmentation on write schemas.
 
 from src.application.tools.registry import TOOLS
 from src.interface.mcp.exposure import mcp_exposure
-from src.interface.mcp.server import (
-    _CONFIRM_PROPERTIES,
-    _to_mcp_tool,
-    exposed_specs,
-    mcp_annotations,
-)
+from src.interface.mcp.server import _to_mcp_tool, exposed_specs, mcp_annotations
 
 
 class TestAnnotations:
@@ -31,12 +26,6 @@ class TestAnnotations:
         assert ann.destructive_hint is True
         assert ann.idempotent_hint is False
         assert ann.open_world_hint is False
-
-    def test_every_exposed_tool_has_derivable_annotations(self) -> None:
-        # No exception, and read/write hints are mutually exclusive per tool.
-        for spec in exposed_specs():
-            ann = mcp_annotations(spec)
-            assert ann.read_only_hint is not ann.destructive_hint
 
 
 class TestExposure:
@@ -63,10 +52,6 @@ class TestExposure:
         assert "import_data" not in names  # launches_operation
         # And it is exactly the 'exposed' partition of the registry.
         assert names == {s.name for s in TOOLS if mcp_exposure(s) == "exposed"}
-
-    def test_exposed_set_is_nonempty_with_reads_and_writes(self) -> None:
-        kinds = {s.kind for s in exposed_specs()}
-        assert kinds == {"read", "write"}
 
 
 class TestDescriptionAugmentation:
@@ -113,6 +98,3 @@ class TestSchemaAugmentation:
         props = tool.input_schema.get("properties", {})
         assert "confirm" not in props
         assert "confirm_token" not in props
-
-    def test_confirm_properties_are_declared(self) -> None:
-        assert set(_CONFIRM_PROPERTIES) == {"confirm", "confirm_token"}

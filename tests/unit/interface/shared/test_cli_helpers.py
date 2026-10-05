@@ -10,13 +10,14 @@ Tests cover:
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import typer
 
 from src.application.services.batch_file_import_service import ImportProgressSpec
 from src.interface.cli.cli_helpers import (
+    console as cli_console,
     parse_date_string,
     prompt_batch_size,
     run_import_with_progress,
@@ -34,69 +35,47 @@ class TestParseDateString:
         result = parse_date_string("2025-03-15", "test-date")
         assert result == datetime(2025, 3, 15, tzinfo=UTC)
 
-    def test_parse_none_returns_none(self):
-        """Parsing None returns None."""
-        result = parse_date_string(None, "test-date")
-        assert result is None
+    @pytest.mark.parametrize("raw", [None, ""])
+    def test_absent_date_returns_none(self, raw):
+        """An omitted option (None) and an empty string both mean no date."""
+        assert parse_date_string(raw, "test-date") is None
 
-    def test_parse_empty_string_returns_none(self):
-        """Parsing empty string returns None."""
-        result = parse_date_string("", "test-date")
-        assert result is None
-
-    def test_parse_invalid_format_raises_exit(self):
-        """Invalid date format raises typer.Exit."""
+    @pytest.mark.parametrize("raw", ["2025/03/15", "2025-13-45"])
+    def test_malformed_or_impossible_date_exits_1(self, raw):
+        """A wrong separator and an impossible month/day both exit with code 1."""
         with pytest.raises(typer.Exit) as exc_info:
-            parse_date_string("2025/03/15", "test-date")
+            parse_date_string(raw, "test-date")
         assert exc_info.value.exit_code == 1
-
-    def test_parse_invalid_date_raises_exit(self):
-        """Invalid date value raises typer.Exit."""
-        with pytest.raises(typer.Exit) as exc_info:
-            parse_date_string("2025-13-45", "invalid-date")
-        assert exc_info.value.exit_code == 1
-
-    def test_parse_sets_utc_timezone(self):
-        """Parsed date has UTC timezone."""
-        result = parse_date_string("2025-01-01", "test")
-        assert result.tzinfo == UTC
 
 
 class TestValidateDateRange:
     """Test date range validation."""
 
-    def test_valid_date_range_passes(self):
-        """Valid from < to date range passes without error."""
-        from_date = datetime(2025, 1, 1, tzinfo=UTC)
-        to_date = datetime(2025, 12, 31, tzinfo=UTC)
-        # Should not raise
-        validate_date_range(from_date, to_date)
+    @pytest.mark.parametrize(
+        ("from_date", "to_date"),
+        [
+            (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 12, 31, tzinfo=UTC)),
+            (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 1, tzinfo=UTC)),
+            (None, None),
+            (None, datetime(2025, 1, 1, tzinfo=UTC)),
+            (datetime(2025, 1, 1, tzinfo=UTC), None),
+        ],
+        ids=["ordered", "same-day", "both-open", "open-start", "open-end"],
+    )
+    def test_accepted_range_does_not_exit_or_warn(self, from_date, to_date):
+        """Ordered, same-day, and open-ended ranges pass silently."""
+        with cli_console.capture() as capture:
+            validate_date_range(from_date, to_date)
+        assert capture.get() == ""
 
-    def test_equal_dates_passes(self):
-        """Equal from and to dates pass without error."""
-        date = datetime(2025, 1, 1, tzinfo=UTC)
-        # Should not raise
-        validate_date_range(date, date)
-
-    def test_inverted_range_raises_exit(self):
-        """From date after to date raises typer.Exit."""
+    def test_inverted_range_warns_and_exits_1(self):
+        """From date after to date prints the reason and exits with code 1."""
         from_date = datetime(2025, 12, 31, tzinfo=UTC)
         to_date = datetime(2025, 1, 1, tzinfo=UTC)
-        with pytest.raises(typer.Exit) as exc_info:
+        with cli_console.capture() as capture, pytest.raises(typer.Exit) as exc_info:
             validate_date_range(from_date, to_date)
         assert exc_info.value.exit_code == 1
-
-    def test_none_dates_passes(self):
-        """None dates pass without error."""
-        # Should not raise
-        validate_date_range(None, None)
-
-    def test_partial_none_passes(self):
-        """One None date passes without error."""
-        date = datetime(2025, 1, 1, tzinfo=UTC)
-        # Should not raise
-        validate_date_range(None, date)
-        validate_date_range(date, None)
+        assert "from-date cannot be later than to-date" in capture.get()
 
 
 class TestPromptBatchSize:
@@ -152,87 +131,57 @@ class TestValidateFilePath:
 
 
 class TestRunImportWithProgress:
-    """Test import execution with progress context."""
+    """The import spec reaches the use case whole, under the live broker."""
 
-    async def test_run_import_executes_with_progress_context(self):
-        """Import executes within progress coordination context."""
-        # Mock the entire import pipeline
-        with (
-            patch(
-                "src.interface.cli.cli_helpers.progress_coordination_context"
-            ) as mock_context,
-            patch(
-                "src.application.use_cases.import_play_history.run_import"
-            ) as mock_run_import,
-            patch("src.interface.cli.cli_helpers.run_async") as mock_run_async,
-        ):
-            # Setup mocks
-            mock_progress_broker = MagicMock()
-            mock_ctx = MagicMock()
-            mock_ctx.get_progress_broker.return_value = mock_progress_broker
-            mock_context.return_value.__aenter__.return_value = mock_ctx
-
-            # Mock result
-            from src.domain.entities import OperationResult
-
-            expected_result = OperationResult(operation_name="test")
-            mock_run_import.return_value = expected_result
-
-            # Execute (the function calls run_async internally)
-            mock_run_async.side_effect = fake_run_async(expected_result)
-
-            result = run_import_with_progress(
-                ImportProgressSpec(
-                    service="spotify",
-                    mode="file",
-                    file_path=Path("/test/file.json"),
-                    batch_size=100,
-                )
-            )
-
-            # Verify run_async was called
-            assert mock_run_async.called
-            assert result == expected_result
-
-    async def test_run_import_passes_kwargs_to_use_case(self):
-        """Import passes additional kwargs to run_import use case."""
-        from pathlib import Path
+    def test_every_spec_field_and_the_broker_reach_run_import(self):
+        broker = MagicMock()
+        ctx = MagicMock()
+        ctx.get_progress_broker.return_value = broker
+        from_date = datetime(2025, 1, 1, tzinfo=UTC)
+        to_date = datetime(2025, 6, 30, tzinfo=UTC)
+        spec = ImportProgressSpec(
+            service="lastfm",
+            mode="incremental",
+            limit=500,
+            username="rj",
+            file_path=Path("/exports/history.json"),
+            confirm=True,
+            from_date=from_date,
+            to_date=to_date,
+            batch_size=200,
+        )
+        outcome = object()
+        run_import = AsyncMock(return_value=outcome)
 
         with (
             patch(
                 "src.interface.cli.cli_helpers.progress_coordination_context"
             ) as mock_context,
+            patch("src.interface.cli.cli_helpers.run_async", side_effect=asyncio.run),
             patch(
-                "src.application.use_cases.import_play_history.run_import"
-            ) as mock_run_import,
-            patch("src.interface.cli.cli_helpers.run_async") as mock_run_async,
+                "src.application.use_cases.import_play_history.run_import", run_import
+            ),
+            patch(
+                "src.interface.cli.cli_helpers.get_cli_user_id", return_value="cli-user"
+            ),
         ):
-            # Setup mocks
-            mock_progress_broker = MagicMock()
-            mock_ctx = MagicMock()
-            mock_ctx.get_progress_broker.return_value = mock_progress_broker
-            mock_context.return_value.__aenter__.return_value = mock_ctx
+            mock_context.return_value.__aenter__.return_value = ctx
+            result = run_import_with_progress(spec)
 
-            from src.domain.entities import OperationResult
-
-            expected_result = OperationResult(operation_name="test")
-            mock_run_import.return_value = expected_result
-            mock_run_async.side_effect = fake_run_async(expected_result)
-
-            # Execute with kwargs
-            test_path = Path("/test/file.json")
-            result = run_import_with_progress(
-                ImportProgressSpec(
-                    service="spotify",
-                    mode="file",
-                    file_path=test_path,
-                    batch_size=200,
-                )
-            )
-
-            # Verify run_async was called
-            assert mock_run_async.called
-            assert result == expected_result
+        assert result is outcome
+        run_import.assert_awaited_once_with(
+            user_id="cli-user",
+            service="lastfm",
+            mode="incremental",
+            limit=500,
+            username="rj",
+            file_path=Path("/exports/history.json"),
+            confirm=True,
+            from_date=from_date,
+            to_date=to_date,
+            progress_emitter=broker,
+            batch_size=200,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -320,15 +269,18 @@ class TestResolveTrackRef:
 
 
 class TestResolvePlaylistRef:
-    def test_exact_name_match(self):
+    def test_exact_name_match_beats_substring_matches(self):
+        """ "chill" names "Chill" even though "Chill Night" also contains it."""
         from src.interface.cli.cli_helpers import resolve_playlist_ref
         from tests.fixtures import make_playlist
 
-        p = make_playlist(name="Chill")
+        exact = make_playlist(name="Chill")
+        longer = make_playlist(name="Chill Night")
         with patch(
-            "src.interface.cli.cli_helpers.run_async", side_effect=fake_run_async([p])
+            "src.interface.cli.cli_helpers.run_async",
+            side_effect=fake_run_async([longer, exact]),
         ):
-            assert resolve_playlist_ref("chill", user_id="u1") is p
+            assert resolve_playlist_ref("chill", user_id="u1") is exact
 
     def test_no_match_raises(self):
         from src.interface.cli.cli_helpers import resolve_playlist_ref
@@ -356,29 +308,43 @@ class TestResolvePlaylistRef:
 
 
 class TestRenderTracksTable:
-    def test_default_columns(self):
+    def test_default_columns_show_title_artists_and_id(self):
         from src.interface.cli.cli_helpers import render_tracks_table
         from tests.fixtures import make_track
 
-        track = make_track(title="Creep")
+        track = make_track(title="Creep", artist="Radiohead")
         table = render_tracks_table([track], title="Test")
-        headers = [col.header for col in table.columns]
-        assert "Title" in headers
-        assert "Artist" in headers
-        assert "ID" in headers
 
-    def test_extra_column_appended(self):
+        assert [col.header for col in table.columns] == ["Title", "Artist", "ID"]
+        assert [col._cells[0] for col in table.columns] == [
+            "Creep",
+            "Radiohead",
+            str(track.id),
+        ]
+
+    def test_extra_column_sits_before_id_with_its_accessor_value(self):
         from src.interface.cli.cli_helpers import render_tracks_table
         from tests.fixtures import make_track
 
-        track = make_track(title="Creep")
+        track = make_track(title="Creep", artist="Radiohead")
         table = render_tracks_table(
             [track],
             title="Test",
             extra_columns=[("Plays", lambda _t: "42")],
         )
-        headers = [col.header for col in table.columns]
-        assert "Plays" in headers
+
+        assert [col.header for col in table.columns] == [
+            "Title",
+            "Artist",
+            "Plays",
+            "ID",
+        ]
+        assert [col._cells[0] for col in table.columns] == [
+            "Creep",
+            "Radiohead",
+            "42",
+            str(track.id),
+        ]
 
 
 class TestBatchOperationResult:
@@ -401,9 +367,13 @@ class TestBatchOperationResult:
             title="Batch Tag",
         )
         assert str(table.title) == "Batch Tag"
-        count_cells = list(table.columns[1]._cells)
-        assert "3" in count_cells
-        assert "1" in count_cells
+        assert list(table.columns[0]._cells) == [
+            "Succeeded",
+            "Skipped",
+            "Failed",
+            "Total",
+        ]
+        assert list(table.columns[1]._cells) == ["3", "1", "0", "4"]
 
 
 class TestValidateSort:
