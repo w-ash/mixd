@@ -48,9 +48,9 @@ class TestCollectionPageData:
         )
         connector = DiscogsConnector()
 
-        data = await connector.get_collection_page_data("attritus", per_page=5)
+        data = await connector.get_collection_page_data("alice", per_page=5)
 
-        fake_client.get_collection_page.assert_awaited_once_with("attritus", 1, 5)
+        fake_client.get_collection_page.assert_awaited_once_with("alice", 1, 5)
         assert data is not None
         pagination = data["pagination"]
         assert isinstance(pagination, dict)
@@ -66,7 +66,7 @@ class TestCollectionPageData:
         fake_client.get_collection_page.return_value = None
         connector = DiscogsConnector()
 
-        assert await connector.get_collection_page_data("attritus") is None
+        assert await connector.get_collection_page_data("alice") is None
 
 
 class TestFetchUsername:

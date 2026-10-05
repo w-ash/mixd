@@ -190,7 +190,7 @@ describe("connectToSSE", () => {
       ).rejects.toThrow("SSE connection timed out");
     });
 
-    it("does not timeout after successful connection", async () => {
+    it("clears the handshake timeout once the connection opens", async () => {
       mockFetchOk();
 
       // Use a very short timeout — if it weren't cleared, it would fire
@@ -204,11 +204,11 @@ describe("connectToSSE", () => {
         // Body stream parsing fails in jsdom — expected
       }
 
-      // Wait longer than the timeout to prove it was cleared
+      // Wait longer than the timeout; a live timer would abort the fetch signal.
       await new Promise((r) => setTimeout(r, 50));
 
-      // If timeout wasn't cleared, the signal would have been aborted.
-      // No error means the timeout was properly cleaned up.
+      const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+      expect(init.signal?.aborted).toBe(false);
     });
 
     it("never abandons a handshake given a zero budget", async () => {

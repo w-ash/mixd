@@ -43,7 +43,7 @@ class TestGetDiscogsSnapshot:
         _patch(
             monkeypatch,
             GetDiscogsSnapshotResult(
-                username="attritus",
+                username="alice",
                 total_items=2,
                 recent=(
                     DiscogsSnapshotItem(
@@ -60,7 +60,7 @@ class TestGetDiscogsSnapshot:
         out = await connectors_read.handle_get_discogs_snapshot({}, _CTX)
 
         assert isinstance(out, dict)
-        assert out["username"] == "attritus"
+        assert out["username"] == "alice"
         assert out["total_items"] == 2
         recent = out["recent"]
         assert isinstance(recent, list)
@@ -78,7 +78,7 @@ class TestGetDiscogsSnapshot:
     ) -> None:
         _patch(
             monkeypatch,
-            GetDiscogsSnapshotResult(username="attritus", total_items=0, recent=()),
+            GetDiscogsSnapshotResult(username="alice", total_items=0, recent=()),
         )
 
         out = await connectors_read.handle_get_discogs_snapshot({}, _CTX)
@@ -92,7 +92,7 @@ class TestGetDiscogsSnapshot:
     ) -> None:
         _patch(
             monkeypatch,
-            GetDiscogsSnapshotResult(username="attritus", total_items=0, recent=()),
+            GetDiscogsSnapshotResult(username="alice", total_items=0, recent=()),
         )
 
         with pytest.raises(ToolExecutionError):

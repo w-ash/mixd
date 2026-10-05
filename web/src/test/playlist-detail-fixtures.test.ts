@@ -20,10 +20,12 @@ import {
   trackStates,
 } from "../../e2e/fixtures/playlist-detail";
 
-/** Narrow a mock to its JSON body, failing loudly if it isn't a JSON response. */
-function jsonBody(res: MockResponse | undefined): unknown {
-  expect(res?.kind).toBe("json");
-  return (res as Extract<MockResponse, { kind: "json" }>).body;
+/** Return the body of a JSON mock. Throw when the mock is missing or not JSON. */
+function jsonBody(res: MockResponse | undefined, label = "mock"): unknown {
+  if (res?.kind !== "json") {
+    throw new Error(`${label}: expected a json mock, got ${res?.kind}`);
+  }
+  return res.body;
 }
 
 describe("playlist-detail audit fixtures", () => {
@@ -42,7 +44,7 @@ describe("playlist-detail audit fixtures", () => {
   it("every link factory yields a well-formed PlaylistLinkSchema array", () => {
     for (const [name, factory] of Object.entries(linkStates)) {
       const mocks = factory() as EndpointMocks;
-      const links = jsonBody(mocks.links) as Array<Record<string, unknown>>;
+      const links = jsonBody(mocks.links, name) as Record<string, unknown>[];
       expect(Array.isArray(links), name).toBe(true);
       for (const link of links) {
         for (const field of [

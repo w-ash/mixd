@@ -264,6 +264,7 @@ Key architecture & tech choices (see CLAUDE.md for migration details):
 - **Tailwind CSS v4**: Rust engine (10x performance), @theme design tokens
 - **Pydantic v2**: 5-50x faster validation, `from_attributes=True`
 - **Clean Architecture + DDD**: Composable workflows, isolated APIs, testable logic (see docs/architecture/README.md)
+- **Changelog**: Changelog mode: `release-per-ship`. Versioning: four-segment `major.minor.feature.revision` (`.claude/rules/version-management.md`). Every ship writes a dated `CHANGELOG.md` entry, bumps the `pyproject.toml` version, and tags `vX.Y.Z[.R]` in one session; there is no `[Unreleased]` section. Dated entries start at v0.7.8.20. Earlier releases (v0.2.7–v0.7.8.19) appear in `CHANGELOG.md` only as one-line summaries; their full history lives in the archived series files in [completed/](completed/).
 
 ---
 

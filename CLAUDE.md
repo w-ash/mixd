@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Immutable domain** — pure transformations only
 - **User goal-focused** — design around "what is the user trying to accomplish?" not "what can our APIs do?"
 - **Multi-user** — design for concurrency, multi-tenancy (RLS), and shared-cache thundering-herd; `DEFAULT_USER_ID = "default"` is local-dev only
+- **Public repo** — everything committed here is public: no home address, account details, or details from the maintainer's private notes, other projects, or private repos, in code, docs, backlog notes, or commit messages
 
 ## Architecture
 
@@ -81,7 +82,7 @@ Every feature serves a persona ([docs/personas.md](docs/personas.md)) and a user
 
 ## Testing
 
-Write tests for every change (happy path + at least one error/edge case).
+Every behavior change ships with a test that fails without it. No behavior change, no new test → `.claude/rules/test-value.md`.
 Right test level — domain=unit, use case=unit+mocks, repository=integration.
 Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`).
 

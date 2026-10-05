@@ -78,6 +78,12 @@ Required for full functionality:
      LASTFM_SECRET=...
    ```
 
+   Optional — restrict access to specific accounts. `ALLOWED_EMAILS` is a
+   comma-separated list; when unset, anyone with valid auth can sign in.
+   ```bash
+   fly secrets set ALLOWED_EMAILS=alice@example.com,bob@example.com
+   ```
+
    Optional — the chat assistant (v0.9.0). Sets one deployment-wide key; when
    unset the assistant is simply unavailable and the rest of the app is
    unaffected. (Per-user keys are planned in v0.9.0.1 — see the backlog.)

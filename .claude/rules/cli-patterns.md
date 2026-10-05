@@ -39,5 +39,5 @@ Mixd CLI commands are a thin Typer shell over application use cases: parse argum
 
 - Use `typer.testing.CliRunner` invoked via `app` from `src.interface.cli.app` (the real registration path).
 - Patch `resolve_track_ref` / `resolve_playlist_ref` / `run_async` at the command-module call site (e.g. `src.interface.cli.preference_commands.resolve_track_ref`) to skip the database fixture.
-- Assert exit code, relevant output substring, and mock call kwargs. Always assert `"Traceback" not in result.output` on error paths.
+- Assert exit code and the user-visible output. Assert mock call kwargs only at the boundary (the use case invocation), and never as the sole assertion. Always assert `"Traceback" not in result.output` on error paths.
 - Test files: `tests/unit/interface/cli/test_<command_group>_commands.py`.
