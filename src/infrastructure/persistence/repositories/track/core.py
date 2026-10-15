@@ -32,6 +32,7 @@ from sqlalchemy.dialects.postgresql import (
     insert as pg_insert,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
 from src.domain.entities import Track
@@ -76,7 +77,10 @@ from src.infrastructure.persistence.repositories.repo_decorator import db_operat
 from src.infrastructure.persistence.repositories.track.ingest_lock import (
     acquire_user_track_ingest_lock,
 )
-from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
+from src.infrastructure.persistence.repositories.track.mapper import (
+    CREDIT_LOADER,
+    TrackMapper,
+)
 
 logger = get_logger(__name__)
 
@@ -413,6 +417,19 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         )
 
     # -------------------------------------------------------------------------
+    # CREDIT LOADING
+    # -------------------------------------------------------------------------
+
+    def _loaders(self, *, with_credits: bool) -> list[str | ORMOption]:
+        """Give the loader options for a track read.
+
+        The mapper defaults, plus :data:`CREDIT_LOADER` when ``with_credits``
+        is set, so that each credit carries its ``artist_id``.
+        """
+        defaults = self.mapper.get_default_relationships()
+        return [*defaults, CREDIT_LOADER] if with_credits else list(defaults)
+
+    # -------------------------------------------------------------------------
     # PUBLIC API METHODS
     # -------------------------------------------------------------------------
 
@@ -422,18 +439,20 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         track_id: UUID,
         *,
         user_id: str,
-        load_relationships: list[str] | None = None,
+        with_credits: bool = False,
     ) -> Track:
         """Get track by ID, scoped to user.
+
+        ``with_credits`` gives each credit its ``artist_id``. Without it, the
+        credits are the stored names only.
 
         Raises:
             NotFoundError: If track not found or belongs to another user.
         """
-        stmt = self.select_by_id(track_id).where(DBTrack.user_id == user_id)
-        if load_relationships:
-            stmt = self.with_relationship(stmt, *load_relationships)
-        else:
-            stmt = self.with_default_relationships(stmt)
+        stmt = self.with_relationship(
+            self.select_by_id(track_id).where(DBTrack.user_id == user_id),
+            *self._loaders(with_credits=with_credits),
+        )
 
         db_model = await self.execute_select_one(stmt)
         if not db_model:
@@ -444,11 +463,15 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         return await self.mapper.to_domain(db_model)
 
     @db_operation("find_tracks_by_ids")
-    async def find_tracks_by_ids(self, track_ids: list[UUID]) -> dict[UUID, Track]:
+    async def find_tracks_by_ids(
+        self, track_ids: list[UUID], *, with_credits: bool = False
+    ) -> dict[UUID, Track]:
         """Find multiple tracks by their internal IDs in a single batch operation.
 
         Args:
             track_ids: List of internal track IDs to retrieve
+            with_credits: Give each credit its ``artist_id``. Without it, the
+                credits are the stored names only.
 
         Returns:
             Dictionary mapping track IDs to Track objects
@@ -456,10 +479,9 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if not track_ids:
             return {}
 
-        # Leverage the base repository's get_by_ids method
-        tracks = await self.get_by_ids(track_ids)
-
-        # Map results by ID for easier lookup
+        tracks = await self.get_by_ids(
+            track_ids, load_relationships=self._loaders(with_credits=with_credits)
+        )
         return {track.id: track for track in tracks}
 
     @db_operation("acquire_ingest_lock")
@@ -488,7 +510,9 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
         updated = await self._update_track_row(track)
         await self._write_track_artists([(track.id, track)])
-        await self._load_relationships_via_identity_map([updated])
+        await self._load_relationships_via_identity_map(
+            [updated], relationships=self._loaders(with_credits=True)
+        )
         return await TrackMapper.to_domain(updated)
 
     async def _update_track_row(self, track: Track) -> DBTrack:
@@ -587,12 +611,13 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             )
             inserted = {db_track.id: db_track for db_track in result.scalars().all()}
             for index, row in zip(row_indexes, rows, strict=True):
-                # Freshly inserted rows have no mappings, likes or metrics yet,
-                # so the mapper's eager-load-or-empty reads are exact — no
-                # relationship round trip is needed to map them faithfully.
-                saved[index] = await self.mapper.to_domain(
-                    inserted[cast("UUID", row["id"])]
-                )
+                # A fresh row has no mappings, likes or metrics yet, so the
+                # mapper's empty reads of them are exact. Its credit rows are
+                # the input credits verbatim (a new track id has no row to
+                # conflict with), so the input gives them, ``artist_id``
+                # included, with no relationship round trip.
+                mapped = await self.mapper.to_domain(inserted[cast("UUID", row["id"])])
+                saved[index] = evolve(mapped, artists=tracks[index].artists)
 
             await self._write_track_artists([
                 (cast("UUID", row["id"]), tracks[index])
@@ -607,7 +632,10 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             await self._write_track_artists([
                 (tracks[index].id, tracks[index]) for index in updated
             ])
-            await self._load_relationships_via_identity_map(list(updated.values()))
+            await self._load_relationships_via_identity_map(
+                list(updated.values()),
+                relationships=self._loaders(with_credits=True),
+            )
             for index, db_track in updated.items():
                 saved[index] = await TrackMapper.to_domain(db_track)
 
@@ -872,7 +900,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         data_stmt = self.select()
         if conditions:
             data_stmt = data_stmt.where(*conditions)
-        data_stmt = self.with_default_relationships(data_stmt)
+        # The listing renders each credit's artist link, so it loads the rows.
+        data_stmt = self.with_relationship(data_stmt, *self._loaders(with_credits=True))
         db_tracks, next_page_key = await self._fetch_page(
             data_stmt,
             sort=TRACK_SORTS[sort_by],
@@ -1609,17 +1638,23 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
     @db_operation("find_tracks_by_isrcs")
     async def find_tracks_by_isrcs(
-        self, isrcs: list[str], *, user_id: str
+        self, isrcs: list[str], *, user_id: str, with_credits: bool = False
     ) -> dict[str, Track]:
-        """Batch lookup tracks by ISRC. Returns {isrc: Track} for found tracks."""
+        """Batch lookup tracks by ISRC. Returns {isrc: Track} for found tracks.
+
+        ``with_credits`` gives each credit its ``artist_id``. Without it, the
+        credits are the stored names only.
+        """
         if not isrcs:
             return {}
 
-        stmt = self.select().where(DBTrack.user_id == user_id, DBTrack.isrc.in_(isrcs))
-        result = await self.session.execute(self.with_default_relationships(stmt))
+        stmt = self.with_relationship(
+            self.select().where(DBTrack.user_id == user_id, DBTrack.isrc.in_(isrcs)),
+            *self._loaders(with_credits=with_credits),
+        )
 
         matched: dict[str, Track] = {}
-        for db_track in result.scalars().all():
+        for db_track in await self._execute_query(stmt):
             if db_track.isrc:
                 matched[db_track.isrc] = await self.mapper.to_domain(db_track)
         return matched

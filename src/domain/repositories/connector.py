@@ -285,13 +285,19 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def find_tracks_by_connectors(
-        self, connections: list[tuple[str, str]], *, user_id: str
+        self,
+        connections: list[tuple[str, str]],
+        *,
+        user_id: str,
+        with_credits: bool = False,
     ) -> Awaitable[dict[tuple[str, str], Track]]:
         """Find tracks by connector name and ID in bulk.
 
         Args:
             connections: List of (connector, connector_id) tuples
             user_id: Owner's user ID.
+            with_credits: Give each credit its ``artist_id``. Without it, the
+                credits are the stored names only.
 
         Returns:
             Dictionary mapping (connector, connector_id) tuples to Track objects
@@ -299,13 +305,19 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def find_tracks_by_connector_track_ids(
-        self, connector_track_ids: Sequence[UUID], *, user_id: str
+        self,
+        connector_track_ids: Sequence[UUID],
+        *,
+        user_id: str,
+        with_credits: bool = False,
     ) -> Awaitable[dict[UUID, Track]]:
         """The canonical each ``connector_tracks`` row id is live-mapped to.
 
         Keyed by connector track id; a row with no live mapping for this
         user is absent. The form for a caller that already holds the rows —
         ``find_tracks_by_connectors`` is the same lookup from external ids.
+        ``with_credits`` gives each credit its ``artist_id``; without it, the
+        credits are the stored names only.
         """
         ...
 

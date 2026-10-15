@@ -24,8 +24,9 @@ class KeysetSort:
     the model attribute the repository orders by. ``nullable`` columns order
     NULLS LAST and need the keyset's NULL arms; ``is_datetime`` columns travel
     through the cursor as ISO strings. A ``computed`` column is not a column
-    of the model: the repository owns the expression it orders by and the
-    side map it reads the cursor value from.
+    of the model: the repository attaches the expression it orders by, selects
+    that expression beside each row, and reads the cursor value from it on the
+    last row.
     """
 
     column: str

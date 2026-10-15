@@ -188,9 +188,22 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             stmt = stmt.where(condition)
         return stmt
 
-    def _apply_sort_and_page(
+    def sort_column(
+        self, sort: KeysetSort, column: ColumnElement[object] | None = None
+    ) -> ColumnElement[object]:
+        """Give the column that ``sort`` orders by.
+
+        ``column`` is the expression for a sort that the model does not store.
+        Without it, the column is the model attribute that ``sort`` names.
+        """
+        col: ColumnElement[object] = (
+            column if column is not None else getattr(self.model_class, sort.column)
+        )
+        return col
+
+    def _apply_sort_and_page[*Ts](
         self,
-        stmt: Select[tuple[TDBModel]],
+        stmt: Select[tuple[TDBModel, *Ts]],
         *,
         sort: KeysetSort,
         limit: int,
@@ -198,9 +211,10 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         after_value: object = None,
         after_id: UUID | None = None,
         column: ColumnElement[object] | None = None,
-    ) -> Select[tuple[TDBModel]]:
+    ) -> Select[tuple[TDBModel, *Ts]]:
         """Apply ORDER BY, keyset/offset pagination, and LIMIT to ``stmt``.
 
+        ``stmt`` selects the model first; columns after it pass through.
         ``sort`` is a domain declaration, never a request string, so resolving
         its column by name is safe; the unit suite checks every declared column
         exists on its model. A sort whose column is *not* on the model — an
@@ -211,9 +225,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         nullable sort column means the cursor sits in the NULL tail. No cursor
         falls back to OFFSET. The tie-breaker is always ``id``.
         """
-        col: ColumnElement[object] = (
-            column if column is not None else getattr(self.model_class, sort.column)
-        )
+        col = self.sort_column(sort, column)
         nullable = sort.nullable
         desc = sort.desc
         id_col = self.model_class.id
@@ -263,9 +275,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return stmt.order_by(leading, *ordering).limit(limit)
         return stmt.order_by(*ordering).limit(limit)
 
-    async def _fetch_page_rows(
+    async def _fetch_page_tuples[*Ts](
         self,
-        stmt: Select[tuple[TDBModel]],
+        stmt: Select[tuple[TDBModel, *Ts]],
         *,
         sort: KeysetSort,
         limit: int,
@@ -273,13 +285,13 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         after_value: object = None,
         after_id: UUID | None = None,
         column: ColumnElement[object] | None = None,
-    ) -> tuple[list[TDBModel], bool]:
-        """Fetch one page of ``stmt`` and whether a further row exists.
+    ) -> tuple[list[tuple[TDBModel, *Ts]], bool]:
+        """Fetch one page of ``stmt`` rows and whether a further row exists.
 
-        Probes ``limit + 1`` rows so the last page is known without a second
-        query. Split out of :meth:`_fetch_page` for the listing whose sort
-        value is not a column on the row — it builds the cursor from a side
-        map it computes over the page — so the probe arithmetic has one home.
+        Probes ``limit + 1`` rows, so the last page is known without a second
+        query. This is the one home of the probe arithmetic. Use it directly
+        when ``stmt`` selects columns after the model, such as the sort value
+        that the next-page cursor reads.
         """
         stmt = self._apply_sort_and_page(
             stmt,
@@ -290,7 +302,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             after_id=after_id,
             column=column,
         )
-        rows = list((await self.session.execute(stmt)).scalars().all())
+        rows = list((await self.session.execute(stmt)).tuples().all())
         page = rows[:limit]
         return page, len(rows) > limit and bool(page)
 
@@ -311,7 +323,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         key, and so does an empty page (``limit=0`` fetches only the probe
         row). Loader options already on ``stmt`` are kept.
         """
-        page, has_more = await self._fetch_page_rows(
+        rows, has_more = await self._fetch_page_tuples(
             stmt,
             sort=sort,
             limit=limit,
@@ -319,6 +331,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             after_value=after_value,
             after_id=after_id,
         )
+        page = [row[0] for row in rows]
         if not has_more:
             return page, None
         last = page[-1]
@@ -397,7 +410,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     async def get_by_ids(
         self,
         ids: list[UUID],
-        load_relationships: list[str] | None = None,
+        load_relationships: Sequence[str | ORMOption] | None = None,
     ) -> list[TDomainModel]:
         """Get multiple entities by IDs - batch-first primary implementation."""
         if not ids:
@@ -574,6 +587,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     async def _load_relationships_via_identity_map(
         self,
         db_entities: list[TDBModel],
+        relationships: Sequence[str | ORMOption] | None = None,
     ) -> None:
         """Load relationships using selectinload + identity map pattern.
 
@@ -595,21 +609,33 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         Args:
             db_entities: List of database entities already in session
+            relationships: The loaders to run. Default: the mapper defaults.
 
         Returns:
             None (mutates entities via identity map)
         """
+        loaders = (
+            self.mapper.get_default_relationships()
+            if relationships is None
+            else relationships
+        )
         # Early return if no entities or no relationships to load
-        if not db_entities or not self.mapper.get_default_relationships():
+        if not db_entities or not loaders:
             return
 
         entity_ids = [e.id for e in db_entities]
         if not entity_ids:
             return
 
-        # Build query with relationship options
-        stmt = select(self.model_class).where(self.model_class.id.in_(entity_ids))
-        stmt = self.with_default_relationships(stmt)
+        # populate_existing: an instance still held in the session keeps the
+        # collections it loaded before the write, and the reload replaces them
+        # with what the database holds now.
+        stmt = (
+            select(self.model_class)
+            .where(self.model_class.id.in_(entity_ids))
+            .execution_options(populate_existing=True)
+        )
+        stmt = self.with_relationship(stmt, *loaders)
 
         # Execute - SQLAlchemy populates relationships on original objects
         _ = await self.session.execute(stmt)

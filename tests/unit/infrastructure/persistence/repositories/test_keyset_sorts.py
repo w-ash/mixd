@@ -6,7 +6,7 @@ NULL tail at a page boundary), so this is where the declaration is checked.
 
 A computed artist sort has no column to check against, so the pairing is the
 other way round: the name must be absent from the model and present in the
-repository's expression registry, with both an expression and a reader.
+repository's registry, with a way to attach its column to the listing.
 """
 
 from typing import cast, get_args
@@ -27,7 +27,6 @@ from src.infrastructure.persistence.database.models import (
 )
 from src.infrastructure.persistence.repositories.artist.core import (
     COMPUTED_SORT_COLUMNS,
-    ComputedSortColumn,
 )
 
 COMPUTED_ARTIST_SORT_COLUMNS = {
@@ -60,14 +59,12 @@ class TestArtistSortRegistry:
     def test_the_two_computed_sorts_are_declared_so(self) -> None:
         assert {"track_count", "favorited_at"} == COMPUTED_ARTIST_SORT_COLUMNS
 
-    def test_every_computed_sort_has_an_expression_and_a_reader_and_no_column(
+    def test_every_computed_sort_attaches_its_column_and_has_no_stored_one(
         self,
     ) -> None:
         for column in COMPUTED_ARTIST_SORT_COLUMNS:
             entry = COMPUTED_SORT_COLUMNS[column]
-            assert isinstance(entry, ComputedSortColumn), column
-            assert callable(entry.expression), column
-            assert callable(entry.value_of), column
+            assert callable(entry), column
             assert column not in DBArtist.__table__.c, column
 
     def test_no_stored_sort_is_declared_computed(self) -> None:

@@ -187,16 +187,24 @@ class TrackRepositoryProtocol(Protocol):
         track_id: UUID,
         *,
         user_id: str,
-        load_relationships: list[str] | None = None,
+        with_credits: bool = False,
     ) -> Awaitable[Track]:
-        """Get track by ID, scoped to user. Raises NotFoundError if not found or wrong user."""
+        """Get track by ID, scoped to user. Raises NotFoundError if not found or wrong user.
+
+        ``with_credits`` gives each credit its ``artist_id``. Without it, the
+        credits are the stored names only.
+        """
         ...
 
-    def find_tracks_by_ids(self, track_ids: list[UUID]) -> Awaitable[dict[UUID, Track]]:
+    def find_tracks_by_ids(
+        self, track_ids: list[UUID], *, with_credits: bool = False
+    ) -> Awaitable[dict[UUID, Track]]:
         """Find multiple tracks by their internal IDs in a single batch operation.
 
         Args:
             track_ids: List of internal track IDs to retrieve
+            with_credits: Give each credit its ``artist_id``. Without it, the
+                credits are the stored names only.
 
         Returns:
             Dictionary mapping track IDs to Track objects
@@ -353,12 +361,14 @@ class TrackRepositoryProtocol(Protocol):
         ...
 
     def find_tracks_by_isrcs(
-        self, isrcs: list[str], *, user_id: str
+        self, isrcs: list[str], *, user_id: str, with_credits: bool = False
     ) -> Awaitable[dict[str, Track]]:
         """Batch lookup tracks by ISRC.
 
         Args:
             isrcs: Normalized ISRC strings to search for.
+            with_credits: Give each credit its ``artist_id``. Without it, the
+                credits are the stored names only.
 
         Returns:
             Dict keyed by ISRC → Track.

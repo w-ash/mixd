@@ -162,6 +162,18 @@ class TestGetPlayedTracksUseCase:
         assert len(result.errors) == 0
         assert result.tracklist.metadata["operation"] == "get_played_tracks"
 
+    async def test_loads_credit_artist_ids_for_by_artist_ids_filter(
+        self, mock_uow, sample_plays
+    ):
+        """filter.by_artist_ids matches on ArtistCredit.artist_id, so load credits."""
+        command = GetPlayedTracksCommand(user_id="test-user")
+
+        await GetPlayedTracksUseCase().execute(command, mock_uow)
+
+        track_repo = mock_uow.get_track_repository.return_value
+        track_repo.find_tracks_by_ids.assert_called_once()
+        assert track_repo.find_tracks_by_ids.call_args.kwargs == {"with_credits": True}
+
     async def test_execute_passes_sort_to_repository(self, mock_uow):
         """Test that sort_by parameter is passed to repository."""
         command = GetPlayedTracksCommand(

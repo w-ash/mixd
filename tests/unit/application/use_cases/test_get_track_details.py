@@ -195,6 +195,24 @@ class TestGetTrackDetailsHappyPath:
         assert names == {"Favorites", "Chill Vibes"}
 
 
+class TestGetTrackDetailsCredits:
+    async def test_loads_credit_artist_ids_for_artist_page_links(
+        self, mock_uow
+    ) -> None:
+        """The detail page links each credit to its artist page by artist_id."""
+        mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
+            id=_TRACK_UUID
+        )
+
+        await GetTrackDetailsUseCase().execute(
+            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
+        )
+
+        mock_uow.get_track_repository().get_track_by_id.assert_called_once_with(
+            _TRACK_UUID, user_id="test-user", with_credits=True
+        )
+
+
 class TestGetTrackDetailsErrors:
     """Error handling and edge cases."""
 

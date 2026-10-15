@@ -1020,7 +1020,7 @@ class TestPlannedWritePipeline:
         )
         uow, track_repo, connector_repo, _, _ = _pipeline_uow()
 
-        async def _find(connections, *, user_id):
+        async def _find(connections, *, user_id, with_credits):
             _ = user_id
             return {(c, cid): held for c, cid in connections if cid == "new"}
 

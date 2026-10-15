@@ -163,7 +163,7 @@ class GetLikedTracksUseCase:
             track_ids = track_ids[: command.limit]
 
         # Get tracks in bulk
-        tracks_dict = await track_repo.find_tracks_by_ids(track_ids)
+        tracks_dict = await track_repo.find_tracks_by_ids(track_ids, with_credits=True)
         tracks = [
             tracks_dict[track_id] for track_id in track_ids if track_id in tracks_dict
         ]

@@ -147,6 +147,15 @@ class TestGetLikedTracksUseCase:
             service="spotify", sort_by="title_asc", user_id="test-user"
         )
 
+    async def test_loads_credit_artist_ids_for_by_artist_ids_filter(self, mock_uow):
+        """filter.by_artist_ids matches on ArtistCredit.artist_id, so load credits."""
+        command = GetLikedTracksCommand(user_id="test-user", connector_filter="spotify")
+
+        await GetLikedTracksUseCase().execute(command, mock_uow)
+
+        track_repo = mock_uow.get_track_repository.return_value
+        track_repo.find_tracks_by_ids.assert_called_once_with([1, 2], with_credits=True)
+
     async def test_execute_queries_mixd_when_no_filter(self, mock_uow):
         """Test that canonical 'mixd' service is queried when no connector filter."""
         command = GetLikedTracksCommand(user_id="test-user", sort_by="liked_at_desc")

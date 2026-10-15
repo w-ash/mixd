@@ -333,7 +333,7 @@ class TestRelinkOntoHeldCanonical:
         # recording, so the ISRC arm finds nothing and only the current id can.
         track_repo.find_tracks_by_isrcs.return_value = {}
 
-        async def _find(connections, *, user_id):
+        async def _find(connections, *, user_id, with_credits):
             _ = user_id
             return {
                 (connector, cid): owners[cid]
@@ -496,7 +496,7 @@ class TestFallbackSearch:
         uow, track_repo, connector_repo = _make_uow_with_repos()
         owner = make_track(7, title="My Song", duration_ms=240_000)
 
-        async def _find(connections, *, user_id):
+        async def _find(connections, *, user_id, with_credits):
             _ = user_id
             return {(name, cid): owner for name, cid in connections if cid == found_id}
 

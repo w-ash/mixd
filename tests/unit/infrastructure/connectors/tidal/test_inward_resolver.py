@@ -336,7 +336,7 @@ class TestReplacementSuccessor:
         uow, track_repo, connector_repo, _recorder = _make_uow()
         owner = make_track(7, title="Already Mapped")
 
-        async def _find(connections, *, user_id):
+        async def _find(connections, *, user_id, with_credits):
             _ = user_id
             return {
                 (connector, cid): owner

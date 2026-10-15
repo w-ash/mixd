@@ -137,7 +137,7 @@ class GetTrackDetailsUseCase:
         track_id = command.track_id
         async with uow:
             track = await uow.get_track_repository().get_track_by_id(
-                track_id, user_id=command.user_id
+                track_id, user_id=command.user_id, with_credits=True
             )
 
             # Sequential: overhead of TaskGroup not justified for 4 small queries

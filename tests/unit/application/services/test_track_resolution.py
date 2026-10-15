@@ -92,7 +92,7 @@ def _uow(
         stored_rows.update({t.id: t.connector_track_identifier for t in tracks})
         return {t.connector_track_identifier: t for t in tracks}
 
-    def _mapped(row_ids, *, user_id):
+    def _mapped(row_ids, *, user_id, with_credits):
         return {
             row_id: track
             for row_id in row_ids
