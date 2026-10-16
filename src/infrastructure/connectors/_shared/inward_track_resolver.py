@@ -297,8 +297,10 @@ class InwardTrackResolver[THint = object](ABC):
     _match_evaluation_service: MatchEvaluationService
     # The reuse step's rules. Names alone: an identifier carries no duration
     # for the recording gate to rule on, so the gate is the evaluator's
-    # accept plus a title-similarity floor. The reuse step sets the pass's
-    # alias groups on them.
+    # accept plus a title-similarity floor. They hold no alias groups: a
+    # step that prices names adds the groups it compiled for its own names
+    # to a local copy. The reuse step does that here; of the creation
+    # steps, only Last.fm's prices names, and it does the same.
     _reuse_rules: TrackResolutionRules
     _reuse_failed_ids: set[str]
 
@@ -369,9 +371,11 @@ class InwardTrackResolver[THint = object](ABC):
         connector mappings for what it reuses, recording the candidate each
         refusal turned down.
 
-        The alias groups covering the batch's artist names reach both the
-        probe and the price, so a description credited "TEED" finds and
-        accepts the canonical credited "Totally Enormous Extinct Dinosaurs".
+        This step compiles the alias groups for its pairs' artist names
+        (``get_artist_equivalence``), and both the probe and the price read
+        them, so a description credited "TEED" finds and accepts the
+        canonical credited "Totally Enormous Extinct Dinosaurs". The groups
+        stay local to this call.
         """
         # Extract metadata from identifiers via subclass hook
         pairs: list[tuple[str, str]] = []

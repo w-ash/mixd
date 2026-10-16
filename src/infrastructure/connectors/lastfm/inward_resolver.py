@@ -30,7 +30,10 @@ canonical, the plan maps the Last.fm identifier(s) onto it and no skeletal
 canonical is ever created. The reuse-or-create decision is never made here:
 the shared reuse step (the domain planner under names-alone rules) and
 cross-discovery (the planner's strong-id arm) decide, and phase C translates
-their outcomes into writes and prices each mapping with the same rules.
+their outcomes into writes and prices each mapping under the same
+names-alone rules. The alias groups that pricing reads are compiled in
+phase C for the chunk's own corrected and raw artist names, not taken from
+the reuse step: the corrected names exist only after phase A.
 
 Identifier invariant: every Last.fm connector_track_identifier is
 ``make_lastfm_identifier(artist, title)``, minted PRIMARILY from the
@@ -213,8 +216,9 @@ class LastfmInwardResolver(InwardTrackResolver):
 
         Phase A enriches every identifier concurrently (pure API), Phase B
         cross-discovers the whole chunk in one batched provider pass, Phase C
-        plans each identifier's writes pure and persists the chunk through
-        the batch primitives. Chunks arrive at most ~50 identifiers wide
+        compiles the alias groups for the names it prices, plans each
+        identifier's writes pure and persists the chunk through the batch
+        primitives. Chunks arrive at most ~50 identifiers wide
         (the orchestrator's resolution commit chunking), so no further
         chunking happens here.
         """
@@ -477,9 +481,11 @@ class LastfmInwardResolver(InwardTrackResolver):
     ) -> _PlannedLastfmMapping:
         """Price one Last.fm mapping: the names against the track. Pure.
 
-        The same names-alone rules the reuse step decides with, so the
-        number on a mapping row is the model's — a raw alias whose spelling
-        differs from the corrected names prices lower than the primary.
+        ``rules`` are the names-alone rules the reuse step decides with,
+        carrying the alias groups ``_pricing_rules`` compiled for this
+        chunk, so the number on a mapping row is the model's — a raw alias
+        whose spelling differs from the corrected names prices lower than
+        the primary, unless the two are cached aliases of one artist.
         """
         priced = rules.same(
             RecordingDescription(title=track_name, artist=artist_name),
