@@ -90,6 +90,24 @@ class ArtistEquivalence:
             return False
         return group_a == self.groups.get(normalize_for_comparison(b))
 
+    def aliases_of(self, name: str) -> tuple[str, ...]:
+        """The other names known to denote the artist ``name`` credits.
+
+        Normalized and sorted, so a probe built from them is the same
+        statement every time. Empty when ``name`` is unknown to this cache.
+        """
+        own = normalize_for_comparison(name)
+        group = self.groups.get(own)
+        if group is None:
+            return ()
+        return tuple(
+            sorted(
+                other
+                for other, other_group in self.groups.items()
+                if other_group == group and other != own
+            )
+        )
+
 
 EMPTY_EQUIVALENCE: Final[ArtistEquivalence] = ArtistEquivalence()
 """The no-op equivalence: every comparison falls through to string matching."""

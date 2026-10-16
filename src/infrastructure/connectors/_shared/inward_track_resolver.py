@@ -28,6 +28,10 @@ from src.config import create_evaluation_service, get_logger
 from src.domain.entities import ConnectorArtistCredit, Track
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track_mapping import MatchMethod
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+)
 from src.domain.matching.artist_resolution import (
     ArtistCreditSource,
     credited_artists,
@@ -357,6 +361,7 @@ class InwardTrackResolver[THint = object](ABC):
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
+        artist_equivalence: ArtistEquivalence,
     ) -> dict[str, Track]:
         """Canonical Reuse: match unresolved IDs against existing canonical tracks.
 
@@ -367,6 +372,10 @@ class InwardTrackResolver[THint = object](ABC):
         unresolved twin has no canonical to fold onto yet) and creates
         connector mappings for what it reuses, recording the candidate each
         refusal turned down.
+
+        ``artist_equivalence`` reaches both the probe and the price, so a
+        description credited "TEED" finds and accepts the canonical credited
+        "Totally Enormous Extinct Dinosaurs".
         """
         # Extract metadata from identifiers via subclass hook
         pairs: list[tuple[str, str]] = []
@@ -382,10 +391,11 @@ class InwardTrackResolver[THint = object](ABC):
             return {}
 
         candidates = await uow.get_track_repository().find_tracks_by_title_artist(
-            pairs, user_id=user_id
+            pairs, user_id=user_id, artist_equivalence=artist_equivalence
         )
         if not candidates:
             return {}
+        rules = evolve(self._reuse_rules, artist_equivalence=artist_equivalence)
 
         # Keyed by the description that proposed each candidate: the gate is
         # a similarity floor, so a candidate the probe reached on a looser
@@ -408,7 +418,7 @@ class InwardTrackResolver[THint = object](ABC):
             description = descriptions[identifier]
             key = track_name_key(description)
             priced: Reuse[str, Track] | Refusal[Track] | None = (
-                price_reuse(description, name_owners.get(key, ()), self._reuse_rules)
+                price_reuse(description, name_owners.get(key, ()), rules)
                 if key is not None
                 else None
             )
@@ -530,6 +540,7 @@ class InwardTrackResolver[THint = object](ABC):
         *,
         user_id: str,
         hints: Mapping[str, THint] | None = None,
+        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> tuple[dict[str, Track], TrackResolutionMetrics]:
         """Resolve external connector IDs to canonical tracks.
 
@@ -541,6 +552,8 @@ class InwardTrackResolver[THint = object](ABC):
             connector_ids: Raw external IDs (will be normalized).
             uow: Unit of work for database operations.
             hints: Optional per-id evidence, handed to ``_begin_resolution``.
+            artist_equivalence: The batch's alias groups, compiled once by the
+                caller and read by the canonical-reuse step.
 
         Returns:
             Tuple of (normalized_id → Track mapping, resolution metrics).
@@ -551,7 +564,10 @@ class InwardTrackResolver[THint = object](ABC):
             collect_write_failures() as failures,
         ):
             result, metrics = await self._resolve_to_canonical_tracks(
-                connector_ids, uow, user_id=user_id
+                connector_ids,
+                uow,
+                user_id=user_id,
+                artist_equivalence=artist_equivalence,
             )
         metrics = evolve(
             metrics,
@@ -585,6 +601,7 @@ class InwardTrackResolver[THint = object](ABC):
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
+        artist_equivalence: ArtistEquivalence,
     ) -> tuple[dict[str, Track], TrackResolutionMetrics]:
         """The three-step resolution itself; see the public wrapper."""
         if not connector_ids:
@@ -621,7 +638,10 @@ class InwardTrackResolver[THint = object](ABC):
 
         if missing_ids:
             reused_tracks = await self._reuse_existing_canonical_tracks(
-                missing_ids, uow, user_id=user_id
+                missing_ids,
+                uow,
+                user_id=user_id,
+                artist_equivalence=artist_equivalence,
             )
             result.update(reused_tracks)
             reused_count = len(reused_tracks)

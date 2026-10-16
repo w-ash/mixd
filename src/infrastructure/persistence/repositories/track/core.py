@@ -41,6 +41,10 @@ from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.exceptions import DomainError, OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+)
 from src.domain.repositories.errors import IdentityKeyClaimedError
 from src.domain.repositories.resolution import SupersessionEdge
 from src.domain.repositories.track import (
@@ -1554,7 +1558,11 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
     @db_operation("find_tracks_by_title_artist")
     async def find_tracks_by_title_artist(
-        self, pairs: list[tuple[str, str]], *, user_id: str
+        self,
+        pairs: list[tuple[str, str]],
+        *,
+        user_id: str,
+        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> dict[tuple[str, str], Track]:
         """Find existing tracks matching (title, first_artist) pairs.
 
@@ -1573,8 +1581,18 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         row) constant, and gives the planner join statistics from both sides
         instead of a ~250-arm disjunction it must estimate independently.
 
+        The alias arm is the ``IN`` over each pair's equivalence group, in the
+        same shape: one more probe row per other name the group holds, so the
+        statement text stays the same. It answers only a pair that no track
+        answers under its own spelling, and one track can answer several
+        such pairs: "TEED" and the full name asking in one batch are one
+        artist, and leaving the second spelling unanswered would mint a
+        duplicate canonical.
+
         Args:
             pairs: List of (title, first_artist_name) tuples to search for.
+            artist_equivalence: The batch's alias groups, compiled once by the
+                caller.
 
         Returns:
             Dict keyed by lowercased (title, artist) → Track.
@@ -1602,6 +1620,19 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         ):
             variants[norm_title, norm_artist] = None
             variants[stripped_title, norm_artist] = None
+
+        # The alias arm: (title variant, other name) → the pairs asking.
+        alias_lookup: dict[tuple[str, str], list[tuple[str, str]]] = {}
+        for (title, artist), (norm_title, _), stripped_title in zip(
+            pairs, normalized_pairs, stripped_pairs, strict=True
+        ):
+            lower_key = (title.lower(), artist.lower())
+            for alias in artist_equivalence.aliases_of(artist):
+                for title_variant in dict.fromkeys((norm_title, stripped_title)):
+                    alias_lookup.setdefault((title_variant, alias), []).append(
+                        lower_key
+                    )
+        variants.update(dict.fromkeys(alias_lookup))
 
         result = await self.session.execute(
             build_title_artist_probe(list(variants), user_id=user_id)
@@ -1633,6 +1664,20 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 if lower_key and lower_key not in matched:
                     matched[lower_key] = await self.mapper.to_domain(db_track)
                     break
+
+        # After every exact claim, so an alias never outranks a spelling hit.
+        for db_track in rows:
+            artist_norm = db_track.artist_normalized or ""
+            asking = [
+                lower_key
+                for title_val in (db_track.title_normalized, db_track.title_stripped)
+                for lower_key in alias_lookup.get((title_val or "", artist_norm), ())
+                if lower_key not in matched
+            ]
+            if asking:
+                track = await self.mapper.to_domain(db_track)
+                for lower_key in asking:
+                    _ = matched.setdefault(lower_key, track)
 
         return matched
 

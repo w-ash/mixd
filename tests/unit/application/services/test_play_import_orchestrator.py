@@ -24,6 +24,7 @@ from src.domain.entities.progress import (
     ProgressEvent,
     ProgressOperation,
 )
+from src.domain.matching.artist_equivalence import EMPTY_EQUIVALENCE
 from src.domain.repositories.play import (
     LastfmImportParams,
     PlayResolutionOutcome,
@@ -161,7 +162,10 @@ class TestTwoPhaseHappyPath:
         )
         resolver_call = mock_resolver.resolve_connector_plays.await_args
         assert resolver_call.args == (connector_plays, mock_uow)
-        assert resolver_call.kwargs == {"user_id": "test-user"}
+        assert resolver_call.kwargs == {
+            "user_id": "test-user",
+            "artist_equivalence": EMPTY_EQUIVALENCE,
+        }
         assert result.operation_name == "Two-Phase Play Import"
         counts = result.to_counts()
         assert counts["connector_plays"] == 3
@@ -250,7 +254,9 @@ class TestResolverLifecycle:
         """Closing is opt-in: a resolver exposing no aclose is left alone."""
 
         class _PlainResolver:
-            async def resolve_connector_plays(self, chunk, uow, *, user_id):
+            async def resolve_connector_plays(
+                self, chunk, uow, *, user_id, artist_equivalence
+            ):
                 return PlayResolutionOutcome(
                     track_plays=[_make_resolved_track_play()],
                     metrics={"error_count": 0},

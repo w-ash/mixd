@@ -31,6 +31,10 @@ from src.domain.matching.algorithms import (
     ServiceTrackData,
     calculate_confidence,
 )
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+)
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.isrc_validation import (
@@ -421,10 +425,15 @@ class TrackResolutionRules:
     model can score it 100 on the artist alone, and the refusal is the
     record that explains why that score did not reuse. The strong-id and
     creation pricing are the same either way.
+
+    ``artist_equivalence`` is the batch's alias groups for the name price:
+    a candidate credited under another known name of the artist scores as
+    an artist agreement. The default compares names as plain strings.
     """
 
     config: MatchingConfig
     names_alone: bool = False
+    artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE
     # The one zoner: the evaluator's two threshold reads, so a zone recorded
     # here is the zone the matching pipeline would have assigned.
     _evaluator: MatchEvaluationService = field(
@@ -460,7 +469,11 @@ class TrackResolutionRules:
         ):
             return None
         confidence, evidence = calculate_confidence(
-            _internal(candidate), _service(description), "canonical_reuse", self.config
+            _internal(candidate),
+            _service(description),
+            "canonical_reuse",
+            self.config,
+            artist_equivalence=self.artist_equivalence,
         )
         zone = self._zone(confidence)
         if (
