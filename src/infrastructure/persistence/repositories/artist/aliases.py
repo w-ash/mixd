@@ -74,25 +74,6 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
             conflict_keys=["connector_artist_id", "name", "alias_type", "locale"],
         )
 
-    @db_operation("get_aliases_for_connector_artists")
-    async def get_aliases_for_connector_artists(
-        self, connector_artist_ids: Sequence[UUID]
-    ) -> dict[UUID, list[ArtistAlias]]:
-        """Aliases for a batch of connector artists, keyed by connector artist id."""
-        if not connector_artist_ids:
-            return {}
-        rows = await self._execute_query(
-            select(DBArtistAlias)
-            .where(DBArtistAlias.connector_artist_id.in_(connector_artist_ids))
-            .order_by(DBArtistAlias.name)
-        )
-        aliases: dict[UUID, list[ArtistAlias]] = {}
-        for row in rows:
-            aliases.setdefault(row.connector_artist_id, []).append(
-                await self.mapper.to_domain(row)
-            )
-        return aliases
-
     @db_operation("find_connector_artist_ids_by_alias")
     async def find_connector_artist_ids_by_alias(
         self, names: Sequence[str]

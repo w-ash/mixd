@@ -150,8 +150,11 @@ class TestAliases:
         )
 
         assert replaced == 1
-        found = await aliases.get_aliases_for_connector_artists([connector_artist_id])
-        assert [a.name for a in found[connector_artist_id]] == ["TEED"]
+        found = await aliases.find_connector_artist_ids_by_alias([
+            "TEED",
+            "Totally Enormous Extinct Dinosaurs",
+        ])
+        assert found == {"TEED": [connector_artist_id]}
 
     async def test_replacing_with_nothing_clears_the_cache(self, db_session):
         uow = get_unit_of_work(db_session)
@@ -170,9 +173,7 @@ class TestAliases:
         )
 
         assert await aliases.replace_aliases(connector_artist_id, []) == 0
-        assert (
-            await aliases.get_aliases_for_connector_artists([connector_artist_id]) == {}
-        )
+        assert await aliases.find_connector_artist_ids_by_alias(["TEED"]) == {}
 
     async def test_lookup_by_name_is_case_insensitive_and_keyed_as_asked(
         self, db_session

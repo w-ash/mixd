@@ -354,12 +354,6 @@ class ArtistAliasRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_aliases_for_connector_artists(
-        self, connector_artist_ids: Sequence[UUID]
-    ) -> Awaitable[dict[UUID, list[ArtistAlias]]]:
-        """Aliases for a batch of connector artists, keyed by connector artist id."""
-        ...
-
     def find_connector_artist_ids_by_alias(
         self, names: Sequence[str]
     ) -> Awaitable[dict[str, list[UUID]]]:
