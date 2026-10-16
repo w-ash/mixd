@@ -8,20 +8,19 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
-from src.domain.entities import ArtistCredit, Track, ensure_utc
+from src.domain.entities import Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.shared import JsonDict
 from src.domain.entities.track_mapping import STALE_ID_FOR
 from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
-    DBTrackArtist,
     DBTrackLike,
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     build_canonical_track_row,
-    extract_db_artist_names,
+    db_artist_credits,
 )
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
@@ -29,8 +28,8 @@ logger = get_logger(__name__)
 
 _STALE_ID_METHODS = frozenset(STALE_ID_FOR.values())
 
-# The loader for the ``track_artists`` rows. A read that needs each credit's
-# ``artist_id`` adds it; no default read loads the rows.
+# The loader for the ``track_artists`` rows. A track read that needs each
+# credit's ``artist_id`` adds it; no default track read loads the rows.
 CREDIT_LOADER: Final[ORMOption] = selectinload(DBTrack.artist_credits)
 
 
@@ -41,36 +40,6 @@ class MissingPrimaryMappingWarning(UserWarning):
     ``map_tracks_to_connectors``), so this is a writer defect, never a state a
     read repairs. The test suite turns it into an error (``filterwarnings``).
     """
-
-
-def _artist_credits(db_model: DBTrack) -> list[ArtistCredit]:
-    """Build the artist credits of a track.
-
-    The source is the ``track_artists`` rows when the read loaded them. They
-    arrive ordered by position and carry ``artist_id``. Otherwise the source
-    is the JSONB names, which carry no ``artist_id``. A track that the
-    backfill has not reached has no rows and also uses the names.
-
-    A read that needs ``artist_id`` adds :data:`CREDIT_LOADER`. The
-    ``captured_sql`` integration tests and the use-case unit tests guard both
-    directions: a read that needs the ids loads the rows, and no other read
-    does.
-    """
-    rows = db_model.loaded_list(DBTrack.artist_credits, DBTrackArtist)
-    if rows:
-        return [
-            ArtistCredit(
-                credited_name=row.credited_name,
-                artist_id=row.artist_id,
-                join_phrase=row.join_phrase,
-                role=row.role,
-            )
-            for row in rows
-        ]
-    return [
-        ArtistCredit(credited_name=name)
-        for name in extract_db_artist_names(db_model.artists)
-    ]
 
 
 @define(frozen=True, slots=True)
@@ -188,7 +157,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             version=db_model.version,
             user_id=db_model.user_id,
             title=db_model.title,
-            artists=_artist_credits(db_model),
+            artists=db_artist_credits(db_model),
             album=db_model.album,
             duration_ms=db_model.duration_ms,
             release_date=ensure_utc(db_model.release_date),
