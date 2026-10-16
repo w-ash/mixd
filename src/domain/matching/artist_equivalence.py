@@ -20,7 +20,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Final, Self
 from uuid import UUID
 
-from attrs import define, field
+from attrs import Factory, define, field
 
 from src.domain.entities.artist import ArtistAlias
 
@@ -30,6 +30,16 @@ from .text_normalization import normalize_for_comparison
 def _no_groups() -> Mapping[str, int]:
     """The empty lookup, typed so the attrs field is not partially unknown."""
     return {}
+
+
+def _members_by_group(
+    equivalence: ArtistEquivalence,
+) -> Mapping[int, tuple[str, ...]]:
+    """Index each group key to its names, sorted."""
+    members: dict[int, list[str]] = {}
+    for name, group in equivalence.groups.items():
+        members.setdefault(group, []).append(name)
+    return {group: tuple(sorted(names)) for group, names in members.items()}
 
 
 @define(frozen=True, slots=True)
@@ -43,6 +53,14 @@ class ArtistEquivalence:
     """
 
     groups: Mapping[str, int] = field(factory=_no_groups)
+    # Derived from ``groups`` at construction, so ``aliases_of`` reads one
+    # entry instead of scanning every name.
+    _members: Mapping[int, tuple[str, ...]] = field(
+        init=False,
+        eq=False,
+        repr=False,
+        default=Factory(_members_by_group, takes_self=True),
+    )
 
     @classmethod
     def from_groups(cls, groups: Iterable[Iterable[str]]) -> Self:
@@ -100,13 +118,7 @@ class ArtistEquivalence:
         group = self.groups.get(own)
         if group is None:
             return ()
-        return tuple(
-            sorted(
-                other
-                for other, other_group in self.groups.items()
-                if other_group == group and other != own
-            )
-        )
+        return tuple(member for member in self._members[group] if member != own)
 
 
 EMPTY_EQUIVALENCE: Final[ArtistEquivalence] = ArtistEquivalence()
