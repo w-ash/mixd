@@ -6,6 +6,7 @@ trace, and valid input renders the result. Use-case behavior itself is covered
 by ``tests/unit/application/use_cases/test_unreject_mapping_candidate.py``.
 """
 
+import re
 from unittest.mock import AsyncMock, patch
 from uuid import uuid7
 
@@ -21,6 +22,7 @@ from src.application.use_cases.unreject_mapping_candidate import (
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.resolution import NegativeListing
 from src.interface.cli.app import app
+from tests.fixtures import plain
 
 runner = CliRunner()
 
@@ -177,12 +179,19 @@ class TestNegativeListingCommands:
         assert "unreject" in result.output
 
     def test_dead_ids_shows_the_miss_count(self) -> None:
-        """The count is what separates "worth a look" from "asked once"."""
+        """The count is what separates "worth a look" from "asked once".
+
+        The row also prints uuid7 ids, which always contain a "7", so the count
+        is read from the last cell of the row, under the Misses header.
+        """
         with patch(
             RUN_LIST_NEGATIVES,
             return_value=ListResolutionNegativesResult(listings=[self._listing(7)]),
         ):
             result = runner.invoke(app, ["tracks", "dead-ids"])
 
-        assert "7" in result.output
-        assert "relink" in result.output
+        output = plain(result.output)
+        row = next(line for line in output.splitlines() if "sp_123" in line)
+        assert "Misses" in output
+        assert re.search(r"│\s*7\s*│$", row.rstrip()), row
+        assert "relink" in output

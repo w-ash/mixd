@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.12.1.1"
+version = "0.12.1.2"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -86,7 +86,7 @@ dev = [
 # Single source of truth for the uv version. astral-sh/setup-uv reads required-version
 # from pyproject.toml and installs the match, so CI tracks this automatically; the
 # ghcr.io/astral-sh/uv tag in Dockerfile must be bumped by hand to stay in step.
-required-version = ">=0.12,<0.13"
+required-version = ">=0.13,<0.14"
 
 # Undeclared-import detection (`uvx deptry .`, run in CI's Python job). Catches the
 # class of drift W1 fixed: code importing a package we only get transitively.

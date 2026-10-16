@@ -1,334 +1,140 @@
-"""Integration tests for Progress.console coordination system.
+"""Integration tests for CLI progress coordination.
 
-Tests the core breakthrough that solved the progress bar pinning problem by ensuring
-ALL logging (Loguru + Prefect) routes through Progress.console for proper coordination
-between log messages and progress bars.
+Covers ``progress_coordination_context`` (subscribes a RichProgressSubscriber
+to the global broker and moves console logging onto the Live console for the
+block) and RichProgressSubscriber's rendering of concurrent operations.
 """
 
 import asyncio
 import io
 import logging
 
-from rich.console import Console
+import pytest
 
-from src.config.logging import (
-    enable_unified_console_output,
-    restore_standard_console_output,
-)
+from src.application.services.progress_broker import get_progress_broker
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressEvent,
     ProgressOperation,
     ProgressStatus,
+    create_progress_operation,
 )
-from src.interface.cli.console import progress_coordination_context
+from src.interface.cli.console import get_console, progress_coordination_context
 from src.interface.cli.progress_subscriber import RichProgressSubscriber
 
 
+@pytest.fixture
+def console_handler(monkeypatch: pytest.MonkeyPatch) -> logging.Handler:
+    """Give the root logger exactly one standard console handler."""
+    monkeypatch.setattr("src.config.logging._saved_console_handler", None)
+    handler = logging.StreamHandler(io.StringIO())
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [handler])
+    return handler
+
+
 class TestProgressConsoleCoordination:
-    """Test the core Progress.console coordination that solved pinned progress bars."""
+    """progress_coordination_context wiring."""
 
-    async def test_unified_console_output_coordination(self):
-        """Test that Progress.console coordination ensures logs appear above progress bars."""
-        # Create a test console with string capture
-        test_output = io.StringIO()
-        test_console = Console(file=test_output, width=80)
+    async def test_live_context_subscribes_and_swaps_console_then_restores(
+        self, console_handler: logging.Handler
+    ):
+        root = logging.getLogger()
+        before = set(root.handlers)
+        broker = get_progress_broker()
 
-        # Create mock progress console that captures all output
-        captured_output = []
-
-        class TestProgressConsole:
-            def print(self, *args, **kwargs):
-                # Capture what would be printed through Progress.console
-                captured_output.append(("progress_console", args, kwargs))
-                # Also write to our test output for verification
-                test_console.print(*args, **kwargs)
-
-        test_progress_console = TestProgressConsole()
-
-        # Ensure logging is set up so there's a console handler to swap
-        from src.config import setup_logging
-
-        setup_logging()
-
-        # Test the unified console output configuration
-        try:
-            enable_unified_console_output(test_progress_console)
-
-            # Import logger after configuration to use the redirected logging
-            from src.config import get_logger
-
-            test_logger = get_logger("test_module")
-
-            # Test that structlog logs go through Progress.console
-            test_logger.info("Test log message from Loguru")
-
-            # Test that intercepted Python logging goes through Progress.console.
-            # Use a stdlib logger (e.g. uvicorn) that structlog's stdlib
-            # integration routes through the same handlers.
-            stdlib_logger = logging.getLogger("uvicorn.test")
-            stdlib_logger.info("Test log message from stdlib logging")
-
-            # Give logging a moment to process
-            import asyncio
-
-            await asyncio.sleep(0.01)
-
-            # Verify that at least the Loguru log was captured
-            # (Python logging interception covers stdlib loggers like uvicorn)
-            assert len(captured_output) >= 1, (
-                f"Expected at least 1 captured message, got {len(captured_output)}"
-            )
-
-            # Check that Loguru message was captured
-            loguru_captured = any(
-                "Test log message from Loguru" in str(args)
-                for category, args, kwargs in captured_output
-            )
-            assert loguru_captured, (
-                "Loguru message should route through Progress.console"
-            )
-
-            # Check that the stdlib message was captured (if interception is working)
-            stdlib_captured = any(
-                "Test log message from stdlib logging" in str(args)
-                for category, args, kwargs in captured_output
-            )
-
-            # Note: stdlib logging interception may not fire in the test
-            # environment, so we just verify the primary Loguru routing works.
-            if len(captured_output) >= 2:
-                assert stdlib_captured, (
-                    "stdlib logging should route through Progress.console when intercepted"
-                )
-
-        finally:
-            # Always restore normal logging
-            restore_standard_console_output()
-
-    async def test_progress_coordination_context_provides_unified_console(self):
-        """Test that progress_coordination_context provides proper console coordination."""
         async with progress_coordination_context(show_live=True) as context:
-            # Verify context provides the expected interface
-            assert hasattr(context, "console")
-            assert hasattr(context, "get_progress_broker")
+            provider = context.provider
+            assert context.get_progress_broker() is broker
+            assert context.console is provider.get_console()
+            # Logs must not bypass the Live console while bars are pinned.
+            assert console_handler not in root.handlers
 
-            # Verify we get a progress manager
-            progress_broker = context.get_progress_broker()
-            assert progress_broker is not None
+            inside = await broker.start_operation(
+                create_progress_operation("Inside", total_items=1)
+            )
+            assert inside in provider._operation_tasks
+            await broker.complete_operation(inside, OperationStatus.COMPLETED)
 
-            # Test that console output is coordinated
-            # This should go through Progress.console without interfering with progress bars
-            context.console.print("Test output through coordinated console")
+        assert set(root.handlers) == before
+        after = await broker.start_operation(
+            create_progress_operation("After", total_items=1)
+        )
+        try:
+            assert after not in provider._operation_tasks
+        finally:
+            await broker.complete_operation(after, OperationStatus.COMPLETED)
 
-    async def test_simple_console_context_without_progress(self):
-        """Test that simple context works when progress is disabled."""
+    async def test_simple_console_context_without_progress(
+        self, console_handler: logging.Handler
+    ):
+        root = logging.getLogger()
+        before = list(root.handlers)
+
         async with progress_coordination_context(show_live=False) as context:
-            # Verify context provides basic console access
-            assert hasattr(context, "console")
-            assert hasattr(context, "get_progress_broker")
+            assert context.console is get_console()
+            assert context.get_progress_broker() is None
+            assert console_handler in root.handlers
 
-            # Verify no progress manager when disabled
-            progress_broker = context.get_progress_broker()
-            assert progress_broker is None
+        assert root.handlers == before
 
-            # Test basic console functionality
-            context.console.print("Test output without progress coordination")
 
-    async def test_progress_subscriber_console_coordination(self):
-        """Test that RichProgressSubscriber properly coordinates with console output."""
+class TestRichProgressSubscriberRendering:
+    """What the pinned bars show once operations finish."""
+
+    async def test_concurrent_operations_each_end_in_their_own_final_state(
+        self, console_handler: logging.Handler
+    ):
         provider = RichProgressSubscriber()
-
-        try:
-            # Start the provider to activate coordination
-            await provider.start_display()
-
-            # Get the coordinated console
-            console = provider.get_console()
-            assert console is not None
-
-            # Test that we can create and update progress operations
-            operation = ProgressOperation(
-                operation_id="test_op_001",
-                description="Test Progress Operation",
-                total_items=100,
+        outcomes = [
+            OperationStatus.COMPLETED,
+            OperationStatus.FAILED,
+            OperationStatus.CANCELLED,
+        ]
+        operations = [
+            ProgressOperation(
+                operation_id=f"op_{i}", description=f"Operation {i}", total_items=50
             )
+            for i in range(3)
+        ]
 
-            await provider.on_operation_started(operation)
-
-            # Send progress events
-            for i in range(0, 101, 25):
-                event = ProgressEvent(
-                    operation_id="test_op_001",
-                    current=i,
-                    total=100,
-                    message=f"Processing item {i}",
-                    status=ProgressStatus.IN_PROGRESS,
+        async def drive(operation: ProgressOperation, outcome: OperationStatus):
+            for current in (10, 20, 30):
+                await provider.on_progress_event(
+                    ProgressEvent(
+                        operation_id=operation.operation_id,
+                        current=current,
+                        total=50,
+                        message=f"{operation.description}: step {current}",
+                        status=ProgressStatus.IN_PROGRESS,
+                    )
                 )
-                await provider.on_progress_event(event)
-
-                # Simulate some console output during progress
-                console.print(f"Log message during progress: {i}% complete")
-
-                # Small delay to simulate work
-                await asyncio.sleep(0.01)
-
-            # Complete the operation
-            await provider.on_operation_completed(
-                "test_op_001", OperationStatus.COMPLETED
-            )
-
-        finally:
-            # Clean up
-            await provider.stop_display()
-
-    async def test_multiple_operations_coordination(self):
-        """Test that multiple simultaneous operations coordinate properly."""
-        provider = RichProgressSubscriber()
+                await asyncio.sleep(0)
+            await provider.on_operation_completed(operation.operation_id, outcome)
 
         try:
             await provider.start_display()
+            for operation in operations:
+                await provider.on_operation_started(operation)
+            await asyncio.gather(*map(drive, operations, outcomes, strict=True))
 
-            # Create multiple operations
-            operations = [
-                ProgressOperation(
-                    operation_id=f"test_op_{i:03d}",
-                    description=f"Operation {i}",
-                    total_items=50,
+            tasks = {
+                op_id: next(
+                    t for t in provider._progress.tasks if t.id == tracked.task_id
                 )
-                for i in range(3)
-            ]
-
-            # Start all operations
-            for op in operations:
-                await provider.on_operation_started(op)
-
-            # Update all operations in parallel
-            tasks = []
-            for i, op in enumerate(operations):
-                task = asyncio.create_task(
-                    self._update_operation_progress(provider, op, i)
-                )
-                tasks.append(task)
-
-            # Wait for all operations to complete
-            await asyncio.gather(*tasks)
-
+                for op_id, tracked in provider._operation_tasks.items()
+            }
         finally:
             await provider.stop_display()
 
-    async def _update_operation_progress(self, provider, operation, offset):
-        """Helper to update a single operation's progress."""
-        for i in range(0, 51, 10):
-            event = ProgressEvent(
-                operation_id=operation.operation_id,
-                current=i,
-                total=50,
-                message=f"Operation {offset}: step {i}",
-                status=ProgressStatus.IN_PROGRESS,
-            )
-            await provider.on_progress_event(event)
-            await asyncio.sleep(0.005 * (offset + 1))  # Different timing per operation
-
-        await provider.on_operation_completed(
-            operation.operation_id, OperationStatus.COMPLETED
-        )
-
-    async def test_console_restoration_after_coordination(self):
-        """Test that console behavior is properly restored after coordination ends."""
-        # Use coordination context
-        async with progress_coordination_context(show_live=True) as context:
-            # Verify coordination is active
-            assert context.get_progress_broker() is not None
-
-            # Use the coordinated console
-            context.console.print("Test message during coordination")
-
-        # After context ends, logging should be restored
-        # Note: This is a basic test - in practice, restore_standard_console_output()
-        # handles the restoration logic
-
-        # Verify we can still log normally after coordination
-        from src.config import get_logger
-
-        test_logger = get_logger("restoration_test")
-        test_logger.info("Test message after coordination restoration")
-
-
-class TestProgressWebInterfaceCompatibility:
-    """Test that progress events are compatible with web interface requirements."""
-
-    def test_progress_event_serialization(self):
-        """Test that ProgressEvent objects can be serialized for web interfaces."""
-        import json
-
-        event = ProgressEvent(
-            operation_id="web_test_001",
-            current=42,
-            total=100,
-            message="Processing web request",
-            status=ProgressStatus.IN_PROGRESS,
-            metadata={
-                "items_per_second": 15.5,
-                "eta_seconds": 30,
-                "source": "api_import",
-            },
-        )
-
-        # Convert to dictionary (as would be done for JSON serialization)
-        event_dict = {
-            "operation_id": event.operation_id,
-            "current": event.current,
-            "total": event.total,
-            "message": event.message,
-            "status": event.status.value,
-            "completion_percentage": event.completion_percentage,
-            "metadata": event.metadata,
-        }
-
-        # Verify JSON serialization works
-        json_str = json.dumps(event_dict)
-        assert json_str is not None
-
-        # Verify deserialization
-        restored_dict = json.loads(json_str)
-        assert restored_dict["operation_id"] == "web_test_001"
-        assert restored_dict["current"] == 42
-        assert restored_dict["total"] == 100
-        assert restored_dict["completion_percentage"] == 42.0
-        assert restored_dict["status"] == "in_progress"
-        assert restored_dict["metadata"]["items_per_second"] == 15.5
-
-    def test_progress_operation_web_compatibility(self):
-        """Test that ProgressOperation can be converted for web interface."""
-        import json
-
-        operation = ProgressOperation(
-            operation_id="web_op_001",
-            description="Web Interface Test Operation",
-            total_items=1000,
-            metadata={
-                "user_id": "user123",
-                "session_id": "session456",
-                "operation_type": "playlist_sync",
-            },
-        )
-
-        # Convert to web-compatible format
-        web_format = {
-            "id": operation.operation_id,
-            "description": operation.description,
-            "total": operation.total_items,
-            "determinate": operation.total_items is not None,
-            "metadata": operation.metadata,
-        }
-
-        # Verify JSON compatibility
-        json_str = json.dumps(web_format)
-        assert json_str is not None
-
-        restored = json.loads(json_str)
-        assert restored["id"] == "web_op_001"
-        assert restored["total"] == 1000
-        assert restored["determinate"] is True
-        assert restored["metadata"]["operation_type"] == "playlist_sync"
+        # A completed bar fills to its total; failed and cancelled bars stay
+        # where the last event left them. Each shows its own outcome.
+        assert tasks["op_0"].completed == 50
+        assert "Operation 0" in tasks["op_0"].description
+        assert "Completed" in tasks["op_0"].description
+        assert tasks["op_1"].completed == 30
+        assert "Operation 1" in tasks["op_1"].description
+        assert "Failed" in tasks["op_1"].description
+        assert tasks["op_2"].completed == 30
+        assert "Operation 2" in tasks["op_2"].description
+        assert "Cancelled" in tasks["op_2"].description

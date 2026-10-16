@@ -491,8 +491,12 @@ def test_035_folds_variants_and_preserves_invariants(migration_db: str) -> None:
                 ),
                 {"t": a_target},
             ).scalar_one()
-            assert isinstance(ff, list)
-            assert len(ff) == 4
+            assert sorted(ff) == sorted([
+                a_idents["url"],
+                a_idents["case"],
+                a_idents["mbid"],
+                a_idents["prefix"],
+            ])
     finally:
         engine.dispose()
 

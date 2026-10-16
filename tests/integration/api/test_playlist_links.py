@@ -213,7 +213,7 @@ class TestListPlaylistsIncludesLinkBriefs:
         assert response.status_code == 200
         playlists = response.json()["data"]
         target = next(p for p in playlists if p["id"] == playlist_id)
-        assert len(target["connector_links"]) >= 1
+        assert len(target["connector_links"]) == 1
         link = target["connector_links"][0]
         assert link["connector_name"] == "spotify"
 
@@ -221,9 +221,11 @@ class TestListPlaylistsIncludesLinkBriefs:
 class TestCreatePlaylistLinkValidation:
     """POST /api/v1/playlists/{id}/links — validation edge cases."""
 
-    async def test_invalid_connector_returns_422(
+    async def test_empty_connector_returns_400(
         self, client: httpx2.AsyncClient
     ) -> None:
+        # The command's non-empty validator raises a domain ValueError, which the
+        # error envelope maps to 400 VALIDATION_ERROR — before any connector call.
         resp = await client.post("/api/v1/playlists", json={"name": "Validate"})
         playlist_id = resp.json()["id"]
 
@@ -231,10 +233,12 @@ class TestCreatePlaylistLinkValidation:
             f"/api/v1/playlists/{playlist_id}/links",
             json={
                 "connector": "",
-                "connector_playlist_id": "abc123",
+                "connector_playlist_identifier": "abc123",
                 "sync_direction": "push",
             },
         )
 
-        # Empty connector should be rejected (either 400 or 422)
-        assert response.status_code in (400, 422)
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+        links = await client.get(f"/api/v1/playlists/{playlist_id}/links")
+        assert links.json() == []

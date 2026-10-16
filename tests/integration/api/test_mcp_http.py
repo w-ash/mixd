@@ -142,7 +142,7 @@ class TestTwoPhaseWriteOverHttp:
             listing = _result_payload(
                 await session.call_tool("query_playlists", {"view": "list"})
             )
-        assert json.dumps(listing).count("Remote MCP Playlist") >= 1
+        assert json.dumps(listing).count("Remote MCP Playlist") == 1
 
 
 class TestAuthChallenges:

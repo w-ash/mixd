@@ -8,7 +8,6 @@ import pytest
 
 from src.application.use_cases.list_playlists import (
     ListPlaylistsCommand,
-    ListPlaylistsResult,
     ListPlaylistsUseCase,
 )
 from tests.fixtures import make_playlist
@@ -38,10 +37,12 @@ class TestListPlaylistsUseCase:
             ListPlaylistsCommand(user_id="test-user"), mock_uow
         )
 
-        assert isinstance(result, ListPlaylistsResult)
+        assert result.playlists == playlists
         assert result.total_count == 3
-        assert len(result.playlists) == 3
         assert result.has_playlists is True
+        mock_uow.get_playlist_repository().list_all_playlists.assert_awaited_once_with(
+            user_id="test-user"
+        )
 
     async def test_empty_result(self, mock_uow):
         """Test empty playlist list is handled correctly."""
@@ -55,12 +56,3 @@ class TestListPlaylistsUseCase:
         assert result.total_count == 0
         assert result.playlists == []
         assert result.has_playlists is False
-
-    async def test_uses_unit_of_work_context(self, mock_uow):
-        """Test that use case enters UoW context manager."""
-        mock_uow.get_playlist_repository().list_all_playlists.return_value = []
-
-        use_case = ListPlaylistsUseCase()
-        await use_case.execute(ListPlaylistsCommand(user_id="test-user"), mock_uow)
-
-        mock_uow.__aenter__.assert_called_once()

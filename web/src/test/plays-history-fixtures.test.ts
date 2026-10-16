@@ -15,12 +15,14 @@ import {
 } from "../../e2e/fixtures/plays-history";
 
 describe("plays-history audit fixtures", () => {
-  it("builds every scenario state", () => {
-    expect(playsStates.populated().plays).toBeDefined();
-    expect(playsStates.empty().histogram).toBeDefined();
+  // An absent mock falls through to the harness's 404, and a blank
+  // screenshot still "passes" — so each state must answer its page's reads.
+  it("answers every endpoint each scenario's page reads", () => {
+    expect(playsStates.populated().plays?.kind).toBe("json");
+    expect(playsStates.empty().histogram?.kind).toBe("json");
     expect(playsStates.loading().plays).toEqual({ kind: "pending" });
-    expect(libraryStates.populated().tracks).toBeDefined();
-    expect(trackDetailStates.manyPlays().trackDetail).toBeDefined();
-    expect(trackDetailStates.fewPlays().trackDetail).toBeDefined();
+    expect(libraryStates.populated().tracks?.kind).toBe("json");
+    expect(trackDetailStates.manyPlays().trackDetail?.kind).toBe("json");
+    expect(trackDetailStates.fewPlays().trackDetail?.kind).toBe("json");
   });
 });

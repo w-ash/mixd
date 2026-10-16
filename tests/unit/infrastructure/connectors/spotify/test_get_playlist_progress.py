@@ -89,7 +89,7 @@ def _playlist_response(first_page_items: list[dict], total: int) -> dict:
 class TestGetPlaylistOnPage:
     async def test_fires_once_per_page(self) -> None:
         """A 250-track playlist fetched in three pages (100 + 100 + 50) must
-        invoke ``on_page`` four times: once after the initial page (100/250),
+        invoke ``on_page`` three times: once after the initial page (100/250),
         and once after each ``get_next_page`` result (200/250, 250/250)."""
         from src.infrastructure.connectors.spotify.models import (
             SpotifyPaginatedPlaylistItems,
@@ -128,40 +128,6 @@ class TestGetPlaylistOnPage:
 
         # Initial page emits 100/250; then one emit per get_next_page result.
         assert reported == [(100, 250), (200, 250), (250, 250)]
-
-    async def test_denominator_stable_across_pages(self) -> None:
-        """The reported total comes from ``tracks.total`` on the initial page
-        and must not shift as pagination advances."""
-        from src.infrastructure.connectors.spotify.models import (
-            SpotifyPaginatedPlaylistItems,
-            SpotifyPlaylist,
-        )
-        from src.infrastructure.connectors.spotify.operations import SpotifyOperations
-
-        page1 = [_playlist_item(i) for i in range(100)]
-        page2 = [_playlist_item(i) for i in range(100, 150)]
-        initial = _playlist_response(page1, total=150)
-        initial["items"]["next"] = "cursor-page2"
-
-        client = AsyncMock()
-        client.get_playlist.return_value = SpotifyPlaylist.model_validate(initial)
-        client.get_current_user_id.return_value = "me"
-        client.get_next_page.return_value = (
-            SpotifyPaginatedPlaylistItems.model_validate(
-                _items_page(page2, next_url=None, total=150, offset=100)
-            )
-        )
-
-        ops = SpotifyOperations(client=client)
-
-        reported: list[int] = []
-
-        async def on_page(fetched: int, total: int) -> None:
-            reported.append(total)
-
-        _ = await ops.get_playlist_with_all_tracks("pid", on_page=on_page)
-
-        assert reported == [150, 150]
 
     async def test_callback_exception_does_not_break_fetch(self) -> None:
         """Progress emission is best-effort — a raising callback is swallowed

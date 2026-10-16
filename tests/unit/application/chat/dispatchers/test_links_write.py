@@ -4,7 +4,8 @@
 commits through the create/update/delete link use cases. The pending-action
 store is swapped for a fresh instance per test so proposals don't leak, and
 ``execute_use_case`` is monkeypatched on the module under test so the commit
-path never touches a database.
+path never touches a database; the create/update paths run the real factory into
+a patched use-case ``execute`` to see the Command the dispatcher built.
 """
 
 from uuid import UUID, uuid4
@@ -14,9 +15,17 @@ import pytest
 from src.application.chat.dispatchers import _common, links_write
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.use_cases.create_playlist_link import CreatePlaylistLinkResult
+from src.application.use_cases.create_playlist_link import (
+    CreatePlaylistLinkCommand,
+    CreatePlaylistLinkResult,
+    CreatePlaylistLinkUseCase,
+)
 from src.application.use_cases.delete_playlist_link import DeletePlaylistLinkResult
-from src.application.use_cases.update_playlist_link import UpdatePlaylistLinkResult
+from src.application.use_cases.update_playlist_link import (
+    UpdatePlaylistLinkCommand,
+    UpdatePlaylistLinkResult,
+    UpdatePlaylistLinkUseCase,
+)
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.exceptions import NotFoundError, ToolExecutionError
 from tests.fixtures import InMemoryPendingActionStore
@@ -36,6 +45,29 @@ def _fake_runner(result: object):
         return result
 
     return _run
+
+
+def _capture(
+    monkeypatch: pytest.MonkeyPatch, use_case: type, result: object
+) -> dict[str, object]:
+    """Run the dispatcher's real factory into ``use_case``; record its Command.
+
+    Also records the ``user_id`` the runner received, so a commit that drops the
+    caller's tenant fails.
+    """
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
+        return result
+
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(use_case, "execute", _execute)
+    monkeypatch.setattr(_common, "execute_use_case", _run)
+    return seen
 
 
 def _make_link(link_id: UUID, direction: SyncDirection) -> PlaylistLink:
@@ -124,48 +156,61 @@ class TestExecManagePlaylistLink:
     async def test_create_commits_and_projects_link(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        link_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(
-                CreatePlaylistLinkResult(link=_make_link(link_id, SyncDirection.PUSH))
-            ),
+        link_id, playlist_id = uuid4(), uuid4()
+        seen = _capture(
+            monkeypatch,
+            CreatePlaylistLinkUseCase,
+            CreatePlaylistLinkResult(link=_make_link(link_id, SyncDirection.PUSH)),
         )
         action = await self._action({
             "operation": "create",
-            "playlist_id": str(uuid4()),
+            "playlist_id": str(playlist_id),
             "connector": "spotify",
             "identifier": "ext123",
             "direction": "push",
         })
 
-        out = await links_write.exec_manage_playlist_link(action, "default")
+        out = await links_write.exec_manage_playlist_link(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, CreatePlaylistLinkCommand)
+        assert command.playlist_id == playlist_id
+        assert command.connector == "spotify"
+        assert command.connector_playlist_identifier == "ext123"
+        assert command.sync_direction == SyncDirection.PUSH
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
         assert out["status"] == "confirmed"
-        assert out["link"]["link_id"] == str(link_id)
-        assert out["link"]["sync_direction"] == "push"
-        assert out["link"]["connector_name"] == "spotify"
+        assert out["link"] == {
+            "link_id": str(link_id),
+            "connector_name": "spotify",
+            "sync_direction": "push",
+        }
 
-    async def test_update_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_update_commits_the_new_direction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         link_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(
-                UpdatePlaylistLinkResult(link=_make_link(link_id, SyncDirection.PULL))
-            ),
+        seen = _capture(
+            monkeypatch,
+            UpdatePlaylistLinkUseCase,
+            UpdatePlaylistLinkResult(link=_make_link(link_id, SyncDirection.PUSH)),
         )
         action = await self._action({
             "operation": "update",
             "link_id": str(link_id),
-            "direction": "pull",
+            "direction": "push",
         })
 
-        out = await links_write.exec_manage_playlist_link(action, "default")
+        out = await links_write.exec_manage_playlist_link(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, UpdatePlaylistLinkCommand)
+        assert command.link_id == link_id
+        assert command.sync_direction == SyncDirection.PUSH
+        assert command.user_id == "user-7"
         assert out["status"] == "confirmed"
-        assert out["link"]["sync_direction"] == "pull"
+        assert out["link"]["sync_direction"] == "push"
 
     async def test_delete_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         link_id = uuid4()

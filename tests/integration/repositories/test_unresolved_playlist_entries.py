@@ -24,6 +24,8 @@ from src.infrastructure.persistence.database.models import (
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_track
 
+_GHOST_ADDED_AT = datetime(2024, 3, 1, 12, 0, tzinfo=UTC)
+
 
 def _mixed_playlist() -> Playlist:
     """Resolved A · unresolved (local file) · resolved B — order matters."""
@@ -34,6 +36,7 @@ def _mixed_playlist() -> Playlist:
             PlaylistEntry(track=make_track(title="Resolved A")),
             PlaylistEntry(
                 track=None,
+                added_at=_GHOST_ADDED_AT,
                 connector_track_ref=ConnectorTrackRef(
                     connector_name="spotify",
                     connector_track_identifier="local:ghost",
@@ -86,7 +89,12 @@ class TestUnresolvedRoundTrip:
         assert len(unresolved_rows) == 1
         # Best-effort FK is NULL (no connector_tracks row), but the row exists.
         assert unresolved_rows[0].connector_track_id is None
-        assert unresolved_rows[0].unresolved_metadata is not None
+        assert unresolved_rows[0].unresolved_metadata == {
+            "connector_name": "spotify",
+            "connector_track_identifier": "local:ghost",
+            "title": "Ghost Local File",
+            "artists": ["Some Artist"],
+        }
 
     async def test_unresolved_links_fk_when_connector_track_exists(self, db_session):
         """When the connector track IS in the DB, the re-resolution FK is populated."""
@@ -133,8 +141,11 @@ class TestUnresolvedRoundTrip:
         loaded = await repo.get_playlist_by_id(saved.id, user_id="default")
         await repo.update_playlist(saved.id, loaded, user_id="default")
 
-        after = (await db_session.scalars(stmt)).one()
+        after = (
+            await db_session.scalars(stmt.execution_options(populate_existing=True))
+        ).one()
         assert after.id == original_id  # same membership record reused, not replaced
+        assert after.added_at == _GHOST_ADDED_AT
 
     async def test_unresolved_entry_hydrates_on_resave(self, db_session):
         """Repair's persistence path: re-saving the loaded playlist with the

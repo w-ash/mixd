@@ -181,7 +181,7 @@ describe("TrackDetail", () => {
     expect(screen.getByText("Relaxing tracks")).toBeInTheDocument();
   });
 
-  it("links a resolved artist credit to its artist page", async () => {
+  it("links a resolved artist credit and leaves an unresolved one as text", async () => {
     overrideTrackDetail({
       ...mockTrack,
       artists: [
@@ -194,19 +194,7 @@ describe("TrackDetail", () => {
 
     const link = await screen.findByRole("link", { name: "Radiohead" });
     expect(link).toHaveAttribute("href", "/artists/art-1");
-  });
-
-  it("leaves an unresolved credit as plain text", async () => {
-    overrideTrackDetail({
-      ...mockTrack,
-      artists: [{ name: "Unresolved Guest" }],
-    });
-
-    renderTrackDetail();
-
-    await waitFor(() => {
-      expect(screen.getByText("Unresolved Guest")).toBeInTheDocument();
-    });
+    expect(screen.getByText(/Unresolved Guest/)).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "Unresolved Guest" }),
     ).not.toBeInTheDocument();

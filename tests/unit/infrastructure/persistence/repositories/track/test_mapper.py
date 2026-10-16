@@ -3,17 +3,21 @@
 The mapper is a pure function of the loaded row: it never writes. These pin
 the fallback selection (highest confidence, then lowest id — the same total
 order ``ensure_primary_for_connector`` elects by, FM4c), plus the one signal
-a read emits when it meets a pair with no primary.
+a read emits when it meets a pair with no primary. They also pin the credit
+source: the ``track_artists`` rows when the read loaded them, else the JSONB
+names.
 """
 
 from datetime import UTC, datetime
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import pytest
+from sqlalchemy.orm.attributes import set_committed_value
 
 from src.infrastructure.persistence.database.models import (
     DBConnectorTrack,
     DBTrack,
+    DBTrackArtist,
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.track.connector import (
@@ -70,6 +74,71 @@ def _transient_mapping(
     )
     mapping.connector_track = connector_track
     return mapping
+
+
+def _load_credits(track: DBTrack, *rows: DBTrackArtist) -> None:
+    """Set ``artist_credits`` as a loader does, so it reads as loaded."""
+    set_committed_value(track, "artist_credits", list(rows))
+
+
+def _credit_row(
+    track: DBTrack,
+    position: int,
+    name: str,
+    *,
+    artist_id: UUID | None = None,
+    join_phrase: str | None = None,
+    role: str | None = None,
+) -> DBTrackArtist:
+    """Build a transient ``track_artists`` row for ``track``."""
+    return DBTrackArtist(
+        user_id="default",
+        track_id=track.id,
+        position=position,
+        credited_name=name,
+        artist_id=artist_id,
+        join_phrase=join_phrase,
+        role=role,
+    )
+
+
+class TestCreditSource:
+    """Loaded ``track_artists`` rows carry ``artist_id``; the JSONB names do not."""
+
+    async def test_loaded_rows_give_the_credits_in_row_order(self):
+        track = _transient_track()
+        artist_id = uuid7()
+        _load_credits(
+            track,
+            _credit_row(
+                track,
+                0,
+                "Neon Priest",
+                artist_id=artist_id,
+                join_phrase=" & ",
+                role="main",
+            ),
+            _credit_row(track, 1, "Velvet Choir", role="featured"),
+        )
+
+        domain_track = await TrackMapper.to_domain(track)
+
+        assert [
+            (c.credited_name, c.artist_id, c.join_phrase, c.role)
+            for c in domain_track.artists
+        ] == [
+            ("Neon Priest", artist_id, " & ", "main"),
+            ("Velvet Choir", None, None, "featured"),
+        ]
+
+    async def test_unloaded_rows_give_the_stored_names(self):
+        track = _transient_track()
+
+        domain_track = await TrackMapper.to_domain(track)
+
+        assert [(c.credited_name, c.artist_id) for c in domain_track.artists] == [
+            ("Neon Priest", None)
+        ]
 
 
 class TestFallbackSelectsHighestConfidence:

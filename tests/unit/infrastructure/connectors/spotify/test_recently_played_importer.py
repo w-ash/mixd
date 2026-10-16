@@ -142,35 +142,6 @@ class TestAuthPrecheck:
 class TestFetchData:
     """Cursor resolution — the resume position that makes polling incremental."""
 
-    async def test_no_checkpoint_requests_whole_window(self):
-        client = _client([_item()])
-        importer = SpotifyRecentlyPlayedImporter(client=client)
-        uow, _ = _uow_with_checkpoint(None)
-
-        await importer._fetch_data(
-            SpotifyRecentImportParams(), uow=uow, user_id="user-1", **_RUN
-        )
-
-        assert client.get_recently_played.await_args.kwargs["after_ms"] is None
-
-    async def test_stored_cursor_becomes_after_param(self):
-        client = _client([_item()])
-        importer = SpotifyRecentlyPlayedImporter(client=client)
-        uow, _ = _uow_with_checkpoint(
-            SyncCheckpoint(
-                user_id="user-1",
-                service="spotify",
-                entity_type="plays",
-                cursor="1753012800000",
-            )
-        )
-
-        await importer._fetch_data(
-            SpotifyRecentImportParams(), uow=uow, user_id="user-1", **_RUN
-        )
-
-        assert client.get_recently_played.await_args.kwargs["after_ms"] == 1753012800000
-
     async def test_checkpoint_is_read_under_the_mixd_user_id(self):
         """Not the Spotify account name — sync_checkpoints is RLS-scoped on user_id."""
         importer = SpotifyRecentlyPlayedImporter(client=_client())

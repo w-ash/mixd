@@ -854,25 +854,6 @@ class TestProgressEmission:
         assert currents == [1, 2]
         assert {call.args[0].total for call in calls} == {2}
 
-    async def test_no_progress_without_emitter(self, importer, mock_uow):
-        """Without progress_emitter, no emit_progress calls."""
-        from_date = datetime(2024, 1, 1, tzinfo=UTC)
-        to_date = datetime(2024, 1, 1, 23, 59, 59, tzinfo=UTC)
-
-        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(1))
-
-        # No progress_emitter passed — should not raise
-        records = await importer._fetch_date_range_strategy(
-            from_date=from_date,
-            to_date=to_date,
-            user_id="mixd-user-1",
-            username="test_user",
-            batch_id=_BATCH_ID,
-            import_timestamp=_IMPORT_TS,
-            uow=mock_uow,
-        )
-        assert len(records) == 1
-
 
 class TestPartialWindowNeverCheckpoints:
     """A partial fetch fails the window instead of checkpointing a hole.

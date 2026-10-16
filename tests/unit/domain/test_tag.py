@@ -3,23 +3,22 @@
 Validates normalize_tag and parse_tag rules (the only non-trivial logic
 in this module) and TrackTag.create factory behavior. TrackTag / TagEvent
 are otherwise attrs-level data holders and are not re-tested as attrs
-features. Construction uses the shared ``make_track_tag`` /
-``make_tag_event`` factories from ``tests.fixtures``.
+features. Construction uses the shared ``make_track_tag`` factory from
+``tests.fixtures``.
 """
 
 from datetime import UTC, datetime
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import pytest
 
 from src.domain.entities.tag import (
-    MAX_TAG_LENGTH,
     TagEvent,
     TrackTag,
     normalize_tag,
     parse_tag,
 )
-from tests.fixtures import make_tag_event, make_track_tag
+from tests.fixtures import make_track_tag
 
 
 class TestNormalizeTagHappyPath:
@@ -72,12 +71,12 @@ class TestNormalizeTagRejects:
             normalize_tag(":")
 
     def test_over_max_length(self) -> None:
-        with pytest.raises(ValueError, match="characters or fewer"):
-            normalize_tag("a" * (MAX_TAG_LENGTH + 1))
+        with pytest.raises(ValueError, match="64 characters or fewer"):
+            normalize_tag("a" * 65)
 
     def test_exactly_max_length_is_accepted(self) -> None:
-        """Boundary: MAX_TAG_LENGTH chars is the largest valid length."""
-        assert normalize_tag("a" * MAX_TAG_LENGTH) == "a" * MAX_TAG_LENGTH
+        """Boundary: 64 chars is the largest valid length."""
+        assert normalize_tag("a" * 64) == "a" * 64
 
     def test_special_character(self) -> None:
         with pytest.raises(ValueError, match="invalid characters"):
@@ -142,6 +141,17 @@ class TestTrackTagCreate:
 class TestTrackTag:
     """Direct TrackTag construction invariants."""
 
+    def test_create_generates_an_id_unless_one_is_given(self) -> None:
+        """``create`` forwards a caller's id and otherwise lets the entity mint one."""
+        given = uuid7()
+
+        first, second = make_track_tag(), make_track_tag()
+        explicit = make_track_tag(id=given)
+
+        assert isinstance(first.id, UUID)
+        assert first.id != second.id
+        assert explicit.id == given
+
     def test_tagged_at_is_required(self) -> None:
         """tagged_at has no default — callers must provide explicitly."""
         with pytest.raises(TypeError):
@@ -152,19 +162,9 @@ class TestTrackTag:
                 source="manual",
             )
 
-    def test_id_auto_generated(self) -> None:
-        tag = make_track_tag()
-        assert tag.id is not None
-
 
 class TestTagEvent:
     """TagEvent construction for the append-only event log."""
-
-    def test_add_event(self) -> None:
-        assert make_tag_event(action="add").action == "add"
-
-    def test_remove_event(self) -> None:
-        assert make_tag_event(action="remove").action == "remove"
 
     def test_tagged_at_is_required(self) -> None:
         with pytest.raises(TypeError):

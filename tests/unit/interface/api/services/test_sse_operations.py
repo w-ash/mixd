@@ -474,10 +474,11 @@ class TestRunSseOperationCancellation:
 
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["status"] == "error"
-        assert kwargs["counts"] == {
-            "error_message": sse_operations.CANCELLED_ERROR_MESSAGE
-        }
-        assert kwargs["issues"] == [{"message": sse_operations.CANCELLED_ISSUE_MESSAGE}]
+        assert kwargs["counts"] == {"error_message": "cancelled by server shutdown"}
+        # The issue tells the user the run did not finish and that re-running is safe.
+        (issue,) = kwargs["issues"]
+        assert issue["message"].startswith("Cancelled by server")
+        assert "re-run" in issue["message"]
 
     async def test_cancellation_pushes_terminal_error_event(self, captured_finalize):
         registry = get_operation_registry()
@@ -505,7 +506,7 @@ class TestRunSseOperationCancellation:
             assert terminal[0]["event"] == "error"
             assert (
                 terminal[0]["data"]["counts"]["error_message"]
-                == sse_operations.CANCELLED_ERROR_MESSAGE
+                == "cancelled by server shutdown"
             )
         finally:
             await registry.unregister(op_id)
@@ -727,10 +728,19 @@ class TestOnTerminalCallback:
         async def coro() -> OperationResult:
             return OperationResult(operation_name="Import")
 
+        op_id = _op_id()
         # Must not raise: the callback is an observer, not a lifecycle owner.
-        await _run_op(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=explode
-        )
+        with patch.object(
+            sse_operations, "finalize_sse_operation", new=AsyncMock()
+        ) as finalize_sse:
+            await _run_op(
+                op_id, coro(), run_id=uuid4(), user_id="u1", on_terminal=explode
+            )
+
+        assert captured_finalize.await_args.kwargs["status"] == "complete"
+        assert op_id not in sse_operations._active_operations
+        finalize_sse.assert_awaited_once()
+        assert finalize_sse.await_args.args == (op_id,)
 
 
 class TestOccupiesSlot:

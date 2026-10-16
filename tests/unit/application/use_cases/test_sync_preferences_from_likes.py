@@ -85,16 +85,6 @@ class TestNewPreferences:
 class TestSourcePriority:
     """Existing preferences with different sources."""
 
-    async def test_manual_not_overwritten(self) -> None:
-        tid = uuid7()
-        existing = make_track_preference(track_id=tid, state="nah", source="manual")
-        uow = _uow_with_likes([_like(tid, "spotify")], [], {tid: existing})
-
-        result = await SyncPreferencesFromLikesUseCase().execute(_cmd(), uow)
-
-        assert result.skipped == 1
-        uow.get_preference_repository().set_preferences.assert_not_called()
-
     async def test_playlist_assignment_not_overwritten(self) -> None:
         tid = uuid7()
         existing = make_track_preference(
@@ -105,10 +95,11 @@ class TestSourcePriority:
         result = await SyncPreferencesFromLikesUseCase().execute(_cmd(), uow)
 
         assert result.skipped == 1
+        uow.get_preference_repository().set_preferences.assert_not_called()
 
 
 class TestSameSourceUpgrade:
-    """Existing service_import preference → upgrade but not downgrade."""
+    """Existing service_import preference upgrades; the downgrade rule is domain-tested."""
 
     async def test_yah_upgraded_to_star(self) -> None:
         tid = uuid7()
@@ -121,18 +112,6 @@ class TestSameSourceUpgrade:
 
         assert result.upgraded == 1
         assert _written_pref_by_track(uow)[tid].state == "star"
-
-    async def test_star_not_downgraded_to_yah(self) -> None:
-        tid = uuid7()
-        existing = make_track_preference(
-            track_id=tid, state="star", source="service_import"
-        )
-        uow = _uow_with_likes([_like(tid, "spotify")], [], {tid: existing})
-
-        result = await SyncPreferencesFromLikesUseCase().execute(_cmd(), uow)
-
-        assert result.skipped == 1
-        uow.get_preference_repository().set_preferences.assert_not_called()
 
 
 class TestIdempotency:

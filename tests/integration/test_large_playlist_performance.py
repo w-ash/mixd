@@ -62,24 +62,6 @@ class TestLargePlaylistPerformance:
             name="10K Test Playlist", tracklist=tracks, user_id=TEST_USER_ID
         )
 
-    async def test_5k_playlist_idempotency_performance(
-        self, large_playlist_5k, db_session, test_data_tracker
-    ):
-        """Test that 5K unchanged playlist generates 0 operations quickly."""
-        target_tracklist = TrackList(tracks=large_playlist_5k.tracks.copy())
-
-        start_time = time.time()
-        diff = calculate_playlist_diff(large_playlist_5k, target_tracklist)
-        execution_time = time.time() - start_time
-
-        # Should be idempotent (no operations)
-        assert not diff.has_changes
-        assert len(diff.operations) == 0
-        assert diff.confidence_score == 1.0
-
-        # Should complete efficiently for integration test
-        print(f"5K playlist idempotency check: {execution_time:.3f}s")
-
     async def test_10k_playlist_idempotency_performance(
         self, large_playlist_10k, db_session, test_data_tracker
     ):
@@ -96,30 +78,6 @@ class TestLargePlaylistPerformance:
         assert diff.confidence_score == 1.0
 
         print(f"10K playlist idempotency check: {execution_time:.3f}s")
-
-    async def test_5k_playlist_complete_reversal(
-        self, large_playlist_5k, db_session, test_data_tracker
-    ):
-        """Test complete reversal of 5K playlist (worst case reordering)."""
-        target_tracks = list(reversed(large_playlist_5k.tracks))
-        target_tracklist = TrackList(tracks=target_tracks)
-
-        start_time = time.time()
-        diff = calculate_playlist_diff(large_playlist_5k, target_tracklist)
-        execution_time = time.time() - start_time
-
-        # Should have many move operations
-        assert diff.has_changes
-        move_ops = [op for op in diff.operations if op.operation_type.value == "move"]
-
-        # LIS optimization should reduce moves significantly
-        # For complete reversal, should need n-1 moves where LIS = 1
-        expected_moves = 4999  # All but one track needs to move
-        assert len(move_ops) == expected_moves
-
-        print(
-            f"5K playlist complete reversal: {execution_time:.3f}s, {len(move_ops)} moves"
-        )
 
     async def test_5k_playlist_partial_reorder(
         self, large_playlist_5k, db_session, test_data_tracker
@@ -149,9 +107,9 @@ class TestLargePlaylistPerformance:
         assert diff.has_changes
         move_ops = [op for op in diff.operations if op.operation_type.value == "move"]
 
-        # Should need to move about 500 tracks (every 10th)
-        # LIS optimization should keep most tracks in place
-        assert 450 <= len(move_ops) <= 550  # Some tolerance for LIS optimization
+        # The 4,500 tracks that are not multiples of 10 stay in relative order
+        # (the longest in-order run), so exactly the 500 others move.
+        assert len(move_ops) == 500
 
         print(
             f"5K playlist partial reorder: {execution_time:.3f}s, {len(move_ops)} moves"
@@ -208,8 +166,12 @@ class TestLargePlaylistPerformance:
         diff = calculate_playlist_diff(playlist, target_tracklist)
         execution_time = time.time() - start_time
 
-        # Should handle duplicates correctly
-        assert diff.has_changes
+        # Single-track moves cannot reorder the tracks they leave in place, so
+        # the unmoved positions must already read in target order.
+        moved = {op.old_position for op in diff.operations}
+        unmoved = [t.id for pos, t in enumerate(tracks) if pos not in moved]
+        remaining = iter([t.id for t in target_tracks])
+        assert all(track_id in remaining for track_id in unmoved)
 
         print(f"5K duplicate-heavy playlist reversal: {execution_time:.3f}s")
 
@@ -251,50 +213,6 @@ class TestLargePlaylistPerformance:
             f"10K playlist diff + plan peaked at {peak_mb:.1f}MB "
             f"(budget {_MEMORY_BUDGET_MB}MB)"
         )
-
-    async def test_concurrent_large_playlist_operations(
-        self, large_playlist_5k, db_session, test_data_tracker
-    ):
-        """Test that multiple large playlist operations can be performed concurrently."""
-        import asyncio
-
-        async def calculate_diff_async(playlist, target_tracks):
-            """Async wrapper for diff calculation."""
-            target_tracklist = TrackList(tracks=target_tracks)
-            return calculate_playlist_diff(playlist, target_tracklist)
-
-        async def test_concurrent():
-            # Create different reordering scenarios
-            scenarios = [
-                list(reversed(large_playlist_5k.tracks)),  # Complete reversal
-                large_playlist_5k.tracks[100:]
-                + large_playlist_5k.tracks[:100],  # Rotation
-                large_playlist_5k.tracks[::2]
-                + large_playlist_5k.tracks[1::2],  # Interleave
-            ]
-
-            start_time = time.time()
-
-            # Run all scenarios concurrently
-            tasks = [
-                calculate_diff_async(large_playlist_5k, target_tracks)
-                for target_tracks in scenarios
-            ]
-
-            results = await asyncio.gather(*tasks)
-            execution_time = time.time() - start_time
-
-            # All should complete successfully
-            assert len(results) == 3
-            assert all(result.has_changes for result in results)
-
-            print(f"Concurrent 5K playlist operations: {execution_time:.3f}s")
-
-            return results
-
-        # Run the concurrent test (we're already in an async context)
-        results = await test_concurrent()
-        assert len(results) == 3
 
     async def test_stress_test_10k_worst_case(
         self, large_playlist_10k, db_session, test_data_tracker

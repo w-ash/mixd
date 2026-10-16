@@ -1,9 +1,10 @@
 """Tests for ListenBrainz Labs Spotify-id resolution.
 
 Validates the lookup's contract over the API client: triple-keyed results
-read from the plural ``spotify_track_ids`` rows, echoed-field (not
-positional) keying with case-insensitive matching, chunking at the
-configured batch size, and degradation to misses when a chunk's call fails.
+read from the plural ``spotify_track_ids`` rows, positional pairing of rows
+with queries (the echoed text is not the join key), chunking at the
+configured batch size, and degradation to misses when a chunk's call fails
+or breaks the one-row-per-query contract.
 """
 
 from unittest.mock import AsyncMock
@@ -122,14 +123,9 @@ class TestSpotifyIdsFromMetadata:
         assert len(result) == 60
         assert result["Artist 59", "Album 59", "Track 59"] == "id-Track 59"
 
-    async def test_failed_call_resolves_nothing(self):
-        """The client suppresses transport/HTTP/shape failures to None — the
-        lookup reads that as all-miss, never raises."""
-        lookup, _ = _lookup_returning(None)
-
-        assert await lookup.spotify_ids_from_metadata([_CREEP]) == {}
-
     async def test_one_failed_chunk_degrades_only_its_own_triples(self):
+        """The client suppresses transport/HTTP/shape failures to None — the
+        lookup reads that chunk as all-miss, never raises, and keeps going."""
         triples = [(f"Artist {n}", f"Album {n}", f"Track {n}") for n in range(51)]
         lookup, _ = _lookup_returning(
             None, [_row(("Artist 50", "Album 50", "Track 50"), ["tail1"])]

@@ -39,7 +39,7 @@ class TestSaveTrackMetrics:
     ) -> None:
         uow = get_unit_of_work(db_session)
         track = await _insert_track(db_session, TEST_USER_ID)
-        collected_at = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+        collected_at = datetime.now(UTC) - timedelta(hours=1)
         metrics_repo = uow.get_metrics_repository()
 
         saved = await metrics_repo.save_track_metrics([
@@ -65,7 +65,7 @@ class TestSaveTrackMetrics:
             [track.id],
             metric_type="lastfm_user_playcount",
             connector="lastfm",
-            max_age_hours=24 * 365,
+            max_age_hours=24,
         )
         assert cached == {track.id: 42.0}
 

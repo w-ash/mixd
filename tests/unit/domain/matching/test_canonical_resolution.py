@@ -7,6 +7,7 @@ pricing, not a stub of it.
 """
 
 from collections.abc import Hashable
+from uuid import uuid7
 
 from attrs import define, evolve
 
@@ -157,19 +158,27 @@ class TestStrongIdOwners:
             isrc_owners={ISRC: owner},
         ).values()
         assert isinstance(outcome, DeferToReview)
+        connector_track_id = uuid7()
 
         review = suspect_review(
             outcome.owner,
             outcome.review,
             connector="spotify",
-            connector_track_id=owner.id,
+            connector_track_id=connector_track_id,
             user_id="u",
         )
 
         assert review.track_id == owner.id
+        assert review.connector_name == "spotify"
+        assert review.connector_track_id == connector_track_id
         assert review.match_method == "isrc_suspect"
-        assert review.confidence == outcome.review.confidence
         assert review.user_id == "u"
+        # The review shows the collision's price, not a constant.
+        assert review.confidence == outcome.review.confidence
+        assert review.match_weight == outcome.review.match_weight
+        assert review.confidence_evidence == outcome.review.evidence
+        assert review.confidence_evidence is not None
+        assert review.confidence_evidence["isrc_suspect"] is True
 
 
 class TestStrongIdsInsideOneBatch:
@@ -218,18 +227,22 @@ class TestStrongIdsInsideOneBatch:
         assert contested.contest is not None
         assert contested.depends_on == "a"
         leader = _canonical(isrc=ISRC, duration_ms=200_000)
+        connector_track_id = uuid7()
 
         review = suspect_review(
             leader,
             contested.contest.evidence,
             connector="spotify",
-            connector_track_id=leader.id,
+            connector_track_id=connector_track_id,
             user_id="u",
         )
 
         assert review.track_id == leader.id
+        assert review.connector_name == "spotify"
+        assert review.connector_track_id == connector_track_id
         assert review.match_method == "isrc_suspect"
         assert review.confidence == contested.contest.evidence.confidence
+        assert review.match_weight == contested.contest.evidence.match_weight
         assert review.user_id == "u"
 
     def test_a_deferred_creation_is_not_a_leader(self):

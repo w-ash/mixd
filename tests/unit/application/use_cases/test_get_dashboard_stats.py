@@ -52,55 +52,9 @@ class TestGetDashboardStatsUseCase:
         assert result.liked_by_connector == {"spotify": 42, "lastfm": 30}
         assert result.plays_by_connector == {"spotify": 3000, "lastfm": 1200}
         assert result.playlists_by_connector == {"spotify": 5, "lastfm": 2}
-
-    async def test_empty_database(self, mock_uow):
-        """All counts zero, empty dicts for an empty database."""
-        mock_uow.get_stats_repository().get_dashboard_aggregates.return_value = (
-            DashboardAggregates(
-                total_tracks=0,
-                total_plays=0,
-                total_playlists=0,
-                total_liked=0,
-                total_favorite_artists=0,
-                tracks_by_connector={},
-                liked_by_connector={},
-                plays_by_connector={},
-                playlists_by_connector={},
-                preference_counts={},
-            )
+        assert result.total_favorite_artists == 9
+        assert result.preference_counts == {"star": 10, "yah": 20, "hmm": 5, "nah": 3}
+        # One aggregate query, scoped to the requesting user.
+        mock_uow.get_stats_repository().get_dashboard_aggregates.assert_awaited_once_with(
+            user_id="test-user"
         )
-
-        result = await GetDashboardStatsUseCase().execute(
-            GetDashboardStatsCommand(user_id="test-user"), mock_uow
-        )
-
-        assert result.total_tracks == 0
-        assert result.total_plays == 0
-        assert result.total_playlists == 0
-        assert result.total_liked == 0
-        assert result.tracks_by_connector == {}
-        assert result.liked_by_connector == {}
-
-    async def test_single_repo_call(self, mock_uow):
-        """Stats repo is called exactly once (not 8 separate queries)."""
-        mock_uow.get_stats_repository().get_dashboard_aggregates.return_value = (
-            DashboardAggregates(
-                total_tracks=50,
-                total_plays=100,
-                total_playlists=2,
-                total_liked=10,
-                total_favorite_artists=3,
-                tracks_by_connector={"spotify": 30},
-                liked_by_connector={"spotify": 5},
-                plays_by_connector={"spotify": 80},
-                playlists_by_connector={"spotify": 1},
-                preference_counts={"star": 1},
-            )
-        )
-
-        await GetDashboardStatsUseCase().execute(
-            GetDashboardStatsCommand(user_id="test-user"), mock_uow
-        )
-
-        stats_repo = mock_uow.get_stats_repository()
-        stats_repo.get_dashboard_aggregates.assert_called_once()

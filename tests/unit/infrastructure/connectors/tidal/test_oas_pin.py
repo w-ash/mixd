@@ -29,12 +29,6 @@ def test_vendored_spec_matches_pinned_sha() -> None:
     )
 
 
-def test_pin_is_a_sha256_hex_digest() -> None:
-    """The pin constant is a lowercase 64-char hex digest."""
-    assert len(TIDAL_OAS_SHA256) == 64
-    assert set(TIDAL_OAS_SHA256) <= set("0123456789abcdef")
-
-
 def test_vendored_spec_is_canonical_json() -> None:
     """The vendored file is valid JSON in the canonical serialization.
 

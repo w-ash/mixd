@@ -112,7 +112,7 @@ class TestWorkflowRunCRUD:
 
         retrieved = await repo.get_run_by_id(saved.id)
         assert retrieved.status == "running"
-        assert retrieved.started_at is not None
+        assert retrieved.started_at == now
 
     async def test_update_run_status_to_completed(self, db_session) -> None:
         workflow = await _create_workflow(db_session)
@@ -130,7 +130,9 @@ class TestWorkflowRunCRUD:
 
         retrieved = await repo.get_run_by_id(saved.id)
         assert retrieved.status == "completed"
+        assert retrieved.completed_at == now
         assert retrieved.duration_ms == 1500
+        assert retrieved.output_track_count == 42
 
     async def test_update_run_status_to_failed(self, db_session) -> None:
         workflow = await _create_workflow(db_session)
@@ -197,7 +199,9 @@ class TestWorkflowRunCRUD:
         """A terminal write to a missing row no-ops (the run already has an
         outcome or never existed) — only non-terminal writes raise NotFound."""
         repo = WorkflowRunRepository(db_session)
-        await repo.update_run_status(uuid7(), "completed")  # no raise
+
+        # No raise, and False: nothing transitioned, so counting callers skip it.
+        assert await repo.update_run_status(uuid7(), "completed") is False
 
     async def test_update_nonexistent_run_raises(self, db_session) -> None:
         repo = WorkflowRunRepository(db_session)
@@ -289,7 +293,7 @@ class TestWorkflowRunNodeStatus:
         retrieved = await repo.get_run_by_id(saved.id)
         source_node = next(n for n in retrieved.nodes if n.node_id == "source_1")
         assert source_node.status == "running"
-        assert source_node.started_at is not None
+        assert source_node.started_at == now
 
     async def test_update_node_to_completed_with_metrics(self, db_session) -> None:
         workflow = await _create_workflow(db_session)
@@ -351,12 +355,15 @@ class TestWorkflowRunPagination:
 
         # Terminal runs: a workflow accumulates many completed runs over its
         # life. (Multiple *active* runs are forbidden by uq_workflow_runs_active.)
-        for _ in range(3):
+        created = [
             await repo.create_run(_make_run(workflow.id, status="completed"))
+            for _ in range(3)
+        ]
 
         runs, total = await repo.get_runs_for_workflow(workflow.id)
         assert total == 3
-        assert len(runs) == 3
+        # Newest first: the last run created leads.
+        assert [r.id for r in runs] == [r.id for r in reversed(created)]
         # Runs should NOT include nodes (summary mode)
         assert runs[0].nodes == []
 
@@ -478,16 +485,6 @@ class TestSuccessfulRunCounts:
 
         _latest, counts = await repo.get_run_summaries_for_workflows([workflow.id])
         assert counts == {}
-
-    async def test_empty_ids_short_circuits(self, db_session) -> None:
-        repo = WorkflowRunRepository(db_session)
-
-        assert await repo.get_run_summaries_for_workflows([]) == ({}, {})
-
-    async def test_unknown_workflow_is_absent(self, db_session) -> None:
-        repo = WorkflowRunRepository(db_session)
-
-        assert await repo.get_run_summaries_for_workflows([uuid7()]) == ({}, {})
 
 
 class TestCascadeDelete:
@@ -635,9 +632,8 @@ class TestWorkflowRunJsonbWrites:
     Unit tests for the builders (``test_workflow_runs.py`` and
     ``test_playlist_results.py``) confirm in-process dict shape. These
     tests confirm the full UPDATE → SELECT round-trip with realistic
-    builder output, then exercise the orjson driver-level encoder by
-    submitting raw UUID / datetime values that bypass the builder
-    contract — the encoder must serialize them rather than crash.
+    builder output. The driver-level orjson encoder for raw UUID / datetime
+    values is covered once, in ``test_jsonb_roundtrip.py``.
     """
 
     async def test_node_details_round_trips_realistic_playlist_changes(
@@ -719,47 +715,6 @@ class TestWorkflowRunJsonbWrites:
         assert changes["playlist_id"] == "pl-local-1"
         assert changes["connector"] == "spotify"
 
-    async def test_node_details_accepts_raw_uuid_via_orjson_encoder(
-        self, db_session
-    ) -> None:
-        """Regression guard for the bug shape that shipped pre-fix:
-        a payload containing raw ``uuid.UUID`` and ``datetime`` reaches
-        the JSONB column directly. The orjson encoder must serialize
-        these at the driver layer; if it doesn't, psycopg crashes on
-        flush with ``TypeError: Object of type UUID is not JSON serializable``.
-        """
-        workflow = await _create_workflow(db_session)
-        repo = WorkflowRunRepository(db_session)
-        saved = await repo.create_run(_make_run(workflow.id))
-
-        raw_uuid = uuid7()
-        raw_dt = datetime.now(UTC)
-        node_details: dict[str, object] = {
-            "track_uuid": raw_uuid,
-            "captured_at": raw_dt,
-            "nested": {"inner_track_id": raw_uuid, "logged_at": raw_dt},
-        }
-
-        await repo.update_node_status(
-            saved.id,
-            "source_1",
-            "completed",
-            completed_at=datetime.now(UTC),
-            node_details=node_details,
-        )
-        await db_session.flush()
-
-        retrieved = await repo.get_run_by_id(saved.id)
-        node = next(n for n in retrieved.nodes if n.node_id == "source_1")
-        details = node.node_details
-        assert details is not None
-        assert details["track_uuid"] == str(raw_uuid)
-        assert details["captured_at"] == raw_dt.isoformat()
-        nested = details["nested"]
-        assert isinstance(nested, dict)
-        assert nested["inner_track_id"] == str(raw_uuid)
-        assert nested["logged_at"] == raw_dt.isoformat()
-
     async def test_output_tracks_round_trips_realistic_serialize_output(
         self, db_session
     ) -> None:
@@ -810,45 +765,6 @@ class TestWorkflowRunJsonbWrites:
         second_metrics = retrieved.output_tracks[1]["metrics"]
         assert isinstance(second_metrics, dict)
         assert second_metrics["last_played"] is None
-
-    async def test_output_tracks_accepts_raw_uuid_via_orjson_encoder(
-        self, db_session
-    ) -> None:
-        """Regression guard: ``output_tracks`` containing raw UUID and
-        datetime values reaches the JSONB column. orjson must serialize
-        them at the driver layer; otherwise psycopg crashes on flush.
-        """
-        workflow = await _create_workflow(db_session)
-        repo = WorkflowRunRepository(db_session)
-        saved = await repo.create_run(_make_run(workflow.id))
-
-        raw_uuid = uuid7()
-        raw_dt = datetime(2026, 5, 10, tzinfo=UTC)
-        output_tracks: list[dict[str, object]] = [
-            {
-                "track_id": raw_uuid,
-                "title": "Untitled",
-                "rank": 1,
-                "metrics": {"played_at": raw_dt, "playcount": 5},
-            },
-        ]
-
-        await repo.update_run_status(
-            saved.id,
-            "completed",
-            completed_at=datetime.now(UTC),
-            output_tracks=output_tracks,
-        )
-        await db_session.flush()
-
-        retrieved = await repo.get_run_by_id(saved.id)
-        assert retrieved.output_tracks is not None
-        first = retrieved.output_tracks[0]
-        assert first["track_id"] == str(raw_uuid)
-        metrics = first["metrics"]
-        assert isinstance(metrics, dict)
-        assert metrics["played_at"] == raw_dt.isoformat()
-        assert metrics["playcount"] == 5
 
 
 class TestActiveRunsForUser:

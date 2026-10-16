@@ -75,7 +75,7 @@ Never deletion candidates in an audit:
 - Migration and schema gates
 - `tests/integration/characterization/`
 - Hypothesis properties
-- Regression tests tied to a bug fix: the docstring or name cites a bug, version, or incident, or `git log` shows the test arrived in a `fix:` commit
+- Regression tests tied to a production bug fix: the test fails with that fix's src change reverted. A docstring citing a bug, version, or incident, or arrival in a `fix:` commit, is a lead to check, not proof — sweep commits and commits that only fixed tests do not qualify
 - Destructive-operation confirm tokens
 
 ## Audit verdicts

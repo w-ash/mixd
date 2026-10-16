@@ -211,10 +211,6 @@ class TestServerConfig:
         with pytest.raises(ValidationError):
             ServerConfig(port=0)
 
-    def test_port_rejects_negative(self):
-        with pytest.raises(ValidationError):
-            ServerConfig(port=-1)
-
     def test_port_rejects_too_high(self):
         with pytest.raises(ValidationError):
             ServerConfig(port=65536)
@@ -281,12 +277,6 @@ class TestLogStartupWarnings:
             log_startup_warnings()
         assert len(capture_logs) == 0
 
-    def test_silent_when_apple_fully_unconfigured(self, capture_logs):
-        creds = self._make_credentials(spotify_id="some_id", lastfm_key="some_key")
-        with patch.object(settings, "credentials", creds):
-            log_startup_warnings()
-        assert not any("Apple Music" in e["event"] for e in capture_logs)
-
     def test_warns_when_tidal_partially_configured(self, capture_logs):
         from src.config.settings import CredentialsConfig
 
@@ -309,12 +299,6 @@ class TestLogStartupWarnings:
             tidal_client_id="tidal-client-123",
             tidal_redirect_uri="http://127.0.0.1:8888/tidal/callback",
         )
-        with patch.object(settings, "credentials", creds):
-            log_startup_warnings()
-        assert not any("Tidal" in e["event"] for e in capture_logs)
-
-    def test_silent_when_tidal_fully_unconfigured(self, capture_logs):
-        creds = self._make_credentials(spotify_id="some_id", lastfm_key="some_key")
         with patch.object(settings, "credentials", creds):
             log_startup_warnings()
         assert not any("Tidal" in e["event"] for e in capture_logs)

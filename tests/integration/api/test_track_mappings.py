@@ -56,6 +56,15 @@ async def _create_track_with_mapping(
 
 async def _add_stale_id_mapping(track_id: UUID, external_id: str) -> UUID:
     """Add a stale-id cache row beside the track's live mapping; returns its id."""
+    return await _add_spotify_mapping(
+        track_id, external_id, match_method="direct_import_stale_id"
+    )
+
+
+async def _add_spotify_mapping(
+    track_id: UUID, external_id: str, *, match_method: str
+) -> UUID:
+    """Add a non-primary Spotify mapping beside the track's live one; returns its id."""
     from src.application.runner import execute_use_case
 
     async def _add(uow):
@@ -68,7 +77,7 @@ async def _add_stale_id_mapping(track_id: UUID, external_id: str) -> UUID:
                 track,
                 "spotify",
                 external_id,
-                match_method="direct_import_stale_id",
+                match_method=match_method,
                 confidence=100,
                 auto_set_primary=False,
             )
@@ -111,7 +120,7 @@ async def _create_bare_track(
 class TestRelinkMappingEndpoint:
     """PATCH /api/v1/tracks/{track_id}/mappings/{mapping_id} relinks a mapping."""
 
-    async def test_relink_returns_updated_track(
+    async def test_relink_moves_the_mapping_to_the_target(
         self, client: httpx2.AsyncClient
     ) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
@@ -124,8 +133,13 @@ class TestRelinkMappingEndpoint:
 
         assert response.status_code == 200
         body = response.json()
-        # After relink, the source track should have fewer mappings
+        # The response is the source track, now without the moved mapping.
         assert body["id"] == str(track_id)
+        assert body["connector_mappings"] == []
+        target = (await client.get(f"/api/v1/tracks/{target_id}")).json()
+        assert [m["connector_track_id"] for m in target["connector_mappings"]] == [
+            "spotify:test123"
+        ]
 
     async def test_self_relink_returns_400(self, client: httpx2.AsyncClient) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
@@ -218,16 +232,29 @@ class TestUnlinkMappingEndpoint:
 class TestSetPrimaryMappingEndpoint:
     """PATCH /api/v1/tracks/{track_id}/mappings/{mapping_id}/primary sets primary."""
 
-    async def test_set_primary_returns_track(self, client: httpx2.AsyncClient) -> None:
-        track_id, mapping_id = await _create_track_with_mapping(client)
+    async def test_set_primary_promotes_the_mapping(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        track_id, first_mapping_id = await _create_track_with_mapping(client)
+        second_mapping_id = await _add_spotify_mapping(
+            track_id, "spotify:second", match_method="direct"
+        )
 
         response = await client.patch(
-            f"/api/v1/tracks/{track_id}/mappings/{mapping_id}/primary"
+            f"/api/v1/tracks/{track_id}/mappings/{second_mapping_id}/primary"
         )
 
         assert response.status_code == 200
         body = response.json()
         assert body["id"] == str(track_id)
+        primaries = {
+            m["mapping_id"]: m["is_primary"] for m in body["connector_mappings"]
+        }
+        # One primary per connector: promoting the second deposes the first.
+        assert primaries == {
+            str(first_mapping_id): False,
+            str(second_mapping_id): True,
+        }
 
     async def test_nonexistent_mapping_returns_404(
         self, client: httpx2.AsyncClient

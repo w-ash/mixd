@@ -7,7 +7,6 @@ descriptions, freshness, idempotency) and the lookup functions.
 import pytest
 
 from src.infrastructure.connectors._shared.metric_registry import (
-    DEFAULT_METRIC_FRESHNESS,
     _connector_metrics,
     _field_mappings,
     _metric_descriptions,
@@ -49,13 +48,6 @@ def _clean_registries():
 class TestRegisterMetrics:
     """Tests for register_metrics."""
 
-    def test_populates_connector_metrics(self):
-        register_metrics(
-            "test_svc",
-            {"test_metric": MetricSpec(field="test_field", label="test_field")},
-        )
-        assert "test_metric" in _connector_metrics["test_svc"]
-
     def test_registers_field_mappings(self):
         register_metrics(
             "test_svc",
@@ -79,7 +71,8 @@ class TestRegisterMetrics:
         register_metrics(
             "test_svc", {"metric_c": MetricSpec(field="field_c", label="field_c")}
         )
-        assert get_metric_freshness("metric_c") == DEFAULT_METRIC_FRESHNESS
+        # Unconfigured metrics go stale after one day.
+        assert get_metric_freshness("metric_c") == 24.0
 
     def test_reregistration_is_idempotent(self):
         register_metrics(
@@ -149,23 +142,8 @@ class TestGetConnectorMetrics:
 class TestGetFieldName:
     """Tests for get_field_name."""
 
-    def test_returns_registered_field_mapping(self):
-        _field_mappings["test_metric"] = "api_field"
-        assert get_field_name("test_metric") == "api_field"
-
     def test_returns_metric_name_as_fallback(self):
         assert get_field_name("unregistered_metric") == "unregistered_metric"
-
-
-class TestGetMetricFreshness:
-    """Tests for get_metric_freshness."""
-
-    def test_returns_registered_freshness(self):
-        _metric_freshness["test_metric"] = 48.0
-        assert get_metric_freshness("test_metric") == 48.0
-
-    def test_returns_default_for_unregistered(self):
-        assert get_metric_freshness("unregistered_metric") == DEFAULT_METRIC_FRESHNESS
 
 
 class TestGetMetricLabel:

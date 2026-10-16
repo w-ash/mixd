@@ -158,6 +158,3 @@ class TestServiceNameResolution:
         self, client_class: type[BaseAPIClient], expected: str
     ):
         assert service_name_for_client(client_class) == expected
-
-    def test_client_outside_a_connector_package_has_no_service(self):
-        assert service_name_for_client(StubClient) != "spotify"

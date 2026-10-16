@@ -93,7 +93,9 @@ class TestScheduleCrud:
         repo = ScheduleRepository(db_session)
         created = await repo.create(_sync_schedule("user-a"))
 
-        assert await repo.get_by_id_for_user(created.id, user_id="user-a") is not None
+        owned = await repo.get_by_id_for_user(created.id, user_id="user-a")
+        assert owned is not None
+        assert owned.id == created.id
         # Wrong owner → None (route maps to 404 without leaking existence).
         assert await repo.get_by_id_for_user(created.id, user_id="user-b") is None
 
@@ -148,7 +150,7 @@ class TestScheduleCrud:
         assert refreshed.next_run_at == _LATER
         # … but scheduler-owned columns are untouched: the claim survives and the
         # counters are not rolled back to the stale entity's values.
-        assert refreshed.started_at is not None
+        assert refreshed.started_at == _DUE
         assert refreshed.run_count == 0
         assert refreshed.consecutive_failures == 0
 
@@ -690,6 +692,12 @@ class TestAdaptiveIntervalCadence:
         repo = ScheduleRepository(db_session)
         await repo.set_poll_interval(
             user_id="nobody", sync_target="spotify:plays", interval_minutes=60
+        )
+
+        # A no-op, not an upsert: no schedule appears for the user.
+        assert (
+            await repo.get_for_target(user_id="nobody", sync_target="spotify:plays")
+            is None
         )
 
     async def test_set_next_run_at_moves_only_the_wake_time(

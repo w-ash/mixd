@@ -1,8 +1,4 @@
-"""Characterization tests for metric-based transforms.
-
-Locks down filter_by_metric_range and sort_by_external_metrics behavior
-before renaming and refactoring.
-"""
+"""Tests for metric-based transforms: filter_by_metric_range, sort_by_external_metrics."""
 
 from datetime import UTC, datetime
 
@@ -82,7 +78,6 @@ class TestFilterByMetricRange:
     def test_factory_mode_returns_callable(self):
         """Factory mode returns a callable transform."""
         transform = filter_by_metric_range("play_count", min_value=40)
-        assert callable(transform)
 
         tracks = make_tracks(count=2)
         tl = TrackList(
@@ -100,8 +95,8 @@ class TestFilterByMetricRange:
             metadata={"metrics": {"play_count": _metrics_for(tracks, [10, 50, 90])}},
         )
         result = filter_by_metric_range("play_count", min_value=40, tracklist=tl)
-        assert "metrics" in result.metadata
-        assert len(result.tracks) == 2
+        assert result.metadata == tl.metadata
+        assert [t.id for t in result.tracks] == [tracks[1].id, tracks[2].id]
 
 
 class TestSortByExternalMetrics:
@@ -194,19 +189,6 @@ class TestSortByExternalMetrics:
             tracks[2].id,
             tracks[3].id,
         }
-
-    def test_factory_mode_returns_callable(self):
-        """Factory mode returns a callable transform."""
-        transform = sort_by_external_metrics("play_count", reverse=True)
-        assert callable(transform)
-
-        tracks = make_tracks(count=2)
-        tl = TrackList(
-            tracks=tracks,
-            metadata={"metrics": {"play_count": _metrics_for(tracks, [10, 90])}},
-        )
-        result = transform(tl)
-        assert [t.id for t in result.tracks] == [tracks[1].id, tracks[0].id]
 
     def test_default_reverse_is_true(self):
         """Default sorting is descending (reverse=True)."""

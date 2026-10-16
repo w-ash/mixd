@@ -101,32 +101,6 @@ describe("Integrations", () => {
     });
   });
 
-  it("shows connect buttons for disconnected services", async () => {
-    server.use(
-      http.get("*/api/v1/connectors", () => {
-        return HttpResponse.json(
-          [
-            makeConnectorMetadata({ name: "spotify" }),
-            makeConnectorMetadata({ name: "lastfm" }),
-            makeConnectorMetadata({ name: "musicbrainz", connected: true }),
-            makeConnectorMetadata({ name: "apple_music" }),
-          ],
-          { status: 200 },
-        );
-      }),
-    );
-
-    renderWithProviders(<Integrations />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Spotify")).toBeInTheDocument();
-    });
-
-    // Connect buttons in the cards
-    expect(screen.getByText("Connect Spotify")).toBeInTheDocument();
-    expect(screen.getByText("Connect Last.fm")).toBeInTheDocument();
-  });
-
   it("flips a connector card to connected after an auth callback redirect — and defers the success toast until the refetch settles", async () => {
     // The page mounts fresh off the OAuth redirect: `useGetConnectorsApiV1ConnectorsGet`
     // fires its initial GET on mount, and the `?auth=apple_music&status=success`
@@ -273,21 +247,5 @@ describe("Integrations", () => {
     expect(screen.getByText("connected · 3 releases")).toBeInTheDocument();
     expect(screen.queryByText("Connect Discogs")).not.toBeInTheDocument();
     expect(callCount).toBeGreaterThanOrEqual(2);
-  });
-
-  it("updates page description", async () => {
-    server.use(
-      http.get("*/api/v1/connectors", () => {
-        return HttpResponse.json(allConnectors, { status: 200 });
-      }),
-    );
-
-    renderWithProviders(<Integrations />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Integrations")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/Your music services/)).toBeInTheDocument();
   });
 });

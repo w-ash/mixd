@@ -1,7 +1,6 @@
 import { delay, HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { sendChatMessage } from "#/api/chat-sse";
 import { useChatStore } from "#/stores/chat-store";
 import { server } from "#/test/setup";
 import {
@@ -10,9 +9,6 @@ import {
   screen,
   waitFor,
 } from "#/test/test-utils";
-
-vi.mock("#/api/chat-sse", () => ({ sendChatMessage: vi.fn() }));
-vi.mocked(sendChatMessage).mockResolvedValue(undefined);
 
 function stubChatAvailable(connected: boolean) {
   server.use(

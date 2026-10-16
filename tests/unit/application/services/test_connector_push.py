@@ -150,12 +150,6 @@ class TestExternalAsPlaylist:
             == "sUNKNOWN"
         )
 
-    async def test_empty_remote(self):
-        playlist = await external_as_playlist(
-            make_connector_playlist(items=[]), _uow_resolving({}), user_id="u"
-        )
-        assert playlist.entries == []
-
 
 class TestAppendNewTracks:
     async def test_appends_only_tracks_not_already_present(self):

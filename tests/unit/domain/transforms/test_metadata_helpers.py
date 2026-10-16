@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from src.domain.entities.track import TrackList
 from src.domain.transforms._metadata_helpers import (
     get_play_metrics,
@@ -45,19 +47,19 @@ class TestGetPlayMetrics:
 class TestParseDatetimeSafe:
     """Test datetime parsing helper used by play history transforms."""
 
-    def test_iso_string(self):
-        result = parse_datetime_safe("2025-06-15T12:00:00+00:00")
-
-        assert isinstance(result, datetime)
-        assert result.year == 2025
-        assert result.tzinfo is not None
+    @pytest.mark.parametrize(
+        "value", ["2025-06-15T12:00:00+00:00", "2025-06-15T12:00:00"]
+    )
+    def test_iso_string_parses_to_utc(self, value: str):
+        """An offset-less ISO string is read as UTC, not local time."""
+        assert parse_datetime_safe(value) == datetime(2025, 6, 15, 12, tzinfo=UTC)
 
     def test_naive_datetime_gets_utc(self):
-        naive = datetime(2025, 1, 1)  # ruff:ignore[call-datetime-without-tzinfo] — intentionally naive for testing
+        naive = datetime(2025, 1, 1, 9, 30)  # ruff:ignore[call-datetime-without-tzinfo] — intentionally naive for testing
 
         result = parse_datetime_safe(naive)
 
-        assert result is not None
+        assert result == datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
         assert result.tzinfo == UTC
 
     def test_aware_datetime_passthrough(self):

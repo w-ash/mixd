@@ -3,11 +3,29 @@
 Locks down render_playlist_config_templates behavior before cleanup.
 """
 
-import re
+import datetime as dt
 
+import pytest
+
+from src.application.workflows.nodes import template_utils
 from src.application.workflows.nodes.template_utils import (
     render_playlist_config_templates,
 )
+
+# 04:05 UTC is 23:05 the previous day in UTC-5, so a local-time render
+# shows a different date and time.
+_NOW_UTC = dt.datetime(2025, 7, 9, 4, 5, tzinfo=dt.UTC)
+
+
+class _FrozenClock(dt.datetime):
+    """Clock boundary stand-in: ``now(tz)`` returns a fixed instant.
+
+    With no ``tz`` it answers in UTC-5, standing in for a non-UTC local zone.
+    """
+
+    @classmethod
+    def now(cls, tz: dt.tzinfo | None = None) -> dt.datetime:
+        return _NOW_UTC.astimezone(tz or dt.timezone(dt.timedelta(hours=-5)))
 
 
 class TestRenderPlaylistConfigTemplates:
@@ -19,11 +37,23 @@ class TestRenderPlaylistConfigTemplates:
         result = render_playlist_config_templates(config, 42)
         assert result["name"] == "42 tracks"
 
-    def test_date_replacement(self):
-        """{date} is replaced with YYYY-MM-DD format."""
-        config = {"name": "Playlist {date}"}
-        result = render_playlist_config_templates(config, 10)
-        assert re.match(r"Playlist \d{4}-\d{2}-\d{2}", result["name"])
+    @pytest.mark.parametrize(
+        ("template", "expected"),
+        [
+            ("Playlist {date}", "Playlist 2025-07-09"),
+            ("Playlist at {time}", "Playlist at 04:05"),
+            ("Generated {datetime}", "Generated 2025-07-09 04:05"),
+        ],
+    )
+    def test_clock_placeholders_render_from_utc(
+        self, monkeypatch: pytest.MonkeyPatch, template: str, expected: str
+    ):
+        """{date}, {time} and {datetime} render the current UTC clock, zero-padded."""
+        monkeypatch.setattr(template_utils, "datetime", _FrozenClock)
+
+        result = render_playlist_config_templates({"name": template}, 10)
+
+        assert result["name"] == expected
 
     def test_non_template_passthrough(self):
         """Strings without templates pass through unchanged."""
@@ -56,15 +86,3 @@ class TestRenderPlaylistConfigTemplates:
         original = config.copy()
         render_playlist_config_templates(config, 5)
         assert config == original
-
-    def test_time_replacement(self):
-        """{time} is replaced with HH:MM format."""
-        config = {"name": "Playlist at {time}"}
-        result = render_playlist_config_templates(config, 10)
-        assert re.match(r"Playlist at \d{2}:\d{2}", result["name"])
-
-    def test_datetime_replacement(self):
-        """{datetime} is replaced with YYYY-MM-DD HH:MM format."""
-        config = {"name": "Generated {datetime}"}
-        result = render_playlist_config_templates(config, 10)
-        assert re.match(r"Generated \d{4}-\d{2}-\d{2} \d{2}:\d{2}", result["name"])

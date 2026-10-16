@@ -1,7 +1,7 @@
 """Tests for preference domain entities.
 
-Validates TrackPreference and PreferenceEvent construction, PREFERENCE_ORDER
-ranking, and the intentional absence of a preferred_at default.
+Validates PREFERENCE_ORDER ranking, the intentional absence of a preferred_at
+default, and the shared preference-change conflict rule.
 """
 
 from datetime import UTC, datetime
@@ -20,15 +20,6 @@ from src.domain.entities.preference import (
 class TestPreferenceOrder:
     """PREFERENCE_ORDER: star > yah > hmm > nah."""
 
-    def test_star_is_highest(self) -> None:
-        assert PREFERENCE_ORDER["star"] > PREFERENCE_ORDER["yah"]
-
-    def test_yah_above_hmm(self) -> None:
-        assert PREFERENCE_ORDER["yah"] > PREFERENCE_ORDER["hmm"]
-
-    def test_hmm_above_nah(self) -> None:
-        assert PREFERENCE_ORDER["hmm"] > PREFERENCE_ORDER["nah"]
-
     def test_full_ordering(self) -> None:
         sorted_states = sorted(PREFERENCE_ORDER, key=PREFERENCE_ORDER.__getitem__)
         assert sorted_states == ["nah", "hmm", "yah", "star"]
@@ -36,17 +27,6 @@ class TestPreferenceOrder:
 
 class TestTrackPreference:
     """TrackPreference construction and constraints."""
-
-    def test_valid_construction(self) -> None:
-        pref = TrackPreference(
-            user_id="user1",
-            track_id=uuid7(),
-            state="star",
-            source="manual",
-            preferred_at=datetime.now(UTC),
-        )
-        assert pref.state == "star"
-        assert pref.source == "manual"
 
     def test_preferred_at_is_required(self) -> None:
         """preferred_at has no default — omitting it must raise TypeError."""
@@ -58,53 +38,23 @@ class TestTrackPreference:
                 source="manual",
             )
 
-    def test_id_auto_generated(self) -> None:
-        pref = TrackPreference(
-            user_id="user1",
-            track_id=uuid7(),
-            state="hmm",
-            source="service_import",
-            preferred_at=datetime.now(UTC),
-        )
-        assert pref.id is not None
-
-    def test_updated_at_auto_generated(self) -> None:
+    def test_updated_at_defaults_to_now_in_utc(self) -> None:
+        before = datetime.now(UTC)
         pref = TrackPreference(
             user_id="user1",
             track_id=uuid7(),
             state="nah",
             source="service_import",
-            preferred_at=datetime.now(UTC),
+            preferred_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
-        assert pref.updated_at is not None
+        after = datetime.now(UTC)
+
+        assert before <= pref.updated_at <= after
+        assert pref.updated_at.tzinfo == UTC
 
 
 class TestPreferenceEvent:
     """PreferenceEvent construction for append-only event log."""
-
-    def test_first_preference_old_state_none(self) -> None:
-        event = PreferenceEvent(
-            user_id="user1",
-            track_id=uuid7(),
-            old_state=None,
-            new_state="yah",
-            source="manual",
-            preferred_at=datetime.now(UTC),
-        )
-        assert event.old_state is None
-        assert event.new_state == "yah"
-
-    def test_state_change_event(self) -> None:
-        event = PreferenceEvent(
-            user_id="user1",
-            track_id=uuid7(),
-            old_state="yah",
-            new_state="star",
-            source="manual",
-            preferred_at=datetime.now(UTC),
-        )
-        assert event.old_state == "yah"
-        assert event.new_state == "star"
 
     def test_preferred_at_is_required(self) -> None:
         with pytest.raises(TypeError):
@@ -115,18 +65,6 @@ class TestPreferenceEvent:
                 new_state="hmm",
                 source="service_import",
             )
-
-    def test_new_state_nullable_for_removal(self) -> None:
-        """new_state=None represents preference removal."""
-        event = PreferenceEvent(
-            user_id="user1",
-            track_id=uuid7(),
-            old_state="yah",
-            new_state=None,
-            source="manual",
-            preferred_at=datetime.now(UTC),
-        )
-        assert event.new_state is None
 
 
 class TestResolvePreferenceChange:

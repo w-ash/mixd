@@ -29,11 +29,6 @@ class TestSelectAppendableEntries:
     def test_empty_candidates_returns_empty(self) -> None:
         assert select_appendable_entries([_resolved()], []) == []
 
-    def test_all_new_tracks_are_kept(self) -> None:
-        current = [_resolved(), _resolved()]
-        candidates = [_resolved(), _resolved()]
-        assert select_appendable_entries(current, candidates) == candidates
-
     def test_existing_track_id_is_dropped(self) -> None:
         shared = uuid7()
         current = [_resolved(shared)]
@@ -41,12 +36,6 @@ class TestSelectAppendableEntries:
         candidates = [_resolved(shared), keep]
         # Only the genuinely-new entry survives; the duplicate id is a no-op.
         assert select_appendable_entries(current, candidates) == [keep]
-
-    def test_all_duplicates_returns_empty(self) -> None:
-        tid1, tid2 = uuid7(), uuid7()
-        current = [_resolved(tid1), _resolved(tid2)]
-        candidates = [_resolved(tid1), _resolved(tid2)]
-        assert select_appendable_entries(current, candidates) == []
 
     def test_unresolved_entries_are_always_kept(self) -> None:
         # Unresolved positions carry no canonical track id, so they can't collide

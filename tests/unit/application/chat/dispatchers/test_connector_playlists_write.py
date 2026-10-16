@@ -4,7 +4,9 @@
 action) and ``exec_manage_connector_playlist`` commits through the refresh use
 case. The pending-action store is swapped for a fresh instance per test so
 proposals don't leak, and ``execute_use_case`` is monkeypatched on the module
-under test so the commit path never touches a database or a connector.
+under test so the commit path never touches a database or a connector. The
+success path runs the real factory into a patched use-case ``execute`` to see
+the Command the dispatcher built.
 """
 
 from uuid import UUID
@@ -16,7 +18,9 @@ from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.services.connector_playlist_sync_service import RefreshFailure
 from src.application.use_cases.refresh_connector_playlists import (
+    RefreshConnectorPlaylistsCommand,
     RefreshConnectorPlaylistsResult,
+    RefreshConnectorPlaylistsUseCase,
 )
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.exceptions import NotFoundError, ToolExecutionError
@@ -32,11 +36,21 @@ def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
     return store
 
 
-def _fake_runner(result: object):
-    async def _run(factory: object, user_id: str | None = None) -> object:
+def _capture(monkeypatch: pytest.MonkeyPatch, result: object) -> dict[str, object]:
+    """Run the dispatcher's real factory; record the Command and runner user_id."""
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
         return result
 
-    return _run
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(RefreshConnectorPlaylistsUseCase, "execute", _execute)
+    monkeypatch.setattr(_common, "execute_use_case", _run)
+    return seen
 
 
 class TestManageConnectorPlaylistPropose:
@@ -116,12 +130,19 @@ class TestExecManageConnectorPlaylist:
                 )
             ],
         )
-        monkeypatch.setattr(_common, "execute_use_case", _fake_runner(result))
+        seen = _capture(monkeypatch, result)
 
         out = await connector_playlists_write.exec_manage_connector_playlist(
-            await self._action(), "default"
+            await self._action(), "user-7"
         )
 
+        command = seen["command"]
+        assert isinstance(command, RefreshConnectorPlaylistsCommand)
+        assert command.connector_name == "spotify"
+        assert command.connector_playlist_identifiers == ["abc", "def"]
+        assert command.force is True
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
         assert out["status"] == "confirmed"
         assert out["result"]["succeeded"] == 1
         assert out["result"]["skipped_unchanged"] == 0

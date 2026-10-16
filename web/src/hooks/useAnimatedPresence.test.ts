@@ -4,30 +4,6 @@ import { describe, expect, it } from "vitest";
 import { useAnimatedPresence } from "./useAnimatedPresence";
 
 describe("useAnimatedPresence", () => {
-  it("shouldRender is true when isOpen is true", () => {
-    const { result } = renderHook(() => useAnimatedPresence(true));
-
-    expect(result.current.shouldRender).toBe(true);
-  });
-
-  it("shouldRender starts false when isOpen is false", () => {
-    const { result } = renderHook(() => useAnimatedPresence(false));
-
-    expect(result.current.shouldRender).toBe(false);
-  });
-
-  it("state is 'open' when isOpen is true", () => {
-    const { result } = renderHook(() => useAnimatedPresence(true));
-
-    expect(result.current.state).toBe("open");
-  });
-
-  it("state is 'closed' when isOpen starts false", () => {
-    const { result } = renderHook(() => useAnimatedPresence(false));
-
-    expect(result.current.state).toBe("closed");
-  });
-
   it("state transitions to 'open' when isOpen changes to true", () => {
     const { result, rerender } = renderHook(
       ({ isOpen }) => useAnimatedPresence(isOpen),
@@ -86,10 +62,25 @@ describe("useAnimatedPresence", () => {
     expect(result.current.shouldRender).toBe(false);
   });
 
-  it("ref is defined", () => {
-    const { result } = renderHook(() => useAnimatedPresence(true));
+  it("re-opening before the exit animation ends keeps the element mounted", () => {
+    const { result, rerender } = renderHook(
+      ({ isOpen }) => useAnimatedPresence(isOpen),
+      { initialProps: { isOpen: true } },
+    );
+    const el = document.createElement("div");
+    Object.defineProperty(result.current.ref, "current", {
+      value: el,
+      writable: true,
+    });
 
-    expect(result.current.ref).toBeDefined();
-    expect(result.current.ref.current).toBeNull();
+    rerender({ isOpen: false });
+    rerender({ isOpen: true });
+    // The enter animation's own animationend must not run the exit teardown.
+    act(() => {
+      el.dispatchEvent(new Event("animationend"));
+    });
+
+    expect(result.current.state).toBe("open");
+    expect(result.current.shouldRender).toBe(true);
   });
 });

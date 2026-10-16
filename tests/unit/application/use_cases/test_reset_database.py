@@ -9,7 +9,6 @@ carries what the CLI reports back to the user.
 from unittest.mock import AsyncMock, MagicMock
 
 from src.application.use_cases.reset_database import (
-    PRESERVED_TABLES,
     ResetDatabaseCommand,
     ResetDatabaseUseCase,
 )
@@ -25,13 +24,15 @@ def _uow_with_admin(truncated: list[str]):
 
 
 class TestResetDatabase:
-    async def test_passes_the_preserved_set_to_the_repository(self) -> None:
-        """Credentials surviving a reset is the contract; the repo can't guess it."""
+    async def test_covers_the_credentials_a_user_cannot_redo(self) -> None:
+        """Credentials and settings surviving a reset is the contract; the repo can't guess it."""
         uow, admin = _uow_with_admin(["tracks", "plays"])
 
         await ResetDatabaseUseCase().execute(ResetDatabaseCommand(), uow)
 
-        admin.truncate_data_tables.assert_awaited_once_with(PRESERVED_TABLES)
+        admin.truncate_data_tables.assert_awaited_once_with(
+            frozenset({"oauth_tokens", "oauth_states", "user_settings"})
+        )
 
     async def test_reports_truncated_tables_and_commits(self) -> None:
         uow, _ = _uow_with_admin(["tracks", "plays"])
@@ -48,8 +49,3 @@ class TestResetDatabase:
         result = await ResetDatabaseUseCase().execute(ResetDatabaseCommand(), uow)
 
         assert result.truncated_tables == ()
-
-
-class TestPreservedTables:
-    def test_covers_the_credentials_a_user_cannot_redo(self) -> None:
-        assert {"oauth_tokens", "oauth_states"} <= PRESERVED_TABLES

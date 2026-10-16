@@ -1,11 +1,6 @@
-"""Domain layer tests for playlist operations and business logic.
-
-Tests focus on playlist entity behavior, connector operations, and business rules.
-Following TDD principles - write tests first, then implement domain services.
-"""
+"""Tests for Playlist construction helpers and ConnectorPlaylist derived views."""
 
 from datetime import UTC, datetime
-from uuid import UUID
 
 from src.domain.entities.playlist import (
     ConnectorPlaylist,
@@ -19,46 +14,6 @@ from tests.fixtures import TEST_USER_ID
 
 class TestPlaylistEntity:
     """Test core playlist entity behavior and business rules."""
-
-    def test_playlist_creation_with_valid_data(self):
-        """Test creating a playlist with valid data."""
-        tracks = [
-            Track(
-                title="Song 1",
-                artists=[ArtistCredit(credited_name="Artist 1")],
-                user_id=TEST_USER_ID,
-            ),
-            Track(
-                title="Song 2",
-                artists=[ArtistCredit(credited_name="Artist 2")],
-                user_id=TEST_USER_ID,
-            ),
-        ]
-
-        playlist = Playlist.from_tracklist(
-            name="My Playlist",
-            tracklist=tracks,
-            description="A great playlist",
-            user_id=TEST_USER_ID,
-        )
-
-        assert playlist.name == "My Playlist"
-        assert playlist.tracks == tracks
-        assert playlist.description == "A great playlist"
-        assert isinstance(playlist.id, UUID)
-        assert playlist.connector_playlist_identifiers == {}
-
-    def test_playlist_creation_with_minimal_data(self):
-        """Test creating a playlist with only required fields."""
-        playlist = Playlist.from_tracklist(
-            name="Minimal Playlist", tracklist=[], user_id=TEST_USER_ID
-        )
-
-        assert playlist.name == "Minimal Playlist"
-        assert playlist.tracks == []
-        assert playlist.description is None
-        assert isinstance(playlist.id, UUID)
-        assert playlist.connector_playlist_identifiers == {}
 
     def test_from_tracklist_with_connector_identifiers(self):
         """Test creating playlist with connector identifiers in one step."""
@@ -91,9 +46,6 @@ class TestPlaylistEntity:
 
     def test_playlist_with_entries(self):
         """Test creating new playlist with different entries."""
-        from datetime import UTC, datetime
-
-        from src.domain.entities.playlist import PlaylistEntry
 
         original_tracks = [
             Track(
@@ -127,45 +79,6 @@ class TestPlaylistEntity:
 class TestConnectorPlaylistEntity:
     """Test connector playlist entity behavior."""
 
-    def test_connector_playlist_creation(self):
-        """Test creating a connector playlist."""
-        items = [
-            ConnectorPlaylistItem(
-                connector_track_identifier="track_1",
-                position=1,
-                added_at="2023-01-01T00:00:00Z",
-            ),
-            ConnectorPlaylistItem(
-                connector_track_identifier="track_2",
-                position=2,
-                added_at="2023-01-02T00:00:00Z",
-            ),
-        ]
-
-        playlist = ConnectorPlaylist(
-            connector_name="spotify",
-            connector_playlist_identifier="37i9dQZF1DXcBWIGoYBM5M",
-            name="Discover Weekly",
-            description="Your weekly mixtape",
-            items=items,
-            owner="Spotify",
-            owner_id="spotify",
-            is_public=True,
-            collaborative=False,
-            follower_count=1000000,
-        )
-
-        assert playlist.connector_name == "spotify"
-        assert playlist.connector_playlist_identifier == "37i9dQZF1DXcBWIGoYBM5M"
-        assert playlist.name == "Discover Weekly"
-        assert playlist.description == "Your weekly mixtape"
-        assert playlist.items == items
-        assert playlist.owner == "Spotify"
-        assert playlist.owner_id == "spotify"
-        assert playlist.is_public is True
-        assert playlist.collaborative is False
-        assert playlist.follower_count == 1000000
-
     def test_connector_playlist_track_identifiers_property(self):
         """Test track_ids property extraction."""
         items = [
@@ -182,85 +95,3 @@ class TestConnectorPlaylistEntity:
         )
 
         assert playlist.track_ids == ["track_1", "track_2", "track_3"]
-
-    def test_connector_playlist_defaults(self):
-        """Test connector playlist default values."""
-        playlist = ConnectorPlaylist(
-            connector_name="spotify",
-            connector_playlist_identifier="test_id",
-            name="Test Playlist",
-        )
-
-        assert playlist.description is None
-        assert playlist.items == []
-        assert playlist.owner is None
-        assert playlist.owner_id is None
-        assert playlist.is_public is False
-        assert playlist.collaborative is False
-        assert playlist.follower_count is None
-        assert playlist.raw_metadata == {}
-        assert isinstance(playlist.id, UUID)
-        assert isinstance(playlist.last_updated, datetime)
-
-
-class TestConnectorPlaylistItemEntity:
-    """Test connector playlist item entity behavior."""
-
-    def test_connector_playlist_item_creation(self):
-        """Test creating a connector playlist item."""
-        item = ConnectorPlaylistItem(
-            connector_track_identifier="4iV5W9uYEdYUVa79Axb7Rh",
-            position=1,
-            added_at="2023-01-01T00:00:00Z",
-            added_by_id="user_123",
-            extras={"is_local": False, "is_playable": True},
-        )
-
-        assert item.connector_track_identifier == "4iV5W9uYEdYUVa79Axb7Rh"
-        assert item.position == 1
-        assert item.added_at == "2023-01-01T00:00:00Z"
-        assert item.added_by_id == "user_123"
-        assert item.extras["is_local"] is False
-        assert item.extras["is_playable"] is True
-
-    def test_connector_playlist_item_defaults(self):
-        """Test connector playlist item default values."""
-        item = ConnectorPlaylistItem(connector_track_identifier="track_id", position=1)
-
-        assert item.added_at is None
-        assert item.added_by_id is None
-        assert item.extras == {}
-
-
-class TestPlaylistEntryEntity:
-    """Test playlist entry entity behavior."""
-
-    def test_playlist_entry_creation(self):
-        """Test creating a playlist entry."""
-        test_track = Track(
-            title="Test",
-            artists=[ArtistCredit(credited_name="Test Artist")],
-            user_id=TEST_USER_ID,
-        )
-        entry = PlaylistEntry(
-            track=test_track, added_at=datetime.now(UTC), added_by="user123"
-        )
-
-        assert isinstance(entry.track.id, UUID)
-        assert entry.added_at is not None
-        assert entry.added_by == "user123"
-
-    def test_playlist_entry_defaults(self):
-        """Test playlist entry default values."""
-        test_track = Track(
-            title="Test",
-            artists=[ArtistCredit(credited_name="Test Artist")],
-            user_id=TEST_USER_ID,
-        )
-        entry = PlaylistEntry(track=test_track)
-
-        assert entry.added_at is None
-        assert entry.added_by is None
-
-
-# TODO(#123): Add tests for domain services once they're implemented

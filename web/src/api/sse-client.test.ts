@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Mock auth module ──────────────────────────────────────────
 
+// getAuthToken reads the Neon Auth session, which jsdom has no way to create;
+// stubbing it lets each test choose "token" or "no token".
 const mockGetAuthToken = vi.fn<() => Promise<string | undefined>>();
 
 vi.mock("#/api/auth", () => ({

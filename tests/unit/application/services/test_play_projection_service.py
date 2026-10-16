@@ -239,14 +239,6 @@ class TestObservedDayCores:
             date(2026, 7, 20),
         ]
 
-    def test_the_span_between_sparse_dates_is_thousands_of_chunks(self):
-        """What tiling the span (the deleted contiguous path) actually asked
-        for: one day-chunk per day between the margin-padded bounds."""
-        start = datetime(2011, 3, 5, 14, 0, tzinfo=UTC) - PROJECTION_FETCH_MARGIN
-        end = datetime(2026, 7, 20, 9, 0, tzinfo=UTC) + PROJECTION_FETCH_MARGIN
-
-        assert (end - start) / timedelta(days=1) > 5_000
-
     def test_contiguous_dates_still_tile_every_day(self):
         cores = observed_day_cores([
             datetime(2024, 1, day, 12, 0, tzinfo=UTC) for day in range(1, 6)
@@ -444,22 +436,13 @@ class TestProjectObservedDays:
             ],
         )
 
-        connector_repo = uow.get_connector_play_repository()
-        assert connector_repo.find_resolved_in_window.await_count == 2
-
-    @pytest.mark.asyncio
-    async def test_diff_apply_matches_the_equivalent_range_projection(self):
-        """Same day, same observation, same outcome — only the chunking differs."""
-        scrobble = _scrobble(played_at=_BASE)
-        uow, plays_repo = _wire_uow(entries=[scrobble])
-
-        stats = await PlayProjectionService().project_observed_days(
-            uow, user_id=_USER, played_at=[scrobble.played_at]
-        )
-
-        assert stats["groups_created"] == 1
-        inserted = plays_repo.bulk_insert_plays.await_args.args[0]
-        assert [play.played_at for play in inserted] == [_BASE]
+        fetches = uow.get_connector_play_repository().find_resolved_in_window
+        # A chunk fetches its core padded by the anchor reach on both sides.
+        reach = PROJECTION_FETCH_MARGIN + MAX_ANCHOR_PULL_BACK
+        assert [(c.args[0] + reach).date() for c in fetches.await_args_list] == [
+            date(2011, 3, 5),
+            date(2026, 7, 20),
+        ]
 
 
 class TestProjectFullHistory:

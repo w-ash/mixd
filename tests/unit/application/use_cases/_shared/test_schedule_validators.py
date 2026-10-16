@@ -16,10 +16,7 @@ class TestValidateIanaTimezone:
     def test_valid_zone(self) -> None:
         assert validate_iana_timezone("America/Los_Angeles") == "America/Los_Angeles"
 
-    def test_abbreviation_rejected(self) -> None:
+    @pytest.mark.parametrize("zone", ["PST", "Mars/Phobos"])
+    def test_abbreviation_or_bogus_zone_rejected(self, zone: str) -> None:
         with pytest.raises(ValueError, match="unknown IANA timezone"):
-            validate_iana_timezone("PST")
-
-    def test_bogus_zone_rejected(self) -> None:
-        with pytest.raises(ValueError, match="unknown IANA timezone"):
-            validate_iana_timezone("Mars/Phobos")
+            validate_iana_timezone(zone)

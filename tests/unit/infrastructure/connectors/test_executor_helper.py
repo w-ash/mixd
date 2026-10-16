@@ -7,7 +7,6 @@ for CLI command handlers.
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
-import time
 
 import pytest
 
@@ -50,84 +49,45 @@ class TestExecutorHelperFunctions:
         with pytest.raises(ValueError, match="Test error"):
             run_async(failing_coro())
 
-    def test_run_async_handles_async_arguments(self):
-        """run_async() should work with parameterized coroutines."""
+    def test_run_async_installs_connector_executor_as_loop_default(self):
+        """Blocking work in run_async() runs on the connector pool, not asyncio's default pool.
+
+        The barrier needs more parties than asyncio's default pool holds (at most 32
+        workers), so it releases only when the connector pool is the loop default.
+        The barrier waits for every party, so machine load cannot fail the test.
+        """
         from src.interface.cli.async_runner import run_async
 
-        async def coro_with_args(a: int, b: str):
-            return f"{a}-{b}"
+        parties = 40
+        assert settings.api.lastfm.concurrency >= parties
+        barrier = threading.Barrier(parties, timeout=10)
 
-        result = run_async(coro_with_args(42, "test"))
-        assert result == "42-test"
+        def blocking_work() -> str:
+            barrier.wait()
+            return threading.current_thread().name
 
-    @pytest.mark.slow
-    def test_run_async_provides_high_concurrency(self):
-        """Helper should provide 200-thread executor for high concurrency."""
+        async def fan_out() -> list[str]:
+            return list(
+                await asyncio.gather(
+                    *(asyncio.to_thread(blocking_work) for _ in range(parties))
+                )
+            )
+
+        thread_names = run_async(fan_out())
+
+        assert len(thread_names) == parties
+        assert all(name.startswith("mixd_io") for name in thread_names), thread_names
+
+    def test_run_async_closes_its_event_loop(self):
+        """Each call closes the loop it ran on, so repeated CLI calls leak none."""
         from src.interface.cli.async_runner import run_async
 
-        async def test_concurrency():
-            """Test that we get a high-concurrency executor."""
+        async def capture_loop() -> asyncio.AbstractEventLoop:
+            return asyncio.get_running_loop()
 
-            def blocking_work(work_id: int) -> dict:
-                """Simulate blocking I/O work."""
-                time.sleep(0.1)
-                return {
-                    "id": work_id,
-                    "thread": threading.get_ident(),
-                }
+        first = run_async(capture_loop())
+        second = run_async(capture_loop())
 
-            # Create 50 concurrent tasks (more than default executor limit of ~32-36)
-            start_time = time.time()
-            tasks = [asyncio.to_thread(blocking_work, i) for i in range(50)]
-            results = await asyncio.gather(*tasks)
-            duration = time.time() - start_time
-
-            unique_threads = len({r["thread"] for r in results})
-
-            return {
-                "duration": duration,
-                "unique_threads": unique_threads,
-                "results_count": len(results),
-            }
-
-        result = run_async(test_concurrency())
-
-        # With 200-thread executor, all 50 should run concurrently
-        # Duration should be ~0.1s (one blocking call duration), not 50 * 0.1s
-        assert result["unique_threads"] >= 40, (
-            f"Not using enough threads: {result['unique_threads']}"
-        )
-        assert result["results_count"] == 50
-
-    def test_run_async_loops_are_independent(self):
-        """Each call should use an independent event loop (no state leakage)."""
-        from src.interface.cli.async_runner import run_async
-
-        # Use task-local state to verify independence
-        async def set_and_check_task_name(name: str):
-            """Set a task name and verify only this task sees it."""
-            task = asyncio.current_task()
-            task.set_name(name)
-            return task.get_name()
-
-        name_1 = run_async(set_and_check_task_name("call_1"))
-        name_2 = run_async(set_and_check_task_name("call_2"))
-
-        # Each call should see its own task name (proves loop independence)
-        assert name_1 == "call_1"
-        assert name_2 == "call_2"
-
-    def test_run_async_cleans_up_loop(self):
-        """Helper should clean up the event loop after execution."""
-        from src.interface.cli.async_runner import run_async
-
-        async def simple_coro():
-            return "done"
-
-        # Run multiple times - should not leak event loops
-        for _ in range(5):
-            result = run_async(simple_coro())
-            assert result == "done"
-
-        # If loops weren't cleaned up, we'd see warnings or errors
-        # This test passing means cleanup is working
+        assert first.is_closed()
+        assert second.is_closed()
+        assert first is not second

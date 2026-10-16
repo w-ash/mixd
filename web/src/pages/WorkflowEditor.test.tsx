@@ -28,6 +28,8 @@ vi.mock("@xyflow/react", () => ({
   useNodesInitialized: () => false,
 }));
 
+// workflow-layout loads ELK asynchronously; these tests check page composition
+// and entry intent, not layout, so a synchronous stub keeps them deterministic.
 vi.mock("#/lib/workflow-layout", () => ({
   layoutWorkflow: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
   buildEdges: vi.fn().mockReturnValue([]),
@@ -41,27 +43,21 @@ import { renderWithProviders, screen } from "#/test/test-utils";
 import WorkflowEditor from "./WorkflowEditor";
 
 describe("WorkflowEditor", () => {
-  it("renders the editor layout", () => {
+  it("mounts toolbar, node palette and canvas at desktop width", () => {
     renderWithProviders(<WorkflowEditor />, {
       routerProps: { initialEntries: ["/workflows/new"] },
     });
 
-    // Toolbar elements
-    expect(screen.getByLabelText("Back")).toBeInTheDocument();
+    // Toolbar
     expect(screen.getByLabelText("Workflow name")).toBeInTheDocument();
-    expect(screen.getByText("Save")).toBeInTheDocument();
-
-    // Canvas
-    expect(screen.getByTestId("react-flow")).toBeInTheDocument();
-  });
-
-  it("shows node palette with search input", () => {
-    renderWithProviders(<WorkflowEditor />, {
-      routerProps: { initialEntries: ["/workflows/new"] },
-    });
-
-    // Node palette has search input
+    expect(screen.getByRole("button", { name: /Save/ })).toBeInTheDocument();
+    // Node palette
     expect(screen.getByPlaceholderText("Search nodes...")).toBeInTheDocument();
+    // Canvas, and not the small-screen placeholder
+    expect(screen.getByTestId("react-flow")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Workflow editing needs a larger screen"),
+    ).not.toBeInTheDocument();
   });
 });
 

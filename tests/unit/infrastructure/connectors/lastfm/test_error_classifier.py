@@ -117,29 +117,15 @@ class TestLastFMErrorClassifier:
 
     # EDGE CASES
 
-    def test_unknown_code_no_text_match(self, classifier):
-        """Completely unknown error code with no text pattern match → unknown."""
-        exception = LastFMAPIError("9999", "xyz unrecognizable error")
+    @pytest.mark.parametrize("error_code", ["9999", ""])
+    def test_unlisted_code_without_text_match_is_unknown(self, classifier, error_code):
+        """An unlisted or empty code with no text pattern match → unknown."""
+        exception = LastFMAPIError(error_code, "xyz unrecognizable error")
 
         error_type, code, _desc = classifier.classify_error(exception)
 
         assert error_type == "unknown"
         assert code == "N/A"
-
-    def test_empty_error_code(self, classifier):
-        """Empty error code falls through to text patterns or unknown."""
-        exception = LastFMAPIError("", "some error message")
-
-        error_type, _code, _desc = classifier.classify_error(exception)
-
-        # Empty code isn't in any dict → falls through to text patterns
-        assert error_type in (
-            "unknown",
-            "temporary",
-            "permanent",
-            "not_found",
-            "rate_limit",
-        )
 
     def test_non_lastfm_error_bypasses_service_classification(self, classifier):
         """Non-LastFMAPIError exceptions skip service-specific logic."""
