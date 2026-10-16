@@ -19,7 +19,7 @@ from uuid import UUID, uuid7
 
 import attrs
 
-from src.domain.entities.artist import Artist, ConnectorArtist
+from src.domain.entities.artist import Artist, ArtistAlias, ConnectorArtist
 from src.domain.entities.playlist import (
     ConnectorPlaylist,
     ConnectorPlaylistItem,
@@ -36,6 +36,7 @@ from src.domain.entities.track import (
     TrackLike,
 )
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.apple_music.models import (
     AppleMusicPlayParams,
     AppleMusicSong,
@@ -385,6 +386,37 @@ def make_connector_artist(
         connector_artist_identifier=identifier,
         name=name or f"Artist {identifier}",
         **kwargs,
+    )
+
+
+TEED = "TEED"
+FULL_NAME = "Totally Enormous Extinct Dinosaurs"
+
+
+async def seed_aliases(uow: UnitOfWorkProtocol, *names: str) -> None:
+    """Cache one MusicBrainz artist, primary name ``TEED``, under ``names``."""
+    stored = await uow.get_artist_connector_repository().bulk_upsert_connector_artists(
+        "musicbrainz",
+        [
+            make_connector_artist(
+                "c6b4a0e6-8e38-4aa6-9f9d-1b1f1ba1c1a1",
+                connector_name="musicbrainz",
+                name=TEED,
+            )
+        ],
+    )
+    (connector_artist,) = stored.values()
+    _ = await uow.get_artist_alias_repository().replace_aliases(
+        connector_artist.id,
+        [
+            ArtistAlias(
+                connector_artist_id=connector_artist.id,
+                name=name,
+                is_primary=name == TEED,
+                fetched_at=datetime.now(UTC),
+            )
+            for name in names
+        ],
     )
 
 

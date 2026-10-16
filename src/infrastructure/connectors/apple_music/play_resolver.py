@@ -14,10 +14,6 @@ from src.domain.entities import (
     ConnectorTrackPlay,
     Track,
 )
-from src.domain.matching.artist_equivalence import (
-    EMPTY_EQUIVALENCE,
-    ArtistEquivalence,
-)
 from src.domain.repositories.play import PlayResolutionOutcome
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.connector_play_resolver import (
@@ -85,7 +81,6 @@ class AppleMusicConnectorPlayResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> PlayResolutionOutcome:
         """Resolve Apple Music connector plays to canonical track plays."""
         if not connector_plays:
@@ -110,10 +105,7 @@ class AppleMusicConnectorPlayResolver:
                 canonical_tracks_map,
                 resolution_metrics,
             ) = await self._inward_resolver.resolve_to_canonical_tracks(
-                unique_ids,
-                uow,
-                user_id=user_id,
-                artist_equivalence=artist_equivalence,
+                unique_ids, uow, user_id=user_id
             )
 
         return build_play_outcome(

@@ -33,7 +33,6 @@ from src.application.use_cases.import_play_history import (
 )
 from src.domain.entities import PlayRecord
 from src.domain.entities.operations import ConnectorTrackPlay, TrackPlay
-from src.domain.matching.artist_equivalence import ArtistEquivalence
 from src.domain.repositories.play import PlayResolutionOutcome
 from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
@@ -59,7 +58,6 @@ class _FakeResolver:
         uow: object,
         *,
         user_id: str,
-        artist_equivalence: ArtistEquivalence,
     ) -> PlayResolutionOutcome:
         plays = [
             TrackPlay(

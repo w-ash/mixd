@@ -33,7 +33,6 @@ from src.application.services.play_import_orchestrator import PlayImportOrchestr
 from src.application.use_cases._shared.batch_commit import commit_batch
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.domain.entities.progress import NullProgressEmitter
-from src.domain.matching.artist_equivalence import ArtistEquivalence
 from src.domain.repositories.play import PlayResolutionOutcome, SpotifyImportParams
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify.play_importer import SpotifyPlayImporter
@@ -98,9 +97,8 @@ class _FixedTrackResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        artist_equivalence: ArtistEquivalence,
     ) -> PlayResolutionOutcome:
-        _ = uow, user_id, artist_equivalence
+        _ = uow, user_id
         self.resolved_plays.extend(connector_plays)
         return PlayResolutionOutcome(
             track_plays=[

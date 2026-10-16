@@ -13,10 +13,6 @@ from src.domain.entities import (
     ConnectorTrackPlay,
     Track,
 )
-from src.domain.matching.artist_equivalence import (
-    EMPTY_EQUIVALENCE,
-    ArtistEquivalence,
-)
 from src.domain.matching.protocols import CrossDiscoveryProvider
 from src.domain.repositories.play import PlayResolutionOutcome
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -94,7 +90,6 @@ class LastfmConnectorPlayResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> PlayResolutionOutcome:
         """Resolve Last.fm connector plays using existing infrastructure."""
         if not connector_plays:
@@ -109,10 +104,7 @@ class LastfmConnectorPlayResolver:
             resolved_tracks,
             resolution_metrics,
         ) = await self._resolve_plays_to_canonical_tracks(
-            connector_plays,
-            uow,
-            user_id=user_id,
-            artist_equivalence=artist_equivalence,
+            connector_plays, uow, user_id=user_id
         )
 
         # Last.fm carries no ms_played and no private-session flag, so its only
@@ -133,7 +125,6 @@ class LastfmConnectorPlayResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        artist_equivalence: ArtistEquivalence,
     ) -> tuple[list[Track | None], TrackResolutionMetrics]:
         """Resolve plays to canonical tracks, preserving input order.
 
@@ -154,10 +145,7 @@ class LastfmConnectorPlayResolver:
             canonical_tracks_map,
             resolution_metrics,
         ) = await self._inward_resolver.resolve_to_canonical_tracks(
-            list(unique_identifiers),
-            uow,
-            user_id=user_id,
-            artist_equivalence=artist_equivalence,
+            list(unique_identifiers), uow, user_id=user_id
         )
 
         resolved_tracks: list[Track | None] = []

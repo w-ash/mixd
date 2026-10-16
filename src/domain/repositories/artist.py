@@ -31,6 +31,7 @@ from src.domain.entities.artist import (
 )
 from src.domain.entities.shared import JsonDict, SortKey
 from src.domain.entities.track import Track
+from src.domain.matching.artist_equivalence import ArtistEquivalence
 from src.domain.matching.artist_resolution import ArtistCreditSource
 from src.domain.matching.config import MatchingConfig
 from src.domain.repositories.keyset import KeysetSort, sorts
@@ -366,6 +367,17 @@ class ArtistAliasRepositoryProtocol(Protocol):
 
         Case-insensitive on ``name`` and keyed by the caller's own spelling, so
         a lookup reads back under the string it asked with.
+        """
+        ...
+
+    def get_artist_equivalence(
+        self, names: Sequence[str]
+    ) -> Awaitable[ArtistEquivalence]:
+        """The alias groups covering a batch's credited artist names.
+
+        Two queries for the whole batch, never one per name. The empty
+        equivalence when the batch credits nobody or no cached alias reaches
+        any of its names, so the matcher compares plain strings.
         """
         ...
 

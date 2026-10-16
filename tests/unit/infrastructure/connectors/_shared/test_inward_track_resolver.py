@@ -14,7 +14,6 @@ import pytest
 
 from src.config import create_matching_config
 from src.domain.entities import ConnectorArtistCredit, Track
-from src.domain.matching.artist_equivalence import ArtistEquivalence
 from src.domain.matching.canonical_resolution import (
     Create,
     DeferToReview,
@@ -34,6 +33,7 @@ from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
 )
 from tests.fixtures import (
+    attach_artist_alias_repo,
     attach_match_review_repo,
     attach_resolution_recorder,
     make_track,
@@ -70,7 +70,6 @@ class FakeInwardResolver(InwardTrackResolver):
         uow: object,
         *,
         user_id: str,
-        artist_equivalence: ArtistEquivalence,
     ) -> dict[str, Track]:
         self.reuse_calls.append(missing_ids)
         return {
@@ -131,6 +130,7 @@ def _make_reuse_uow(candidates: dict[tuple[str, str], Track]) -> MagicMock:
     """UoW mock whose title+artist search returns ``candidates``."""
     uow = MagicMock()
     attach_resolution_recorder(uow)
+    _ = attach_artist_alias_repo(uow)
 
     track_repo = AsyncMock()
     track_repo.find_tracks_by_title_artist.return_value = candidates

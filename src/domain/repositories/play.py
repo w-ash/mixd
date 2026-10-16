@@ -19,10 +19,6 @@ from src.domain.entities import (
     TrackPlay,
 )
 from src.domain.entities.progress import ProgressEmitter
-from src.domain.matching.artist_equivalence import (
-    EMPTY_EQUIVALENCE,
-    ArtistEquivalence,
-)
 from src.domain.repositories.keyset import KeysetSort
 
 if TYPE_CHECKING:
@@ -487,17 +483,12 @@ class PlayResolverProtocol(Protocol):
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> PlayResolutionOutcome:
         """Resolve connector plays to canonical track plays.
 
         Progress is the orchestrator's concern: it emits per-chunk events
         through its ``ProgressEmitter`` after each resolver call, so the
         resolver reports none itself.
-
-        ``artist_equivalence`` is the alias groups covering the plays'
-        artist names, compiled once per chunk by the caller; the resolver's
-        name probe and its reuse price read it.
 
         Returns:
             PlayResolutionOutcome with track plays, metrics, and the

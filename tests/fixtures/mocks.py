@@ -23,6 +23,7 @@ from src.application.connector_protocols import PlaylistConnector
 from src.domain.entities import SyncCheckpoint
 from src.domain.entities.connector import Capability, ConnectorDescriptor
 from src.domain.entities.progress import ProgressEmitter
+from src.domain.matching.artist_equivalence import EMPTY_EQUIVALENCE
 
 
 def _declared_capabilities(name: str) -> frozenset[Capability]:
@@ -278,11 +279,8 @@ def make_mock_artist_alias_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`ArtistAliasRepositoryProtocol`."""
     repo = AsyncMock()
     repo.replace_aliases.return_value = overrides.pop("replace_aliases", 0)
-    repo.get_aliases_for_connector_artists.return_value = overrides.pop(
-        "get_aliases_for_connector_artists", {}
-    )
-    repo.find_connector_artist_ids_by_alias.return_value = overrides.pop(
-        "find_connector_artist_ids_by_alias", {}
+    repo.get_artist_equivalence.return_value = overrides.pop(
+        "get_artist_equivalence", EMPTY_EQUIVALENCE
     )
     for k, v in overrides.items():
         setattr(repo, k, v)
@@ -588,6 +586,17 @@ def attach_resolution_recorder(uow: MagicMock) -> AsyncMock:
     recorder = make_mock_resolution_recorder()
     uow.get_resolution_recorder.return_value = recorder
     return recorder
+
+
+def attach_artist_alias_repo(uow: MagicMock) -> AsyncMock:
+    """Wire an alias cache that holds no aliases onto a hand-rolled UoW mock.
+
+    The canonical-reuse step reads the batch's alias groups before its
+    title/artist probe; a bare MagicMock there cannot be awaited.
+    """
+    repo = make_mock_artist_alias_repo()
+    uow.get_artist_alias_repository.return_value = repo
+    return repo
 
 
 def attach_match_review_repo(uow: MagicMock) -> AsyncMock:

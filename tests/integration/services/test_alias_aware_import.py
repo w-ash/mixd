@@ -1,8 +1,8 @@
 """A scrobble under an artist's alias lands on the library's full-name track.
 
-The story's import path against the real alias cache: the orchestrator compiles
-the chunk's alias groups, the Last.fm resolver's title/artist probe reaches the
-canonical credited "Totally Enormous Extinct Dinosaurs" for a "TEED"
+The story's import path against the real alias cache: the Last.fm resolver's
+reuse step compiles the batch's alias groups, its title/artist probe reaches
+the canonical credited "Totally Enormous Extinct Dinosaurs" for a "TEED"
 identifier, and the reuse price accepts it.
 """
 
@@ -14,7 +14,6 @@ import sqlalchemy as sa
 
 from src.application.services.play_import_orchestrator import PlayImportOrchestrator
 from src.domain.entities import ConnectorTrackPlay
-from src.domain.entities.artist import ArtistAlias
 from src.domain.entities.progress import NullProgressEmitter
 from src.infrastructure.connectors.lastfm.play_resolver import (
     LastfmConnectorPlayResolver,
@@ -23,45 +22,15 @@ from src.infrastructure.persistence.database.models import (
     DBConnectorPlay,
     DBTrackMapping,
 )
-from tests.fixtures import make_connector_artist, make_track
-
-TEED = "TEED"
-FULL_NAME = "Totally Enormous Extinct Dinosaurs"
+from tests.fixtures import FULL_NAME, TEED, make_track, seed_aliases
 
 
-async def _cache_aliases(uow) -> None:
-    """Cache one MusicBrainz artist under both of its spellings."""
-    stored = await uow.get_artist_connector_repository().bulk_upsert_connector_artists(
-        "musicbrainz",
-        [
-            make_connector_artist(
-                "c6b4a0e6-8e38-4aa6-9f9d-1b1f1ba1c1a1",
-                connector_name="musicbrainz",
-                name=TEED,
-            )
-        ],
-    )
-    (connector_artist,) = stored.values()
-    _ = await uow.get_artist_alias_repository().replace_aliases(
-        connector_artist.id,
-        [
-            ArtistAlias(
-                connector_artist_id=connector_artist.id,
-                name=name,
-                is_primary=name == TEED,
-                fetched_at=datetime.now(UTC),
-            )
-            for name in (TEED, FULL_NAME)
-        ],
-    )
-
-
-def _scrobble(user_id: str) -> ConnectorTrackPlay:
-    """One Last.fm scrobble of "Garden", credited the way Last.fm states it."""
+def _scrobble(user_id: str, track_name: str = "Garden") -> ConnectorTrackPlay:
+    """One Last.fm scrobble, credited "TEED" the way Last.fm states it."""
     return ConnectorTrackPlay(
         service="lastfm",
         artist_name=TEED,
-        track_name="Garden",
+        track_name=track_name,
         played_at=datetime(2024, 5, 4, 20, 15, tzinfo=UTC),
         ms_played=None,
         user_id=user_id,
@@ -86,13 +55,13 @@ class TestAliasAwareImport:
     ):
         """Catches an inward path that skips the alias groups.
 
-        Before the fix it probed by the normalized artist only, so the "TEED"
-        scrobble minted a second canonical instead of landing on the
-        library's track. A price that skips them records the reuse as an
-        artist disagreement; an alias hit is an exact artist agreement.
+        A probe by the scrobble's own spelling misses the full-name track, so
+        the "TEED" scrobble mints a second canonical. A price that skips the
+        groups records the reuse as an artist disagreement; an alias hit is an
+        exact artist agreement.
         """
         user_id = f"TEST_alias_import_{uuid4().hex[:8]}"
-        await _cache_aliases(real_unit_of_work)
+        await seed_aliases(real_unit_of_work, TEED, FULL_NAME)
         canonical = await real_track_repository.save_track(
             make_track(title="Garden", artist=FULL_NAME, user_id=user_id)
         )
@@ -138,3 +107,61 @@ class TestAliasAwareImport:
             .all()
         )
         assert [row["artist_similarity"] for row in evidence if row] == [1.0]
+
+    async def test_creation_prices_an_alias_the_way_reuse_does(
+        self, db_session, real_unit_of_work, real_track_repository
+    ):
+        """Catches a pass that prices one artist pair two ways.
+
+        "Garden" reuses the library's full-name track. "Rouge" is new, and
+        Last.fm corrects its artist to the full name, so its raw "TEED"
+        mapping is priced against a full-name track as well. A creation step
+        that skips the alias groups records that mapping as an artist
+        disagreement while the reuse step records an agreement.
+        """
+        user_id = f"TEST_alias_import_{uuid4().hex[:8]}"
+        await seed_aliases(real_unit_of_work, TEED, FULL_NAME)
+        _ = await real_track_repository.save_track(
+            make_track(title="Garden", artist=FULL_NAME, user_id=user_id)
+        )
+        plays = [_scrobble(user_id), _scrobble(user_id, "Rouge")]
+        _ = await real_unit_of_work.get_connector_play_repository().bulk_insert_connector_plays(
+            plays
+        )
+        client = _unanswering_client()
+
+        async def correct(_artist: str, track: str) -> tuple[str, str] | None:
+            return ("Rouge", FULL_NAME) if track == "rouge" else None
+
+        client.get_track_correction.side_effect = correct
+
+        async def resolver_factory(_service: str) -> LastfmConnectorPlayResolver:
+            return LastfmConnectorPlayResolver(lastfm_client=client)
+
+        _ = await PlayImportOrchestrator(
+            resolver_factory=resolver_factory
+        ).execute_resolution_phase(
+            plays,
+            real_unit_of_work,
+            user_id=user_id,
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        rows = (
+            await db_session.execute(
+                sa.select(
+                    DBTrackMapping.match_method, DBTrackMapping.confidence_evidence
+                ).where(
+                    DBTrackMapping.user_id == user_id,
+                    DBTrackMapping.connector_name == "lastfm",
+                )
+            )
+        ).all()
+        assert {
+            method: (evidence or {}).get("artist_similarity")
+            for method, evidence in rows
+        } == {
+            "canonical_reuse": 1.0,
+            "lastfm_import": 1.0,
+            "lastfm_import_raw_alias": 1.0,
+        }

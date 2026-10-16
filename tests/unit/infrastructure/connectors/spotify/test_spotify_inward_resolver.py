@@ -31,6 +31,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyTrack,
 )
 from tests.fixtures import (
+    attach_artist_alias_repo,
     attach_match_review_repo,
     attach_resolution_recorder,
     make_spotify_track,
@@ -42,6 +43,7 @@ def _make_uow_with_repos():
     """Create a UoW mock with track and connector repos wired."""
     uow = MagicMock()
     attach_resolution_recorder(uow)
+    _ = attach_artist_alias_repo(uow)
     _ = attach_match_review_repo(uow)
     track_repo = AsyncMock()
     track_repo.save_track.return_value = make_track(1)

@@ -14,6 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities.artist import ArtistAlias
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+    equivalence_from_alias_rows,
+)
 from src.infrastructure.persistence.database.models import DBArtistAlias
 from src.infrastructure.persistence.repositories.artist.mapper import ArtistAliasMapper
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
@@ -116,6 +121,30 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
                 continue
             found.setdefault(spelling, []).append(connector_artist_id)
         return found
+
+    @db_operation("get_artist_equivalence")
+    async def get_artist_equivalence(self, names: Sequence[str]) -> ArtistEquivalence:
+        """The alias groups covering a batch's credited artist names.
+
+        One name lookup for the distinct names, then one alias read for every
+        connector artist they reach. Blank names are dropped; no names, or no
+        cached alias for any of them, gives the empty equivalence.
+        """
+        distinct = sorted({name.strip() for name in names if name.strip()})
+        if not distinct:
+            return EMPTY_EQUIVALENCE
+
+        ids_by_name = await self.find_connector_artist_ids_by_alias(distinct)
+        if not ids_by_name:
+            return EMPTY_EQUIVALENCE
+
+        reachable = sorted({
+            connector_artist_id
+            for ids in ids_by_name.values()
+            for connector_artist_id in ids
+        })
+        aliases_by_id = await self.get_aliases_for_connector_artists(reachable)
+        return equivalence_from_alias_rows(ids_by_name, aliases_by_id)
 
 
 __all__ = ["ArtistAliasRepository"]

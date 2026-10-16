@@ -14,7 +14,7 @@ from sqlalchemy import select
 from src.domain.entities.artist import Artist, ArtistAlias
 from src.infrastructure.persistence.database.models import DBArtistFavorite
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_connector_artist
+from tests.fixtures import FULL_NAME, TEED, make_connector_artist, seed_aliases
 
 
 def _user() -> str:
@@ -196,3 +196,59 @@ class TestAliases:
 
         assert found == {"teed": [connector_artist_id]}
         assert await aliases.find_connector_artist_ids_by_alias([]) == {}
+
+
+class TestArtistEquivalence:
+    """The batch's alias groups, read from the cache in two statements."""
+
+    async def test_a_name_reaches_every_spelling_of_its_artist(self, db_session):
+        # Catches a lookup that compiles only the names it was asked for: the
+        # full name reaches "TEED" through the connector artist both hang off.
+        uow = get_unit_of_work(db_session)
+        await seed_aliases(uow, TEED, FULL_NAME)
+
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            FULL_NAME
+        ])
+
+        assert equivalence.aliases_of(FULL_NAME) == ("teed",)
+
+    async def test_a_batch_reads_the_cache_in_two_statements(
+        self, db_session, captured_sql
+    ):
+        # Catches a lookup per name: a repeated name and two blanks beside
+        # two real names still cost one name query and one alias query.
+        uow = get_unit_of_work(db_session)
+        await seed_aliases(uow, TEED, FULL_NAME)
+        captured_sql.clear()
+
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            TEED,
+            TEED,
+            " ",
+            FULL_NAME,
+            "",
+        ])
+
+        assert equivalence.same(TEED, FULL_NAME)
+        assert len([sql for sql in captured_sql if "artist_aliases" in sql]) == 2
+
+    async def test_no_names_reads_nothing(self, db_session, captured_sql):
+        aliases = get_unit_of_work(db_session).get_artist_alias_repository()
+        captured_sql.clear()
+
+        equivalence = await aliases.get_artist_equivalence(["", "   "])
+
+        assert equivalence.groups == {}
+        assert [sql for sql in captured_sql if "artist_aliases" in sql] == []
+
+    async def test_an_uncached_batch_stops_after_the_name_query(
+        self, db_session, captured_sql
+    ):
+        aliases = get_unit_of_work(db_session).get_artist_alias_repository()
+        captured_sql.clear()
+
+        equivalence = await aliases.get_artist_equivalence([FULL_NAME])
+
+        assert equivalence.groups == {}
+        assert len([sql for sql in captured_sql if "artist_aliases" in sql]) == 1
