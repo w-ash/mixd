@@ -99,7 +99,7 @@ class TestEmptyCollection:
 
         _result, uow = await _execute(connector)
 
-        uow.get_track_repository.return_value.save_batch.assert_not_called()
+        uow.get_track_repository.return_value.save_tracks.assert_not_called()
         assert uow.get_track_repository.return_value.mock_calls == []
         assert uow.get_connector_repository.return_value.mock_calls == []
 

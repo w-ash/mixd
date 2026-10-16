@@ -13,17 +13,62 @@ Usage::
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
+from annotationlib import Format
+from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import asynccontextmanager
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from functools import cache
+import inspect
+from typing import Any, get_origin
+from unittest.mock import AsyncMock, MagicMock, NonCallableMagicMock, create_autospec
 from uuid import uuid7
 
 from src.application.connector_protocols import PlaylistConnector
 from src.domain.entities import SyncCheckpoint
 from src.domain.entities.connector import Capability, ConnectorDescriptor
 from src.domain.entities.progress import ProgressEmitter
+from src.domain.matching.artist_enrichment import ArtistEnrichmentProviderProtocol
 from src.domain.matching.artist_equivalence import EMPTY_EQUIVALENCE
+from src.domain.repositories.artist import (
+    ArtistAliasRepositoryProtocol,
+    ArtistConnectorRepositoryProtocol,
+    ArtistFavoriteRepositoryProtocol,
+    ArtistMinterProtocol,
+    ArtistRepositoryProtocol,
+)
+from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
+from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
+from src.domain.repositories.connector import (
+    ConnectorPlaylistRepositoryProtocol,
+    ConnectorRepositoryProtocol,
+)
+from src.domain.repositories.like import LikeRepositoryProtocol
+from src.domain.repositories.match_review import MatchReviewRepositoryProtocol
+from src.domain.repositories.metric import MetricsRepositoryProtocol
+from src.domain.repositories.play import (
+    ConnectorPlayRepositoryProtocol,
+    PlaysRepositoryProtocol,
+)
+from src.domain.repositories.playlist import (
+    PlaylistAssignmentRepositoryProtocol,
+    PlaylistLinkRepositoryProtocol,
+    PlaylistRepositoryProtocol,
+    PlaylistSyncBaseRepositoryProtocol,
+)
+from src.domain.repositories.preference import PreferenceRepositoryProtocol
+from src.domain.repositories.resolution import (
+    ResolutionEventRepositoryProtocol,
+    ResolutionNegativeRepositoryProtocol,
+    ResolutionRecorderProtocol,
+)
+from src.domain.repositories.schedule import ScheduleRepositoryProtocol
+from src.domain.repositories.stats import StatsRepositoryProtocol
+from src.domain.repositories.tag import TagRepositoryProtocol
+from src.domain.repositories.track import TrackRepositoryProtocol
+from src.domain.repositories.workflow import (
+    WorkflowRepositoryProtocol,
+    WorkflowRunRepositoryProtocol,
+    WorkflowVersionRepositoryProtocol,
+)
 
 
 def _declared_capabilities(name: str) -> frozenset[Capability]:
@@ -85,13 +130,56 @@ def fake_run_async[T](value: T) -> Callable[[Coroutine[Any, Any, Any]], T]:
 
 
 # ---------------------------------------------------------------------------
+# Protocol-specced mocks
+# ---------------------------------------------------------------------------
+
+
+@cache
+def _awaitable_spec(protocol: type) -> type:
+    """Return the protocol with each ``-> Awaitable[T]`` method made ``async``.
+
+    The protocols declare ``def m(...) -> Awaitable[T]``. ``create_autospec``
+    reads such a method as sync, so its mock cannot be awaited. This subclass
+    declares each such method again as a coroutine function with the same
+    signature.
+    """
+    namespace: dict[str, object] = {}
+    for name, member in inspect.getmembers(protocol, inspect.isfunction):
+        if name.startswith("_"):
+            continue
+        signature = inspect.signature(member, annotation_format=Format.FORWARDREF)
+        if get_origin(signature.return_annotation) not in (Awaitable, Coroutine):
+            continue
+
+        async def stub(*_args: object, **_kwargs: object) -> None: ...
+
+        stub.__signature__ = signature
+        stub.__name__ = name
+        namespace[name] = stub
+    return type(protocol.__name__, (protocol,), namespace)
+
+
+def protocol_mock(protocol: type, **attributes: object) -> NonCallableMagicMock:
+    """Build a mock that accepts only what ``protocol`` declares.
+
+    A misspelled method, an unknown keyword argument, or an override that
+    names no protocol member raises instead of passing silently. Each
+    awaitable method is an ``AsyncMock``. ``attributes`` sets non-method
+    members, such as a property.
+    """
+    return create_autospec(
+        _awaitable_spec(protocol), instance=True, spec_set=True, **attributes
+    )
+
+
+# ---------------------------------------------------------------------------
 # Individual repository mocks
 # ---------------------------------------------------------------------------
 
 
-def make_mock_track_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`TrackRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_track_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`TrackRepositoryProtocol`."""
+    repo = protocol_mock(TrackRepositoryProtocol)
     repo.find_tracks_by_ids.return_value = overrides.pop("find_tracks_by_ids", {})
     repo.find_tracks_by_isrcs.return_value = overrides.pop("find_tracks_by_isrcs", {})
     repo.find_tracks_by_title_artist.return_value = overrides.pop(
@@ -108,9 +196,9 @@ def make_mock_track_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_playlist_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`PlaylistRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_playlist_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`PlaylistRepositoryProtocol`."""
+    repo = protocol_mock(PlaylistRepositoryProtocol)
     repo.get_playlist_by_id.return_value = overrides.pop("get_playlist_by_id", None)
     repo.get_playlist_by_connector.return_value = overrides.pop(
         "get_playlist_by_connector", None
@@ -122,9 +210,9 @@ def make_mock_playlist_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_connector_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`ConnectorRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_connector_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`ConnectorRepositoryProtocol`."""
+    repo = protocol_mock(ConnectorRepositoryProtocol)
     repo.find_tracks_by_connectors.return_value = overrides.pop(
         "find_tracks_by_connectors", {}
     )
@@ -167,18 +255,17 @@ def make_mock_connector_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_checkpoint_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`CheckpointRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_checkpoint_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`CheckpointRepositoryProtocol`."""
+    repo = protocol_mock(CheckpointRepositoryProtocol)
     repo.get_sync_checkpoint.return_value = overrides.pop("get_sync_checkpoint", None)
     repo.save_sync_checkpoint.return_value = overrides.pop("save_sync_checkpoint", None)
     # Mirrors the real non-persisting-on-miss semantics: a fresh entity, not None.
-    if "get_or_create_sync_checkpoint" not in overrides:
-        repo.get_or_create_sync_checkpoint = AsyncMock(
-            side_effect=lambda user_id, service, entity_type: SyncCheckpoint(
-                user_id=user_id, service=service, entity_type=entity_type
-            )
+    repo.get_or_create_sync_checkpoint.side_effect = (
+        lambda user_id, service, entity_type: SyncCheckpoint(
+            user_id=user_id, service=service, entity_type=entity_type
         )
+    )
     # Poll lease defaults to *won*, so a test that isn't about single-flight
     # exercises the whole poll path. Tests for the losing branch pass
     # ``try_claim_poll=AsyncMock(return_value=False)``.
@@ -189,9 +276,9 @@ def make_mock_checkpoint_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_like_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`LikeRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_like_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`LikeRepositoryProtocol`."""
+    repo = protocol_mock(LikeRepositoryProtocol)
     repo.save_track_likes_batch.return_value = overrides.pop(
         "save_track_likes_batch", []
     )
@@ -208,9 +295,9 @@ def make_mock_like_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_artist_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`ArtistRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_artist_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`ArtistRepositoryProtocol`."""
+    repo = protocol_mock(ArtistRepositoryProtocol)
     repo.get_artist_by_id.return_value = overrides.pop("get_artist_by_id", None)
     repo.save_artists.return_value = overrides.pop("save_artists", [])
     repo.list_artists.return_value = overrides.pop(
@@ -235,9 +322,9 @@ def make_mock_artist_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_artist_connector_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`ArtistConnectorRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_artist_connector_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`ArtistConnectorRepositoryProtocol`."""
+    repo = protocol_mock(ArtistConnectorRepositoryProtocol)
     repo.bulk_upsert_connector_artists.return_value = overrides.pop(
         "bulk_upsert_connector_artists", {}
     )
@@ -259,9 +346,9 @@ def make_mock_artist_connector_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_artist_favorite_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`ArtistFavoriteRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_artist_favorite_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`ArtistFavoriteRepositoryProtocol`."""
+    repo = protocol_mock(ArtistFavoriteRepositoryProtocol)
     repo.favorite.return_value = overrides.pop("favorite", True)
     repo.unfavorite.return_value = overrides.pop("unfavorite", True)
     repo.get_favorite_status_batch.return_value = overrides.pop(
@@ -275,9 +362,9 @@ def make_mock_artist_favorite_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_artist_alias_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`ArtistAliasRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_artist_alias_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`ArtistAliasRepositoryProtocol`."""
+    repo = protocol_mock(ArtistAliasRepositoryProtocol)
     repo.replace_aliases.return_value = overrides.pop("replace_aliases", 0)
     repo.get_artist_equivalence.return_value = overrides.pop(
         "get_artist_equivalence", EMPTY_EQUIVALENCE
@@ -287,20 +374,20 @@ def make_mock_artist_alias_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_artist_minter(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`ArtistMinterProtocol`."""
+def make_mock_artist_minter(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`ArtistMinterProtocol`."""
     from src.domain.repositories.artist import ArtistMintSummary
 
-    minter = AsyncMock()
+    minter = protocol_mock(ArtistMinterProtocol)
     minter.mint.return_value = overrides.pop("mint", ArtistMintSummary())
     for k, v in overrides.items():
         setattr(minter, k, v)
     return minter
 
 
-def make_mock_artist_enrichment_provider(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`ArtistEnrichmentProviderProtocol`."""
-    provider = AsyncMock()
+def make_mock_artist_enrichment_provider(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`ArtistEnrichmentProviderProtocol`."""
+    provider = protocol_mock(ArtistEnrichmentProviderProtocol)
     provider.search_artist.return_value = overrides.pop("search_artist", [])
     provider.lookup_artist.return_value = overrides.pop("lookup_artist", None)
     for k, v in overrides.items():
@@ -308,9 +395,9 @@ def make_mock_artist_enrichment_provider(**overrides) -> AsyncMock:
     return provider
 
 
-def make_mock_plays_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`PlaysRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_plays_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`PlaysRepositoryProtocol`."""
+    repo = protocol_mock(PlaysRepositoryProtocol)
     repo.bulk_insert_plays.return_value = overrides.pop("bulk_insert_plays", (0, 0))
     repo.get_play_aggregations.return_value = overrides.pop("get_play_aggregations", {})
     repo.recompute_track_play_aggregates.return_value = overrides.pop(
@@ -323,17 +410,17 @@ def make_mock_plays_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_metrics_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`MetricsRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_metrics_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`MetricsRepositoryProtocol`."""
+    repo = protocol_mock(MetricsRepositoryProtocol)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
 
 
-def make_mock_workflow_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`WorkflowRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_workflow_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`WorkflowRepositoryProtocol`."""
+    repo = protocol_mock(WorkflowRepositoryProtocol)
     repo.list_workflows.return_value = overrides.pop("list_workflows", [])
     repo.get_workflow_by_id.return_value = overrides.pop("get_workflow_by_id", None)
     repo.save_workflow.side_effect = overrides.pop("save_workflow", lambda w: w)
@@ -343,9 +430,9 @@ def make_mock_workflow_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_playlist_link_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`PlaylistLinkRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_playlist_link_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`PlaylistLinkRepositoryProtocol`."""
+    repo = protocol_mock(PlaylistLinkRepositoryProtocol)
     repo.get_links_for_playlist.return_value = overrides.pop(
         "get_links_for_playlist", []
     )
@@ -363,9 +450,9 @@ def make_mock_playlist_link_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_sync_base_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`PlaylistSyncBaseRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_sync_base_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`PlaylistSyncBaseRepositoryProtocol`."""
+    repo = protocol_mock(PlaylistSyncBaseRepositoryProtocol)
     repo.get_for_link.return_value = overrides.pop("get_for_link", None)
     repo.upsert.side_effect = overrides.pop("upsert", lambda base: base)
     for k, v in overrides.items():
@@ -373,9 +460,9 @@ def make_mock_sync_base_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_match_review_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`MatchReviewRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_match_review_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`MatchReviewRepositoryProtocol`."""
+    repo = protocol_mock(MatchReviewRepositoryProtocol)
     repo.list_pending_reviews.return_value = overrides.pop(
         "list_pending_reviews", ([], 0)
     )
@@ -401,9 +488,9 @@ def make_mock_match_review_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_preference_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`PreferenceRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_preference_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`PreferenceRepositoryProtocol`."""
+    repo = protocol_mock(PreferenceRepositoryProtocol)
     repo.get_preferences.return_value = overrides.pop("get_preferences", {})
     repo.set_preferences.side_effect = overrides.pop(
         "set_preferences", lambda prefs, **kw: list(prefs)
@@ -419,9 +506,9 @@ def make_mock_preference_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_tag_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`TagRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_tag_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`TagRepositoryProtocol`."""
+    repo = protocol_mock(TagRepositoryProtocol)
     repo.get_tags.return_value = overrides.pop("get_tags", {})
     repo.add_tags.side_effect = overrides.pop("add_tags", lambda tags, **kw: list(tags))
     repo.remove_tags.side_effect = overrides.pop(
@@ -436,9 +523,9 @@ def make_mock_tag_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_connector_playlist_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`ConnectorPlaylistRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_connector_playlist_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`ConnectorPlaylistRepositoryProtocol`."""
+    repo = protocol_mock(ConnectorPlaylistRepositoryProtocol)
     repo.upsert_model.side_effect = overrides.pop("upsert_model", lambda cp: cp)
     repo.list_summaries_by_connector.return_value = overrides.pop(
         "list_summaries_by_connector", []
@@ -455,9 +542,9 @@ def make_mock_metric_config() -> MagicMock:
     return MagicMock()
 
 
-def make_mock_playlist_assignment_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`PlaylistAssignmentRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_playlist_assignment_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`PlaylistAssignmentRepositoryProtocol`."""
+    repo = protocol_mock(PlaylistAssignmentRepositoryProtocol)
     repo.list_for_user.return_value = overrides.pop("list_for_user", [])
     repo.list_for_ids.side_effect = overrides.pop(
         "list_for_ids",
@@ -486,9 +573,9 @@ def make_mock_playlist_assignment_repo(**overrides) -> AsyncMock:
     return repo
 
 
-def make_mock_workflow_run_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`WorkflowRunRepositoryProtocol`."""
-    repo = AsyncMock()
+def make_mock_workflow_run_repo(**overrides) -> NonCallableMagicMock:
+    """Build a mock of :class:`WorkflowRunRepositoryProtocol`."""
+    repo = protocol_mock(WorkflowRunRepositoryProtocol)
     repo.create_run.side_effect = overrides.pop("create_run", lambda r: r)
     # update_run_status returns bool: True = a row was transitioned (default),
     # False = a guarded terminal write no-op'd (already terminal).
@@ -546,18 +633,18 @@ def make_tracking_emitter(uow: MagicMock) -> tuple[AsyncMock, list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def make_mock_resolution_recorder() -> AsyncMock:
+def make_mock_resolution_recorder() -> NonCallableMagicMock:
     """Recorder mock that records everything and suppresses nothing.
 
     ``active_rejections`` and ``backoff_suppressed`` return empty on purpose:
     the failure that matters is a real match silently withheld, so the default
     has to be the permissive one.
 
-    ``matcher_version`` is passed to the constructor rather than assigned after
-    it — the protocol declares a read-only property, and a test that assigns to
-    it is asserting a capability production code does not have.
+    ``matcher_version`` is set when the mock is built rather than assigned
+    after it — the protocol declares a read-only property, and a test that
+    assigns to it is asserting a capability production code does not have.
     """
-    recorder = AsyncMock(matcher_version="test-matcher")
+    recorder = protocol_mock(ResolutionRecorderProtocol, matcher_version="test-matcher")
     recorder.record.return_value = 0
     recorder.record_supersessions.return_value = 0
     recorder.retire_mapping.return_value = True
@@ -576,7 +663,7 @@ def make_mock_resolution_recorder() -> AsyncMock:
     return recorder
 
 
-def attach_resolution_recorder(uow: MagicMock) -> AsyncMock:
+def attach_resolution_recorder(uow: MagicMock) -> NonCallableMagicMock:
     """Wire a permissive recorder onto a hand-rolled UoW mock.
 
     Connector tests build their own bare ``MagicMock()`` UoWs rather than using
@@ -588,7 +675,7 @@ def attach_resolution_recorder(uow: MagicMock) -> AsyncMock:
     return recorder
 
 
-def attach_artist_alias_repo(uow: MagicMock) -> AsyncMock:
+def attach_artist_alias_repo(uow: MagicMock) -> NonCallableMagicMock:
     """Wire an alias cache that holds no aliases onto a hand-rolled UoW mock.
 
     The canonical-reuse step reads the batch's alias groups before its
@@ -599,7 +686,7 @@ def attach_artist_alias_repo(uow: MagicMock) -> AsyncMock:
     return repo
 
 
-def attach_match_review_repo(uow: MagicMock) -> AsyncMock:
+def attach_match_review_repo(uow: MagicMock) -> NonCallableMagicMock:
     """Wire a match-review repository onto a hand-rolled UoW mock.
 
     The inward resolvers queue a suspect ISRC collision's review through
@@ -620,7 +707,7 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     Parameters
     ----------
     track_repo, playlist_repo, connector_repo, checkpoint_repo, like_repo,
-    plays_repo, metrics_repo : AsyncMock, optional
+    plays_repo, metrics_repo : mock, optional
         Pre-built repository mocks. If omitted, a default is created.
     connector_provider : MagicMock, optional
         Pre-built service connector provider.
@@ -628,8 +715,9 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     Returns
     -------
     MagicMock
-        A mock UoW whose ``get_*_repository()`` methods return ``AsyncMock``
-        repositories and whose async-context-manager protocol is wired up.
+        A mock UoW whose ``get_*_repository()`` methods return mocks specced
+        by :func:`protocol_mock` and whose async-context-manager protocol is
+        wired up.
     """
     uow = MagicMock()
 
@@ -688,7 +776,7 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
             "workflow_run_repo", make_mock_workflow_run_repo()
         )
     )
-    default_version_repo = AsyncMock()
+    default_version_repo = protocol_mock(WorkflowVersionRepositoryProtocol)
     default_version_repo.get_max_version_number.return_value = 0
     uow.get_workflow_version_repository = MagicMock(
         return_value=repo_overrides.get("workflow_version_repo", default_version_repo)
@@ -726,29 +814,42 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     )
 
     uow.get_stats_repository = MagicMock(
-        return_value=repo_overrides.get("stats_repo", AsyncMock())
+        return_value=repo_overrides.get(
+            "stats_repo", protocol_mock(StatsRepositoryProtocol)
+        )
     )
 
     uow.get_connector_play_repository = MagicMock(
-        return_value=repo_overrides.get("connector_play_repo", AsyncMock())
+        return_value=repo_overrides.get(
+            "connector_play_repo", protocol_mock(ConnectorPlayRepositoryProtocol)
+        )
     )
 
     uow.get_schedule_repository = MagicMock(
-        return_value=repo_overrides.get("schedule_repo", AsyncMock())
+        return_value=repo_overrides.get(
+            "schedule_repo", protocol_mock(ScheduleRepositoryProtocol)
+        )
     )
 
     uow.get_chat_feedback_repository = MagicMock(
-        return_value=repo_overrides.get("chat_feedback_repo", AsyncMock())
+        return_value=repo_overrides.get(
+            "chat_feedback_repo", protocol_mock(ChatFeedbackRepositoryProtocol)
+        )
     )
 
     # Identity write seam (v0.10.2). Defaults return "nothing suppressed" so a
     # use-case test that does not care about the negative cache behaves exactly
     # as it did before the seam existed.
     uow.get_resolution_event_repository = MagicMock(
-        return_value=repo_overrides.get("resolution_event_repo", AsyncMock())
+        return_value=repo_overrides.get(
+            "resolution_event_repo", protocol_mock(ResolutionEventRepositoryProtocol)
+        )
     )
     uow.get_resolution_negative_repository = MagicMock(
-        return_value=repo_overrides.get("resolution_negative_repo", AsyncMock())
+        return_value=repo_overrides.get(
+            "resolution_negative_repo",
+            protocol_mock(ResolutionNegativeRepositoryProtocol),
+        )
     )
     uow.get_resolution_recorder = MagicMock(
         return_value=repo_overrides.get(
