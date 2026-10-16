@@ -11,6 +11,7 @@ from sqlalchemy.dialects import postgresql
 from src.domain.entities import ArtistCredit
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
+from src.domain.matching.artist_equivalence import ArtistEquivalence
 from src.domain.repositories.errors import IdentityKeyClaimedError
 from src.infrastructure.persistence.database.models import DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
@@ -477,6 +478,54 @@ class TestFindTracksByTitleArtist:
 
         assert "Seq Scan on tracks" not in plan
         assert "ix_tracks_user_normalized_lookup" in plan
+
+
+class TestAliasArm:
+    """The probe's alias arm: a pair also asks under its artist's other names."""
+
+    TEED_GROUP = ArtistEquivalence.from_groups([
+        ["TEED", "Totally Enormous Extinct Dinosaurs"]
+    ])
+
+    async def test_both_spellings_in_one_batch_reach_the_one_canonical(
+        self, db_session
+    ):
+        # Catches an alias arm folded into the exact arm's one-claim lookup:
+        # one spelling takes the track and the other mints a duplicate.
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        saved = await track_repo.save_track(
+            make_track(title="Garden", artist="Totally Enormous Extinct Dinosaurs")
+        )
+
+        result = await track_repo.find_tracks_by_title_artist(
+            [("Garden", "TEED"), ("Garden", "Totally Enormous Extinct Dinosaurs")],
+            user_id="default",
+            artist_equivalence=self.TEED_GROUP,
+        )
+
+        assert {key: track.id for key, track in result.items()} == {
+            ("garden", "teed"): saved.id,
+            ("garden", "totally enormous extinct dinosaurs"): saved.id,
+        }
+
+    async def test_an_exact_spelling_outranks_an_older_alias_reached_track(
+        self, db_session
+    ):
+        # Catches an alias arm that claims in row order: the older full-name
+        # track would answer a pair the library also spells exactly.
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        _ = await track_repo.save_track(
+            make_track(title="Garden", artist="Totally Enormous Extinct Dinosaurs")
+        )
+        spelled = await track_repo.save_track(make_track(title="Garden", artist="TEED"))
+
+        result = await track_repo.find_tracks_by_title_artist(
+            [("Garden", "TEED")],
+            user_id="default",
+            artist_equivalence=self.TEED_GROUP,
+        )
+
+        assert result["garden", "teed"].id == spelled.id
 
 
 class TestNormalizedLookup:

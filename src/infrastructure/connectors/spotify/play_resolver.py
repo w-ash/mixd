@@ -17,6 +17,10 @@ from src.domain.entities import (
     Track,
 )
 from src.domain.entities.shared import JsonValue
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+)
 from src.domain.matching.play_projection import (
     build_play_context,
     group_into_islands,
@@ -182,6 +186,7 @@ class SpotifyConnectorPlayResolver:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
+        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> PlayResolutionOutcome:
         """Resolve Spotify connector plays with full metadata preservation.
 
@@ -262,7 +267,11 @@ class SpotifyConnectorPlayResolver:
             canonical_tracks_map,
             canonical_track_metrics,
         ) = await self._inward_resolver.resolve_to_canonical_tracks(
-            unique_spotify_ids, uow, user_id=user_id, hints=fallback_hints
+            unique_spotify_ids,
+            uow,
+            user_id=user_id,
+            hints=fallback_hints,
+            artist_equivalence=artist_equivalence,
         )
 
         # Step 3: Decide which listens clear the duration threshold. Plays

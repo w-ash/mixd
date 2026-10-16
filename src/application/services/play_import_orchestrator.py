@@ -15,6 +15,7 @@ from typing import Final
 from attrs import define, field
 
 from src.application.connector_protocols import Closeable
+from src.application.services.artist_equivalence import build_artist_equivalence
 from src.application.services.play_projection_service import (
     PROJECTION_STAT_LABELS,
     PlayProjectionService,
@@ -366,8 +367,17 @@ class PlayImportOrchestrator:
                         ):
                             async with measure_chunk() as probe:
                                 async with phase("resolve"):
+                                    # Once per chunk: a scrobble credited
+                                    # "TEED" reaches the library's full-name
+                                    # track only through the alias groups.
+                                    artist_equivalence = await build_artist_equivalence(
+                                        uow, (play.artist_name for play in chunk)
+                                    )
                                     outcome = await resolver.resolve_connector_plays(
-                                        chunk, uow, user_id=user_id
+                                        chunk,
+                                        uow,
+                                        user_id=user_id,
+                                        artist_equivalence=artist_equivalence,
                                     )
                                 track_plays = outcome.track_plays
                                 metrics = outcome.metrics

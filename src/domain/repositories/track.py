@@ -13,6 +13,10 @@ from src.domain.entities import (
     Track,
 )
 from src.domain.entities.shared import SortKey
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+)
 from src.domain.matching.types import (
     MatchResultsById,
     ProgressCallback,
@@ -348,12 +352,19 @@ class TrackRepositoryProtocol(Protocol):
         ...
 
     def find_tracks_by_title_artist(
-        self, pairs: list[tuple[str, str]], *, user_id: str
+        self,
+        pairs: list[tuple[str, str]],
+        *,
+        user_id: str,
+        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> Awaitable[dict[tuple[str, str], Track]]:
         """Find existing tracks by (title, first_artist) pairs (case-insensitive).
 
         Args:
             pairs: List of (title, first_artist_name) tuples to search for.
+            artist_equivalence: The batch's alias groups. A pair no track
+                answers under its own artist spelling also matches a track
+                credited to another name in its artist's group.
 
         Returns:
             Dict keyed by lowercased (title, artist) → Track.

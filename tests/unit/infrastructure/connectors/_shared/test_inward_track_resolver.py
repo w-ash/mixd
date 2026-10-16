@@ -14,6 +14,7 @@ import pytest
 
 from src.config import create_matching_config
 from src.domain.entities import ConnectorArtistCredit, Track
+from src.domain.matching.artist_equivalence import ArtistEquivalence
 from src.domain.matching.canonical_resolution import (
     Create,
     DeferToReview,
@@ -69,6 +70,7 @@ class FakeInwardResolver(InwardTrackResolver):
         uow: object,
         *,
         user_id: str,
+        artist_equivalence: ArtistEquivalence,
     ) -> dict[str, Track]:
         self.reuse_calls.append(missing_ids)
         return {

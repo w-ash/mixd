@@ -112,6 +112,21 @@ class TestCompilation:
         assert not EMPTY_EQUIVALENCE.same(TEED, TEED)
 
 
+class TestAliasesOf:
+    def test_only_the_other_names_of_the_same_artist(self):
+        # Catches a lookup that returns the asked name itself, another
+        # artist's names, or misses an unnormalized spelling: each one
+        # widens or empties the probe's alias arm.
+        equivalence = ArtistEquivalence.from_groups([
+            [TEED, FULL_NAME, "Orlando Higginbottom"],
+            ["Tourist", "William Phillips"],
+        ])
+        assert equivalence.aliases_of(TEED) == (
+            "orlando higginbottom",
+            "totally enormous extinct dinosaurs",
+        )
+
+
 class TestConfidenceWithAliases:
     def test_alias_data_makes_the_abbreviation_an_artist_match(self):
         config = make_config()
