@@ -371,7 +371,7 @@ class ArtistAliasRepositoryProtocol(Protocol):
         ...
 
     def get_artist_equivalence(
-        self, names: Sequence[str]
+        self, names: Sequence[str | None]
     ) -> Awaitable[ArtistEquivalence]:
         """The alias groups covering a batch's credited artist names.
 
@@ -379,7 +379,7 @@ class ArtistAliasRepositoryProtocol(Protocol):
         artist is one group, and a spelling two cached artists state names
         neither. The empty equivalence when the batch credits nobody or no
         cached alias reaches any of its names, so the matcher compares plain
-        strings.
+        strings. A missing or blank name is skipped.
         """
         ...
 

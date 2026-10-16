@@ -123,16 +123,18 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
         return found
 
     @db_operation("get_artist_equivalence")
-    async def get_artist_equivalence(self, names: Sequence[str]) -> ArtistEquivalence:
+    async def get_artist_equivalence(
+        self, names: Sequence[str | None]
+    ) -> ArtistEquivalence:
         """The alias groups covering a batch's credited artist names.
 
         One name lookup for the distinct names, then one read of every row
         that states a spelling of the connector artists they reach — other
         artists' rows included, so a spelling two artists share names
-        neither. Blank names are dropped; no names, or no cached alias for
-        any of them, gives the empty equivalence.
+        neither. Missing and blank names are dropped; no names, or no cached
+        alias for any of them, gives the empty equivalence.
         """
-        distinct = sorted({name.strip() for name in names if name.strip()})
+        distinct = sorted({name.strip() for name in names if name and name.strip()})
         if not distinct:
             return EMPTY_EQUIVALENCE
 

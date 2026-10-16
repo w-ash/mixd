@@ -263,6 +263,20 @@ class TestArtistEquivalence:
         assert equivalence.same(TEED, FULL_NAME)
         assert len([sql for sql in captured_sql if "artist_aliases" in sql]) == 2
 
+    async def test_a_missing_name_in_the_batch_is_skipped(self, db_session):
+        # Catches a strip on every entry: one credit with no name raised and
+        # cost the whole batch its alias groups.
+        uow = get_unit_of_work(db_session)
+        await seed_aliases(uow, TEED, FULL_NAME)
+
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            None,
+            " ",
+            TEED,
+        ])
+
+        assert equivalence.aliases_of(TEED) == ("totally enormous extinct dinosaurs",)
+
     async def test_no_names_reads_nothing(self, db_session, captured_sql):
         aliases = get_unit_of_work(db_session).get_artist_alias_repository()
         captured_sql.clear()
