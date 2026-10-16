@@ -121,7 +121,9 @@ class TestAuthUrlGate:
         resp = await client.get("/api/v1/connectors/spotify/auth-url")
 
         assert resp.status_code == 200
-        assert resp.json()["auth_url"]
+        assert resp.json()["auth_url"].startswith(
+            "https://accounts.spotify.com/authorize?"
+        )
 
 
 class TestMusickitConfig:

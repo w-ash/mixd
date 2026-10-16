@@ -62,7 +62,8 @@ class TestCreatePlaylistLinkHappyPath:
     """Creating a new playlist link."""
 
     @pytest.mark.asyncio
-    async def test_creates_link_with_push_direction(self):
+    @pytest.mark.parametrize("direction", [SyncDirection.PUSH, SyncDirection.PULL])
+    async def test_creates_link_with_requested_direction(self, direction):
         playlist = make_playlist(name="My Playlist")
         uow = _make_uow_with_playlist(playlist)
 
@@ -72,33 +73,16 @@ class TestCreatePlaylistLinkHappyPath:
                 playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_identifier="ext123",
-                sync_direction=SyncDirection.PUSH,
+                sync_direction=direction,
             ),
             uow,
         )
 
+        assert result.link.playlist_id == playlist.id
         assert result.link.connector_name == "spotify"
         assert result.link.connector_playlist_identifier == "ext123"
-        assert result.link.sync_direction == SyncDirection.PUSH
+        assert result.link.sync_direction == direction
         assert result.link.sync_status == SyncStatus.NEVER_SYNCED
-
-    @pytest.mark.asyncio
-    async def test_creates_link_with_pull_direction(self):
-        playlist = make_playlist(name="My Playlist")
-        uow = _make_uow_with_playlist(playlist)
-
-        result = await CreatePlaylistLinkUseCase().execute(
-            CreatePlaylistLinkCommand(
-                user_id="test-user",
-                playlist_id=playlist.id,
-                connector="spotify",
-                connector_playlist_identifier="ext123",
-                sync_direction=SyncDirection.PULL,
-            ),
-            uow,
-        )
-
-        assert result.link.sync_direction == SyncDirection.PULL
 
     @pytest.mark.asyncio
     async def test_delegates_identifier_parsing_to_the_connector(self):
@@ -122,11 +106,17 @@ class TestCreatePlaylistLinkHappyPath:
         assert result.link.connector_playlist_identifier == "37i9dQZF1DZ06evO05tE88"
 
     @pytest.mark.asyncio
-    async def test_upserts_connector_playlist(self):
+    async def test_caches_the_fetched_playlist_and_names_the_link_after_it(self):
         playlist = make_playlist(name="My Playlist")
         uow = _make_uow_with_playlist(playlist)
+        fetched = uow.get_service_connector_provider().get_connector().get_playlist
+        fetched.return_value = make_connector_playlist(
+            connector_name="spotify",
+            connector_playlist_identifier="ext123",
+            name="Road Trip",
+        )
 
-        await CreatePlaylistLinkUseCase().execute(
+        result = await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
                 user_id="test-user",
                 playlist_id=playlist.id,
@@ -136,7 +126,11 @@ class TestCreatePlaylistLinkHappyPath:
             uow,
         )
 
-        uow.get_connector_playlist_repository().upsert_model.assert_called_once()
+        uow.get_connector_playlist_repository().upsert_model.assert_awaited_once_with(
+            fetched.return_value
+        )
+        assert result.link.connector_playlist_name == "Road Trip"
+        uow.commit.assert_awaited_once()
 
 
 class TestCreatePlaylistLinkErrors:

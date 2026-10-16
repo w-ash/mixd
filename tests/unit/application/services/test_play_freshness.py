@@ -7,6 +7,7 @@ collected mid-flight, or being cancelled out from under a second waiter.
 """
 
 import asyncio
+import gc
 
 import pytest
 
@@ -84,39 +85,18 @@ class TestCoalescing:
         gate.set()
         await asyncio.gather(t1, t2)
 
-    async def test_a_finished_refresh_does_not_block_the_next_one(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        recorder = _Recorder()
-        monkeypatch.setattr(play_freshness, "ensure_fresh_plays", recorder)
-
-        first = spawn_ensure_fresh_plays("u1", trigger_detail="web")
-        assert first is not None
-        await first
-        # Past the throttle window, a finished refresh is replaceable.
-        reset_play_refresh_flight()
-        second = spawn_ensure_fresh_plays("u1", trigger_detail="web")
-        assert second is not None
-        await second
-
-        assert len(recorder.calls) == 2
-
     async def test_the_map_empties_when_a_refresh_completes(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # A map that only grew would be a slow leak on a long-lived process. A
-        # fresh task for the same key proves the finished one was evicted.
-        recorder = _Recorder()
-        monkeypatch.setattr(play_freshness, "ensure_fresh_plays", recorder)
+        # A map that only grew would be a slow leak on a long-lived process.
+        monkeypatch.setattr(play_freshness, "ensure_fresh_plays", _Recorder())
 
         first = spawn_ensure_fresh_plays("u1", trigger_detail="web")
         assert first is not None
         await first
         await asyncio.sleep(0)
 
-        # Within the throttle window a second trigger is declined outright,
-        # which is the point: no task, and no transaction to ask about one.
-        assert spawn_ensure_fresh_plays("u1", trigger_detail="web") is None
+        assert play_freshness._flight._tasks == {}
 
     async def test_a_failing_refresh_is_swallowed_and_forgotten(
         self, monkeypatch: pytest.MonkeyPatch
@@ -125,17 +105,25 @@ class TestCoalescing:
             raise RuntimeError("spotify down")
 
         monkeypatch.setattr(play_freshness, "ensure_fresh_plays", _boom)
-
-        task = spawn_ensure_fresh_plays("u1", trigger_detail="web")
-        assert task is not None
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
+        loop = asyncio.get_running_loop()
+        reported: list[dict] = []
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda _loop, context: reported.append(context))
+        try:
+            task = spawn_ensure_fresh_plays("u1", trigger_detail="web")
+            assert task is not None
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert task.done()
+            del task
+            gc.collect()
+        finally:
+            loop.set_exception_handler(previous_handler)
 
         # The read this served has already returned; a background failure must
-        # not surface as an unretrieved-exception warning or block a retry.
-        assert task.done()
-        reset_play_refresh_flight()
-        assert spawn_ensure_fresh_plays("u1", trigger_detail="web") is not task
+        # not surface as an unretrieved-exception report or stay in the map.
+        assert reported == []
+        assert play_freshness._flight._tasks == {}
 
 
 class TestBoundedWait:

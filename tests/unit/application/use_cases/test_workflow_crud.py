@@ -46,17 +46,7 @@ class TestListWorkflows:
         )
 
         assert result.total_count == 2
-        assert len(result.workflows) == 2
-
-    async def test_empty_list(self) -> None:
-        uow = make_mock_uow()
-
-        result = await ListWorkflowsUseCase().execute(
-            ListWorkflowsCommand(user_id="test-user"), uow
-        )
-
-        assert result.total_count == 0
-        assert result.workflows == []
+        assert result.workflows == workflows
 
 
 class TestGetWorkflow:
@@ -92,8 +82,10 @@ class TestCreateWorkflow:
             CreateWorkflowCommand(user_id="test-user", definition=wf_def), uow
         )
 
-        repo.save_workflow.assert_called_once()
-        assert result.workflow.definition == wf_def
+        saved = repo.save_workflow.call_args[0][0]
+        assert saved.user_id == "test-user"
+        assert saved.definition == wf_def
+        assert result.workflow is saved
 
     async def test_validation_failure_raises(self) -> None:
         from src.domain.entities.workflow import WorkflowDef
@@ -189,42 +181,34 @@ class TestDuplicateWorkflow:
 
 
 class TestUpdateWorkflow:
-    async def test_updates_workflow(self) -> None:
+    async def test_saves_the_new_definition_on_the_existing_workflow(self) -> None:
         existing = make_workflow()
         new_def = make_workflow_def(name="Updated")
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         uow = make_mock_uow(workflow_repo=repo)
 
-        await UpdateWorkflowUseCase().execute(
+        result = await UpdateWorkflowUseCase().execute(
             UpdateWorkflowCommand(
                 user_id="test-user", workflow_id=existing.id, definition=new_def
             ),
             uow,
         )
 
-        repo.save_workflow.assert_called_once()
+        saved = repo.save_workflow.call_args[0][0]
+        assert saved.id == existing.id
+        assert saved.definition == new_def
+        assert result.workflow is saved
+        repo.get_workflow_by_id.assert_awaited_once_with(
+            existing.id, user_id="test-user"
+        )
 
-    async def test_version_increments_when_tasks_change(self) -> None:
-        """definition_version bumps when the task pipeline is modified."""
-        from src.domain.entities.workflow import WorkflowTaskDef
-
-        existing = make_workflow(definition_version=3)
-        new_tasks = [
-            WorkflowTaskDef(
-                id="source", type="source.liked_tracks", config={"service": "spotify"}
-            ),
-            WorkflowTaskDef(
-                id="filter",
-                type="filter.by_metric",
-                config={"metric_name": "play_count", "min_value": 1},
-                upstream=["source"],
-            ),
-        ]
-        new_def = make_workflow_def(tasks=new_tasks)
+    async def test_name_only_change_keeps_version_and_takes_no_snapshot(self) -> None:
+        """definition_version stays the same when only name/description changes."""
+        existing = make_workflow(definition_version=5)
+        # Same tasks, different name
+        new_def = make_workflow_def(name="New Name", tasks=existing.definition.tasks)
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         version_repo = AsyncMock()
-        version_repo.get_max_version_number.return_value = 0
-        version_repo.create_version.side_effect = lambda v: v
         uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
 
         await UpdateWorkflowUseCase().execute(
@@ -235,25 +219,9 @@ class TestUpdateWorkflow:
         )
 
         saved = repo.save_workflow.call_args[0][0]
-        assert saved.definition_version == 4
-
-    async def test_version_preserved_when_only_name_changes(self) -> None:
-        """definition_version stays the same when only name/description changes."""
-        existing = make_workflow(definition_version=5)
-        # Same tasks, different name
-        new_def = make_workflow_def(name="New Name", tasks=existing.definition.tasks)
-        repo = make_mock_workflow_repo(get_workflow_by_id=existing)
-        uow = make_mock_uow(workflow_repo=repo)
-
-        await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(
-                user_id="test-user", workflow_id=existing.id, definition=new_def
-            ),
-            uow,
-        )
-
-        saved = repo.save_workflow.call_args[0][0]
         assert saved.definition_version == 5
+        assert saved.definition.name == "New Name"
+        version_repo.create_version.assert_not_called()
 
     async def test_not_found_propagates(self) -> None:
         repo = make_mock_workflow_repo()
@@ -270,8 +238,10 @@ class TestUpdateWorkflow:
                 uow,
             )
 
-    async def test_creates_version_on_task_change(self) -> None:
-        """When tasks change, a version snapshot is created before saving."""
+    async def test_task_change_snapshots_prior_definition_and_bumps_version(
+        self,
+    ) -> None:
+        """When tasks change, the prior definition is snapshotted and the version bumps."""
         from src.domain.entities.workflow import WorkflowTaskDef
 
         existing = make_workflow(definition_version=3)
@@ -305,23 +275,7 @@ class TestUpdateWorkflow:
         assert snapshot.version == 1
         assert snapshot.workflow_id == existing.id
         assert snapshot.definition == existing.definition
-
-    async def test_no_version_on_name_only_change(self) -> None:
-        """No version is created when only name/description changes."""
-        existing = make_workflow(definition_version=5)
-        new_def = make_workflow_def(name="New Name", tasks=existing.definition.tasks)
-        repo = make_mock_workflow_repo(get_workflow_by_id=existing)
-        version_repo = AsyncMock()
-        uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
-
-        await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(
-                user_id="test-user", workflow_id=existing.id, definition=new_def
-            ),
-            uow,
-        )
-
-        version_repo.create_version.assert_not_called()
+        assert repo.save_workflow.call_args[0][0].definition_version == 4
 
 
 class TestGenerateChangeSummary:

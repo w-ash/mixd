@@ -4,13 +4,13 @@ Tests playlist retrieval by internal ID and external connector ID,
 including not-found scenarios and execution timing.
 """
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 import pytest
 
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
-    ReadCanonicalPlaylistResult,
     ReadCanonicalPlaylistUseCase,
     ReadPlaylistTracksPageCommand,
     ReadPlaylistTracksPageUseCase,
@@ -18,6 +18,18 @@ from src.application.use_cases.read_canonical_playlist import (
 from src.domain.exceptions import NotFoundError
 from tests.fixtures import make_playlist, make_playlist_with_entries
 from tests.fixtures.mocks import make_mock_uow
+
+
+class _SteppingClock:
+    """Stand-in for the timer's ``datetime``: each ``now()`` is 250 ms later."""
+
+    def __init__(self) -> None:
+        self._now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def now(self, tz=None):
+        current = self._now
+        self._now += timedelta(milliseconds=250)
+        return current
 
 
 @pytest.fixture
@@ -29,31 +41,10 @@ def mock_uow():
 class TestReadCanonicalPlaylistCommand:
     """Test command construction and validation."""
 
-    def test_valid_command_with_internal_id(self):
-        """Test command with numeric internal ID."""
-        cmd = ReadCanonicalPlaylistCommand(user_id="test-user", playlist_id="42")
-        assert cmd.playlist_id == "42"
-        assert cmd.connector is None
-
-    def test_valid_command_with_connector_id(self):
-        """Test command with external connector ID."""
-        cmd = ReadCanonicalPlaylistCommand(
-            user_id="test-user",
-            playlist_id="37i9dQZF1DX0XUsuxWHRQd",
-            connector="spotify",
-        )
-        assert cmd.connector == "spotify"
-
     def test_empty_id_rejected(self):
         """Test that empty playlist ID is rejected."""
         with pytest.raises(ValueError):
             ReadCanonicalPlaylistCommand(user_id="test-user", playlist_id="")
-
-    def test_command_is_frozen(self):
-        """Test command immutability."""
-        cmd = ReadCanonicalPlaylistCommand(user_id="test-user", playlist_id="1")
-        with pytest.raises(AttributeError):
-            cmd.playlist_id = "2"
 
 
 class TestReadCanonicalPlaylistUseCase:
@@ -71,9 +62,7 @@ class TestReadCanonicalPlaylistUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert isinstance(result, ReadCanonicalPlaylistResult)
-        assert result.playlist is not None
-        assert result.playlist.name == "Found Playlist"
+        assert result.playlist is playlist
         assert not result.errors
 
     async def test_lookup_by_connector_id(self, mock_uow):
@@ -93,8 +82,7 @@ class TestReadCanonicalPlaylistUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert result.playlist is not None
-        assert result.playlist.name == "Spotify Playlist"
+        assert result.playlist is playlist
         playlist_repo.get_playlist_by_connector.assert_called_once_with(
             "spotify",
             "37i9dQZF1DX0XUsuxWHRQd",
@@ -131,16 +119,17 @@ class TestReadCanonicalPlaylistUseCase:
             "spotify", "some_external_id", user_id="test-user", raise_if_not_found=False
         )
 
-    async def test_result_includes_execution_time(self, mock_uow):
-        """Test that result includes non-negative execution time."""
+    async def test_result_reports_the_measured_read_time(self, mock_uow, monkeypatch):
+        """The read's duration reaches the result, measured by the timer's clock."""
+        monkeypatch.setattr(
+            "src.application.utilities.timing.datetime", _SteppingClock()
+        )
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = None
 
         command = ReadCanonicalPlaylistCommand(user_id="test-user", playlist_id="1")
-        use_case = ReadCanonicalPlaylistUseCase()
+        result = await ReadCanonicalPlaylistUseCase().execute(command, mock_uow)
 
-        result = await use_case.execute(command, mock_uow)
-
-        assert result.execution_time_ms >= 0
+        assert result.execution_time_ms == 250
 
 
 class TestReadPlaylistTracksPageUseCase:

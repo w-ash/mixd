@@ -7,7 +7,9 @@ registered Tidal connector, and the ``TidalAuthRequiredError`` /
 itself is patched — no Tidal network calls happen anywhere.
 """
 
+import base64
 from collections.abc import Generator
+import hashlib
 from unittest.mock import AsyncMock, patch
 import urllib.parse
 
@@ -55,12 +57,25 @@ async def clean_tidal_token(client: httpx2.AsyncClient) -> None:
     await DatabaseTokenStorage().delete_token("tidal", TEST_USER)
 
 
-async def mint_state(client: httpx2.AsyncClient) -> str:
-    """Create a real CSRF state row via the public auth-url endpoint."""
+async def mint_auth_params(client: httpx2.AsyncClient) -> dict[str, str]:
+    """Create a real CSRF state row via the public auth-url endpoint.
+
+    Returns the auth URL's query parameters (``state``, ``code_challenge``, …).
+    """
     resp = await client.get("/api/v1/connectors/tidal/auth-url")
     assert resp.status_code == 200, resp.text
     query = urllib.parse.urlparse(resp.json()["auth_url"]).query
-    return urllib.parse.parse_qs(query)["state"][0]
+    return {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
+
+
+async def mint_state(client: httpx2.AsyncClient) -> str:
+    return (await mint_auth_params(client))["state"]
+
+
+def _s256(verifier: str) -> str:
+    """RFC 7636 S256: base64url(SHA-256(verifier)) without padding."""
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
 async def load_tidal_token() -> StoredToken | None:
@@ -95,12 +110,13 @@ class TestTidalCallback:
         tidal_creds: None,
         clean_tidal_token: None,
     ) -> None:
-        state = await mint_state(client)
+        params = await mint_auth_params(client)
         exchange = AsyncMock(return_value=_exchanged_token())
 
         with patch(_EXCHANGE, exchange):
             resp = await client.get(
-                "/auth/tidal/callback", params={"code": "auth-code", "state": state}
+                "/auth/tidal/callback",
+                params={"code": "auth-code", "state": params["state"]},
             )
 
         assert resp.status_code in (302, 307)
@@ -109,11 +125,10 @@ class TestTidalCallback:
             == "/settings/integrations?auth=tidal&status=success"
         )
         # The exchange received the code and the server-held PKCE verifier
-        # recovered from the state row.
+        # recovered from the state row — the one the auth URL's challenge commits to.
         code, verifier = exchange.await_args.args
         assert code == "auth-code"
-        assert isinstance(verifier, str)
-        assert verifier
+        assert _s256(verifier) == params["code_challenge"]
         stored = await load_tidal_token()
         assert stored is not None
         assert stored["access_token"] == "tidal-at"

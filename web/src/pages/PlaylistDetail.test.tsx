@@ -1,11 +1,12 @@
 import { HttpResponse, http } from "msw";
 import { Route, Routes } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   PlaylistDetailSchema,
   PlaylistEntrySchema,
 } from "#/api/generated/model";
+import { toasts } from "#/lib/toasts";
 import {
   makeConnectorMetadata,
   makeConnectorPlaylistBrowse,
@@ -18,6 +19,7 @@ import {
   screen,
   userEvent,
   waitFor,
+  within,
 } from "#/test/test-utils";
 
 import { PlaylistDetail } from "./PlaylistDetail";
@@ -141,10 +143,12 @@ describe("PlaylistDetail", () => {
   });
 
   it("shows em-dash for null added_at values", async () => {
+    // Every other cell has a value, so the only em-dash left is the Added one.
     const entries = makePlaylistEntries([
       {
         title: "Old Import",
         artist: "Unknown",
+        album: "Some Album",
         duration_ms: 200_000,
         added_at: null,
       },
@@ -153,17 +157,9 @@ describe("PlaylistDetail", () => {
 
     renderPlaylistDetail();
 
-    await waitFor(() => {
-      expect(screen.getAllByText("Old Import").length).toBeGreaterThan(0);
-    });
-
-    // The "Added" column should contain an em-dash for null added_at
-    // There are multiple em-dashes (album column also uses them), so just
-    // confirm the row rendered and the added column header exists
-    expect(screen.getByText("Added")).toBeInTheDocument();
-    const emDashes = screen.getAllByText("\u2014");
-    // At least 2: one for null album, one for null added_at
-    expect(emDashes.length).toBeGreaterThanOrEqual(2);
+    const row = (await screen.findByText("Old Import")).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getAllByText("\u2014")).toHaveLength(1);
   });
 
   it("handles null duration_ms in total duration computation", async () => {
@@ -221,14 +217,11 @@ describe("PlaylistDetail", () => {
       expect(screen.getAllByText("Midnight City").length).toBeGreaterThan(0);
     });
 
-    const trackLinks = screen.getAllByRole("link", { name: "Midnight City" });
-    expect(trackLinks.length).toBeGreaterThan(0);
-    for (const link of trackLinks) {
-      expect(link).toHaveAttribute(
-        "href",
-        expect.stringContaining("/library/"),
-      );
-    }
+    // The track's id, not the playlist entry's: the link opens the track.
+    expect(screen.getByRole("link", { name: "Midnight City" })).toHaveAttribute(
+      "href",
+      "/library/019d0000-0000-7000-8000-000000000100",
+    );
   });
 
   it("renders empty state when playlist has no tracks", async () => {
@@ -308,15 +301,16 @@ describe("PlaylistDetail — unresolved tracks + repair", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("posts to the repair endpoint when the badge is clicked", async () => {
-    let repairCalled = false;
+  it("repairs this playlist and reports the result when the badge is clicked", async () => {
+    const success = vi.spyOn(toasts, "success");
+    const repaired: string[] = [];
     setupHandlers(
       makePlaylistDetail({ track_count: 2 }),
       entriesWithUnresolved(),
     );
     server.use(
-      http.post("*/api/v1/playlists/:playlistId/repair", () => {
-        repairCalled = true;
+      http.post("*/api/v1/playlists/:playlistId/repair", ({ params }) => {
+        repaired.push(String(params.playlistId));
         return HttpResponse.json(
           { repaired: 1, still_unresolved: 0 },
           { status: 200 },
@@ -330,7 +324,11 @@ describe("PlaylistDetail — unresolved tracks + repair", () => {
     });
     await userEvent.click(btn);
 
-    await waitFor(() => expect(repairCalled).toBe(true));
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith("Repaired 1 track"),
+    );
+    expect(repaired).toEqual(["1"]);
+    success.mockRestore();
   });
 });
 

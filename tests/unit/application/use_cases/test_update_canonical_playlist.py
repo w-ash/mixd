@@ -4,13 +4,13 @@ Tests playlist update modes: append and differential, dry run, metadata updates,
 and no-changes early return.
 """
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 import pytest
 
 from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistCommand,
-    UpdateCanonicalPlaylistResult,
     UpdateCanonicalPlaylistUseCase,
 )
 from src.domain.entities.track import TrackList
@@ -23,6 +23,18 @@ from tests.fixtures import (
 from tests.fixtures.mocks import make_mock_uow
 
 _MOCK_METRIC_CONFIG = make_mock_metric_config()
+
+
+class _SteppingClock:
+    """Stand-in for the timer's ``datetime``: each ``now()`` is 250 ms later."""
+
+    def __init__(self) -> None:
+        self._now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def now(self, tz=None):
+        current = self._now
+        self._now += timedelta(milliseconds=250)
+        return current
 
 
 @pytest.fixture
@@ -40,40 +52,6 @@ def mock_uow():
 class TestUpdateCanonicalPlaylistCommand:
     """Test command construction and validation."""
 
-    def test_valid_command(self):
-        """Test creating a valid update command."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = UpdateCanonicalPlaylistCommand(
-            user_id="test-user",
-            playlist_id="42",
-            new_tracklist=tracklist,
-        )
-        assert cmd.playlist_id == "42"
-        assert cmd.dry_run is False
-        assert cmd.append_mode is False
-
-    def test_append_mode_flag(self):
-        """Test command with append mode enabled."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = UpdateCanonicalPlaylistCommand(
-            user_id="test-user",
-            playlist_id="42",
-            new_tracklist=tracklist,
-            append_mode=True,
-        )
-        assert cmd.append_mode is True
-
-    def test_dry_run_flag(self):
-        """Test command with dry run enabled."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = UpdateCanonicalPlaylistCommand(
-            user_id="test-user",
-            playlist_id="42",
-            new_tracklist=tracklist,
-            dry_run=True,
-        )
-        assert cmd.dry_run is True
-
     def test_empty_id_rejected(self):
         """Test that empty playlist ID is rejected."""
         tracklist = TrackList(tracks=[make_track()])
@@ -81,28 +59,6 @@ class TestUpdateCanonicalPlaylistCommand:
             UpdateCanonicalPlaylistCommand(
                 user_id="test-user", playlist_id="", new_tracklist=tracklist
             )
-
-    def test_metadata_update_params(self):
-        """Test command with name and description updates."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = UpdateCanonicalPlaylistCommand(
-            user_id="test-user",
-            playlist_id="42",
-            new_tracklist=tracklist,
-            playlist_name="New Name",
-            playlist_description="New desc",
-        )
-        assert cmd.playlist_name == "New Name"
-        assert cmd.playlist_description == "New desc"
-
-    def test_command_is_frozen(self):
-        """Test command immutability."""
-        tracklist = TrackList(tracks=[make_track()])
-        cmd = UpdateCanonicalPlaylistCommand(
-            user_id="test-user", playlist_id="1", new_tracklist=tracklist
-        )
-        with pytest.raises(AttributeError):
-            cmd.playlist_id = "2"
 
 
 class TestUpdateCanonicalPlaylistUseCase:
@@ -127,9 +83,13 @@ class TestUpdateCanonicalPlaylistUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert isinstance(result, UpdateCanonicalPlaylistResult)
-        # Original 2 + 2 new = 4 total entries
-        assert len(result.playlist.entries) == 4
+        # New tracks land after the existing ones, in tracklist order.
+        assert [e.track.id for e in result.playlist.entries] == [
+            tid1,
+            tid2,
+            new_tracks[0].id,
+            new_tracks[1].id,
+        ]
         assert result.tracks_added == 2
         mock_uow.commit.assert_called_once()
 
@@ -154,7 +114,11 @@ class TestUpdateCanonicalPlaylistUseCase:
         result = await use_case.execute(command, mock_uow)
 
         # Only the new track should be added
-        assert len(result.playlist.entries) == 3  # 2 existing + 1 new
+        assert [e.track.id for e in result.playlist.entries] == [
+            tid1,
+            tid2,
+            new_tracks[1].id,
+        ]
         assert result.tracks_added == 1
 
     async def test_append_mode_no_new_entries(self, mock_uow):
@@ -252,8 +216,11 @@ class TestUpdateCanonicalPlaylistUseCase:
         mock_uow.rollback.assert_called()
         mock_uow.commit.assert_not_called()
 
-    async def test_result_includes_execution_time(self, mock_uow):
-        """Test that result includes non-negative execution time."""
+    async def test_result_reports_the_measured_time(self, mock_uow, monkeypatch):
+        """The update's duration reaches the result, measured by the timer's clock."""
+        monkeypatch.setattr(
+            "src.application.utilities.timing.datetime", _SteppingClock()
+        )
         tid1 = uuid7()
         current = make_playlist_with_entries(track_ids=[tid1])
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
@@ -269,7 +236,24 @@ class TestUpdateCanonicalPlaylistUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert result.execution_time_ms >= 0
+        assert result.execution_time_ms == 250
+
+    async def test_update_without_mode_replaces_the_tracks(self, mock_uow):
+        """A caller that names no mode (CLI, API, chat) replaces the playlist, not appends."""
+        tid1, tid2, tid3 = uuid7(), uuid7(), uuid7()
+        current = make_playlist_with_entries(track_ids=[tid1, tid2])
+        mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
+
+        command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
+            playlist_id=str(current.id),
+            new_tracklist=TrackList(tracks=[make_track(id=tid3)]),
+        )
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert [e.track.id for e in result.playlist.entries] == [tid3]
 
     async def test_result_confidence_score_for_append(self, mock_uow):
         """Test that append mode always has 1.0 confidence."""

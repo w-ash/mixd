@@ -7,14 +7,13 @@ Both use cases are connector-agnostic; these tests drive them with Spotify
 (import) and Last.fm (export), the two wired connectors.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from src.application.services.track_resolution import TrackResolutionService
 from src.application.use_cases.sync_likes import (
-    _CHECKPOINT_LOOKBACK,
     CHECKPOINT_COMBINATIONS,
     ExportLovesCommand,
     ExportLovesUseCase,
@@ -113,8 +112,8 @@ class TestImportLikesIncrementalCommit:
         assert mock_uow.commit_batch.await_count == 3
         assert mock_uow.commit.await_count == 1  # final commit
 
-    async def test_checkpoint_updated_every_batch(self, mock_uow):
-        """Checkpoint should be saved every batch, not every 10."""
+    async def test_checkpoint_carries_each_batch_cursor(self, mock_uow):
+        """Each committed batch saves the cursor past it, so a crash resumes there."""
         pages = [
             _page_of_tracks(5, 0, cursor="c1"),
             _page_of_tracks(5, 1, cursor="c2"),
@@ -132,8 +131,13 @@ class TestImportLikesIncrementalCommit:
             await use_case.execute(command, mock_uow)
 
         checkpoint_repo = mock_uow.get_checkpoint_repository()
-        # 3 per-batch checkpoints + 1 final checkpoint on exit = 4
-        assert checkpoint_repo.save_sync_checkpoint.await_count == 4
+        saved_cursors = [
+            call.args[0].cursor
+            for call in checkpoint_repo.save_sync_checkpoint.await_args_list
+        ]
+        # One save per batch, then the exit stamp. The run ended naturally, so
+        # the last cursor is None: the next sync starts from the newest likes.
+        assert saved_cursors == ["c1", "c2", None, None]
 
     async def test_contention_fails_the_run_before_the_checkpoint_advances(
         self, mock_uow
@@ -277,6 +281,7 @@ class TestImportLikesForceMode:
 
         # Both pages processed — force mode didn't early stop on page 1
         assert connector.get_liked_tracks.await_count == 2
+        assert result.summary_metrics.get("imported") == 5
 
     async def test_default_triggers_early_stop(self, mock_uow):
         """Without force, all-duplicate batch triggers early stop."""
@@ -321,11 +326,14 @@ class TestImportLikesForceMode:
 
         # Early stop after page 1 — page 2 never fetched
         assert connector.get_liked_tracks.await_count == 1
+        assert result.summary_metrics.get("imported") == 0
 
     async def test_cursor_saved_on_fetch_error(self, mock_uow):
-        """Fetch error saves checkpoint with cursor before re-raising."""
+        """A failed fetch saves the last good cursor and commits before re-raising."""
         connector = AsyncMock()
-        connector.get_liked_tracks = AsyncMock(side_effect=RuntimeError("API failed"))
+        connector.get_liked_tracks = AsyncMock(
+            side_effect=[_page_of_tracks(5, 0, cursor="c1"), RuntimeError("API failed")]
+        )
 
         use_case = ImportLikesUseCase()
         command = ImportLikesCommand(user_id="test-user", connector="spotify", limit=50)
@@ -338,10 +346,11 @@ class TestImportLikesForceMode:
         ):
             await use_case.execute(command, mock_uow)
 
-        # Checkpoint was saved (progress preserved) and committed
+        # The retry resumes after the page that did land, not from the start.
         checkpoint_repo = mock_uow.get_checkpoint_repository()
-        assert checkpoint_repo.save_sync_checkpoint.await_count >= 1
-        assert mock_uow.commit.await_count >= 1
+        saved = checkpoint_repo.save_sync_checkpoint.await_args.args[0]
+        assert saved.cursor == "c1"
+        mock_uow.commit.assert_awaited_once()
 
     async def test_cursor_resumed_from_checkpoint(self, mock_uow):
         """Import resumes from saved checkpoint cursor."""
@@ -865,7 +874,7 @@ class TestExportCheckpointWatermark:
         checkpoint_repo = mock_uow.get_checkpoint_repository()
         assert checkpoint_repo.save_sync_checkpoint.await_count == 1
         saved = checkpoint_repo.save_sync_checkpoint.await_args.args[0]
-        assert saved.last_timestamp == t1 - _CHECKPOINT_LOOKBACK
+        assert saved.last_timestamp == t1 - timedelta(seconds=60)
         # Moved backwards past the pre-run checkpoint, not forward to now
         assert saved.last_timestamp < datetime(2026, 8, 12, tzinfo=UTC)
 
@@ -892,8 +901,8 @@ class TestExportCheckpointWatermark:
 
         checkpoint_repo = mock_uow.get_checkpoint_repository()
         saved = checkpoint_repo.save_sync_checkpoint.await_args.args[0]
-        assert before - _CHECKPOINT_LOOKBACK <= saved.last_timestamp
-        assert saved.last_timestamp <= after - _CHECKPOINT_LOOKBACK
+        lookback = timedelta(seconds=60)
+        assert before - lookback <= saved.last_timestamp <= after - lookback
 
 
 class TestCheckpointStatusBatchRead:

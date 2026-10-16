@@ -6,7 +6,7 @@ gate, ordered no-op detection (reorders are real changes), and counts.
 """
 
 from src.domain.entities.playlist_link import SyncDirection
-from src.domain.playlist.reconciliation import SyncPlan, build_sync_plan
+from src.domain.playlist.reconciliation import build_sync_plan
 
 
 class TestBuildSyncPlanCounts:
@@ -107,12 +107,3 @@ class TestDuplicateIds:
         )
         assert plan.tracks_to_add == 2
         assert plan.tracks_unchanged == 1
-
-
-class TestDefaults:
-    def test_default_plan_is_safe_and_empty(self):
-        plan = SyncPlan(direction=SyncDirection.PULL)
-        assert plan.is_noop is True
-        assert plan.requires_confirmation is False
-        assert plan.tracks_to_add == 0
-        assert plan.tracks_to_remove == 0

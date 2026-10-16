@@ -9,16 +9,8 @@ describe("formatMetricHeader", () => {
     );
   });
 
-  it("handles single word", () => {
-    expect(formatMetricHeader("popularity")).toBe("Popularity");
-  });
-
   it("handles empty string", () => {
     expect(formatMetricHeader("")).toBe("");
-  });
-
-  it("preserves already capitalized segments", () => {
-    expect(formatMetricHeader("spotify_popularity")).toBe("Spotify Popularity");
   });
 });
 
@@ -32,7 +24,8 @@ describe("formatMetricValue", () => {
   });
 
   it("formats numbers with locale separators", () => {
-    expect(formatMetricValue(1234)).toBe((1234).toLocaleString());
+    // The suite runs under en-US, as the page tests' "1,234" also assume.
+    expect(formatMetricValue(1234)).toBe("1,234");
   });
 
   it("handles zero (falsy number)", () => {

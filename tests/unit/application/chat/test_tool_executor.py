@@ -15,16 +15,16 @@ from src.application.chat.dispatchers import _common
 from src.application.chat.protocols import ToolContext
 from src.application.tools import registry
 from src.application.use_cases.workflow_crud import (
+    CreateWorkflowCommand,
     CreateWorkflowResult,
+    CreateWorkflowUseCase,
     GetWorkflowResult,
     ListWorkflowsResult,
+    UpdateWorkflowCommand,
     UpdateWorkflowResult,
+    UpdateWorkflowUseCase,
 )
-from src.domain.exceptions import (
-    ActionExpiredError,
-    NotFoundError,
-    ToolExecutionError,
-)
+from src.domain.exceptions import NotFoundError, ToolExecutionError
 from tests.fixtures import (
     InMemoryPendingActionStore,
     make_workflow,
@@ -217,14 +217,13 @@ class TestSaveWorkflowPropose:
     async def test_invalid_def_stores_nothing(
         self, fresh_store: InMemoryPendingActionStore
     ) -> None:
-        with pytest.raises(ToolExecutionError):
+        with pytest.raises(ToolExecutionError, match="failed validation"):
             await tool_executor.handle_save_workflow(
                 {"workflow_def": _INVALID_DEF}, _CTX
             )
 
-        # No claimable action exists — the store never saw a create.
-        with pytest.raises(ActionExpiredError):
-            await fresh_store.claim(uuid4(), "default")
+        # Validation runs before the proposal: the store never saw a create.
+        assert not fresh_store._actions
 
     async def test_bad_workflow_id_rejected(
         self, fresh_store: InMemoryPendingActionStore
@@ -295,38 +294,70 @@ class TestExecSaveWorkflow:
             details={"definition": dict(_VALID_DEF), **details_extra},
         )
 
-    async def test_create_commits_through_use_case(
+    @staticmethod
+    def _capture_persist(
+        monkeypatch: pytest.MonkeyPatch, saved: object
+    ) -> dict[str, object]:
+        """Run the executor's real factory; record which use case got which Command.
+
+        Both create and update are patched, so a mode mix-up (an update that
+        creates a duplicate workflow) shows up as the wrong key being recorded.
+        """
+        seen: dict[str, object] = {}
+
+        async def _create(self: object, command: object, uow: object) -> object:
+            seen["create"] = command
+            return CreateWorkflowResult(workflow=saved)
+
+        async def _update(self: object, command: object, uow: object) -> object:
+            seen["update"] = command
+            return UpdateWorkflowResult(workflow=saved)
+
+        async def _run(factory, user_id: str | None = None):  # runner signature
+            seen["user_id"] = user_id
+            return await factory(object())
+
+        monkeypatch.setattr(CreateWorkflowUseCase, "execute", _create)
+        monkeypatch.setattr(UpdateWorkflowUseCase, "execute", _update)
+        monkeypatch.setattr(confirmed_actions, "execute_use_case", _run)
+        return seen
+
+    async def test_create_commits_through_the_create_use_case(
         self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         saved = make_workflow()
-        monkeypatch.setattr(
-            confirmed_actions,
-            "execute_use_case",
-            _fake_use_case_runner(CreateWorkflowResult(workflow=saved)),
-        )
+        seen = self._capture_persist(monkeypatch, saved)
         action = await self._propose(fresh_store, {"mode": "create"})
 
-        result = await confirmed_actions.exec_save_workflow(action, "default")
+        result = await confirmed_actions.exec_save_workflow(action, "user-7")
 
+        assert "update" not in seen
+        command = seen["create"]
+        assert isinstance(command, CreateWorkflowCommand)
+        assert command.definition.name == "Chill Weekend"
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
         assert result["status"] == "confirmed"
         assert result["workflow_id"] == str(saved.id)
         assert result["definition_version"] == saved.definition_version
 
-    async def test_update_commits_through_use_case(
+    async def test_update_commits_through_the_update_use_case(
         self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         saved = make_workflow(definition_version=2)
-        monkeypatch.setattr(
-            confirmed_actions,
-            "execute_use_case",
-            _fake_use_case_runner(UpdateWorkflowResult(workflow=saved)),
-        )
+        seen = self._capture_persist(monkeypatch, saved)
         action = await self._propose(
             fresh_store, {"mode": "update", "workflow_id": str(saved.id)}
         )
 
-        result = await confirmed_actions.exec_save_workflow(action, "default")
+        result = await confirmed_actions.exec_save_workflow(action, "user-7")
 
+        assert "create" not in seen
+        command = seen["update"]
+        assert isinstance(command, UpdateWorkflowCommand)
+        assert command.workflow_id == saved.id
+        assert command.definition.name == "Chill Weekend"
+        assert command.user_id == "user-7"
         assert result["definition_version"] == 2
 
     async def test_deleted_workflow_at_confirm_time_is_actionable(

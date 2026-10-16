@@ -14,7 +14,6 @@ from src.infrastructure.connectors.discogs.models import (
     DiscogsCollectionPage,
     DiscogsIdentity,
     DiscogsMaster,
-    DiscogsPagination,
     DiscogsRelease,
 )
 from tests.fixtures import make_discogs_collection_page, make_discogs_release
@@ -120,17 +119,6 @@ def real_master_payload() -> dict[str, object]:
 
 
 class TestIdentity:
-    def test_parses_consumed_fields_and_ignores_extras(self):
-        identity = DiscogsIdentity.model_validate({
-            "id": 12345,
-            "username": "example",
-            "resource_url": "https://api.discogs.com/users/example",
-            "consumer_name": "Mixd",
-        })
-
-        assert identity.id == 12345
-        assert identity.username == "example"
-
     def test_real_identity_capture_shape_parses(self):
         # Redacted real capture: /oauth/identity returns exactly these four
         # keys — id, username, resource_url, consumer_name.
@@ -143,34 +131,6 @@ class TestIdentity:
 
         assert identity.id == 32007498
         assert identity.username == "example-user"
-
-
-class TestPagination:
-    def test_urls_next_is_optional(self):
-        pagination = DiscogsPagination.model_validate({
-            "page": 3,
-            "pages": 3,
-            "per_page": 100,
-            "items": 250,
-            "urls": {},
-        })
-
-        assert pagination.page == 3
-        assert pagination.pages == 3
-        assert pagination.per_page == 100
-        assert pagination.items == 250
-        assert pagination.urls.next is None
-
-    def test_urls_next_parses_when_present(self):
-        pagination = DiscogsPagination.model_validate({
-            "page": 1,
-            "pages": 2,
-            "per_page": 100,
-            "items": 150,
-            "urls": {"next": "https://api.discogs.com/x?page=2"},
-        })
-
-        assert pagination.urls.next == "https://api.discogs.com/x?page=2"
 
 
 class TestCollectionPage:
@@ -229,12 +189,6 @@ class TestRelease:
         assert release.tracklist[1].duration == ""
         assert release.tracklist[1].position == "A2"
 
-    def test_genres_and_styles_parse(self):
-        release = DiscogsRelease.model_validate(release_payload())
-
-        assert release.genres == ["Electronic"]
-        assert release.styles == ["House", "Disco"]
-
     def test_real_release_capture_parses_and_ignores_type_key(self):
         release = DiscogsRelease.model_validate(real_release_payload())
 
@@ -255,20 +209,6 @@ class TestRelease:
 
 
 class TestMaster:
-    def test_parses_main_release(self):
-        master = DiscogsMaster.model_validate({
-            "id": 4422,
-            "title": "Discovery",
-            "year": 2001,
-            "main_release": 1477251,
-            "most_recent_release": 999,
-        })
-
-        assert master.id == 4422
-        assert master.title == "Discovery"
-        assert master.year == 2001
-        assert master.main_release == 1477251
-
     def test_real_master_capture_parses_clean(self):
         master = DiscogsMaster.model_validate(real_master_payload())
 

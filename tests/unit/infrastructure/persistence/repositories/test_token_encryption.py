@@ -4,7 +4,6 @@ from cryptography.fernet import Fernet
 import pytest
 
 from src.infrastructure.persistence.repositories.token_encryption import (
-    _FERNET_PREFIX,
     SENSITIVE_FIELDS,
     _get_fernet,
     decrypt_field,
@@ -57,15 +56,13 @@ class TestEncryptField:
         assert encrypt_field("my-secret-token") == "my-secret-token"
 
     @pytest.mark.usefixtures("_enable_encryption")
-    def test_encrypted_output_has_fernet_prefix(self):
+    def test_encrypted_output_is_fernet_ciphertext_not_plaintext(self):
+        """Fernet tokens start with version byte 0x80, base64 "gAAAAA"; the
+        plaintext must not survive anywhere in the stored value."""
         result = encrypt_field("my-secret-token")
         assert result is not None
-        assert result.startswith(_FERNET_PREFIX)
-
-    @pytest.mark.usefixtures("_enable_encryption")
-    def test_encrypted_output_differs_from_input(self):
-        result = encrypt_field("my-secret-token")
-        assert result != "my-secret-token"
+        assert result.startswith("gAAAAA")
+        assert "my-secret-token" not in result
 
 
 class TestDecryptField:
@@ -77,11 +74,6 @@ class TestDecryptField:
     def test_plaintext_passthrough(self):
         """Values not starting with Fernet prefix are returned as-is (migration)."""
         assert decrypt_field("plain-oauth-token") == "plain-oauth-token"
-
-    @pytest.mark.usefixtures("_enable_encryption")
-    def test_decrypts_encrypted_value(self):
-        encrypted = encrypt_field("my-secret-token")
-        assert decrypt_field(encrypted) == "my-secret-token"
 
     def test_encrypted_value_without_key_returns_none(
         self, encryption_key: str, monkeypatch: pytest.MonkeyPatch
@@ -135,19 +127,18 @@ class TestRoundTrip:
     """End-to-end encrypt → decrypt tests."""
 
     @pytest.mark.usefixtures("_enable_encryption")
-    def test_round_trip_short_string(self):
-        assert decrypt_field(encrypt_field("short")) == "short"
-
-    @pytest.mark.usefixtures("_enable_encryption")
-    def test_round_trip_jwt_like_token(self):
-        jwt = (
-            "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature"
-        )
-        assert decrypt_field(encrypt_field(jwt)) == jwt
-
-    @pytest.mark.usefixtures("_enable_encryption")
-    def test_round_trip_empty_string(self):
-        assert decrypt_field(encrypt_field("")) == ""
+    @pytest.mark.parametrize(
+        "plaintext",
+        [
+            "my-secret-token",
+            "short",
+            "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+            "",
+        ],
+        ids=["token", "short", "jwt", "empty"],
+    )
+    def test_round_trip(self, plaintext: str):
+        assert decrypt_field(encrypt_field(plaintext)) == plaintext
 
 
 class TestSensitiveFields:
@@ -155,6 +146,4 @@ class TestSensitiveFields:
 
     def test_contains_expected_fields(self):
         assert {"access_token", "refresh_token", "session_key"} == SENSITIVE_FIELDS
-
-    def test_is_frozenset(self):
         assert isinstance(SENSITIVE_FIELDS, frozenset)

@@ -94,7 +94,6 @@ const TEST_NODE_TYPES: NodeTypeInfoSchema[] = [
         label: "Primary Input",
         field_type: "task_ref",
         required: false,
-        options: [],
       },
     ],
   },
@@ -109,14 +108,6 @@ describe("useNodeSchemas", () => {
         return HttpResponse.json(TEST_NODE_TYPES, { status: 200 });
       }),
     );
-  });
-
-  it("isLoading is true initially", () => {
-    const { result } = renderHook(() => useNodeSchemas(), {
-      wrapper: createWrapper(),
-    });
-
-    expect(result.current.isLoading).toBe(true);
   });
 
   it("registers the fetched schemas with the editor store", async () => {
@@ -177,7 +168,7 @@ describe("useNodeSchemas", () => {
     );
   });
 
-  it("getFieldLabel returns key as fallback for unknown field", async () => {
+  it("getFieldLabel falls back to the key for an unknown field or node type", async () => {
     const { result } = renderHook(() => useNodeSchemas(), {
       wrapper: createWrapper(),
     });
@@ -189,17 +180,6 @@ describe("useNodeSchemas", () => {
     expect(
       result.current.getFieldLabel("filter.play_count", "unknown_key"),
     ).toBe("unknown_key");
-  });
-
-  it("getFieldLabel returns key as fallback for unknown node type", async () => {
-    const { result } = renderHook(() => useNodeSchemas(), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.isLoading).toBe(false);
-    });
-
     expect(result.current.getFieldLabel("nonexistent.type", "some_key")).toBe(
       "some_key",
     );
@@ -219,7 +199,7 @@ describe("useNodeSchemas", () => {
     ).toBe("Last 30 Days");
   });
 
-  it("getOptionLabel returns value as fallback for unknown option", async () => {
+  it("getOptionLabel falls back to the value for an unknown option or a field without options", async () => {
     const { result } = renderHook(() => useNodeSchemas(), {
       wrapper: createWrapper(),
     });
@@ -235,24 +215,14 @@ describe("useNodeSchemas", () => {
         "unknown_val",
       ),
     ).toBe("unknown_val");
-  });
-
-  it("getOptionLabel returns value as fallback for field without options", async () => {
-    const { result } = renderHook(() => useNodeSchemas(), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => {
-      expect(result.current.isLoading).toBe(false);
-    });
-
+    // A task_ref field declares no `options` key at all.
     expect(
       result.current.getOptionLabel(
-        "filter.play_count",
-        "min_plays",
-        "some_val",
+        "enricher.play_history",
+        "primary_input",
+        "src_1",
       ),
-    ).toBe("some_val");
+    ).toBe("src_1");
   });
 
   it("getNodeDescription returns description for known type", async () => {

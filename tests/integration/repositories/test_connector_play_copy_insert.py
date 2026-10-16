@@ -81,8 +81,10 @@ class TestCopyBulkInsertHappyPath:
         """COPY + INSERT ... SELECT must not lose or mangle any column."""
         repo = get_unit_of_work(db_session).get_connector_play_repository()
         play = _play(7)
+        before = datetime.now(UTC)
 
         _ = await repo.bulk_insert_connector_plays([play])
+        after = datetime.now(UTC)
 
         (stored,) = await _stored(db_session, user_id=USER_A)
         # The entity's own id is persisted rather than a fresh column default —
@@ -100,8 +102,10 @@ class TestCopyBulkInsertHappyPath:
         assert stored.raw_metadata["service_metadata"] == {
             "track_uri": "spotify:track:TEST7"
         }
-        assert stored.created_at is not None
-        assert stored.updated_at is not None
+        # INSERT ... SELECT never runs the Python column defaults, so the
+        # stamps must travel with the row — and be the write time.
+        assert before <= stored.created_at <= after
+        assert before <= stored.updated_at <= after
 
     async def test_batch_beyond_multi_values_parameter_ceiling(self, db_session):
         """The regression this path exists for.

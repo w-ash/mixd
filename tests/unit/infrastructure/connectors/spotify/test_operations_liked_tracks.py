@@ -64,29 +64,24 @@ def _api_response(
 class TestPaginationErrorHandling:
     """Verify None (suppressed error) vs empty (end of data) distinction."""
 
-    async def test_none_response_raises(self, operations: SpotifyOperations):
-        """Suppressed API error (None) raises SpotifyPaginationError."""
-        with patch.object(
-            SpotifyAPIClient,
-            "get_saved_tracks",
-            new_callable=AsyncMock,
-            return_value=None,
-        ):
-            with pytest.raises(SpotifyPaginationError, match="no response at offset 0"):
-                await operations.get_liked_tracks_paginated(limit=50, cursor=None)
-
-    async def test_none_response_raises_with_offset(
-        self, operations: SpotifyOperations
+    @pytest.mark.parametrize(
+        ("cursor", "offset"),
+        [pytest.param(None, 0, id="first-page"), pytest.param("2950", 2950, id="deep")],
+    )
+    async def test_none_response_raises_naming_the_offset(
+        self, operations: SpotifyOperations, cursor: str | None, offset: int
     ):
-        """Suppressed error includes the offset in the error message."""
+        """Suppressed API error (None) raises, and the message names the offset."""
         with patch.object(
             SpotifyAPIClient,
             "get_saved_tracks",
             new_callable=AsyncMock,
             return_value=None,
         ):
-            with pytest.raises(SpotifyPaginationError, match="offset 2950"):
-                await operations.get_liked_tracks_paginated(limit=50, cursor="2950")
+            with pytest.raises(
+                SpotifyPaginationError, match=f"no response at offset {offset} "
+            ):
+                await operations.get_liked_tracks_paginated(limit=50, cursor=cursor)
 
     async def test_empty_items_returns_no_cursor(self, operations: SpotifyOperations):
         """Genuine empty page (no items) returns ([], None)."""

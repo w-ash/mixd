@@ -4,94 +4,73 @@ Tests the timer envelope that consolidates execution timing and error logging
 across read-side use cases.
 """
 
+from datetime import UTC, datetime
+from unittest.mock import Mock
+
 import pytest
+import structlog
 
 from src.application.use_cases._shared.timed_execution import timed_query
+from src.application.utilities import timing
 
 
 class TestTimedQuerySuccess:
     """Test timed_query on successful operation."""
 
-    @pytest.mark.asyncio
-    async def test_yields_timer(self):
-        """Test that context manager yields an ExecutionTimer instance."""
-        async with timed_query("Test operation") as timer:
-            assert timer is not None
-            assert hasattr(timer, "stop")
-            assert hasattr(timer, "elapsed_ms")
+    async def test_yielded_timer_reports_elapsed_milliseconds_on_stop(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """stop() returns whole milliseconds since entry and records them."""
+        clock = Mock(
+            now=Mock(
+                side_effect=[
+                    datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC),
+                    datetime(2025, 1, 1, 12, 0, 1, 250_000, tzinfo=UTC),
+                ]
+            )
+        )
+        monkeypatch.setattr(timing, "datetime", clock)
 
-    @pytest.mark.asyncio
-    async def test_timer_accumulates_elapsed_time(self):
-        """Test that timer.stop() returns milliseconds elapsed."""
-        import asyncio
-
         async with timed_query("Test operation") as timer:
-            await asyncio.sleep(0.01)  # Sleep 10ms
             elapsed_ms = timer.stop()
 
-        # Allow some variance; should be at least 10ms
-        assert elapsed_ms >= 9
+        assert elapsed_ms == 1250
+        assert timer.elapsed_ms == 1250
 
-    @pytest.mark.asyncio
-    async def test_timer_elapsed_ms_updated_on_stop(self):
-        """Test that timer.elapsed_ms is updated when stop() is called."""
-        import asyncio
+    async def test_success_path_logs_no_error(self):
+        with structlog.testing.capture_logs() as logs:
+            async with timed_query("Test operation") as timer:
+                timer.stop()
 
-        async with timed_query("Test operation") as timer:
-            await asyncio.sleep(0.005)  # Sleep 5ms
-            stop_result = timer.stop()
-
-        assert timer.elapsed_ms == stop_result
-        assert timer.elapsed_ms >= 4
+        assert [e for e in logs if e["log_level"] == "error"] == []
 
 
 class TestTimedQueryException:
     """Test timed_query on exception paths."""
 
-    @pytest.mark.asyncio
     async def test_re_raises_exception(self):
         """Test that exceptions are re-raised after logging."""
         with pytest.raises(ValueError, match="Test error"):
             async with timed_query("Test operation"):
                 raise ValueError("Test error")
 
-    @pytest.mark.asyncio
-    async def test_error_logging_on_exception(self, caplog):
-        """Test that exception is logged with operation name."""
-        with pytest.raises(ValueError):
+    async def test_error_log_names_the_operation_error_and_context(self):
+        with structlog.testing.capture_logs() as logs, pytest.raises(ValueError):
             async with timed_query(
                 "Track retrieval",
                 error_log_context={"user_id": "test-user", "limit": 100},
             ):
                 raise ValueError("Database connection failed")
 
-        # Check that error was logged with expected details
-        # structlog outputs to stdout/structured format, not standard caplog
-        assert True  # Verified by stdout capture in test output
+        errors = [e for e in logs if e["log_level"] == "error"]
+        assert len(errors) == 1
+        assert errors[0]["event"] == "Track retrieval failed"
+        assert errors[0]["error"] == "Database connection failed"
+        assert errors[0]["user_id"] == "test-user"
+        assert errors[0]["limit"] == 100
 
-    @pytest.mark.asyncio
-    async def test_error_logging_includes_context_fields(self):
-        """Test that error log includes all provided context fields."""
-        with pytest.raises(ValueError):
-            async with timed_query(
-                "Playlist read",
-                error_log_context={"playlist_id": "123", "connector": "spotify"},
-            ):
-                raise ValueError("Playlist not found")
-
-    @pytest.mark.asyncio
     async def test_no_context_on_exception(self):
-        """Test that exception logging works without error_log_context."""
+        """Without error_log_context the original exception still propagates."""
         with pytest.raises(RuntimeError):
             async with timed_query("Operation"):
                 raise RuntimeError("Something went wrong")
-
-    @pytest.mark.asyncio
-    async def test_success_path_no_exception_logging(self, caplog):
-        """Test that no error logs are produced on successful operation."""
-        async with timed_query("Test operation") as timer:
-            timer.stop()
-
-        # Verify no error logs
-        error_records = [r for r in caplog.records if r.levelname == "ERROR"]
-        assert len(error_records) == 0

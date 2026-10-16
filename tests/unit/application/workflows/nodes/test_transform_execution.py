@@ -5,12 +5,15 @@ correctly wire domain sorting functions. These are application-layer wiring test
 not domain unit tests.
 """
 
+from collections.abc import MutableSequence
 from datetime import UTC, datetime
+import random
 
 import pytest
 
 from src.application.workflows.nodes.transform_definitions import TRANSFORM_REGISTRY
 from src.domain.entities.track import ArtistCredit, Track, TrackList
+import src.domain.transforms.shuffle as shuffle_module
 from tests.fixtures import TEST_USER_ID
 
 
@@ -229,60 +232,48 @@ class TestTrackAttributeSorting:
         assert sorted_tracklist.tracks[2].id == t3.id  # 25 plays
 
 
+class _ReversingRng(random.Random):
+    """Deterministic stand-in for the shuffle RNG: a full shuffle reverses."""
+
+    def shuffle(self, x: MutableSequence[object]) -> None:
+        x.reverse()
+
+
 class TestWeightedShuffleSorting:
     """Test the weighted shuffle sorter functionality."""
 
-    def test_weighted_shuffle_boundaries(self):
-        """Test weighted shuffle at boundary values 0.0 and 1.0."""
-        import random
+    @pytest.mark.parametrize(
+        ("strength", "expected"),
+        [
+            (0.0, ["First", "Second", "Third"]),
+            (1.0, ["Third", "Second", "First"]),
+        ],
+    )
+    def test_shuffle_strength_config_reaches_the_domain_shuffle(
+        self, monkeypatch: pytest.MonkeyPatch, strength: float, expected: list[str]
+    ):
+        """shuffle_strength selects identity at 0.0 and a full RNG shuffle at 1.0.
 
-        # Set seed for reproducibility
-        random.seed(42)
+        The RNG boundary is replaced so the full shuffle is deterministic.
+        """
+        monkeypatch.setattr(shuffle_module, "_DEFAULT_RNG", _ReversingRng())
+        tracklist = TrackList(
+            tracks=[
+                Track(
+                    title=title,
+                    artists=[ArtistCredit(credited_name=f"Artist {title}")],
+                    user_id=TEST_USER_ID,
+                )
+                for title in ("First", "Second", "Third")
+            ]
+        )
 
-        # Arrange: Create tracks in specific order
-        t1 = Track(
-            title="First",
-            artists=[ArtistCredit(credited_name="Artist1")],
-            user_id=TEST_USER_ID,
-        )
-        t2 = Track(
-            title="Second",
-            artists=[ArtistCredit(credited_name="Artist2")],
-            user_id=TEST_USER_ID,
-        )
-        t3 = Track(
-            title="Third",
-            artists=[ArtistCredit(credited_name="Artist3")],
-            user_id=TEST_USER_ID,
-        )
-        tracks = [t1, t2, t3]
-        original_order = [t.title for t in tracks]
-        tracklist = TrackList(tracks=tracks)
-
-        # Test strength 0.0 - should preserve original order
         sorter_fn = TRANSFORM_REGISTRY["sorter"]["weighted_shuffle"].factory(
-            _ctx=None, cfg={"shuffle_strength": 0.0}
+            _ctx=None, cfg={"shuffle_strength": strength}
         )
         result = sorter_fn(tracklist)
-        assert [t.title for t in result.tracks] == original_order
 
-        # Test strength 1.0 - should randomize (test multiple times for confidence)
-        sorter_fn = TRANSFORM_REGISTRY["sorter"]["weighted_shuffle"].factory(
-            _ctx=None, cfg={"shuffle_strength": 1.0}
-        )
-        different_count = 0
-        for _ in range(5):
-            result = sorter_fn(tracklist)
-            if [t.title for t in result.tracks] != original_order:
-                different_count += 1
-
-        # Should get different order most of the time
-        assert different_count >= 3, (
-            f"Expected mostly different orders, got {different_count}/5"
-        )
-
-        # All tracks should be preserved
-        assert {t.id for t in result.tracks} == {t1.id, t2.id, t3.id}
+        assert [t.title for t in result.tracks] == expected
 
     def test_weighted_shuffle_invalid_bounds(self):
         """Test weighted shuffle rejects invalid strength values."""

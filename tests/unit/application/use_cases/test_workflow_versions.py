@@ -101,7 +101,6 @@ class TestRevertWorkflowVersion:
         """Revert snapshots current def as new version, then updates workflow."""
         existing = make_workflow(id=1, definition_version=5)
         old_def = make_workflow_def(name="Old Version")
-        target_version = _make_version(version=2)
         target_version = WorkflowVersion(
             id=2,
             workflow_id=1,
@@ -126,6 +125,8 @@ class TestRevertWorkflowVersion:
         created_snapshot = version_repo.create_version.call_args[0][0]
         assert created_snapshot.version == 4
         assert created_snapshot.change_summary == "Before revert to v2"
+        # The snapshot preserves what is being replaced, not the revert target.
+        assert created_snapshot.definition == existing.definition
 
         # Workflow was saved with the reverted definition
         wf_repo.save_workflow.assert_called_once()

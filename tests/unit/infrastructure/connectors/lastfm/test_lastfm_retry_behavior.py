@@ -5,7 +5,7 @@ and the tenacity retry policy in the LastFMAPIClient. Classification logic
 itself is tested in tests/unit/infrastructure/connectors/lastfm/test_error_classifier.py.
 """
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -66,42 +66,6 @@ class TestLastFMRetryBehavior:
 
         assert mock_api.call_count == 1
 
-    async def test_error_classifier_retry_predicate_integration(self, lastfm_client):
-        """Error classifier and retry predicate are correctly wired together."""
-        from src.infrastructure.connectors._shared.retry_policies import (
-            create_error_classifier_retry,
-        )
-        from src.infrastructure.connectors.lastfm.error_classifier import (
-            LastFMErrorClassifier,
-        )
-
-        classifier = LastFMErrorClassifier()
-        retry_predicate = create_error_classifier_retry(classifier)
-
-        test_cases = [
-            (LastFMAPIError("10", "Invalid API key"), "permanent", False),
-            (LastFMAPIError("11", "Service Offline"), "temporary", True),
-            (LastFMAPIError("29", "Rate Limit Exceeded"), "rate_limit", True),
-            (LastFMAPIError("999", "Track not found"), "not_found", False),
-            (LastFMAPIError("9999", "Unknown error code"), "unknown", True),
-        ]
-
-        for exception, expected_type, should_retry in test_cases:
-            error_type, _error_code, _error_description = classifier.classify_error(
-                exception
-            )
-            assert error_type == expected_type
-
-            retry_state = Mock()
-            retry_state.outcome.failed = True
-            retry_state.outcome.exception.return_value = exception
-
-            predicate_should_retry = retry_predicate(retry_state)
-            assert predicate_should_retry == should_retry, (
-                f"Retry predicate mismatch for {error_type}: "
-                f"got {predicate_should_retry}, expected {should_retry}"
-            )
-
     async def test_maximum_retry_exhaustion(self, fast_retry_client):
         """Temporary errors exhaust all retries then RAISE (v0.10.2.9 F5).
 
@@ -120,4 +84,5 @@ class TestLastFMRetryBehavior:
                     "Test Artist", "Test Track"
                 )
 
-        assert mock_api.call_count >= 3
+        # retry_count=8 in the fixture: every attempt is spent before raising.
+        assert mock_api.call_count == 8

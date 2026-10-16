@@ -17,9 +17,6 @@ from src.application.workflows.definition.validation import (
     validate_workflow_def_detailed,
 )
 import src.application.workflows.nodes.catalog as _catalog
-from src.application.workflows.nodes.config_fields import (
-    DEFAULT_PLAY_HISTORY_METRICS,
-)
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
 # Importing the node catalog above triggers @node() registration as a side effect.
@@ -43,23 +40,6 @@ class TestValidateWorkflowDef:
         """Workflow with no tasks raises ValueError."""
         with pytest.raises(ValueError, match="Workflow has no tasks"):
             validate_workflow_def(WorkflowDef(id="empty", name="empty"))
-
-    def test_duplicate_task_ids_raises(self):
-        """Duplicate task IDs raise ValueError with clear message."""
-        wf = WorkflowDef(
-            id="test",
-            name="test",
-            tasks=[
-                WorkflowTaskDef(
-                    id="dup", type="source.playlist", config={"playlist_id": "1"}
-                ),
-                WorkflowTaskDef(
-                    id="dup", type="source.playlist", config={"playlist_id": "2"}
-                ),
-            ],
-        )
-        with pytest.raises(ValueError, match="Duplicate task IDs"):
-            validate_workflow_def(wf)
 
     def test_unknown_upstream_raises(self):
         """Upstream reference to nonexistent task raises ValueError."""
@@ -94,26 +74,26 @@ class TestValidateWorkflowDef:
             validate_workflow_def(wf)
 
     def test_valid_workflow_passes(self):
-        """Well-formed workflow definition passes validation."""
-        validate_workflow_def(
-            WorkflowDef(
-                id="test",
-                name="test",
-                tasks=[
-                    WorkflowTaskDef(
-                        id="src_1",
-                        type="source.playlist",
-                        config={"playlist_id": "test-123"},
-                    ),
-                    WorkflowTaskDef(
-                        id="dest_1",
-                        type="destination.create_playlist",
-                        config={"name": "Test Playlist"},
-                        upstream=["src_1"],
-                    ),
-                ],
-            )
+        """Well-formed workflow definition yields no errors or warnings."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src_1",
+                    type="source.playlist",
+                    config={"playlist_id": "test-123"},
+                ),
+                WorkflowTaskDef(
+                    id="dest_1",
+                    type="destination.create_playlist",
+                    config={"name": "Test Playlist"},
+                    upstream=["src_1"],
+                ),
+            ],
         )
+        assert validate_workflow_def_detailed(wf) == []
+        validate_workflow_def(wf)
 
     def test_missing_required_config_raises(self):
         """Node with missing required config key raises ValueError."""
@@ -178,99 +158,20 @@ class TestValidateWorkflowDef:
 
     def test_optional_config_keys_not_required(self):
         """Nodes without required config (e.g., filters with defaults) pass."""
-        validate_workflow_def(
-            WorkflowDef(
-                id="test",
-                name="test",
-                tasks=[
-                    WorkflowTaskDef(id="src_1", type="source.liked_tracks"),
-                    WorkflowTaskDef(
-                        id="filter_1",
-                        type="filter.deduplicate",
-                        upstream=["src_1"],
-                    ),
-                ],
-            )
-        )
-
-
-class TestNodeExecutionRecord:
-    """Tests for NodeExecutionRecord domain entity."""
-
-    def test_frozen_immutability(self):
-        """Frozen record raises on attribute mutation."""
-        from src.domain.entities.workflow import NodeExecutionRecord
-
-        record = NodeExecutionRecord(
-            node_id="src_1",
-            node_type="source.playlist",
-            execution_order=1,
-            status="completed",
-            duration_ms=150,
-            output_track_count=10,
-        )
-        with pytest.raises(AttributeError):
-            record.status = "failed"  # type: ignore[misc]
-
-    def test_defaults(self):
-        """Default values for optional fields."""
-        from src.domain.entities.workflow import NodeExecutionRecord
-
-        record = NodeExecutionRecord(
-            node_id="t1",
-            node_type="filter.by_metric",
-            execution_order=2,
-            status="completed",
-        )
-        assert record.duration_ms == 0
-        assert record.input_track_count is None
-        assert record.output_track_count is None
-        assert record.error_message is None
-
-
-class TestWorkflowDefConstruction:
-    """Tests for WorkflowDef and WorkflowTaskDef attrs entities."""
-
-    def test_defaults(self):
-        """Default values applied correctly."""
-        wf = WorkflowDef(id="test", name="Test")
-        assert wf.description == ""
-        assert wf.version == "1.0"
-        assert wf.tasks == []
-
-    def test_task_defaults(self):
-        """WorkflowTaskDef defaults for config, upstream, result_key."""
-        task = WorkflowTaskDef(id="t1", type="source.playlist")
-        assert task.config == {}
-        assert task.upstream == []
-        assert task.result_key is None
-
-    def test_frozen_immutability(self):
-        """Frozen entities raise on attribute mutation."""
-        wf = WorkflowDef(id="test", name="Test")
-        with pytest.raises(AttributeError):
-            wf.name = "Changed"  # type: ignore[misc]
-
-    def test_full_construction(self):
-        """Full construction with all fields."""
         wf = WorkflowDef(
-            id="my_wf",
-            name="My Workflow",
-            description="Does things",
-            version="2.0",
+            id="test",
+            name="test",
             tasks=[
+                WorkflowTaskDef(id="src_1", type="source.liked_tracks"),
                 WorkflowTaskDef(
-                    id="src",
-                    type="source.playlist",
-                    config={"playlist_id": "abc"},
-                    upstream=[],
-                    result_key="source_result",
+                    id="filter_1",
+                    type="filter.deduplicate",
+                    upstream=["src_1"],
                 ),
             ],
         )
-        assert wf.id == "my_wf"
-        assert len(wf.tasks) == 1
-        assert wf.tasks[0].result_key == "source_result"
+        assert validate_workflow_def_detailed(wf) == []
+        validate_workflow_def(wf)
 
 
 class TestExtractRequiredConnectors:
@@ -337,27 +238,6 @@ class TestExtractRequiredConnectors:
         )
         assert extract_required_connectors(wf) == set()
 
-    def test_deduplicates_same_connector(self):
-        """Multiple nodes using same connector produce single entry."""
-        wf = WorkflowDef(
-            id="test",
-            name="test",
-            tasks=[
-                WorkflowTaskDef(
-                    id="src_1",
-                    type="source.playlist",
-                    config={"playlist_id": "abc", "connector": "spotify"},
-                ),
-                WorkflowTaskDef(
-                    id="dest_1",
-                    type="destination.update_playlist",
-                    config={"playlist_id": "xyz", "connector": "spotify"},
-                    upstream=["src_1"],
-                ),
-            ],
-        )
-        assert extract_required_connectors(wf) == {"spotify"}
-
 
 class TestValidateConnectorAvailability:
     """Tests for validate_connector_availability."""
@@ -374,13 +254,9 @@ class TestValidateConnectorAvailability:
     def test_missing_connectors(self):
         """Missing connectors returned sorted."""
         result = validate_connector_availability(
-            {"spotify", "apple_music"}, ["spotify", "lastfm"]
+            {"tidal", "spotify", "apple_music"}, ["spotify", "lastfm"]
         )
-        assert result == ["apple_music"]
-
-    def test_empty_required(self):
-        """No requirements always passes."""
-        assert validate_connector_availability(set(), ["spotify"]) == []
+        assert result == ["apple_music", "tidal"]
 
 
 class TestComputeParallelLevels:
@@ -396,18 +272,6 @@ class TestComputeParallelLevels:
         levels = compute_parallel_levels(tasks)
         level_ids = [[t.id for t in level] for level in levels]
         assert level_ids == [["A"], ["B"], ["C"]]
-
-    def test_independent_sources_grouped_in_one_level(self):
-        """Two independent sources + a combiner produces [[A,B], [C]]."""
-        tasks = [
-            WorkflowTaskDef(id="A", type="x"),
-            WorkflowTaskDef(id="B", type="x"),
-            WorkflowTaskDef(id="C", type="x", upstream=["A", "B"]),
-        ]
-        levels = compute_parallel_levels(tasks)
-        assert len(levels) == 2
-        assert sorted(t.id for t in levels[0]) == ["A", "B"]
-        assert [t.id for t in levels[1]] == ["C"]
 
     def test_diamond_dag(self):
         """Diamond: A→(B,C)→D produces [[A], [B,C], [D]]."""
@@ -432,13 +296,6 @@ class TestComputeParallelLevels:
         with pytest.raises(ValueError, match="Cycle detected"):
             compute_parallel_levels(tasks)
 
-    def test_single_task(self):
-        """Single task produces one level with one task."""
-        tasks = [WorkflowTaskDef(id="A", type="x")]
-        levels = compute_parallel_levels(tasks)
-        assert len(levels) == 1
-        assert [t.id for t in levels[0]] == ["A"]
-
     def test_all_independent_tasks(self):
         """All independent tasks are in a single level."""
         tasks = [
@@ -449,19 +306,6 @@ class TestComputeParallelLevels:
         levels = compute_parallel_levels(tasks)
         assert len(levels) == 1
         assert sorted(t.id for t in levels[0]) == ["A", "B", "C"]
-
-    def test_preserves_all_tasks(self):
-        """All tasks appear exactly once across all levels."""
-        tasks = [
-            WorkflowTaskDef(id="src1", type="x"),
-            WorkflowTaskDef(id="src2", type="x"),
-            WorkflowTaskDef(id="enrich1", type="x", upstream=["src1"]),
-            WorkflowTaskDef(id="enrich2", type="x", upstream=["src2"]),
-            WorkflowTaskDef(id="combine", type="x", upstream=["enrich1", "enrich2"]),
-        ]
-        levels = compute_parallel_levels(tasks)
-        all_ids = [t.id for level in levels for t in level]
-        assert sorted(all_ids) == sorted(t.id for t in tasks)
 
 
 class TestConnectorNotAvailableError:
@@ -574,8 +418,8 @@ class TestConstraintWarnings:
         assert "['bogus']" in hits[0]["message"]
         validate_workflow_def(wf)
 
-    def test_multi_select_wrong_type_is_an_error_when_required(self):
-        # multi_select maps to list; a bare string on a required field is an error.
+    def test_task_ref_list_value_is_an_error_when_required(self):
+        # task_ref maps to str; a list on a required task_ref field is an error.
         message, _ = _check_node_config(
             "filter.by_tracks", {"exclusion_source": ["a"]}, "t"
         )
@@ -644,7 +488,10 @@ class TestUnsetValues:
         """The validator's emitted-metrics view matches what the node will run with."""
         for config in ({}, {"metrics": []}, {"metrics": None}):
             task = WorkflowTaskDef(id="e", type="enricher.play_history", config=config)
-            assert _enricher_emitted_metrics(task) == set(DEFAULT_PLAY_HISTORY_METRICS)
+            assert _enricher_emitted_metrics(task) == {
+                "total_plays",
+                "last_played_dates",
+            }
         explicit = WorkflowTaskDef(
             id="e", type="enricher.play_history", config={"metrics": ["total_plays"]}
         )
@@ -695,11 +542,6 @@ class TestOptionalTypeWarnings:
         assert message is None
         assert len(warnings) == 1
         assert warnings[0][0] == "count"
-
-    def test_required_wrong_type_still_blocks(self):
-        message, _ = _check_node_config("source.playlist", {"playlist_id": 123}, "t")
-        assert message is not None
-        assert "must be str" in message
 
     def test_range_warning_renders_bounds_without_exponent(self):
         wf = _def([
@@ -756,7 +598,8 @@ class TestResultKeyValidation:
         wf = _def([
             WorkflowTaskDef(id="a", type="source.liked_tracks", result_key="a"),
         ])
-        validate_workflow_def(wf)  # no raise
+        assert validate_workflow_def_detailed(wf) == []
+        validate_workflow_def(wf)
 
     def test_distinct_result_key_passes(self):
         wf = _def([

@@ -5,6 +5,8 @@ a rejection must survive noise and must not survive a real edit to the fields
 the matcher scores on. Each test below pins one side of that line.
 """
 
+import hashlib
+
 from src.domain.entities.track import (
     ArtistCredit,
     ConnectorArtistCredit,
@@ -42,10 +44,20 @@ def _candidate() -> DigestSide:
 
 
 class TestStability:
-    def test_same_inputs_yield_the_same_digest(self):
-        assert content_digest(_side(), _candidate()) == content_digest(
-            _side(), _candidate()
-        )
+    def test_digest_is_a_sha256_prefix_of_both_normalized_sides(self):
+        """Stored rejections are keyed on this value, so its format is a contract.
+
+        Each side serializes as ``identifier~title~artists~duration`` with the
+        identifier lowercased and the text normalized the way the matcher
+        compares it; the sides join with ``|`` and the digest keeps 16 hex
+        characters of the sha256.
+        """
+        expected = hashlib.sha256(
+            b"sp_1~paranoid android~radiohead~383000"
+            b"|track-1~paranoid android~radiohead~383000"
+        ).hexdigest()[:16]
+
+        assert content_digest(_side(identifier=" SP_1 "), _candidate()) == expected
 
     def test_artist_order_does_not_change_the_digest(self):
         one = content_digest(_side(artists=("A", "B")), _candidate())
@@ -104,10 +116,12 @@ class TestSideBuilders:
             duration_ms=238_000,
             user_id=TEST_USER_ID,
         )
-        side = track_side(track)
-        assert side.title == "Creep"
-        assert side.artists == ("Radiohead",)
-        assert side.duration_ms == 238_000
+        assert track_side(track) == DigestSide(
+            identifier=str(track.id),
+            title="Creep",
+            artists=("Radiohead",),
+            duration_ms=238_000,
+        )
 
     def test_connector_side_reads_the_match_relevant_fields(self):
         ct = ConnectorTrack(
@@ -117,9 +131,12 @@ class TestSideBuilders:
             artists=[ConnectorArtistCredit(credited_name="Radiohead")],
             duration_ms=238_000,
         )
-        side = connector_side(ct)
-        assert side.identifier == "sp_9"
-        assert side.artists == ("Radiohead",)
+        assert connector_side(ct) == DigestSide(
+            identifier="sp_9",
+            title="Creep",
+            artists=("Radiohead",),
+            duration_ms=238_000,
+        )
 
     def test_service_side_accepts_either_artist_shape(self):
         """Providers disagree on `artist` vs `artists`; both must be read."""
@@ -159,21 +176,31 @@ class TestBothProducersAgreeOnOnePair:
             duration_ms=duration_ms,
         )
 
-    def test_the_two_paths_produce_the_same_digest_for_the_same_pair(self):
-        candidate = Track(
-            title="Creep",
-            artists=[ArtistCredit(credited_name="Radiohead")],
-            duration_ms=238_000,
-            user_id=TEST_USER_ID,
-        )
+    def test_the_persisted_row_and_its_full_payload_reduce_to_one_side(self):
+        """The row a full provider payload materializes into digests the same
+        as that payload, so both writers land on one cache entry."""
         row = self._persisted("Creep", ["Radiohead", "Albert Hammond"], 238_000)
+        payload = service_side(
+            "sp_42",
+            {
+                "title": "Creep",
+                "artists": ["Radiohead", "Albert Hammond"],
+                "duration_ms": 238_000,
+            },
+        )
+        candidate = track_side(
+            Track(
+                title="Creep",
+                artists=[ArtistCredit(credited_name="Radiohead")],
+                duration_ms=238_000,
+                user_id=TEST_USER_ID,
+            )
+        )
 
-        # Matching pipeline: full provider payload materialized the row.
-        pipeline = content_digest(connector_side(row), track_side(candidate))
-        # Reuse gate: a title and one artist, no duration — but the same row.
-        reuse = content_digest(connector_side(row), track_side(candidate))
-
-        assert pipeline == reuse
+        assert connector_side(row) == payload
+        assert content_digest(connector_side(row), candidate) == content_digest(
+            payload, candidate
+        )
 
     def test_the_callers_own_views_would_not_have_agreed(self):
         """Why the fix had to move the source, not patch either caller."""

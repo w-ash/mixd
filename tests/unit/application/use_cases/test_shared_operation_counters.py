@@ -1,9 +1,6 @@
 """Unit tests for shared operation counter utilities."""
 
-from src.application.use_cases._shared.playlist_results import (
-    OperationCounts,
-    count_operation_types,
-)
+from src.application.use_cases._shared.playlist_results import count_operation_types
 from src.domain.entities.track import ArtistCredit, Track
 from src.domain.playlist import PlaylistOperation, PlaylistOperationType
 from tests.fixtures import TEST_USER_ID
@@ -11,88 +8,6 @@ from tests.fixtures import TEST_USER_ID
 
 class TestCountOperationTypes:
     """Tests for count_operation_types() utility function."""
-
-    def test_count_empty_operations_list(self) -> None:
-        """Should return zero counts for empty list."""
-        result = count_operation_types([])
-
-        assert result.added == 0
-        assert result.removed == 0
-        assert result.moved == 0
-
-    def test_count_only_add_operations(self) -> None:
-        """Should correctly count only ADD operations."""
-        track1 = Track(
-            title="Track 1",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-        track2 = Track(
-            title="Track 2",
-            artists=[ArtistCredit(credited_name="Artist 2")],
-            user_id=TEST_USER_ID,
-        )
-        track3 = Track(
-            title="Track 3",
-            artists=[ArtistCredit(credited_name="Artist 3")],
-            user_id=TEST_USER_ID,
-        )
-
-        operations = [
-            PlaylistOperation(
-                operation_type=PlaylistOperationType.ADD,
-                track=track1,
-                position=0,
-            ),
-            PlaylistOperation(
-                operation_type=PlaylistOperationType.ADD,
-                track=track2,
-                position=1,
-            ),
-            PlaylistOperation(
-                operation_type=PlaylistOperationType.ADD,
-                track=track3,
-                position=2,
-            ),
-        ]
-
-        result = count_operation_types(operations)
-
-        assert result.added == 3
-        assert result.removed == 0
-        assert result.moved == 0
-
-    def test_count_only_remove_operations(self) -> None:
-        """Should correctly count only REMOVE operations."""
-        track1 = Track(
-            title="Track 1",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-        track2 = Track(
-            title="Track 2",
-            artists=[ArtistCredit(credited_name="Artist 2")],
-            user_id=TEST_USER_ID,
-        )
-
-        operations = [
-            PlaylistOperation(
-                operation_type=PlaylistOperationType.REMOVE,
-                track=track1,
-                position=0,
-            ),
-            PlaylistOperation(
-                operation_type=PlaylistOperationType.REMOVE,
-                track=track2,
-                position=1,
-            ),
-        ]
-
-        result = count_operation_types(operations)
-
-        assert result.added == 0
-        assert result.removed == 2
-        assert result.moved == 0
 
     def test_count_only_move_operations(self) -> None:
         """Should correctly count only MOVE operations."""
@@ -173,23 +88,3 @@ class TestCountOperationTypes:
         assert result.added == 2
         assert result.removed == 3
         assert result.moved == 2
-
-    def test_returns_operation_counts_type(self) -> None:
-        """Should return OperationCounts typed object."""
-        track = Track(
-            title="Track 1",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-
-        operations = [
-            PlaylistOperation(
-                operation_type=PlaylistOperationType.ADD,
-                track=track,
-                position=0,
-            ),
-        ]
-
-        result = count_operation_types(operations)
-
-        assert isinstance(result, OperationCounts)

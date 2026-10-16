@@ -8,11 +8,12 @@ a 400 on every request that no other test would catch.
 from types import SimpleNamespace
 from typing import Any
 
-from anthropic import AuthenticationError, BadRequestError
+from anthropic import APIConnectionError, AuthenticationError, BadRequestError
 import httpx2
 import pytest
 
 from src.application.chat.protocols import LLMRequest
+from src.domain.exceptions import ChatUnavailableError
 import src.infrastructure.chat.anthropic_adapter as adapter_mod
 from src.infrastructure.chat.anthropic_adapter import (
     AnthropicAdapter,
@@ -98,13 +99,15 @@ class TestValidateKey:
         assert await validate_anthropic_key("sk-ant-nobilling") is False
         assert fake.closed is True
 
-    async def test_transport_error_propagates(
+    async def test_transport_error_is_unavailable_not_a_bad_key(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # A network blip is not a "bad key" — it must not silently store/accept.
-        fake = _FakeClient(raises=RuntimeError("boom"))
+        # A network blip cannot tell a good key from a bad one: it must surface
+        # as "couldn't reach Anthropic" (503), not as False or a raw SDK error.
+        request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+        fake = _FakeClient(raises=APIConnectionError(request=request))
         monkeypatch.setattr(adapter_mod, "AsyncAnthropic", lambda **_: fake)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ChatUnavailableError, match="Couldn't reach Anthropic"):
             await validate_anthropic_key("sk-ant-x")
         assert fake.closed is True
 
@@ -203,7 +206,8 @@ class TestRequestBuild:
 
 
 class TestIncrementalCache:
-    def test_stamps_exactly_one_block(self) -> None:
+    def test_stamps_only_the_last_block_of_the_history(self) -> None:
+        # One breakpoint at the end turns every prior turn into a cache read.
         messages: list[dict[str, object]] = [
             {"role": "user", "content": [{"type": "text", "text": "a"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
@@ -215,7 +219,9 @@ class TestIncrementalCache:
             for block in message["content"]
             if "cache_control" in block
         ]
-        assert len(stamped) == 1
+        assert stamped == [
+            {"type": "text", "text": "b", "cache_control": {"type": "ephemeral"}}
+        ]
 
     def test_does_not_mutate_the_caller(self) -> None:
         # The use case reuses one list and re-echoes raw_content on pause_turn,

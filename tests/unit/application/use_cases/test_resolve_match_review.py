@@ -10,7 +10,6 @@ import pytest
 
 from src.application.use_cases.resolve_match_review import (
     ResolveMatchReviewCommand,
-    ResolveMatchReviewResult,
     ResolveMatchReviewUseCase,
 )
 from src.config.constants import ReviewStatus
@@ -39,7 +38,7 @@ def _make_pending_review(**overrides) -> MatchReview:
 class TestAcceptReview:
     """Accepting a review creates a track mapping."""
 
-    async def test_accept_creates_mapping_and_updates_status(self):
+    async def test_accept_creates_manual_mapping_and_marks_accepted(self):
         review = _make_pending_review()
         accepted_review = MatchReview(**{
             **{
@@ -58,21 +57,33 @@ class TestAcceptReview:
         ct_mock = MagicMock()
         ct_mock.connector_track_identifier = "sp_track_123"
         connector_repo.get_connector_track_by_id.return_value = ct_mock
-        connector_repo.map_track_to_connector.return_value = make_track(42)
+        reviewed_track = make_track(42)
+        connector_repo.map_track_to_connector.return_value = reviewed_track
 
         track_repo = uow.get_track_repository()
-        track_repo.get_track_by_id.return_value = make_track(42)
+        track_repo.get_track_by_id.return_value = reviewed_track
 
         command = ResolveMatchReviewCommand(
             user_id="test-user", review_id=1, action="accept"
         )
         result = await ResolveMatchReviewUseCase().execute(command, uow)
 
-        assert isinstance(result, ResolveMatchReviewResult)
         assert result.mapping_created is True
-        assert result.review.status == ReviewStatus.ACCEPTED
-        connector_repo.map_track_to_connector.assert_called_once()
-        uow.commit.assert_called_once()
+        assert result.review is accepted_review
+        # manual_override pins the human verdict so re-ingestion cannot undo it.
+        connector_repo.map_track_to_connector.assert_awaited_once_with(
+            track=reviewed_track,
+            connector="spotify",
+            connector_id="sp_track_123",
+            match_method="artist_title",
+            confidence=72,
+            confidence_evidence=None,
+            origin="manual_override",
+        )
+        review_repo.update_review_status.assert_awaited_once_with(
+            1, ReviewStatus.ACCEPTED
+        )
+        uow.commit.assert_awaited_once()
 
 
 class TestRejectReview:
@@ -99,9 +110,12 @@ class TestRejectReview:
         result = await ResolveMatchReviewUseCase().execute(command, uow)
 
         assert result.mapping_created is False
-        assert result.review.status == ReviewStatus.REJECTED
+        assert result.review is rejected_review
+        review_repo.update_review_status.assert_awaited_once_with(
+            1, ReviewStatus.REJECTED
+        )
         uow.get_connector_repository().map_track_to_connector.assert_not_called()
-        uow.commit.assert_called_once()
+        uow.commit.assert_awaited_once()
 
 
 class TestResolveErrors:

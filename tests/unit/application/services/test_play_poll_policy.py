@@ -15,6 +15,7 @@ import pytest
 from src.application.services import play_poll_policy
 from src.application.services.play_poll_policy import (
     PLAY_POLL_TARGET,
+    _ClaimPayload,
     finish_poll,
     try_begin_poll,
 )
@@ -94,12 +95,39 @@ def _run_with(uow):
 
 class TestTryBeginPoll:
     async def test_claims_when_due(self) -> None:
-        uow = _uow_with({}, try_claim_poll=AsyncMock(return_value=True))
+        # A stored cursor means this poll resumes; no Last.fm checkpoint means
+        # Spotify is the sole observer, so the stretch caps at 2h.
+        checkpoints = {
+            ("spotify", "plays"): _checkpoint(
+                cursor="c1", last_polled_at=_NOW - timedelta(hours=2)
+            )
+        }
+        claim_mock = AsyncMock(return_value=True)
+        uow = _uow_with(checkpoints, try_claim_poll=claim_mock)
         with _run_with(uow):
             claim = await try_begin_poll(_ctx())
 
         assert claim.granted is True
-        assert claim.payload is not None
+        assert claim.payload == _ClaimPayload(
+            state=PollState(), cap_seconds=2 * 60 * 60, resumed=True
+        )
+        assert claim_mock.await_args.args == ("u1", "spotify", "plays")
+        assert claim_mock.await_args.kwargs["now"] == _NOW
+        assert claim_mock.await_args.kwargs["claim_ttl"] == timedelta(minutes=15)
+        uow.commit.assert_awaited_once()
+
+    async def test_a_checkpoint_without_a_cursor_is_not_a_resume(self) -> None:
+        # No stored cursor: a saturated first window means "adopted the
+        # retained window", not "lost plays".
+        uow = _uow_with(
+            {("spotify", "plays"): _checkpoint()},
+            try_claim_poll=AsyncMock(return_value=True),
+        )
+        with _run_with(uow):
+            claim = await try_begin_poll(_ctx())
+
+        assert claim.granted is True
+        assert claim.payload.resumed is False  # pyright: ignore[reportAttributeAccessIssue]
 
     async def test_missing_scope_vetoes_without_touching_the_lease(self) -> None:
         # A scope gap already surfaces as "re-connect needed" on the connector
@@ -161,8 +189,6 @@ class TestTryBeginPoll:
 class TestFinishPoll:
     @staticmethod
     def _outcome(*, succeeded: bool, result: object, trigger: str = "schedule"):
-        from src.application.services.play_poll_policy import _ClaimPayload
-
         return PollOutcome(
             context=_ctx(trigger),
             claim=PollClaim(
@@ -267,7 +293,12 @@ class TestFinishPoll:
                 )
             )
 
-        uow.get_schedule_repository().set_next_run_at.assert_awaited_once()
+        # A productive poll resets to the 30-minute base cadence.
+        uow.get_schedule_repository().set_next_run_at.assert_awaited_once_with(
+            user_id="u1",
+            sync_target=PLAY_POLL_TARGET,
+            next_run_at=_NOW + timedelta(minutes=30),
+        )
 
     async def test_scheduled_poll_leaves_next_run_at_to_the_scheduler(self) -> None:
         # The scheduler recomputes it from a fresh read inside its own claim
@@ -348,6 +379,8 @@ class TestEnableDisable:
         updated = uow.get_schedule_repository().update_schedule.await_args.args[0]
         assert updated.status == "disabled"
         # Disabled, not deleted — a later reconnect resumes the same row.
+        assert updated.id == existing.id
+        assert updated.interval_minutes == 120
         uow.get_schedule_repository().delete_for_user.assert_not_awaited()
 
     async def test_disable_tolerates_a_missing_row(self) -> None:

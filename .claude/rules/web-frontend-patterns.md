@@ -39,6 +39,8 @@ paths:
 - `renderWithProviders()` from `#/test/test-utils` — wraps QueryClient (`retry: false`, `gcTime: 0`) + MemoryRouter. Use for any component with hooks/routing/queries. Plain `render()` for pure presentational.
 - MSW handlers auto-generated in `api/generated/**/*.msw.ts`, pre-loaded in `setup.ts`. Per-test overrides: `server.use(http.get(...))`, reset automatically.
 - `#/` alias → `web/src/`
+- Value standard: `.claude/rules/test-value.md`. Assert user-visible outcomes via accessible queries (`getByRole`, `getByLabelText`) and exact content.
+- Mutation testing: `pnpm --prefix web test:mutate` (Stryker, `src/lib/**` + `src/hooks/**`). Survivors: `test-value.md`.
 
 ## Design iteration
 For dev-time visual feedback (padding, alignment, responsive layout) use the Playwright MCP server — see `web-design-review.md` for the snapshot-first loop, viewport matrix, and anti-patterns.

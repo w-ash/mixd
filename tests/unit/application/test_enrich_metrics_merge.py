@@ -79,19 +79,17 @@ class TestEnrichmentMetricsMerge:
 
         # Assert: both metric sets are present in the final tracklist
         final_metrics = result.enriched_tracklist.metadata.get("metrics", {})
-        assert "lastfm_user_playcount" in final_metrics, (
-            "Previous enricher's metrics were overwritten!"
-        )
-        assert "explicit_flag" in final_metrics, (
-            "Current enricher's metrics are missing!"
-        )
-        assert final_metrics["lastfm_user_playcount"] == {1: 42, 2: 15}
-        assert final_metrics["explicit_flag"] == {1: True, 2: False}
+        assert final_metrics == {
+            "lastfm_user_playcount": {1: 42, 2: 15},
+            "explicit_flag": {1: True, 2: False},
+        }
 
         # fresh_metric_ids should also be merged
         final_fresh = result.enriched_tracklist.metadata.get("fresh_metric_ids", {})
-        assert "lastfm_user_playcount" in final_fresh
-        assert "explicit_flag" in final_fresh
+        assert final_fresh == {
+            "lastfm_user_playcount": [1, 2],
+            "explicit_flag": [1, 2],
+        }
 
     async def test_play_history_already_merges_correctly(self):
         """Play history enrichment already merges — verify it still works."""
@@ -132,5 +130,7 @@ class TestEnrichmentMetricsMerge:
         result = await use_case.execute(command, mock_uow)
 
         final_metrics = result.enriched_tracklist.metadata.get("metrics", {})
-        assert "explicit_flag" in final_metrics, "Pre-existing metrics lost!"
-        assert "total_plays" in final_metrics, "Play history metrics missing!"
+        assert final_metrics == {
+            "explicit_flag": {1: True},
+            "total_plays": {1: 99},
+        }

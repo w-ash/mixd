@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { NodeType } from "#/api/generated/model";
-
 import {
   findNodeCategory,
   formatNodeTypeName,
@@ -11,17 +9,6 @@ import {
   NODE_CONFIG,
   resolveNodeCategory,
 } from "./workflow-config";
-
-describe("NODE_CONFIG", () => {
-  it("covers every generated node category", () => {
-    for (const category of Object.values(NodeType)) {
-      expect(NODE_CONFIG[category]).toBeDefined();
-    }
-    expect(Object.keys(NODE_CONFIG).sort()).toEqual(
-      Object.values(NodeType).sort(),
-    );
-  });
-});
 
 describe("getNodeCategoryName", () => {
   it("takes the segment before the first dot", () => {

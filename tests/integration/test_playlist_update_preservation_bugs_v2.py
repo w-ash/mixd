@@ -1,10 +1,8 @@
-"""Integration tests proving playlist update bugs - SIMPLIFIED VERSION.
+"""Regression tests: playlist updates keep each entry's DBPlaylistTrack record.
 
-These tests focus on proving the position-slot overwriting bug WITHOUT relying on added_at timestamps.
-The bug: When updating playlists, the repository overwrites DBPlaylistTrack records by position,
-losing track identity and causing incorrect behavior with duplicates.
-
-Once bugs are fixed, these tests should pass.
+Guards the fixed position-slot overwriting bug, where the repository rewrote
+DBPlaylistTrack records by position and lost track identity and duplicates.
+The checks do not rely on added_at timestamps.
 """
 
 from src.application.use_cases.create_canonical_playlist import (
@@ -24,12 +22,7 @@ _MOCK_METRIC_CONFIG = make_mock_metric_config()
 
 
 class TestPlaylistUpdateRecordIdentityBugs:
-    """Tests proving that playlist updates destroy track record identity.
-
-    All tests are xfail: they document a known bug where the repository
-    overwrites DBPlaylistTrack records by position instead of by track identity.
-    Remove xfail when the record-identity-preserving save_playlist is implemented.
-    """
+    """Records follow track identity, not position, across reorder, duplicate and removal."""
 
     async def test_dbplaylisttrack_records_follow_tracks_not_positions(
         self, db_session

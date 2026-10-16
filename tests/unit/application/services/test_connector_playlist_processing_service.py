@@ -105,19 +105,3 @@ class TestUnresolvedEmission:
 
         # Resolved-only view excludes the hole.
         assert len(result.tracks) == 2
-
-    async def test_all_resolved_has_no_unresolved(self):
-        cp = make_connector_playlist(items=[_item("a", 0, "Track A", "Artist A")])
-        service = _service([
-            make_track(title="Track A", connector_track_identifiers={"spotify": "a"})
-        ])
-        uow = make_mock_uow()
-
-        with patch(_PROCESS, return_value=_fake_connector()):
-            result = await service.process_connector_playlist(
-                cp, uow, user_id="default"
-            )
-
-        assert len(result.entries) == 1
-        assert result.unresolved_count == 0
-        assert result.entries[0].is_resolved is True

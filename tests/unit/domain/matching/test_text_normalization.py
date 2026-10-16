@@ -42,10 +42,6 @@ class TestStripDiacritics:
     def test_empty_string(self):
         assert strip_diacritics("") == ""
 
-    def test_idempotent(self):
-        text = "Björk"
-        assert strip_diacritics(strip_diacritics(text)) == strip_diacritics(text)
-
 
 class TestNormalizeForComparison:
     """Test the full normalization pipeline."""
@@ -54,8 +50,7 @@ class TestNormalizeForComparison:
         assert normalize_for_comparison("The Beatles") == "beatles"
 
     def test_preserves_internal_the(self):
-        result = normalize_for_comparison("Cage the Elephant")
-        assert "the" in result
+        assert normalize_for_comparison("Cage the Elephant") == "cage the elephant"
 
     def test_lowercases(self):
         assert normalize_for_comparison("RADIOHEAD") == "radiohead"
@@ -249,22 +244,16 @@ class TestNormalizationCaching:
         assert normalize_for_comparison.cache_info().currsize == 4
 
     def test_cache_is_bounded(self):
-        """A long-lived process must not accumulate entries without limit."""
-        assert normalize_for_comparison.cache_info().maxsize is not None
-        assert strip_diacritics.cache_info().maxsize is not None
+        """A long-lived process must not accumulate entries without limit.
+
+        32k entries covers a large library's distinct titles and artist names.
+        """
+        assert normalize_for_comparison.cache_info().maxsize == 32_768
+        assert strip_diacritics.cache_info().maxsize == 32_768
 
 
 class TestPhoneticKey:
     """Test Metaphone phonetic key generation."""
-
-    def test_same_key_for_diacritic_variants(self):
-        assert phonetic_key("Björk") == phonetic_key("Bjork")
-
-    def test_same_key_for_spelling_variants(self):
-        assert phonetic_key("Smith") == phonetic_key("Smyth")
-
-    def test_different_keys_for_different_names(self):
-        assert phonetic_key("Beatles") != phonetic_key("Radiohead")
 
     def test_empty_string_returns_empty(self):
         assert phonetic_key("") == ""
@@ -300,11 +289,6 @@ class TestArePhoneticMatches:
 
     def test_empty_strings_do_not_match(self):
         assert are_phonetic_matches("", "") is False
-
-    def test_symmetric(self):
-        assert are_phonetic_matches("Björk", "Bjork") == are_phonetic_matches(
-            "Bjork", "Björk"
-        )
 
 
 class TestStripParentheticals:

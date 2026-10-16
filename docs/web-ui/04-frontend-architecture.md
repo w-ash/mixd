@@ -464,12 +464,12 @@ No global state store. If cross-page state emerges, evaluate React Context befor
 
 ### Testing Strategy
 
-| Layer | Tool | Coverage Target | Focus |
-|-------|------|----------------|-------|
-| Component unit | Vitest + React Testing Library | 60% | Primitives, form validation, conditional rendering |
-| API integration | Vitest + MSW (Mock Service Worker) | Hooks, error states, loading states | Tanstack Query hook behavior |
-| Accessibility | @axe-core/react + manual | All pages | Automated a11y scanning + keyboard testing |
-| E2E | Playwright (Chromium, desktop) | Critical paths | Playlist CRUD, track search, workflow execution, import flow |
+| Layer | Tool | Owns | Focus |
+|-------|------|------|-------|
+| Component unit | Vitest + React Testing Library | What the user sees and does in one component | Primitives, form validation, conditional rendering |
+| API integration | Vitest + MSW (Mock Service Worker) | How hooks handle success, error, and loading responses | Tanstack Query hook behavior |
+| Accessibility | @axe-core/react + manual | That every page is usable by keyboard and screen reader | Automated a11y scanning + keyboard testing |
+| E2E | Playwright (Chromium, desktop) | That critical paths work end to end against the real app | Playlist CRUD, track search, workflow execution, import flow |
 
 ### Build & Deployment
 

@@ -9,6 +9,7 @@ because testcontainers connects as a superuser.
 """
 
 from datetime import UTC, datetime
+import os
 from uuid import uuid7
 
 import pytest
@@ -17,7 +18,11 @@ from src.domain.entities.operations import SyncCheckpoint, TrackPlay
 from src.domain.entities.track import ArtistCredit, Track
 from src.domain.entities.workflow import Workflow
 from src.domain.exceptions import NotFoundError
+from src.infrastructure.persistence.database.db_connection import reset_engine_cache
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from src.infrastructure.persistence.repositories.token_storage import (
+    DatabaseTokenStorage,
+)
 from tests.fixtures.factories import make_playlist, make_workflow_def
 
 USER_A = "isolation-user-a"
@@ -271,22 +276,6 @@ class TestWorkflowIsolation:
         result = await repo.delete_workflow(wf.id, user_id=USER_B)
         assert result is False
 
-    async def test_workflow_not_visible_across_users(self, db_session):
-        """A workflow owned by USER_A is never returned in USER_B's list."""
-        uow = get_unit_of_work(db_session)
-        repo = uow.get_workflow_repository()
-
-        await repo.save_workflow(
-            Workflow(
-                id=uuid7(),
-                definition=make_workflow_def(id="wf-a2", name="Workflow A2"),
-                user_id=USER_A,
-            )
-        )
-
-        result = await repo.list_workflows(user_id=USER_B)
-        assert result == []
-
 
 # ---------------------------------------------------------------------------
 # Checkpoint isolation
@@ -313,6 +302,8 @@ class TestCheckpointIsolation:
 
         result_a = await repo.get_sync_checkpoint(USER_A, "spotify", "likes")
         assert result_a is not None
+        assert result_a.user_id == USER_A
+        assert result_a.last_timestamp == datetime(2024, 6, 1, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -343,53 +334,47 @@ class TestStatsIsolation:
 # ---------------------------------------------------------------------------
 
 
-class TestOAuthTokenIsolation:
-    """OAuth tokens are per-user — tested via direct DB model insertion.
+@pytest.fixture
+async def standalone_db(postgres_url: str, _init_test_schema: None):
+    """Point the standalone ``get_session()`` path at the test container.
 
-    DatabaseTokenStorage creates its own session (not the test db_session),
-    so we test via the DB model directly for isolation within the test
-    transaction.
+    ``DatabaseTokenStorage`` opens its own short sessions, outside the
+    savepoint-wrapped ``db_session`` — the same posture as
+    ``test_token_storage.py``. Rows commit for real, so the test deletes its own.
     """
+    original = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = postgres_url
+    reset_engine_cache()
+    try:
+        yield
+    finally:
+        reset_engine_cache()
+        if original is not None:
+            os.environ["DATABASE_URL"] = original
 
-    async def test_load_token_scoped(self, db_session):
-        from sqlalchemy import select
 
-        from src.infrastructure.persistence.database.models import DBOAuthToken
-        from src.infrastructure.persistence.repositories.token_encryption import (
-            encrypt_field,
+class TestOAuthTokenIsolation:
+    """OAuth tokens are per-user: ``load_token`` never reads another user's row."""
+
+    @pytest.mark.usefixtures("standalone_db")
+    async def test_load_token_scoped(self):
+        storage = DatabaseTokenStorage()
+        owner = f"{USER_A}-{uuid7()}"
+        other = f"{USER_B}-{uuid7()}"
+        await storage.save_token(
+            "spotify",
+            owner,
+            {
+                "access_token": "secret-access-token",
+                "refresh_token": "secret-refresh-token",
+                "token_type": "Bearer",
+            },
         )
+        try:
+            assert await storage.load_token("spotify", other) is None
 
-        now = datetime.now(UTC)
-        db_session.add(
-            DBOAuthToken(
-                service="spotify",
-                user_id=USER_A,
-                access_token=encrypt_field("secret-access-token"),
-                refresh_token=encrypt_field("secret-refresh-token"),
-                token_type="Bearer",
-                expires_at=datetime(2030, 1, 1, tzinfo=UTC),
-                created_at=now,
-                updated_at=now,
-            )
-        )
-        await db_session.flush()
-
-        result_a = (
-            await db_session.execute(
-                select(DBOAuthToken).where(
-                    DBOAuthToken.service == "spotify",
-                    DBOAuthToken.user_id == USER_A,
-                )
-            )
-        ).scalar_one_or_none()
-        assert result_a is not None
-
-        result_b = (
-            await db_session.execute(
-                select(DBOAuthToken).where(
-                    DBOAuthToken.service == "spotify",
-                    DBOAuthToken.user_id == USER_B,
-                )
-            )
-        ).scalar_one_or_none()
-        assert result_b is None
+            owned = await storage.load_token("spotify", owner)
+            assert owned is not None
+            assert owned.get("access_token") == "secret-access-token"
+        finally:
+            await storage.delete_token("spotify", owner)

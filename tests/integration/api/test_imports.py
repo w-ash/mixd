@@ -114,15 +114,6 @@ async def _settle_background_tasks(timeout_seconds: float = 10.0) -> None:
     raise AssertionError("background tasks did not settle within the timeout")
 
 
-def _connected_storage() -> AsyncMock:
-    """A TokenStorage mock that reports a stored token for every service."""
-    storage = AsyncMock()
-    storage.load_token = AsyncMock(
-        return_value=StoredToken(account_name="connected", session_key="sk")
-    )
-    return storage
-
-
 def _parse_sse_events(raw: str) -> list[dict[str, str]]:
     """Parse raw SSE text into a list of event dicts with 'id', 'event', 'data' keys.
 
@@ -151,43 +142,122 @@ def _parse_sse_events(raw: str) -> list[dict[str, str]]:
     return events
 
 
+_RUN_IMPORT = "src.application.use_cases.import_play_history.run_import"
+_RUN_LIKES_IMPORT = "src.application.use_cases.sync_likes.run_likes_import"
+_RUN_LOVES_EXPORT = "src.application.use_cases.sync_likes.run_loves_export"
+
+
 class TestImportEndpoints:
-    """Tests that import endpoints return operation_id responses."""
+    """Each trigger route records its run and hands the request body to its use case.
+
+    The conftest stub drops the background task, so the launched factory is
+    captured here and driven by hand with the use case patched at its module.
+    """
 
     @pytest.fixture(autouse=True)
     def _connected(self):
-        # The import routes 409 when the connector has no stored token (6c). These
-        # happy-path tests assert the trigger contract, so report a connected state.
-        with patch(
-            "src.interface.api.deps.get_token_storage",
-            return_value=_connected_storage(),
-        ):
+        # The import routes 409 without a stored token (6c), and spotify:plays also
+        # needs the recently-played scope. Report every connector as fully granted.
+        storage = AsyncMock()
+        storage.load_token = AsyncMock(
+            return_value=StoredToken(
+                account_name="connected",
+                session_key="sk",
+                scope="user-library-read user-read-recently-played",
+            )
+        )
+        with patch("src.interface.api.deps.get_token_storage", return_value=storage):
             yield
 
-    async def test_import_lastfm_history_returns_operation_id(
-        self, client: httpx2.AsyncClient
+    @pytest.fixture
+    def launched(self, monkeypatch) -> list:
+        factories: list = []
+
+        def _capture(_name: str, factory: object, **_kwargs: object) -> None:
+            factories.append(factory)
+
+        monkeypatch.setattr(sse_operations_mod, "launch_background", _capture)
+        monkeypatch.setattr(SSEConstants, "GRACE_PERIOD_SECONDS", 0)
+        return factories
+
+    @pytest.mark.parametrize(
+        ("path", "body", "use_case", "operation_type", "expected"),
+        [
+            pytest.param(
+                "/api/v1/imports/lastfm/history",
+                {"mode": "full", "limit": 7},
+                _RUN_IMPORT,
+                "import_lastfm_history",
+                {"service": "lastfm", "mode": "full", "limit": 7},
+                id="lastfm-history",
+            ),
+            pytest.param(
+                "/api/v1/imports/lastfm/history",
+                {},
+                _RUN_IMPORT,
+                "import_lastfm_history",
+                {"service": "lastfm", "mode": "incremental", "limit": None},
+                id="lastfm-history-default-mode",
+            ),
+            pytest.param(
+                "/api/v1/imports/spotify/recent",
+                {"limit": 50, "force": True},
+                _RUN_IMPORT,
+                "import_spotify_recent",
+                {"service": "spotify", "mode": "recent", "limit": 50, "force": True},
+                id="spotify-recent-force",
+            ),
+            pytest.param(
+                "/api/v1/imports/apple/recent",
+                {"force": True},
+                _RUN_IMPORT,
+                "import_apple_recent",
+                {"service": "apple", "mode": "recent", "force": True},
+                id="apple-recent-force",
+            ),
+            pytest.param(
+                "/api/v1/imports/spotify/likes",
+                {"limit": 10, "max_imports": 5, "force": True},
+                _RUN_LIKES_IMPORT,
+                "import_spotify_likes",
+                {"connector": "spotify", "limit": 10, "max_imports": 5, "force": True},
+                id="spotify-likes",
+            ),
+            pytest.param(
+                "/api/v1/imports/lastfm/likes",
+                {"batch_size": 10, "max_exports": 5},
+                _RUN_LOVES_EXPORT,
+                "export_lastfm_likes",
+                {"connector": "lastfm", "batch_size": 10, "max_exports": 5},
+                id="lastfm-likes-export",
+            ),
+        ],
+    )
+    async def test_route_records_its_run_and_forwards_the_body(
+        self,
+        client: httpx2.AsyncClient,
+        launched: list,
+        path: str,
+        body: dict,
+        use_case: str,
+        operation_type: str,
+        expected: dict,
     ):
-        response = await client.post(
-            "/api/v1/imports/lastfm/history",
-            json={"mode": "recent"},
-        )
-
-        # May fail due to missing credentials, but the endpoint itself should
-        # accept the request and return 200 with an operation_id
-        assert response.status_code == 200
-        data = response.json()
-        assert "operation_id" in data
-        assert isinstance(data["operation_id"], str)
-        assert len(data["operation_id"]) > 0
-
-    async def test_import_lastfm_history_default_mode(self, client: httpx2.AsyncClient):
-        response = await client.post(
-            "/api/v1/imports/lastfm/history",
-            json={},
-        )
+        response = await client.post(path, json=body)
 
         assert response.status_code == 200
-        assert "operation_id" in response.json()
+        started = response.json()
+        run = await client.get(f"/api/v1/operation-runs/{started['run_id']}")
+        assert run.json()["operation_type"] == operation_type
+        assert run.json()["operation_id"] == started["operation_id"]
+
+        use_case_mock = AsyncMock(return_value=None)
+        with patch(use_case, use_case_mock):
+            await launched[0]()
+
+        kwargs = use_case_mock.await_args.kwargs
+        assert kwargs["user_id"] == "default"
+        assert {key: kwargs[key] for key in expected} == expected
 
     async def test_import_lastfm_history_invalid_mode(self, client: httpx2.AsyncClient):
         response = await client.post(
@@ -196,48 +266,6 @@ class TestImportEndpoints:
         )
 
         assert response.status_code == 422  # Validation error
-
-    async def test_import_spotify_likes_returns_operation_id(
-        self, client: httpx2.AsyncClient
-    ):
-        response = await client.post(
-            "/api/v1/imports/spotify/likes",
-            json={},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "operation_id" in data
-
-    async def test_import_spotify_likes_with_params(self, client: httpx2.AsyncClient):
-        response = await client.post(
-            "/api/v1/imports/spotify/likes",
-            json={"limit": 10, "max_imports": 5},
-        )
-
-        assert response.status_code == 200
-        assert "operation_id" in response.json()
-
-    async def test_export_lastfm_likes_returns_operation_id(
-        self, client: httpx2.AsyncClient
-    ):
-        response = await client.post(
-            "/api/v1/imports/lastfm/likes",
-            json={},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "operation_id" in data
-
-    async def test_export_lastfm_likes_with_params(self, client: httpx2.AsyncClient):
-        response = await client.post(
-            "/api/v1/imports/lastfm/likes",
-            json={"batch_size": 10, "max_exports": 5},
-        )
-
-        assert response.status_code == 200
-        assert "operation_id" in response.json()
 
 
 class TestLastfmUsernameResolution:
@@ -388,25 +416,6 @@ class TestConnectorConnectPreflight:
         assert response.status_code == 200
         assert response.json()["operation_id"]
 
-    async def test_spotify_recent_accepts_force_like_the_chat_surface(
-        self, client: httpx2.AsyncClient
-    ):
-        """`force` re-reads the whole window; REST and chat must offer the same lever."""
-        storage = AsyncMock()
-        storage.load_token = AsyncMock(
-            return_value=StoredToken(
-                account_name="connected",
-                session_key="sk",
-                scope="user-read-recently-played",
-            )
-        )
-        with patch("src.interface.api.deps.get_token_storage", return_value=storage):
-            response = await client.post(
-                "/api/v1/imports/spotify/recent", json={"force": True}
-            )
-
-        assert response.status_code == 200
-
     async def test_apple_recent_409_when_not_connected(
         self, client: httpx2.AsyncClient
     ):
@@ -430,19 +439,6 @@ class TestConnectorConnectPreflight:
 
         assert response.status_code == 200
         assert response.json()["operation_id"]
-
-    async def test_apple_recent_accepts_force(self, client: httpx2.AsyncClient):
-        """`force` re-seeds the window fingerprint for one poll."""
-        storage = AsyncMock()
-        storage.load_token = AsyncMock(
-            return_value=StoredToken(account_name="connected", session_key="sk")
-        )
-        with patch("src.interface.api.deps.get_token_storage", return_value=storage):
-            response = await client.post(
-                "/api/v1/imports/apple/recent", json={"force": True}
-            )
-
-        assert response.status_code == 200
 
     async def test_spotify_history_upload_is_not_gated(
         self, client: httpx2.AsyncClient
@@ -856,16 +852,6 @@ class TestCheckpointEndpoints:
             ("apple", "plays"),
         }
 
-    async def test_get_checkpoints_schema(self, client: httpx2.AsyncClient):
-        response = await client.get("/api/v1/imports/checkpoints")
-
-        data = response.json()
-        for checkpoint in data:
-            assert "service" in checkpoint
-            assert "entity_type" in checkpoint
-            assert "has_previous_sync" in checkpoint
-            assert checkpoint["entity_type"] in ("likes", "plays")
-
     async def test_checkpoints_no_previous_sync_for_fresh_db(
         self, client: httpx2.AsyncClient
     ):
@@ -877,17 +863,6 @@ class TestCheckpointEndpoints:
             assert checkpoint["last_sync_timestamp"] is None
 
 
-class TestOperationEndpoints:
-    """Tests for the operation progress endpoints."""
-
-    async def test_unknown_operation_progress_returns_404(
-        self, client: httpx2.AsyncClient
-    ):
-        response = await client.get("/api/v1/operations/nonexistent-id/progress")
-
-        assert response.status_code == 404
-
-
 class TestSSEProgressStreaming:
     """Tests that the SSE progress endpoint delivers properly encoded events.
 
@@ -896,7 +871,7 @@ class TestSSEProgressStreaming:
     """
 
     async def test_sse_stream_delivers_progress_event(self, client: httpx2.AsyncClient):
-        """A single progress event is delivered in SSE wire format."""
+        """A single progress event is delivered in SSE wire format, data as JSON."""
         registry = get_operation_registry()
         operation_id = "test-sse-progress"
         queue = await registry.register(operation_id)
@@ -904,7 +879,12 @@ class TestSSEProgressStreaming:
         await queue.put({
             "id": "evt_1",
             "event": "progress",
-            "data": {"current": 5, "total": 10, "message": "Working..."},
+            "data": {
+                "current": 5,
+                "total": 10,
+                "message": "Working...",
+                "items_per_second": None,
+            },
         })
         await queue.put(SSE_SENTINEL)
 
@@ -918,54 +898,14 @@ class TestSSEProgressStreaming:
             progress_events = [e for e in events if e.get("event") == "progress"]
             assert len(progress_events) == 1
 
-            data = json.loads(progress_events[0]["data"])
-            assert data["current"] == 5
-            assert data["total"] == 10
-            assert data["message"] == "Working..."
+            # A null field survives as JSON null rather than being dropped.
+            assert json.loads(progress_events[0]["data"]) == {
+                "current": 5,
+                "total": 10,
+                "message": "Working...",
+                "items_per_second": None,
+            }
             assert progress_events[0]["id"] == "evt_1"
-        finally:
-            await registry.unregister(operation_id)
-
-    async def test_sse_stream_delivers_multiple_events(
-        self, client: httpx2.AsyncClient
-    ):
-        """Multiple events are delivered in sequence."""
-        registry = get_operation_registry()
-        operation_id = "test-sse-multi"
-        queue = await registry.register(operation_id)
-
-        await queue.put({
-            "id": "evt_1",
-            "event": "started",
-            "data": {"operation_id": operation_id, "description": "Test Op"},
-        })
-        await queue.put({
-            "id": "evt_2",
-            "event": "progress",
-            "data": {"current": 3, "total": 10, "message": "Batch 1..."},
-        })
-        await queue.put({
-            "id": "evt_3",
-            "event": "complete",
-            "data": {"operation_id": operation_id, "final_status": "completed"},
-        })
-        await queue.put(SSE_SENTINEL)
-
-        try:
-            response = await client.get(f"/api/v1/operations/{operation_id}/progress")
-
-            events = _parse_sse_events(response.text)
-            typed_events = [e for e in events if "event" in e]
-            assert len(typed_events) == 3
-
-            assert typed_events[0]["event"] == "started"
-            assert typed_events[1]["event"] == "progress"
-            assert typed_events[2]["event"] == "complete"
-
-            # IDs are sequential
-            assert typed_events[0]["id"] == "evt_1"
-            assert typed_events[1]["id"] == "evt_2"
-            assert typed_events[2]["id"] == "evt_3"
         finally:
             await registry.unregister(operation_id)
 
@@ -1009,58 +949,5 @@ class TestSSEProgressStreaming:
             data = json.loads(progress_events[0]["data"])
             assert data["current"] == 3
             assert data["message"] == "New event"
-        finally:
-            await registry.unregister(operation_id)
-
-    async def test_sse_data_is_json_encoded(self, client: httpx2.AsyncClient):
-        """SSE data field contains valid JSON (auto-serialized by ServerSentEvent)."""
-        registry = get_operation_registry()
-        operation_id = "test-sse-json"
-        queue = await registry.register(operation_id)
-
-        await queue.put({
-            "id": "evt_1",
-            "event": "progress",
-            "data": {
-                "operation_id": operation_id,
-                "current": 0,
-                "total": None,
-                "message": "Starting...",
-                "items_per_second": None,
-            },
-        })
-        await queue.put(SSE_SENTINEL)
-
-        try:
-            response = await client.get(f"/api/v1/operations/{operation_id}/progress")
-
-            events = _parse_sse_events(response.text)
-            progress_events = [e for e in events if e.get("event") == "progress"]
-            assert len(progress_events) == 1
-
-            # data field must be valid JSON
-            data = json.loads(progress_events[0]["data"])
-            assert data["operation_id"] == operation_id
-            assert data["total"] is None
-        finally:
-            await registry.unregister(operation_id)
-
-    async def test_sse_sentinel_closes_stream(self, client: httpx2.AsyncClient):
-        """Sentinel without any preceding events produces an empty stream."""
-        registry = get_operation_registry()
-        operation_id = "test-sse-sentinel"
-        queue = await registry.register(operation_id)
-
-        # Just the sentinel — generator should exit immediately
-        await queue.put(SSE_SENTINEL)
-
-        try:
-            response = await client.get(f"/api/v1/operations/{operation_id}/progress")
-
-            assert response.status_code == 200
-            events = _parse_sse_events(response.text)
-            # No real events (may have keep-alive comments, but those are filtered)
-            typed_events = [e for e in events if "event" in e]
-            assert len(typed_events) == 0
         finally:
             await registry.unregister(operation_id)

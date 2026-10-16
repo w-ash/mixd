@@ -15,78 +15,37 @@ from src.application.workflows.context import ConnectorRegistryImpl
 class TestConnectorContracts:
     """Test that connectors have expected interfaces."""
 
-    def test_connector_registry_provides_valid_spotify_connector(self):
-        """Test that Spotify connector has required methods for workflows.
+    def test_every_playlist_sync_connector_implements_the_protocol(self):
+        """Declaring ``playlist_sync`` means implementing ``PlaylistConnector``.
 
-        Prevents: AttributeError: 'SpotifyConnector' object has no attribute '_connector'
+        Prevents: the playlist resolver raising ``TypeError`` at run time
+        because a descriptor and its class drifted apart (e.g. a renamed
+        ``create_playlist``). Checks every registered connector.
+        """
+        from src.application.connector_protocols import PlaylistConnector
+
+        registry = ConnectorRegistryImpl()
+        declaring = [
+            name
+            for name in registry.list_connectors()
+            if "playlist_sync" in registry.describe(name).capabilities
+        ]
+
+        assert "spotify" in declaring
+        for name in declaring:
+            assert isinstance(registry.get_connector(name), PlaylistConnector), name
+
+    def test_every_registered_connector_constructs_once_per_registry(self):
+        """Every registered connector builds, and a second lookup reuses it.
+
+        Prevents: runtime errors when a workflow asks for a connector whose
+        factory is broken, and a fresh httpx2 pool per lookup.
         """
         registry = ConnectorRegistryImpl()
 
-        # Get the actual connector instance
-        connector = registry.get_connector("spotify")
-
-        # Verify it has required methods for destination nodes
-        assert hasattr(connector, "create_playlist"), (
-            "Spotify connector must have create_playlist method for destination nodes"
-        )
-        assert hasattr(connector, "update_playlist"), (
-            "Spotify connector must have update_playlist method for destination nodes"
-        )
-        assert callable(connector.create_playlist), "create_playlist must be callable"
-        assert callable(connector.update_playlist), "update_playlist must be callable"
-
-    def test_connector_registry_provides_valid_lastfm_connector(self):
-        """Test that Last.fm connector has required methods for enrichment.
-
-        Prevents: Missing methods needed by enricher nodes
-        """
-        registry = ConnectorRegistryImpl()
-
-        # Get the actual connector instance
-        connector = registry.get_connector("lastfm")
-
-        # Verify it has required methods for enricher nodes
-        assert hasattr(connector, "get_track_info"), (
-            "Last.fm connector must have get_track_info method for enrichment"
-        )
-        assert callable(connector.get_track_info), "get_track_info must be callable"
-
-    def test_connector_registry_get_connector_returns_direct_instance(self):
-        """Test that get_connector returns connector directly, not wrapped.
-
-        Prevents: Code expecting ._connector attribute on returned objects
-        """
-        registry = ConnectorRegistryImpl()
-
-        # Test all available connectors
         for connector_name in registry.list_connectors():
-            connector = registry.get_connector(connector_name)
-
-            # Verify it's a direct instance, not a wrapper
-            assert not hasattr(connector, "_connector"), (
-                f"{connector_name} connector should be returned directly, "
-                "not wrapped with ._connector attribute"
-            )
-
-    def test_all_connectors_discoverable_and_creatable(self):
-        """Test that all registered connectors can be instantiated.
-
-        Prevents: Runtime errors when workflow tries to get unknown connectors
-        """
-        registry = ConnectorRegistryImpl()
-
-        available_connectors = registry.list_connectors()
-
-        # Should have the core connectors
-        assert "spotify" in available_connectors, "Spotify connector must be available"
-        assert "lastfm" in available_connectors, "Last.fm connector must be available"
-
-        # All connectors should be instantiable
-        for connector_name in available_connectors:
-            connector = registry.get_connector(connector_name)
-            assert connector is not None, (
-                f"{connector_name} connector should be instantiable"
-            )
+            first = registry.get_connector(connector_name)
+            assert registry.get_connector(connector_name) is first, connector_name
 
     def test_spotify_declares_library_contains_and_implements_it(self):
         """The registry capability and the runtime protocol agree for Spotify.
@@ -200,37 +159,3 @@ class TestSpotifyConnectorContract:
         assert not inspect.iscoroutinefunction(
             spotify_connector.convert_track_to_connector
         ), "convert_track_to_connector should be synchronous"
-
-
-class TestLastFmConnectorContract:
-    """Detailed contract tests for Last.fm connector interface."""
-
-    @pytest.fixture
-    def lastfm_connector(self):
-        """Get real Last.fm connector instance."""
-        registry = ConnectorRegistryImpl()
-        return registry.get_connector("lastfm")
-
-    def test_lastfm_extractor_availability(self):
-        """Test that Last.fm provides extractors for enrichment.
-
-        Prevents: Extractor type mismatches in enricher nodes
-        """
-        from src.infrastructure.connectors.lastfm import get_connector_config
-
-        config = get_connector_config()
-        metrics = config.get("metrics", {})
-
-        # Check key metrics are available (renamed from extractors)
-        assert "lastfm_user_playcount" in metrics, (
-            "lastfm_user_playcount metric must be available"
-        )
-        assert "lastfm_global_playcount" in metrics, (
-            "lastfm_global_playcount metric must be available"
-        )
-
-        # Check metrics are accessible (MetricSpec: field + display label)
-        from src.infrastructure.connectors.protocols import MetricSpec
-
-        for name, spec in metrics.items():
-            assert isinstance(spec, MetricSpec), f"Metric {name} must be a MetricSpec"

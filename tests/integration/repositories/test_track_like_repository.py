@@ -34,12 +34,18 @@ class TestLikeUnlikeRoundTrip:
         user_id = f"rt-user-{uuid7()}"
         track = await track_repo.save_track(_new_track(user_id))
 
+        before = datetime.now(UTC)
         saved = await like_repo.save_track_likes_batch(
             [(track.id, "spotify", None)], user_id=user_id
         )
         assert [like.service for like in saved] == ["spotify"]
+        # No liked_at given: the like is stamped with the time it was saved.
         assert saved[0].liked_at is not None
-        assert await like_repo.get_track_likes(track.id, user_id=user_id)
+        assert before <= saved[0].liked_at <= datetime.now(UTC)
+        stored = await like_repo.get_track_likes(track.id, user_id=user_id)
+        assert [(like.track_id, like.service) for like in stored] == [
+            (track.id, "spotify")
+        ]
 
         deleted = await like_repo.delete_track_likes_batch(
             [(track.id, "spotify")], user_id=user_id

@@ -169,7 +169,14 @@ class TestAlreadyMapped:
             CONNECTOR, [_payload("sp_1")], uow, user_id=TEST_USER_ID
         )
 
-        uow.get_artist_minter().mint.assert_awaited_once()
+        mint = uow.get_artist_minter().mint
+        mint.assert_awaited_once()
+        connector, sources, canonicals = mint.await_args.args
+        assert connector == CONNECTOR
+        assert [source.key for source in sources] == ["sp_1"]
+        # The re-encountered canonical is what the minter fills credits on.
+        assert canonicals["sp_1"].id == canonical.id
+        assert mint.await_args.kwargs["user_id"] == TEST_USER_ID
 
     async def test_the_lock_is_taken_before_any_probe(self):
         uow = _uow()

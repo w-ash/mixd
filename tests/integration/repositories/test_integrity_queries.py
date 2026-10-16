@@ -1,6 +1,6 @@
 """Integration tests for data integrity monitoring repository queries.
 
-Tests real SQL queries against SQLite for primary mapping violations,
+Tests real SQL queries against PostgreSQL for primary mapping violations,
 orphaned connector tracks, duplicate tracks, and stale pending reviews.
 """
 

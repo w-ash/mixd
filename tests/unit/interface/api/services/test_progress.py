@@ -4,8 +4,9 @@ Tests OperationBoundEmitter, SSEOperationRegistry, and SSEProgressSubscriber
 using mock progress managers and in-memory queues.
 """
 
-import asyncio
 from unittest.mock import AsyncMock
+
+import pytest
 
 from src.domain.entities.progress import (
     OperationStatus,
@@ -95,12 +96,6 @@ class TestOperationBoundEmitter:
 class TestSSEOperationRegistry:
     """Tests registry CRUD operations for operation queues."""
 
-    async def test_register_returns_queue(self):
-        registry = SSEOperationRegistry()
-        queue = await registry.register("op-1")
-
-        assert isinstance(queue, asyncio.Queue)
-
     async def test_get_queue_returns_registered_queue(self):
         registry = SSEOperationRegistry()
         original = await registry.register("op-1")
@@ -123,7 +118,11 @@ class TestSSEOperationRegistry:
 
     async def test_unregister_unknown_is_noop(self):
         registry = SSEOperationRegistry()
-        await registry.unregister("nonexistent")  # Should not raise
+        registered = await registry.register("op-1")
+
+        await registry.unregister("nonexistent")
+
+        assert await registry.get_queue("op-1") is registered
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +176,10 @@ class TestSSEProgressSubscriber:
         assert sse_event["data"]["message"] == "Halfway"
         assert sse_event["data"]["completion_percentage"] == 50.0
 
-    async def test_completing_top_level_op_emits_nothing(self):
+    @pytest.mark.parametrize(
+        "status", [OperationStatus.COMPLETED, OperationStatus.FAILED]
+    )
+    async def test_completing_top_level_op_emits_nothing(self, status: OperationStatus):
         # The SSE seam (run_sse_operation) owns the terminal event + sentinel for a
         # registered top-level op — it carries the OperationResult counts the
         # subscriber never had. The subscriber must NOT emit them too (double event).
@@ -185,22 +187,15 @@ class TestSSEProgressSubscriber:
         queue = await registry.register("op-1")
         subscriber = SSEProgressSubscriber(registry)
 
-        await subscriber.on_operation_completed("op-1", OperationStatus.COMPLETED)
-        assert queue.empty()
-
-    async def test_completing_top_level_failed_op_emits_nothing(self):
-        registry = SSEOperationRegistry()
-        queue = await registry.register("op-1")
-        subscriber = SSEProgressSubscriber(registry)
-
-        await subscriber.on_operation_completed("op-1", OperationStatus.FAILED)
+        await subscriber.on_operation_completed("op-1", status)
         assert queue.empty()
 
     async def test_ignores_unregistered_operations(self):
         registry = SSEOperationRegistry()
+        bystander = await registry.register("op-other")
         subscriber = SSEProgressSubscriber(registry)
 
-        # These should not raise even though "unknown" isn't registered
+        # None of these raise, and none leak onto another operation's stream.
         operation = ProgressOperation(
             operation_id="unknown", status=OperationStatus.RUNNING
         )
@@ -210,6 +205,8 @@ class TestSSEProgressSubscriber:
         await subscriber.on_progress_event(event)
 
         await subscriber.on_operation_completed("unknown", OperationStatus.COMPLETED)
+
+        assert bystander.empty()
 
     async def test_event_counter_increments(self):
         registry = SSEOperationRegistry()

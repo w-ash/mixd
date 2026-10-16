@@ -18,6 +18,9 @@ vi.mock("#/api/auth", () => ({
   authEnabled: true,
 }));
 
+import { Route, Routes } from "react-router";
+
+import { toasts } from "#/lib/toasts";
 import {
   renderWithProviders,
   screen,
@@ -102,25 +105,31 @@ describe("Account", () => {
     expect(img).toHaveAttribute("src", "https://example.com/avatar.jpg");
   });
 
-  it("calls signOut on sign out button click", async () => {
+  it("signs out and lands on the sign-in page", async () => {
     mockUseAuthenticate.mockReturnValue({
       data: mockSession,
       isPending: false,
       error: null,
     });
-    mockAuthClient.signOut.mockImplementation(() => {});
-
-    renderWithProviders(<Account />);
-
-    await userEvent.click(screen.getByText("Sign out"));
-    expect(mockAuthClient.signOut).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fetchOptions: expect.objectContaining({
-          onSuccess: expect.any(Function),
-          onError: expect.any(Function),
-        }),
-      }),
+    // The auth SDK reports success through the callback it is handed.
+    mockAuthClient.signOut.mockImplementation(
+      (opts: { fetchOptions: { onSuccess: () => void } }) => {
+        opts.fetchOptions.onSuccess();
+      },
     );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/settings/account" element={<Account />} />
+        <Route path="/auth/sign-in" element={<p>Sign-in page</p>} />
+      </Routes>,
+      { routerProps: { initialEntries: ["/settings/account"] } },
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+    expect(mockAuthClient.signOut).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Sign-in page")).toBeInTheDocument();
   });
 
   it("opens delete dialog on delete button click", async () => {
@@ -195,13 +204,15 @@ describe("Account", () => {
     });
   });
 
-  it("shows error toast on failed deletion", async () => {
+  it("shows an error toast and keeps the dialog open when deletion fails", async () => {
     mockUseAuthenticate.mockReturnValue({
       data: mockSession,
       isPending: false,
       error: null,
     });
-    mockAuthClient.deleteUser.mockRejectedValue(new Error("Password required"));
+    const failure = new Error("Password required");
+    mockAuthClient.deleteUser.mockRejectedValue(failure);
+    const errorSpy = vi.spyOn(toasts, "error").mockImplementation(() => {});
 
     renderWithProviders(<Account />);
 
@@ -216,9 +227,16 @@ describe("Account", () => {
     );
 
     await waitFor(() => {
-      expect(mockAuthClient.deleteUser).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Failed to delete account",
+        failure,
+      );
     });
-    // Dialog should remain open after error
+    // The user can retry: the dialog stays open and the button re-enables.
     expect(screen.getByText("Delete your account")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Delete account permanently" }),
+    ).toBeEnabled();
+    errorSpy.mockRestore();
   });
 });

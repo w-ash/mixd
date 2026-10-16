@@ -1,6 +1,6 @@
 """Unit tests for connector discovery's failure mode."""
 
-from unittest.mock import patch
+import sys
 
 import pytest
 
@@ -19,18 +19,17 @@ def uncached_registry():
 
 
 class TestDiscoverConnectors:
-    def test_import_error_propagates(self, uncached_registry) -> None:
+    def test_import_error_propagates(
+        self, uncached_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # Every connector is first-party: a module that cannot import is a
         # bug. Swallowing it used to cache a reduced registry for the process
         # lifetime, which served required connector pickers empty.
-        with (
-            patch.object(
-                discovery,
-                "_load_connector_config",
-                side_effect=ImportError("No module named 'missing_dep'"),
-            ),
-            pytest.raises(ImportError, match="missing_dep"),
-        ):
+        # A None entry in sys.modules makes the import system refuse the
+        # module, so the failure arrives through the real import path.
+        monkeypatch.setitem(sys.modules, "src.infrastructure.connectors.lastfm", None)
+
+        with pytest.raises(ImportError, match="lastfm"):
             _ = discovery.discover_connectors()
 
         assert discovery._connectors_cache is None
@@ -40,4 +39,12 @@ class TestDiscoverConnectors:
     ) -> None:
         registry = discovery.discover_connectors()
 
-        assert {"spotify", "lastfm", "musicbrainz"} <= set(registry)
+        # listenbrainz is a lookup client with no connector config of its own.
+        assert set(registry) == {
+            "apple_music",
+            "discogs",
+            "lastfm",
+            "musicbrainz",
+            "spotify",
+            "tidal",
+        }

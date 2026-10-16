@@ -4,15 +4,18 @@ Tests playlist deletion: existence validation, external connection warnings,
 force delete, and atomic transaction management.
 """
 
+from datetime import UTC, datetime, timedelta
+from itertools import chain, repeat
+from unittest.mock import Mock
 from uuid import uuid7
 
 import pytest
 
 from src.application.use_cases.delete_canonical_playlist import (
     DeleteCanonicalPlaylistCommand,
-    DeleteCanonicalPlaylistResult,
     DeleteCanonicalPlaylistUseCase,
 )
+from src.application.utilities import timing
 from tests.fixtures import make_playlist
 from tests.fixtures.mocks import make_mock_uow
 
@@ -24,31 +27,12 @@ def mock_uow():
 
 
 class TestDeleteCanonicalPlaylistCommand:
-    """Test command construction and validation."""
-
-    def test_valid_command(self):
-        """Test creating a valid delete command."""
-        cmd = DeleteCanonicalPlaylistCommand(user_id="test-user", playlist_id="some-id")
-        assert cmd.playlist_id == "some-id"
-        assert cmd.force_delete is False
-
-    def test_force_delete_flag(self):
-        """Test command with force delete enabled."""
-        cmd = DeleteCanonicalPlaylistCommand(
-            user_id="test-user", playlist_id="some-id", force_delete=True
-        )
-        assert cmd.force_delete is True
+    """Test command validation."""
 
     def test_empty_id_rejected(self):
         """Test that empty playlist ID is rejected."""
         with pytest.raises(ValueError):
             DeleteCanonicalPlaylistCommand(user_id="test-user", playlist_id="")
-
-    def test_command_is_frozen(self):
-        """Test command immutability."""
-        cmd = DeleteCanonicalPlaylistCommand(user_id="test-user", playlist_id="some-id")
-        with pytest.raises(AttributeError):
-            cmd.playlist_id = "other-id"
 
 
 class TestDeleteCanonicalPlaylistUseCase:
@@ -66,7 +50,9 @@ class TestDeleteCanonicalPlaylistUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert isinstance(result, DeleteCanonicalPlaylistResult)
+        mock_uow.get_playlist_repository().delete_playlist.assert_awaited_once_with(
+            playlist.id, user_id="test-user"
+        )
         assert result.deleted_playlist_id == playlist.id
         assert result.deleted_playlist_name == "To Delete"
         assert result.tracks_count == 1
@@ -144,8 +130,15 @@ class TestDeleteCanonicalPlaylistUseCase:
 
         mock_uow.rollback.assert_called_once()
 
-    async def test_result_includes_execution_time(self, mock_uow):
-        """Test that result includes non-negative execution time."""
+    async def test_result_reports_the_timed_duration(
+        self, mock_uow, monkeypatch: pytest.MonkeyPatch
+    ):
+        """execution_time_ms is the timer reading taken when the work ends."""
+        t0 = datetime(2025, 1, 1, tzinfo=UTC)
+        clock = Mock(
+            now=Mock(side_effect=chain([t0], repeat(t0 + timedelta(milliseconds=42))))
+        )
+        monkeypatch.setattr(timing, "datetime", clock)
         playlist = make_playlist()
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
@@ -156,4 +149,4 @@ class TestDeleteCanonicalPlaylistUseCase:
 
         result = await use_case.execute(command, mock_uow)
 
-        assert result.execution_time_ms >= 0
+        assert result.execution_time_ms == 42

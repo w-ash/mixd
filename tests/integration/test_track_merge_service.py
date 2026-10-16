@@ -1000,26 +1000,6 @@ class TestMergePreservesTheLedger:
             )
         ).scalar_one() == winner.id
 
-    async def test_a_loser_with_no_observations_merges_unchanged(
-        self, db_session: AsyncSession, test_data_tracker
-    ):
-        """The common path: nothing in the ledger, nothing new to move."""
-        winner, loser = await self._pair(db_session, test_data_tracker)
-        untouched = await self._observation(db_session, winner.id)
-
-        await self._merge(db_session, winner.id, loser.id)
-
-        assert (
-            await db_session.execute(select(DBTrack.id).where(DBTrack.id == loser.id))
-        ).scalar_one_or_none() is None
-        assert (
-            await db_session.execute(
-                select(DBConnectorPlay.resolved_track_id).where(
-                    DBConnectorPlay.id == untouched.id
-                )
-            )
-        ).scalar_one() == winner.id
-
     async def test_both_sides_observations_coexist_on_the_winner(
         self, db_session: AsyncSession, test_data_tracker
     ):

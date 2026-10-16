@@ -149,22 +149,31 @@ async def client(
     directly via the real stack, so savepoint rollback doesn't apply here.
     Post-test truncation prevents data from leaking into repository tests
     that share the same xdist worker.
+
+    Restores the shared operation slots on exit. The launch stub drops the
+    background tasks that release them (preview kickoff, import-queue drain),
+    so a claim made during the test otherwise counts against the 429 cap for
+    every later test on the worker.
     """
+    slots_before = set(_sse_operations_mod._active_operations)
     with _test_db_env(postgres_url):
         await _truncate_all_tables()
 
-        with _stub_launch_background(
-            _sse_operations_mod,
-            _workflows_mod,
-            _workflow_execution_mod,
-            _import_queue_mod,
-        ):
-            app = create_app()
-            transport = httpx2.ASGITransport(app=app)
-            async with httpx2.AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as c:
-                yield c
+        try:
+            with _stub_launch_background(
+                _sse_operations_mod,
+                _workflows_mod,
+                _workflow_execution_mod,
+                _import_queue_mod,
+            ):
+                app = create_app()
+                transport = httpx2.ASGITransport(app=app)
+                async with httpx2.AsyncClient(
+                    transport=transport, base_url="http://test"
+                ) as c:
+                    yield c
+        finally:
+            _sse_operations_mod._active_operations.intersection_update(slots_before)
 
         await _truncate_all_tables()
 

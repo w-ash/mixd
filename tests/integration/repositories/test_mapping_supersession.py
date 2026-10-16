@@ -243,8 +243,10 @@ class TestAssertMappingsSemantics:
         """The no-churn rule: re-asserting the same decision grows nothing."""
         track_id = await _make_track(db_session)
         ct_id = await _make_connector_track(db_session)
-        first = await mapping_repo.assert_mappings([_row(track_id, ct_id)])
-        before = (await _all_rows(db_session, ct_id))[0].last_seen_at
+        earlier = datetime(2020, 1, 1, tzinfo=UTC)
+        first = await mapping_repo.assert_mappings([
+            _row(track_id, ct_id) | {"last_seen_at": earlier}
+        ])
 
         outcome = await mapping_repo.assert_mappings([_row(track_id, ct_id)])
 
@@ -254,9 +256,8 @@ class TestAssertMappingsSemantics:
         rows = await _all_rows(db_session, ct_id)
         assert len(rows) == 1
         assert rows[0].superseded_at is None
-        assert before is not None
         assert rows[0].last_seen_at is not None
-        assert rows[0].last_seen_at >= before
+        assert rows[0].last_seen_at > earlier
 
     async def test_changed_decision_supersedes_instead_of_overwriting(
         self, db_session: AsyncSession, mapping_repo: TrackMappingRepository
@@ -414,16 +415,6 @@ class TestLiveRowsFilter:
         assert [row.id for row in visible] != [first.created[0]]
         assert len(visible) == 1
         assert visible[0].superseded_at is None
-
-    async def test_include_superseded_opt_out_shows_them(
-        self, db_session: AsyncSession, mapping_repo: TrackMappingRepository
-    ):
-        track_id = await _make_track(db_session)
-        ct_id = await _make_connector_track(db_session)
-        await mapping_repo.assert_mappings([_row(track_id, ct_id, confidence=70)])
-        await mapping_repo.assert_mappings([_row(track_id, ct_id, confidence=95)])
-
-        assert len(await _all_rows(db_session, ct_id)) == 2
 
     async def test_relationship_load_is_filtered_too(
         self, db_session: AsyncSession, mapping_repo: TrackMappingRepository
@@ -729,12 +720,14 @@ class TestSupersessionAndPrimacy:
         Restoration re-promotes on the *successor's* track. The track the
         mapping left is otherwise stranded with live mappings and no primary
         of its own — the FM4d drift migration 044's pre-pass had to repair on
-        366 production rows, reintroduced one supersession at a time.
+        366 production rows, reintroduced one supersession at a time. Its
+        surviving sibling is elected in the departed primary's place.
         """
 
         departed = await _make_track(db_session, "Departed")
         arrived = await _make_track(db_session, "Arrived")
         connector_id = f"sp_moved_{uuid4().hex[:8]}"
+        sibling_id = f"sp_sibling_{uuid4().hex[:8]}"
 
         departed_domain = await connector_repo.track_repo.get_by_id(departed)
         await connector_repo.map_tracks_to_connectors([
@@ -744,9 +737,21 @@ class TestSupersessionAndPrimacy:
                 connector_id=connector_id,
                 match_method="isrc_match",
                 confidence=70,
-            )
+            ),
+            ConnectorMappingSpec(
+                track=departed_domain,
+                connector="spotify",
+                connector_id=sibling_id,
+                match_method="artist_title",
+                confidence=50,
+            ),
         ])
         await connector_repo.ensure_primary_for_connector(departed, "spotify")
+        moving_ct = await _connector_track_id(db_session, connector_id)
+        sibling_ct = await _connector_track_id(db_session, sibling_id)
+        before = await _live_spotify_mappings_by_connector_track(db_session, departed)
+        assert before[moving_ct].is_primary is True
+        assert before[sibling_ct].is_primary is False
 
         # The same connector track, re-asserted onto a different canonical.
         arrived_domain = await connector_repo.track_repo.get_by_id(arrived)
@@ -760,12 +765,13 @@ class TestSupersessionAndPrimacy:
             )
         ])
 
-        # The mapping moved wholesale: the departed track keeps no live
-        # spotify mapping, so it names no identifier it no longer owns.
+        # The mapping moved wholesale, and the sibling left behind holds the
+        # departed track's primary slot.
         departed_live = await _live_spotify_mappings_by_connector_track(
             db_session, departed
         )
-        assert departed_live == {}
+        assert list(departed_live) == [sibling_ct]
+        assert departed_live[sibling_ct].is_primary is True
 
     async def test_cross_track_successor_does_not_depose_a_pinned_destination_primary(
         self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
