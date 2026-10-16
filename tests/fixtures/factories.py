@@ -393,17 +393,16 @@ TEED = "TEED"
 FULL_NAME = "Totally Enormous Extinct Dinosaurs"
 
 
-async def seed_aliases(uow: UnitOfWorkProtocol, *names: str) -> None:
-    """Cache one MusicBrainz artist, primary name ``TEED``, under ``names``."""
+async def seed_aliases(
+    uow: UnitOfWorkProtocol,
+    *names: str,
+    mbid: str = "c6b4a0e6-8e38-4aa6-9f9d-1b1f1ba1c1a1",
+    primary: str = TEED,
+) -> None:
+    """Cache one MusicBrainz artist, primary name ``primary``, under ``names``."""
     stored = await uow.get_artist_connector_repository().bulk_upsert_connector_artists(
         "musicbrainz",
-        [
-            make_connector_artist(
-                "c6b4a0e6-8e38-4aa6-9f9d-1b1f1ba1c1a1",
-                connector_name="musicbrainz",
-                name=TEED,
-            )
-        ],
+        [make_connector_artist(mbid, connector_name="musicbrainz", name=primary)],
     )
     (connector_artist,) = stored.values()
     _ = await uow.get_artist_alias_repository().replace_aliases(
@@ -412,7 +411,7 @@ async def seed_aliases(uow: UnitOfWorkProtocol, *names: str) -> None:
             ArtistAlias(
                 connector_artist_id=connector_artist.id,
                 name=name,
-                is_primary=name == TEED,
+                is_primary=name == primary,
                 fetched_at=datetime.now(UTC),
             )
             for name in names

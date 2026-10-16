@@ -94,14 +94,22 @@ class TestCompilation:
         assert not equivalence.same(TEED, "Four Tet")
         assert not equivalence.same("Four Tet", "KH")
 
-    def test_overlapping_groups_merge_into_one_artist(self):
-        # A MusicBrainz merge can leave two alias sets sharing a name; the
-        # result must not depend on which row was read first.
+    def test_a_spelling_two_artists_share_names_neither(self):
+        # Catches a compile that merges groups through a shared spelling (the
+        # other Nirvana's names become this one's) or lets one group keep it
+        # (the read order picks the artist). Either way a scrobble credited
+        # "Nirvana" is accepted against the other band's track at artist
+        # similarity 1.0.
         equivalence = ArtistEquivalence.from_groups([
-            [TEED, FULL_NAME],
-            [FULL_NAME, "Orlando Higginbottom"],
+            ["Nirvana", "Nirvana (US)", "Nirvana (Seattle band)"],
+            ["Nirvana", "Nirvana (UK)"],
         ])
-        assert equivalence.same(TEED, "Orlando Higginbottom")
+        assert not equivalence.same("Nirvana", "Nirvana (US)")
+        assert not equivalence.same("Nirvana", "Nirvana (UK)")
+        assert not equivalence.same("Nirvana (US)", "Nirvana (UK)")
+        assert equivalence.aliases_of("Nirvana") == ()
+        assert equivalence.same("Nirvana (US)", "Nirvana (Seattle band)")
+        assert equivalence.aliases_of("Nirvana (UK)") == ()
 
     def test_blank_names_are_dropped_rather_than_grouped(self):
         equivalence = ArtistEquivalence.from_groups([["", "   "], ["", "Jungle"]])
@@ -215,30 +223,19 @@ class TestCompilingCachedRows:
 
     def test_one_connector_artist_becomes_one_group(self):
         connector_artist_id = uuid7()
-        equivalence = equivalence_from_alias_rows(
-            {TEED: [connector_artist_id]},
-            {connector_artist_id: [alias(connector_artist_id, n) for n in NAMES]},
-        )
+        equivalence = equivalence_from_alias_rows([
+            alias(connector_artist_id, n) for n in NAMES
+        ])
         assert equivalence.same(TEED, FULL_NAME)
 
     def test_two_connector_artists_stay_apart(self):
         teed_id, tourist_id = uuid7(), uuid7()
-        equivalence = equivalence_from_alias_rows(
-            {TEED: [teed_id], "Tourist": [tourist_id]},
-            {
-                teed_id: [alias(teed_id, n) for n in NAMES],
-                tourist_id: [alias(tourist_id, "Tourist")],
-            },
-        )
+        equivalence = equivalence_from_alias_rows([
+            *(alias(teed_id, n) for n in NAMES),
+            alias(tourist_id, "Tourist"),
+        ])
         assert equivalence.same(TEED, FULL_NAME)
         assert not equivalence.same(TEED, "Tourist")
-
-    def test_a_reached_artist_whose_rows_are_missing_is_skipped(self):
-        # The second query can come back short — the alias rows are a cache,
-        # and a concurrent refresh replaces them wholesale.
-        connector_artist_id = uuid7()
-        equivalence = equivalence_from_alias_rows({TEED: [connector_artist_id]}, {})
-        assert not equivalence.same(TEED, FULL_NAME)
 
 
 class TestEvaluatorSeam:

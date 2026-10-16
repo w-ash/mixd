@@ -213,6 +213,36 @@ class TestArtistEquivalence:
 
         assert equivalence.aliases_of(FULL_NAME) == ("teed",)
 
+    async def test_a_spelling_another_cached_artist_states_is_left_out(
+        self, db_session
+    ):
+        # Catches a compile that reads only the artists the batch reaches:
+        # "Nirvana (US)" reaches the US band alone, and the "Nirvana" both
+        # bands state would pull the UK band's tracks into its probe.
+        uow = get_unit_of_work(db_session)
+        await seed_aliases(
+            uow,
+            "Nirvana",
+            "Nirvana (US)",
+            "Nirvana (Seattle band)",
+            mbid="5b11f4ce-a62d-471e-81fc-a69a8278c7da",
+            primary="Nirvana",
+        )
+        await seed_aliases(
+            uow,
+            "Nirvana",
+            "Nirvana (UK)",
+            mbid="9282c8b4-ca0b-4c6b-b7e3-4f7762dfc4d6",
+            primary="Nirvana",
+        )
+
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            "Nirvana (US)"
+        ])
+
+        assert equivalence.aliases_of("Nirvana (US)") == ("nirvana seattle band",)
+        assert not equivalence.same("Nirvana (US)", "Nirvana")
+
     async def test_a_batch_reads_the_cache_in_two_statements(
         self, db_session, captured_sql
     ):

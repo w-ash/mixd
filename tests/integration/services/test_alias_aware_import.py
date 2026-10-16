@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from src.application.services.play_import_orchestrator import PlayImportOrchestrator
 from src.domain.entities import ConnectorTrackPlay
 from src.domain.entities.progress import NullProgressEmitter
+from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 from src.infrastructure.connectors.lastfm.play_resolver import (
     LastfmConnectorPlayResolver,
 )
@@ -165,3 +166,41 @@ class TestAliasAwareImport:
             "lastfm_import": 1.0,
             "lastfm_import_raw_alias": 1.0,
         }
+
+    async def test_a_spelling_two_artists_share_reaches_neither_artists_track(
+        self, real_unit_of_work, real_track_repository
+    ):
+        """Catches a compile that joins two artists through a shared spelling.
+
+        Two cached bands go by "Nirvana". Joined into one group, a scrobble
+        credited "Nirvana" probes under "Nirvana (UK)" as well and reuses the
+        UK band's track at artist similarity 1.0. The spelling names neither
+        band, so the scrobble mints its own canonical.
+        """
+        user_id = f"TEST_alias_import_{uuid4().hex[:8]}"
+        await seed_aliases(
+            real_unit_of_work,
+            "Nirvana",
+            "Nirvana (US)",
+            mbid="5b11f4ce-a62d-471e-81fc-a69a8278c7da",
+            primary="Nirvana",
+        )
+        await seed_aliases(
+            real_unit_of_work,
+            "Nirvana",
+            "Nirvana (UK)",
+            mbid="9282c8b4-ca0b-4c6b-b7e3-4f7762dfc4d6",
+            primary="Nirvana",
+        )
+        uk_track = await real_track_repository.save_track(
+            make_track(title="Rainbow Chaser", artist="Nirvana (UK)", user_id=user_id)
+        )
+
+        resolved, metrics = await LastfmInwardResolver(
+            lastfm_client=_unanswering_client()
+        ).resolve_to_canonical_tracks(
+            ["nirvana::rainbow chaser"], real_unit_of_work, user_id=user_id
+        )
+
+        assert (metrics.reused, metrics.created) == (0, 1)
+        assert resolved["nirvana::rainbow chaser"].id != uk_track.id

@@ -126,9 +126,11 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
     async def get_artist_equivalence(self, names: Sequence[str]) -> ArtistEquivalence:
         """The alias groups covering a batch's credited artist names.
 
-        One name lookup for the distinct names, then one alias read for every
-        connector artist they reach. Blank names are dropped; no names, or no
-        cached alias for any of them, gives the empty equivalence.
+        One name lookup for the distinct names, then one read of every row
+        that states a spelling of the connector artists they reach — other
+        artists' rows included, so a spelling two artists share names
+        neither. Blank names are dropped; no names, or no cached alias for
+        any of them, gives the empty equivalence.
         """
         distinct = sorted({name.strip() for name in names if name.strip()})
         if not distinct:
@@ -143,8 +145,28 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
             for ids in ids_by_name.values()
             for connector_artist_id in ids
         })
-        aliases_by_id = await self.get_aliases_for_connector_artists(reachable)
-        return equivalence_from_alias_rows(ids_by_name, aliases_by_id)
+        return equivalence_from_alias_rows(
+            await self._rows_stating_spellings_of(reachable)
+        )
+
+    async def _rows_stating_spellings_of(
+        self, connector_artist_ids: Sequence[UUID]
+    ) -> list[ArtistAlias]:
+        """Every alias row whose name one of these artists also states.
+
+        The artists' own rows, plus any other artist's row that states the
+        same spelling. Case-insensitive, like the name lookup, so the
+        ``lower(name)`` index serves both sides.
+        """
+        spellings = select(func.lower(DBArtistAlias.name)).where(
+            DBArtistAlias.connector_artist_id.in_(connector_artist_ids)
+        )
+        rows = await self._execute_query(
+            select(DBArtistAlias)
+            .where(func.lower(DBArtistAlias.name).in_(spellings))
+            .order_by(DBArtistAlias.name)
+        )
+        return [await self.mapper.to_domain(row) for row in rows]
 
 
 __all__ = ["ArtistAliasRepository"]

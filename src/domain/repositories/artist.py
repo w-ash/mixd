@@ -375,9 +375,11 @@ class ArtistAliasRepositoryProtocol(Protocol):
     ) -> Awaitable[ArtistEquivalence]:
         """The alias groups covering a batch's credited artist names.
 
-        Two queries for the whole batch, never one per name. The empty
-        equivalence when the batch credits nobody or no cached alias reaches
-        any of its names, so the matcher compares plain strings.
+        Two queries for the whole batch, never one per name. One connector
+        artist is one group, and a spelling two cached artists state names
+        neither. The empty equivalence when the batch credits nobody or no
+        cached alias reaches any of its names, so the matcher compares plain
+        strings.
         """
         ...
 
