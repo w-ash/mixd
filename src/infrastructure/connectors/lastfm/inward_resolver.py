@@ -51,6 +51,7 @@ from src.config import get_logger, settings
 from src.domain.entities import ArtistCredit, ConnectorArtistCredit, Track
 from src.domain.entities.track_mapping import MatchMethod
 from src.domain.matching.artist_resolution import ArtistCreditSource
+from src.domain.matching.canonical_resolution import TrackResolutionRules
 from src.domain.matching.evaluation_service import MatchEvaluationService
 from src.domain.matching.protocols import (
     CrossDiscoveryProvider,
@@ -219,8 +220,12 @@ class LastfmInwardResolver(InwardTrackResolver):
         """
         probes = await self._enrich_probes(missing_ids, user_id=user_id)
         outcomes = await self._discover_outcomes(probes, uow, user_id=user_id)
+        rules = await self._pricing_rules(probes, uow)
 
-        writes = list(map(self._plan_write, probes, outcomes, strict=True))
+        writes = [
+            self._plan_write(enriched, outcome, rules)
+            for enriched, outcome in zip(probes, outcomes, strict=True)
+        ]
 
         def _log_failed_write(write: _LastfmResolvedWrite, e: Exception) -> None:
             logger.error(
@@ -361,8 +366,26 @@ class LastfmInwardResolver(InwardTrackResolver):
             return [Nothing() for _ in probes]
         return list(outcomes)
 
+    async def _pricing_rules(
+        self, probes: Sequence[_EnrichedProbe], uow: UnitOfWorkProtocol
+    ) -> TrackResolutionRules:
+        """The names-alone rules, with the alias groups for the names this chunk prices.
+
+        Both spellings of each identifier: the corrected names price the
+        primary mapping, the raw names the raw-alias mapping.
+        """
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            name
+            for enriched in probes
+            for name in (enriched.corrected_artist, enriched.raw_artist)
+        ])
+        return evolve(self._reuse_rules, artist_equivalence=equivalence)
+
     def _plan_write(
-        self, enriched: _EnrichedProbe, outcome: DiscoveryOutcome
+        self,
+        enriched: _EnrichedProbe,
+        outcome: DiscoveryOutcome,
+        rules: TrackResolutionRules,
     ) -> _LastfmResolvedWrite:
         """Phase C's decide step: everything this identifier persists. Pure.
 
@@ -415,6 +438,7 @@ class LastfmInwardResolver(InwardTrackResolver):
             enriched.corrected_title,
             "lastfm_import",
             primary=True,
+            rules=rules,
         )
         mappings = [primary]
         raw_id = make_lastfm_identifier(enriched.raw_artist, enriched.raw_title)
@@ -429,6 +453,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                     enriched.raw_title,
                     "lastfm_import_raw_alias",
                     primary=False,
+                    rules=rules,
                 )
             )
 
@@ -448,6 +473,7 @@ class LastfmInwardResolver(InwardTrackResolver):
         match_method: MatchMethod,
         *,
         primary: bool,
+        rules: TrackResolutionRules,
     ) -> _PlannedLastfmMapping:
         """Price one Last.fm mapping: the names against the track. Pure.
 
@@ -455,7 +481,7 @@ class LastfmInwardResolver(InwardTrackResolver):
         number on a mapping row is the model's — a raw alias whose spelling
         differs from the corrected names prices lower than the primary.
         """
-        priced = self._reuse_rules.same(
+        priced = rules.same(
             RecordingDescription(title=track_name, artist=artist_name),
             describe_track(track),
         )

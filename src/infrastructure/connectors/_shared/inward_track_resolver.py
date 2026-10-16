@@ -391,11 +391,7 @@ class InwardTrackResolver[THint = object](ABC):
                 artist for _title, artist in pairs
             ])
         )
-        # Kept on the resolver: the creation step prices its mappings with
-        # these rules too, so one artist pair carries one price per pass.
-        self._reuse_rules = evolve(
-            self._reuse_rules, artist_equivalence=artist_equivalence
-        )
+        rules = evolve(self._reuse_rules, artist_equivalence=artist_equivalence)
         candidates = await uow.get_track_repository().find_tracks_by_title_artist(
             pairs, user_id=user_id, artist_equivalence=artist_equivalence
         )
@@ -423,7 +419,7 @@ class InwardTrackResolver[THint = object](ABC):
             description = descriptions[identifier]
             key = track_name_key(description)
             priced: Reuse[str, Track] | Refusal[Track] | None = (
-                price_reuse(description, name_owners.get(key, ()), self._reuse_rules)
+                price_reuse(description, name_owners.get(key, ()), rules)
                 if key is not None
                 else None
             )

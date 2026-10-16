@@ -167,6 +167,41 @@ class TestAliasAwareImport:
             "lastfm_import_raw_alias": 1.0,
         }
 
+    async def test_creation_prices_an_alias_with_no_reuse_step_before_it(
+        self, db_session, real_unit_of_work
+    ):
+        """Catches a creation step that reads alias groups another step left.
+
+        The creation step runs on a fresh resolver, as for a chunk where no
+        identifier reached the reuse step. Last.fm corrects "TEED" to the
+        full name, so the raw "TEED" mapping is priced against a full-name
+        canonical. Groups read from resolver state are empty here, and the
+        mapping records an artist disagreement for a cached alias.
+        """
+        user_id = f"TEST_alias_import_{uuid4().hex[:8]}"
+        await seed_aliases(real_unit_of_work, TEED, FULL_NAME)
+        client = _unanswering_client()
+        client.get_track_correction.return_value = ("Rouge", FULL_NAME)
+
+        _ = await LastfmInwardResolver(lastfm_client=client)._create_tracks_batch(
+            ["teed::rouge"], real_unit_of_work, user_id=user_id
+        )
+
+        rows = (
+            await db_session.execute(
+                sa.select(
+                    DBTrackMapping.match_method, DBTrackMapping.confidence_evidence
+                ).where(
+                    DBTrackMapping.user_id == user_id,
+                    DBTrackMapping.connector_name == "lastfm",
+                )
+            )
+        ).all()
+        assert {
+            method: (evidence or {}).get("artist_similarity")
+            for method, evidence in rows
+        } == {"lastfm_import": 1.0, "lastfm_import_raw_alias": 1.0}
+
     async def test_a_spelling_two_artists_share_reaches_neither_artists_track(
         self, real_unit_of_work, real_track_repository
     ):
