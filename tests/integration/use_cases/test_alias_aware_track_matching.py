@@ -6,7 +6,6 @@ Extinct Dinosaurs"; with the alias rows seeded the pair reaches the accept
 zone, and without them the same pair is refused.
 """
 
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid7
 
@@ -14,41 +13,9 @@ from src.application.use_cases.match_and_identify_tracks import (
     MatchAndIdentifyTracksCommand,
     MatchAndIdentifyTracksUseCase,
 )
-from src.domain.entities.artist import ArtistAlias
 from src.domain.entities.track import ArtistCredit, Track, TrackList
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_connector_artist
-
-TEED = "TEED"
-FULL_NAME = "Totally Enormous Extinct Dinosaurs"
-
-
-async def seed_aliases(uow, *names: str) -> None:
-    """Cache one MusicBrainz artist under every spelling it is known by."""
-    connectors = uow.get_artist_connector_repository()
-    stored = await connectors.bulk_upsert_connector_artists(
-        "musicbrainz",
-        [
-            make_connector_artist(
-                "c6b4a0e6-8e38-4aa6-9f9d-1b1f1ba1c1a1",
-                connector_name="musicbrainz",
-                name=TEED,
-            )
-        ],
-    )
-    (connector_artist,) = stored.values()
-    await uow.get_artist_alias_repository().replace_aliases(
-        connector_artist.id,
-        [
-            ArtistAlias(
-                connector_artist_id=connector_artist.id,
-                name=name,
-                is_primary=name == TEED,
-                fetched_at=datetime.now(UTC),
-            )
-            for name in names
-        ],
-    )
+from tests.fixtures import FULL_NAME, TEED, seed_aliases
 
 
 async def resolve_scrobble(uow, user_id: str) -> bool:

@@ -11,7 +11,6 @@ from uuid import UUID
 
 from attrs import define, field
 
-from src.application.services.artist_equivalence import build_artist_equivalence
 from src.application.services.progress_broker import ProgressBroker
 from src.application.utilities.timing import ExecutionTimer
 from src.config import create_evaluation_service, get_logger
@@ -230,8 +229,10 @@ class MatchAndIdentifyTracksUseCase:
             # states "TEED" where the library says "Totally Enormous Extinct
             # Dinosaurs" otherwise scores an artist mismatch and drags the
             # whole track match down with it.
-            artist_equivalence = await build_artist_equivalence(
-                uow, _credited_names(tracks_needing_resolution, raw_matches)
+            artist_equivalence = (
+                await uow.get_artist_alias_repository().get_artist_equivalence(
+                    _credited_names(tracks_needing_resolution, raw_matches)
+                )
             )
 
             # STEP 4: Apply ALL business logic through domain service

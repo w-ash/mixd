@@ -15,12 +15,13 @@ import { TrackTable } from "#/components/library/TrackTable";
 import { BulkSelectionBar } from "#/components/shared/BulkSelectionBar";
 import { BulkTagDialog } from "#/components/shared/BulkTagDialog";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { ListSearchInput } from "#/components/shared/ListSearchInput";
 import { QueryStates } from "#/components/shared/QueryStates";
+import { ResultCount } from "#/components/shared/ResultCount";
 import { ListRowsSkeleton } from "#/components/shared/skeletons";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { Input } from "#/components/ui/input";
 import type { SortDirection } from "#/hooks/sort-param";
 import type { SortField } from "#/hooks/useLibraryFilters";
 import { useLibraryFilters } from "#/hooks/useLibraryFilters";
@@ -127,40 +128,17 @@ export function Library() {
             : "Your complete track collection."
         }
       />
-      {/* Announces result-count changes to screen readers as filters are
-          applied or cleared. WCAG 2.2 "status messages" guidance. */}
-      <span className="sr-only" aria-live="polite">
-        {total > 0
-          ? `${formatCount(total)} track${pluralSuffix(total)} match${total === 1 ? "es" : ""} current filters.`
-          : "No tracks match current filters."}
-      </span>
+      <ResultCount total={total} noun="track" />
 
       {/* Compact toolbar: search + Filters toggle + Save as Workflow */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-48">
-          <Input
-            type="search"
-            placeholder="Search tracks, artists, albums..."
-            value={searchInput}
-            onChange={(e) => setFilter("search", e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && searchInput !== "") {
-                e.preventDefault();
-                setFilter("search", null);
-              }
-            }}
-            aria-label="Search tracks"
-            className={isSearching ? "opacity-70" : ""}
-          />
-          {isSearching && (
-            <span
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-muted"
-              aria-live="polite"
-            >
-              Searching...
-            </span>
-          )}
-        </div>
+        <ListSearchInput
+          value={searchInput}
+          onChange={(next) => setFilter("search", next)}
+          isSearching={isSearching}
+          placeholder="Search tracks, artists, albums..."
+          ariaLabel="Search tracks"
+        />
 
         <Button
           type="button"

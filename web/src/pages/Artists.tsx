@@ -10,8 +10,10 @@ import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { FavoriteToggle } from "#/components/shared/FavoriteToggle";
+import { ListSearchInput } from "#/components/shared/ListSearchInput";
 import { QueryStates } from "#/components/shared/QueryStates";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
+import { ResultCount } from "#/components/shared/ResultCount";
 import { SortableHead } from "#/components/shared/SortableHead";
 import { ListRowsSkeleton } from "#/components/shared/skeletons";
 import { TableCard } from "#/components/shared/TableCard";
@@ -22,7 +24,6 @@ import {
   rowStaggerStyle,
 } from "#/components/shared/table-row-motion";
 import { Button } from "#/components/ui/button";
-import { Input } from "#/components/ui/input";
 import {
   Table,
   TableBody,
@@ -191,39 +192,16 @@ export function Artists() {
             : "Everyone who plays on a track in your library."
         }
       />
-      {/* Announces result-count changes to screen readers as filters are
-          applied or cleared. WCAG 2.2 "status messages" guidance. */}
-      <span className="sr-only" aria-live="polite">
-        {total > 0
-          ? `${formatCount(total)} artist${pluralSuffix(total)} match${total === 1 ? "es" : ""} current filters.`
-          : "No artists match current filters."}
-      </span>
+      <ResultCount total={total} noun="artist" />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-48">
-          <Input
-            type="search"
-            placeholder="Search artists..."
-            value={searchInput}
-            onChange={(e) => setFilter("search", e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && searchInput !== "") {
-                e.preventDefault();
-                setFilter("search", null);
-              }
-            }}
-            aria-label="Search artists"
-            className={isSearching ? "opacity-70" : ""}
-          />
-          {isSearching && (
-            <span
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-muted"
-              aria-live="polite"
-            >
-              Searching...
-            </span>
-          )}
-        </div>
+        <ListSearchInput
+          value={searchInput}
+          onChange={(next) => setFilter("search", next)}
+          isSearching={isSearching}
+          placeholder="Search artists..."
+          ariaLabel="Search artists"
+        />
 
         <ScopeToggle
           favorites={filters.favorites}

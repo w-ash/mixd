@@ -15,6 +15,8 @@ level. ``_shared`` re-exports nothing, so both the track repositories and the
 recorder reach these helpers directly — which is why
 ``extract_db_artist_names`` moved here out of ``track/mapper.py``, where the
 recorder could only get at it through a function-scoped import.
+``db_artist_credits`` is here for the same reason: the track and playlist
+mappers both read credits back through it.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -29,6 +31,7 @@ from src.domain.matching.text_normalization import (
     normalize_for_comparison,
     strip_parentheticals,
 )
+from src.infrastructure.persistence.database.models import DBTrack, DBTrackArtist
 
 
 def extract_db_artist_names(artists: JsonDict) -> list[str]:
@@ -91,6 +94,37 @@ def build_track_artist_rows(
             "role": credit.role,
         }
         for position, credit in enumerate(credits)
+    ]
+
+
+def db_artist_credits(db_model: DBTrack) -> list[ArtistCredit]:
+    """Build the artist credits of a track.
+
+    The source is the ``track_artists`` rows when the read loaded them. They
+    arrive ordered by position and carry ``artist_id``. Otherwise the source
+    is the JSONB names, which carry no ``artist_id``. A track that the
+    backfill has not reached has no rows and also uses the names.
+
+    A read that needs ``artist_id`` loads ``DBTrack.artist_credits``: track
+    reads add ``CREDIT_LOADER``, and every playlist read loads the rows. The
+    ``captured_sql`` integration tests and the use-case unit tests guard both
+    directions: a read that needs the ids loads the rows, and no other track
+    read does.
+    """
+    rows = db_model.loaded_list(DBTrack.artist_credits, DBTrackArtist)
+    if rows:
+        return [
+            ArtistCredit(
+                credited_name=row.credited_name,
+                artist_id=row.artist_id,
+                join_phrase=row.join_phrase,
+                role=row.role,
+            )
+            for row in rows
+        ]
+    return [
+        ArtistCredit(credited_name=name)
+        for name in extract_db_artist_names(db_model.artists)
     ]
 
 

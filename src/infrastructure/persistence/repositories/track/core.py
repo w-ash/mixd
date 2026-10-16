@@ -41,6 +41,10 @@ from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.exceptions import DomainError, OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+)
 from src.domain.repositories.errors import IdentityKeyClaimedError
 from src.domain.repositories.resolution import SupersessionEdge
 from src.domain.repositories.track import (
@@ -1554,14 +1558,17 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
     @db_operation("find_tracks_by_title_artist")
     async def find_tracks_by_title_artist(
-        self, pairs: list[tuple[str, str]], *, user_id: str
+        self,
+        pairs: list[tuple[str, str]],
+        *,
+        user_id: str,
+        artist_equivalence: ArtistEquivalence = EMPTY_EQUIVALENCE,
     ) -> dict[tuple[str, str], Track]:
         """Find existing tracks matching (title, first_artist) pairs.
 
         Uses pre-computed normalized columns for fuzzy matching that handles
         diacritics, smart quotes, articles, and feat./ft. variations.
         Also matches via parenthetical-stripped form so "Song (feat. X)" ↔ "Song".
-        Returns only the first match per pair (oldest track by ID).
 
         Probes by joining against an unnested array pair rather than OR-ing one
         condition group per input. The two forms match identically — a pair's
@@ -1573,8 +1580,17 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         row) constant, and gives the planner join statistics from both sides
         instead of a ~250-arm disjunction it must estimate independently.
 
+        Each pair also asks under every other name in its artist's
+        ``artist_equivalence`` group, as more probe rows in the same
+        statement. Claims run oldest track first, in two passes. A pair takes
+        a track credited under its own spelling, and a track answers one
+        pair that way. A pair still unanswered then takes a track credited
+        under one of its aliases, and a track answers every such pair: "TEED"
+        and the full name asked in one batch are one artist.
+
         Args:
             pairs: List of (title, first_artist_name) tuples to search for.
+            artist_equivalence: The batch's alias groups.
 
         Returns:
             Dict keyed by lowercased (title, artist) → Track.
@@ -1582,57 +1598,63 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if not pairs:
             return {}
 
-        # Normalize input pairs for comparison against indexed columns
-        normalized_pairs = [
-            (normalize_for_comparison(title), normalize_for_comparison(artist))
-            for title, artist in pairs
-        ]
-
-        # Also compute stripped versions for parenthetical fallback matching
-        stripped_pairs = [
-            normalize_for_comparison(strip_parentheticals(title))
-            for title, _artist in pairs
-        ]
-
-        # Deduplicated: a chunk replays the same tracks, and the two title
-        # variants coincide whenever a title has no parenthetical.
-        variants: dict[tuple[str, str], None] = {}
-        for (norm_title, norm_artist), stripped_title in zip(
-            normalized_pairs, stripped_pairs, strict=True
-        ):
-            variants[norm_title, norm_artist] = None
-            variants[stripped_title, norm_artist] = None
+        # (title variant, normalized artist) → the pair asking under its own
+        # spelling (the first one wins), and → every pair asking by alias.
+        # The variants coincide whenever a title has no parenthetical.
+        exact: dict[tuple[str, str], tuple[str, str]] = {}
+        by_alias: dict[tuple[str, str], list[tuple[str, str]]] = {}
+        for title, artist in pairs:
+            lower_key = (title.lower(), artist.lower())
+            norm_artist = normalize_for_comparison(artist)
+            aliases = artist_equivalence.aliases_of(artist)
+            for title_variant in dict.fromkeys((
+                normalize_for_comparison(title),
+                normalize_for_comparison(strip_parentheticals(title)),
+            )):
+                _ = exact.setdefault((title_variant, norm_artist), lower_key)
+                for alias in aliases:
+                    by_alias.setdefault((title_variant, alias), []).append(lower_key)
 
         result = await self.session.execute(
-            build_title_artist_probe(list(variants), user_id=user_id)
+            build_title_artist_probe(
+                list(dict.fromkeys([*exact, *by_alias])), user_id=user_id
+            )
         )
         rows = result.scalars().all()
 
-        # Build O(1) lookup index: (title_variant, artist_normalized) -> lower_key
-        # Each query pair produces up to 4 lookup keys (norm*norm, norm*stripped, etc.)
-        lookup_to_lower: dict[tuple[str, str], tuple[str, str]] = {}
-        for (title, artist), (norm_title, norm_artist), stripped_title in zip(
-            pairs, normalized_pairs, stripped_pairs, strict=True
-        ):
-            lower_key = (title.lower(), artist.lower())
-            # All four title variants that the DB WHERE clause also matches
-            for title_variant in {norm_title, stripped_title}:
-                lookup_to_lower.setdefault((title_variant, norm_artist), lower_key)
+        mapped: dict[UUID, Track] = {}
 
-        # Match DB rows via O(1) dict lookup instead of O(N*M) nested loop
-        matched: dict[tuple[str, str], Track] = {}
-        for db_track in rows:
-            artist_norm = db_track.artist_normalized or ""
+        async def to_track(db_track: DBTrack) -> Track:
+            if db_track.id not in mapped:
+                mapped[db_track.id] = await self.mapper.to_domain(db_track)
+            return mapped[db_track.id]
+
+        def row_keys(db_track: DBTrack) -> list[tuple[str, str]]:
             # Insertion-ordered, not a set: with a set the winning pair would
             # depend on PYTHONHASHSEED when the two variants differ.
-            for title_val in dict.fromkeys((
-                db_track.title_normalized or "",
-                db_track.title_stripped or "",
-            )):
-                lower_key = lookup_to_lower.get((title_val, artist_norm))
-                if lower_key and lower_key not in matched:
-                    matched[lower_key] = await self.mapper.to_domain(db_track)
+            artist_norm = db_track.artist_normalized or ""
+            return [
+                (title_val, artist_norm)
+                for title_val in dict.fromkeys((
+                    db_track.title_normalized or "",
+                    db_track.title_stripped or "",
+                ))
+            ]
+
+        matched: dict[tuple[str, str], Track] = {}
+        for db_track in rows:
+            for key in row_keys(db_track):
+                lower_key = exact.get(key)
+                if lower_key is not None and lower_key not in matched:
+                    matched[lower_key] = await to_track(db_track)
                     break
+
+        # After every exact claim, so an alias never outranks a spelling hit.
+        for db_track in rows:
+            for key in row_keys(db_track):
+                for lower_key in by_alias.get(key, ()):
+                    if lower_key not in matched:
+                        matched[lower_key] = await to_track(db_track)
 
         return matched
 

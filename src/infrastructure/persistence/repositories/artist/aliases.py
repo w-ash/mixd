@@ -14,6 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities.artist import ArtistAlias
+from src.domain.matching.artist_equivalence import (
+    EMPTY_EQUIVALENCE,
+    ArtistEquivalence,
+    equivalence_from_alias_rows,
+)
 from src.infrastructure.persistence.database.models import DBArtistAlias
 from src.infrastructure.persistence.repositories.artist.mapper import ArtistAliasMapper
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
@@ -69,25 +74,6 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
             conflict_keys=["connector_artist_id", "name", "alias_type", "locale"],
         )
 
-    @db_operation("get_aliases_for_connector_artists")
-    async def get_aliases_for_connector_artists(
-        self, connector_artist_ids: Sequence[UUID]
-    ) -> dict[UUID, list[ArtistAlias]]:
-        """Aliases for a batch of connector artists, keyed by connector artist id."""
-        if not connector_artist_ids:
-            return {}
-        rows = await self._execute_query(
-            select(DBArtistAlias)
-            .where(DBArtistAlias.connector_artist_id.in_(connector_artist_ids))
-            .order_by(DBArtistAlias.name)
-        )
-        aliases: dict[UUID, list[ArtistAlias]] = {}
-        for row in rows:
-            aliases.setdefault(row.connector_artist_id, []).append(
-                await self.mapper.to_domain(row)
-            )
-        return aliases
-
     @db_operation("find_connector_artist_ids_by_alias")
     async def find_connector_artist_ids_by_alias(
         self, names: Sequence[str]
@@ -116,6 +102,54 @@ class ArtistAliasRepository(BaseRepository[DBArtistAlias, ArtistAlias]):
                 continue
             found.setdefault(spelling, []).append(connector_artist_id)
         return found
+
+    @db_operation("get_artist_equivalence")
+    async def get_artist_equivalence(
+        self, names: Sequence[str | None]
+    ) -> ArtistEquivalence:
+        """The alias groups covering a batch's credited artist names.
+
+        One name lookup for the distinct names, then one read of every row
+        that states a spelling of the connector artists they reach — other
+        artists' rows included, so a spelling two artists share names
+        neither. Missing and blank names are dropped; no names, or no cached
+        alias for any of them, gives the empty equivalence.
+        """
+        distinct = sorted({name.strip() for name in names if name and name.strip()})
+        if not distinct:
+            return EMPTY_EQUIVALENCE
+
+        ids_by_name = await self.find_connector_artist_ids_by_alias(distinct)
+        if not ids_by_name:
+            return EMPTY_EQUIVALENCE
+
+        reachable = sorted({
+            connector_artist_id
+            for ids in ids_by_name.values()
+            for connector_artist_id in ids
+        })
+        return equivalence_from_alias_rows(
+            await self._rows_stating_spellings_of(reachable)
+        )
+
+    async def _rows_stating_spellings_of(
+        self, connector_artist_ids: Sequence[UUID]
+    ) -> list[ArtistAlias]:
+        """Every alias row whose name one of these artists also states.
+
+        The artists' own rows, plus any other artist's row that states the
+        same spelling. Case-insensitive, like the name lookup, so the
+        ``lower(name)`` index serves both sides.
+        """
+        spellings = select(func.lower(DBArtistAlias.name)).where(
+            DBArtistAlias.connector_artist_id.in_(connector_artist_ids)
+        )
+        rows = await self._execute_query(
+            select(DBArtistAlias)
+            .where(func.lower(DBArtistAlias.name).in_(spellings))
+            .order_by(DBArtistAlias.name)
+        )
+        return [await self.mapper.to_domain(row) for row in rows]
 
 
 __all__ = ["ArtistAliasRepository"]

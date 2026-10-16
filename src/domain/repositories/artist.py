@@ -31,6 +31,7 @@ from src.domain.entities.artist import (
 )
 from src.domain.entities.shared import JsonDict, SortKey
 from src.domain.entities.track import Track
+from src.domain.matching.artist_equivalence import ArtistEquivalence
 from src.domain.matching.artist_resolution import ArtistCreditSource
 from src.domain.matching.config import MatchingConfig
 from src.domain.repositories.keyset import KeysetSort, sorts
@@ -353,12 +354,6 @@ class ArtistAliasRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_aliases_for_connector_artists(
-        self, connector_artist_ids: Sequence[UUID]
-    ) -> Awaitable[dict[UUID, list[ArtistAlias]]]:
-        """Aliases for a batch of connector artists, keyed by connector artist id."""
-        ...
-
     def find_connector_artist_ids_by_alias(
         self, names: Sequence[str]
     ) -> Awaitable[dict[str, list[UUID]]]:
@@ -366,6 +361,19 @@ class ArtistAliasRepositoryProtocol(Protocol):
 
         Case-insensitive on ``name`` and keyed by the caller's own spelling, so
         a lookup reads back under the string it asked with.
+        """
+        ...
+
+    def get_artist_equivalence(
+        self, names: Sequence[str | None]
+    ) -> Awaitable[ArtistEquivalence]:
+        """The alias groups covering a batch's credited artist names.
+
+        Two queries for the whole batch, never one per name. One connector
+        artist is one group, and a spelling two cached artists state names
+        neither. The empty equivalence when the batch credits nobody or no
+        cached alias reaches any of its names, so the matcher compares plain
+        strings. A missing or blank name is skipped.
         """
         ...
 

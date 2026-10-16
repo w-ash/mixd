@@ -11,7 +11,6 @@ from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
 from src.domain.entities import (
-    ArtistCredit,
     ConnectorPlaylist,
     ConnectorPlaylistItem,
     ConnectorTrackRef,
@@ -32,7 +31,7 @@ from src.infrastructure.persistence.database.models import (
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories._shared.connector_tracks import (
-    extract_db_artist_names,
+    db_artist_credits,
 )
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
@@ -73,6 +72,10 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
         ``with_playlist_relationships``) and inherited (``get_by_id`` via
         ``with_default_relationships``) load paths. A deep ``selectinload`` chain so
         the mapper reads only materialized state and never lazy-loads.
+
+        The ``track_artists`` rows load on every playlist read: a playlist
+        feeds workflows, whose artist filters match on each credit's
+        ``artist_id``.
         """
         return [
             selectinload(DBPlaylist.mappings).selectinload(
@@ -80,8 +83,12 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             ),
             selectinload(DBPlaylist.tracks)
             .selectinload(DBPlaylistTrack.track)
-            .selectinload(DBTrack.mappings)
-            .selectinload(DBTrackMapping.connector_track),
+            .options(
+                selectinload(DBTrack.mappings).selectinload(
+                    DBTrackMapping.connector_track
+                ),
+                selectinload(DBTrack.artist_credits),
+            ),
         ]
 
     @override
@@ -131,10 +138,10 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
                         ct.connector_track_identifier
                     )
 
-            artist_names = extract_db_artist_names(track.artists)
+            credits = db_artist_credits(track)
             # Track._validate_artists raises on empty artists; skip silently so one
             # malformed track does not abort mapping the whole playlist.
-            if not artist_names:
+            if not credits:
                 continue
 
             domain_track = Track(
@@ -142,7 +149,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
                 version=track.version,
                 user_id=track.user_id,
                 title=track.title,
-                artists=[ArtistCredit(credited_name=name) for name in artist_names],
+                artists=credits,
                 album=track.album,
                 duration_ms=track.duration_ms,
                 release_date=ensure_utc(track.release_date),

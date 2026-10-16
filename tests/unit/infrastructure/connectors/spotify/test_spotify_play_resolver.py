@@ -23,7 +23,11 @@ from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
     should_include_spotify_play,
 )
-from tests.fixtures import TEST_USER_ID, attach_resolution_recorder
+from tests.fixtures import (
+    TEST_USER_ID,
+    attach_artist_alias_repo,
+    attach_resolution_recorder,
+)
 from tests.fixtures.factories import make_spotify_track, make_track
 
 
@@ -500,6 +504,7 @@ class TestResolverTrackResolution:
         uow = MagicMock()
 
         attach_resolution_recorder(uow)
+        _ = attach_artist_alias_repo(uow)
         # No existing mappings
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
@@ -534,6 +539,7 @@ class TestResolverTrackResolution:
         uow = MagicMock()
 
         attach_resolution_recorder(uow)
+        _ = attach_artist_alias_repo(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -792,6 +798,7 @@ class TestFallbackHintsIntegration:
         uow = MagicMock()
 
         attach_resolution_recorder(uow)
+        _ = attach_artist_alias_repo(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -834,6 +841,7 @@ class TestFallbackHintsIntegration:
         uow = MagicMock()
 
         attach_resolution_recorder(uow)
+        _ = attach_artist_alias_repo(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -879,6 +887,7 @@ class TestRedirectResolvedPlays:
         uow = MagicMock()
 
         attach_resolution_recorder(uow)
+        _ = attach_artist_alias_repo(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo

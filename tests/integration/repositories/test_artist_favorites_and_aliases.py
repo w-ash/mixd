@@ -14,7 +14,7 @@ from sqlalchemy import select
 from src.domain.entities.artist import Artist, ArtistAlias
 from src.infrastructure.persistence.database.models import DBArtistFavorite
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures import make_connector_artist
+from tests.fixtures import FULL_NAME, TEED, make_connector_artist, seed_aliases
 
 
 def _user() -> str:
@@ -150,8 +150,11 @@ class TestAliases:
         )
 
         assert replaced == 1
-        found = await aliases.get_aliases_for_connector_artists([connector_artist_id])
-        assert [a.name for a in found[connector_artist_id]] == ["TEED"]
+        found = await aliases.find_connector_artist_ids_by_alias([
+            "TEED",
+            "Totally Enormous Extinct Dinosaurs",
+        ])
+        assert found == {"TEED": [connector_artist_id]}
 
     async def test_replacing_with_nothing_clears_the_cache(self, db_session):
         uow = get_unit_of_work(db_session)
@@ -170,9 +173,7 @@ class TestAliases:
         )
 
         assert await aliases.replace_aliases(connector_artist_id, []) == 0
-        assert (
-            await aliases.get_aliases_for_connector_artists([connector_artist_id]) == {}
-        )
+        assert await aliases.find_connector_artist_ids_by_alias(["TEED"]) == {}
 
     async def test_lookup_by_name_is_case_insensitive_and_keyed_as_asked(
         self, db_session
@@ -196,3 +197,103 @@ class TestAliases:
 
         assert found == {"teed": [connector_artist_id]}
         assert await aliases.find_connector_artist_ids_by_alias([]) == {}
+
+
+class TestArtistEquivalence:
+    """The batch's alias groups, read from the cache in two statements."""
+
+    async def test_a_name_reaches_every_spelling_of_its_artist(self, db_session):
+        # Catches a lookup that compiles only the names it was asked for: the
+        # full name reaches "TEED" through the connector artist both hang off.
+        uow = get_unit_of_work(db_session)
+        await seed_aliases(uow, TEED, FULL_NAME)
+
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            FULL_NAME
+        ])
+
+        assert equivalence.aliases_of(FULL_NAME) == ("teed",)
+
+    async def test_a_spelling_another_cached_artist_states_is_left_out(
+        self, db_session
+    ):
+        # Catches a compile that reads only the artists the batch reaches:
+        # "Nirvana (US)" reaches the US band alone, and the "Nirvana" both
+        # bands state would pull the UK band's tracks into its probe.
+        uow = get_unit_of_work(db_session)
+        await seed_aliases(
+            uow,
+            "Nirvana",
+            "Nirvana (US)",
+            "Nirvana (Seattle band)",
+            mbid="5b11f4ce-a62d-471e-81fc-a69a8278c7da",
+            primary="Nirvana",
+        )
+        await seed_aliases(
+            uow,
+            "Nirvana",
+            "Nirvana (UK)",
+            mbid="9282c8b4-ca0b-4c6b-b7e3-4f7762dfc4d6",
+            primary="Nirvana",
+        )
+
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            "Nirvana (US)"
+        ])
+
+        assert equivalence.aliases_of("Nirvana (US)") == ("nirvana seattle band",)
+        assert not equivalence.same("Nirvana (US)", "Nirvana")
+
+    async def test_a_batch_reads_the_cache_in_two_statements(
+        self, db_session, captured_sql
+    ):
+        # Catches a lookup per name: a repeated name and two blanks beside
+        # two real names still cost one name query and one alias query.
+        uow = get_unit_of_work(db_session)
+        await seed_aliases(uow, TEED, FULL_NAME)
+        captured_sql.clear()
+
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            TEED,
+            TEED,
+            " ",
+            FULL_NAME,
+            "",
+        ])
+
+        assert equivalence.same(TEED, FULL_NAME)
+        assert len([sql for sql in captured_sql if "artist_aliases" in sql]) == 2
+
+    async def test_a_missing_name_in_the_batch_is_skipped(self, db_session):
+        # Catches a strip on every entry: one credit with no name raised and
+        # cost the whole batch its alias groups.
+        uow = get_unit_of_work(db_session)
+        await seed_aliases(uow, TEED, FULL_NAME)
+
+        equivalence = await uow.get_artist_alias_repository().get_artist_equivalence([
+            None,
+            " ",
+            TEED,
+        ])
+
+        assert equivalence.aliases_of(TEED) == ("totally enormous extinct dinosaurs",)
+
+    async def test_no_names_reads_nothing(self, db_session, captured_sql):
+        aliases = get_unit_of_work(db_session).get_artist_alias_repository()
+        captured_sql.clear()
+
+        equivalence = await aliases.get_artist_equivalence(["", "   "])
+
+        assert equivalence.groups == {}
+        assert [sql for sql in captured_sql if "artist_aliases" in sql] == []
+
+    async def test_an_uncached_batch_stops_after_the_name_query(
+        self, db_session, captured_sql
+    ):
+        aliases = get_unit_of_work(db_session).get_artist_alias_repository()
+        captured_sql.clear()
+
+        equivalence = await aliases.get_artist_equivalence([FULL_NAME])
+
+        assert equivalence.groups == {}
+        assert len([sql for sql in captured_sql if "artist_aliases" in sql]) == 1

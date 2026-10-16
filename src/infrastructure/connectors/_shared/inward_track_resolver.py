@@ -297,7 +297,10 @@ class InwardTrackResolver[THint = object](ABC):
     _match_evaluation_service: MatchEvaluationService
     # The reuse step's rules. Names alone: an identifier carries no duration
     # for the recording gate to rule on, so the gate is the evaluator's
-    # accept plus a title-similarity floor.
+    # accept plus a title-similarity floor. They hold no alias groups: a
+    # step that prices names adds the groups it compiled for its own names
+    # to a local copy. The reuse step does that here; of the creation
+    # steps, only Last.fm's prices names, and it does the same.
     _reuse_rules: TrackResolutionRules
     _reuse_failed_ids: set[str]
 
@@ -367,6 +370,12 @@ class InwardTrackResolver[THint = object](ABC):
         unresolved twin has no canonical to fold onto yet) and creates
         connector mappings for what it reuses, recording the candidate each
         refusal turned down.
+
+        This step compiles the alias groups for its pairs' artist names
+        (``get_artist_equivalence``), and both the probe and the price read
+        them, so a description credited "TEED" finds and accepts the
+        canonical credited "Totally Enormous Extinct Dinosaurs". The groups
+        stay local to this call.
         """
         # Extract metadata from identifiers via subclass hook
         pairs: list[tuple[str, str]] = []
@@ -381,8 +390,14 @@ class InwardTrackResolver[THint = object](ABC):
         if not pairs:
             return {}
 
+        artist_equivalence = (
+            await uow.get_artist_alias_repository().get_artist_equivalence([
+                artist for _title, artist in pairs
+            ])
+        )
+        rules = evolve(self._reuse_rules, artist_equivalence=artist_equivalence)
         candidates = await uow.get_track_repository().find_tracks_by_title_artist(
-            pairs, user_id=user_id
+            pairs, user_id=user_id, artist_equivalence=artist_equivalence
         )
         if not candidates:
             return {}
@@ -408,7 +423,7 @@ class InwardTrackResolver[THint = object](ABC):
             description = descriptions[identifier]
             key = track_name_key(description)
             priced: Reuse[str, Track] | Refusal[Track] | None = (
-                price_reuse(description, name_owners.get(key, ()), self._reuse_rules)
+                price_reuse(description, name_owners.get(key, ()), rules)
                 if key is not None
                 else None
             )

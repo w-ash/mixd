@@ -12,6 +12,8 @@ from tests.fixtures.db_seeds import (
     seed_db_track,
 )
 from tests.fixtures.factories import (
+    FULL_NAME,
+    TEED,
     discover_one,
     make_apple_song,
     make_artist,
@@ -39,8 +41,10 @@ from tests.fixtures.factories import (
     make_workflow,
     make_workflow_def,
     nonexistent_id,
+    seed_aliases,
 )
 from tests.fixtures.mocks import (
+    attach_artist_alias_repo,
     attach_match_review_repo,
     attach_resolution_recorder,
     fake_run_async,
@@ -75,8 +79,11 @@ from tests.fixtures.pending_actions import InMemoryPendingActionStore
 from tests.fixtures.tenants import TEST_USER_ID
 
 __all__ = [
+    "FULL_NAME",
+    "TEED",
     "TEST_USER_ID",
     "InMemoryPendingActionStore",
+    "attach_artist_alias_repo",
     "attach_match_review_repo",
     "attach_resolution_recorder",
     "discover_one",
@@ -134,6 +141,7 @@ __all__ = [
     "make_workflow_def",
     "nonexistent_id",
     "plain",
+    "seed_aliases",
     "seed_db_connector_playlist",
     "seed_db_connector_track",
     "seed_db_track",
