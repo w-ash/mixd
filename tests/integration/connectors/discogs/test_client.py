@@ -339,10 +339,10 @@ class TestStoredTokenHelpers:
         client = make_client(routed_handler)
         client._storage.token = {
             "access_token": DISCOGS_TOKEN,
-            "account_name": "attritus",
+            "account_name": "alice",
         }
 
-        assert await client.get_stored_username() == "attritus"
+        assert await client.get_stored_username() == "alice"
 
     async def test_get_stored_username_none_when_not_connected(
         self, make_client
@@ -356,7 +356,7 @@ class TestStoredTokenHelpers:
         client = make_client(routed_handler)
         client._storage.token = {
             "access_token": DISCOGS_TOKEN,
-            "account_name": "attritus",
+            "account_name": "alice",
             "extra_data": {"validated_at": 1_755_000_000, "collection_count": 1},
         }
 
@@ -388,11 +388,11 @@ class TestStoredTokenHelpers:
             "extra_data": {"collection_count": 1},
         }
 
-        await client.save_account_name("attritus")
+        await client.save_account_name("alice")
 
         token = client._storage.token
         assert token is not None
-        assert token["account_name"] == "attritus"
+        assert token["account_name"] == "alice"
         assert token["access_token"] == DISCOGS_TOKEN
         assert token["extra_data"]["collection_count"] == 1
         # Narrow write: token columns never rewritten from a stale load.
@@ -402,7 +402,7 @@ class TestStoredTokenHelpers:
         client = make_client(routed_handler)
         client._storage.token = None
 
-        await client.save_account_name("attritus")
+        await client.save_account_name("alice")
 
         assert client._storage.saved == []
         assert client._storage.token is None
