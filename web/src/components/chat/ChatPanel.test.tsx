@@ -8,6 +8,8 @@ import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { ChatPanel } from "./ChatPanel";
 
+// sendChatMessage is the SSE network client (a streamed fetch). Mocking it lets
+// each test read the request the panel sends and drive the stream callbacks.
 vi.mock("#/api/chat-sse", () => ({ sendChatMessage: vi.fn() }));
 const mockSend = vi.mocked(sendChatMessage);
 
@@ -42,18 +44,26 @@ describe("ChatPanel", () => {
     mockSend.mockResolvedValue(undefined);
   });
 
-  it("opens an SSE stream via sendChatMessage on submit", () => {
+  it("sends a suggested question as the user turn and streams the reply", () => {
     renderWithProviders(<ChatPanel />);
     fireEvent.click(
       screen.getByRole("button", { name: /friday-night dinner playlist/i }),
     );
 
+    // The question shows as the user's turn in the conversation.
+    expect(
+      screen.getByText("Build me a Friday-night dinner playlist"),
+    ).toBeInTheDocument();
+
     expect(mockSend).toHaveBeenCalledTimes(1);
     const [messages, , signal, confirmation, effort] = mockSend.mock.calls[0];
-    expect(messages.at(-1)).toMatchObject({ role: "user" });
-    // The empty assistant placeholder is not sent to the model.
-    expect(messages.every((m) => m.content !== "")).toBe(true);
-    expect(signal).toBeInstanceOf(AbortSignal);
+    // Only the user turn goes to the model: the empty assistant placeholder
+    // is not sent.
+    expect(messages).toEqual([
+      { role: "user", content: "Build me a Friday-night dinner playlist" },
+    ]);
+    // Stop aborts this request through the controller the store holds.
+    expect(signal).toBe(useChatStore.getState().abortController?.signal);
     expect(confirmation).toBeUndefined();
     expect(effort).toBe("high"); // "standard" default -> high
   });
@@ -119,12 +129,11 @@ describe("ChatPanel", () => {
       cb.onDone();
     });
 
-    const last = useChatStore.getState().messages.at(-1);
-    expect(last).toMatchObject({
-      role: "assistant",
-      content: "Here's a mix",
-      isStreaming: false,
-    });
+    expect(screen.getByText("Here's a mix")).toBeInTheDocument();
+    // Done ends the stream: Regenerate appears only once nothing is streaming.
+    expect(
+      screen.getByRole("button", { name: /regenerate/i }),
+    ).toBeInTheDocument();
     expect(useChatStore.getState().abortController).toBeNull();
   });
 
@@ -136,8 +145,10 @@ describe("ChatPanel", () => {
 
     act(() => lastCallbacks().onError("RATE_LIMIT_EXCEEDED", "slow down"));
 
+    expect(screen.getByText("slow down")).toBeInTheDocument();
     expect(useChatStore.getState().messages.at(-1)?.error).toMatchObject({
       code: "RATE_LIMIT_EXCEEDED",
+      message: "slow down",
     });
   });
 
@@ -149,17 +160,6 @@ describe("ChatPanel", () => {
     expect(
       screen.queryByRole("button", { name: /regenerate/i }),
     ).not.toBeInTheDocument();
-  });
-
-  it("shows suggested questions and sends one on click", () => {
-    renderWithProviders(<ChatPanel />);
-    fireEvent.click(
-      screen.getByRole("button", { name: /friday-night dinner playlist/i }),
-    );
-
-    const { messages } = useChatStore.getState();
-    expect(messages[0]).toMatchObject({ role: "user" });
-    expect(messages[1]).toMatchObject({ role: "assistant" });
   });
 
   it("shows New conversation once messages exist and clears them on click", () => {
@@ -194,6 +194,12 @@ describe("ChatPanel", () => {
     expect(messages).toHaveLength(2);
     expect(messages[1].role).toBe("assistant");
     expect(messages[1].id).not.toBe("assistant-1");
+    expect(screen.queryByText("wrong")).not.toBeInTheDocument();
+    // A new request re-asks the question without the discarded answer.
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0]).toEqual([
+      { role: "user", content: "Hi" },
+    ]);
   });
 
   it("Escape closes the panel", () => {
@@ -220,7 +226,8 @@ describe("ChatPanel", () => {
     fireEvent.change(textarea, { target: { value: "one more" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 
-    expect(useChatStore.getState().messages.length).toBeGreaterThan(45);
+    // The user turn plus the assistant placeholder.
+    expect(useChatStore.getState().messages).toHaveLength(47);
   });
 
   it("surfaces the limit error and blocks sending when the conversation is full", () => {

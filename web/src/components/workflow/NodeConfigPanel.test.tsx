@@ -20,6 +20,8 @@ vi.mock("@xyflow/react", () => ({
   useNodesInitialized: () => false,
 }));
 
+// The editor store imports the ELK layout module; layout is not under test
+// here, so stub it to keep the async ELK worker out of jsdom.
 vi.mock("#/lib/workflow-layout", () => ({
   layoutWorkflow: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
   buildEdges: vi.fn().mockReturnValue([]),
@@ -35,7 +37,6 @@ import {
   userEvent,
   waitFor,
 } from "#/test/test-utils";
-import { NO_UPSTREAM_MESSAGE } from "./fields/TaskRefInput";
 import { NodeConfigPanel } from "./NodeConfigPanel";
 
 const PRIMARY_INPUT: ConfigFieldSchema = {
@@ -145,31 +146,21 @@ describe("NodeConfigPanel", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("renders panel with node type badge when node is selected", () => {
+  it("shows the selected node's category and task id, and Close deselects it", async () => {
+    const user = userEvent.setup();
     useEditorStore.setState({
       selectedNodeId: "src_1",
-      nodes: [
-        {
-          id: "src_1",
-          type: "source",
-          position: { x: 0, y: 0 },
-          data: {
-            taskId: "src_1",
-            nodeType: "source.liked_tracks",
-            config: {},
-          },
-        },
-      ],
+      nodes: [makeNode("src_1", "source.liked_tracks")],
       edges: [],
     });
 
     renderWithProviders(<NodeConfigPanel />);
 
-    // Should show the close button and node category badge
-    expect(screen.getByLabelText("Close panel")).toBeInTheDocument();
     expect(screen.getByText("Source")).toBeInTheDocument();
-    // Task ID field
-    expect(screen.getByLabelText("Task ID")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task ID")).toHaveValue("src_1");
+
+    await user.click(screen.getByRole("button", { name: "Close panel" }));
+    expect(useEditorStore.getState().selectedNodeId).toBeNull();
   });
 
   it("shows no-config message for nodes without schema", () => {
@@ -206,7 +197,7 @@ describe("NodeConfigPanel", () => {
 
       const picker = await screen.findByLabelText(/Exclusion Source/);
       expect(picker).toBeDisabled();
-      expect(picker).toHaveTextContent(NO_UPSTREAM_MESSAGE);
+      expect(picker).toHaveTextContent("Connect an upstream node first");
     });
 
     it("offers the upstream tasks and writes the chosen id to config", async () => {

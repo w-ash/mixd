@@ -1,13 +1,13 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
+import { useGetAssistantStatusApiV1AssistantStatusGet } from "#/api/generated/assistant/assistant";
 import { server } from "#/test/setup";
 import {
   mockMatchMedia,
   renderWithProviders,
   screen,
   userEvent,
-  waitFor,
 } from "#/test/test-utils";
 
 import { MobileBottomNav } from "./MobileBottomNav";
@@ -18,6 +18,12 @@ function stubChat(connected: boolean) {
       HttpResponse.json({ connected, source: connected ? "user" : null }),
     ),
   );
+}
+
+/** Renders "status settled" once the assistant-status query has resolved. */
+function StatusSettledProbe() {
+  const { isSuccess } = useGetAssistantStatusApiV1AssistantStatusGet();
+  return isSuccess ? <span>status settled</span> : null;
 }
 
 describe("MobileBottomNav", () => {
@@ -62,12 +68,17 @@ describe("MobileBottomNav", () => {
 
   it("hides the Ask tab when the assistant is unavailable", async () => {
     stubChat(false);
-    renderWithProviders(<MobileBottomNav />);
-
-    expect(await screen.findByText("Home")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.queryByText("Ask")).not.toBeInTheDocument(),
+    renderWithProviders(
+      <>
+        <MobileBottomNav />
+        <StatusSettledProbe />
+      </>,
     );
+
+    // Assert only after the status answered, or the check passes while loading.
+    await screen.findByText("status settled");
+    expect(screen.getByText("Home")).toBeInTheDocument();
+    expect(screen.queryByText("Ask")).not.toBeInTheDocument();
   });
 
   it("shows the Ask tab once a key is connected", async () => {

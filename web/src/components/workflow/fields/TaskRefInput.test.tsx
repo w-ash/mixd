@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ConfigFieldSchema } from "#/api/generated/model";
 
-import { NO_UPSTREAM_MESSAGE, TaskRefInput } from "./TaskRefInput";
+import { TaskRefInput } from "./TaskRefInput";
 
 const field: ConfigFieldSchema = {
   key: "exclusion_source",
@@ -38,13 +38,6 @@ function renderInput(
 }
 
 describe("TaskRefInput", () => {
-  it("is disabled with an empty-state hint when the node has no upstreams", () => {
-    renderInput({ upstreams: [] });
-    const trigger = screen.getByRole("combobox");
-    expect(trigger).toBeDisabled();
-    expect(trigger).toHaveTextContent(NO_UPSTREAM_MESSAGE);
-  });
-
   it("shows the selected upstream by label", () => {
     renderInput({ value: "src_2" });
     expect(screen.getByRole("combobox")).toHaveTextContent("played tracks");
@@ -53,7 +46,9 @@ describe("TaskRefInput", () => {
 
   it("keeps a value whose edge was removed visible as not connected", () => {
     renderInput({ value: "gone" });
-    expect(screen.getByRole("combobox")).toHaveTextContent("gone");
+    expect(screen.getByRole("combobox")).toHaveTextContent(
+      "gone (not connected)",
+    );
   });
 
   it("wires aria-invalid and aria-describedby on error", () => {

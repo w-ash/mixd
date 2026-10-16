@@ -1,4 +1,4 @@
-import { delay, HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { toasts } from "#/lib/toasts";
@@ -108,17 +108,18 @@ describe("Integrations", () => {
     // correct by the time of the redirect, but the *first* GET here simulates
     // a request that raced ahead of that correctness (matching the live repro:
     // card stays "disconnected" until something forces a second round-trip).
-    // The *second* GET is delayed so a toast fired before the refetch lands
-    // is observable mid-flight.
+    // The *second* GET is held until the test releases it, so a toast fired
+    // before the refetch lands is observable however slow the machine is.
     const successSpy = vi.spyOn(toasts, "success");
+    const refetch = Promise.withResolvers<void>();
     let callCount = 0;
     server.use(
       http.get("*/api/v1/connectors", async () => {
         callCount += 1;
-        if (callCount > 1) {
-          await delay(50);
-        }
         const connected = callCount > 1;
+        if (connected) {
+          await refetch.promise;
+        }
         return HttpResponse.json(
           [
             makeConnectorMetadata({
@@ -140,12 +141,18 @@ describe("Integrations", () => {
       },
     });
 
-    // First response has landed (card reads disconnected); the delayed
-    // second GET is still in flight — success must not be declared yet.
+    // First response has landed (card reads disconnected) and the callback's
+    // refetch has reached the server, where it is held — success must not be
+    // declared yet.
     await waitFor(() => {
       expect(screen.getByText("Connect Apple Music")).toBeInTheDocument();
     });
+    await waitFor(() => {
+      expect(callCount).toBeGreaterThanOrEqual(2);
+    });
     expect(successSpy).not.toHaveBeenCalled();
+
+    refetch.resolve();
 
     await waitFor(() => {
       expect(successSpy).toHaveBeenCalledWith("Apple Music connected");
@@ -190,18 +197,20 @@ describe("Integrations", () => {
     // Regression for the live bug: the success toast fired (and the dialog
     // closed) the instant the PUT resolved, before the connectors refetch
     // had landed — so the card still read "Connect Discogs" under a
-    // "Discogs connected" toast. Delay the *second* GET (the post-invalidate
-    // refetch) so a wrong ordering is observable mid-flight.
+    // "Discogs connected" toast. Hold the *second* GET (the post-invalidate
+    // refetch) until the test releases it, so a wrong ordering is observable
+    // mid-flight.
     const user = userEvent.setup();
     const successSpy = vi.spyOn(toasts, "success");
+    const refetch = Promise.withResolvers<void>();
     let callCount = 0;
     server.use(
       http.get("*/api/v1/connectors", async () => {
         callCount += 1;
-        if (callCount > 1) {
-          await delay(50);
-        }
         const connected = callCount > 1;
+        if (connected) {
+          await refetch.promise;
+        }
         return HttpResponse.json(
           [
             makeConnectorMetadata({
@@ -228,13 +237,18 @@ describe("Integrations", () => {
     );
     await user.click(within(dialog).getByRole("button", { name: "Connect" }));
 
-    // The PUT has resolved (204) but the refetch it triggered is still
-    // in flight: the dialog must stay open and busy, and success must not
-    // have been declared yet.
+    // The PUT has resolved (204) and the refetch it triggered is held at the
+    // server: the dialog must stay open and busy, and success must not have
+    // been declared yet.
+    await waitFor(() => {
+      expect(callCount).toBeGreaterThanOrEqual(2);
+    });
     expect(
       within(dialog).getByRole("button", { name: "Validating..." }),
     ).toBeInTheDocument();
     expect(successSpy).not.toHaveBeenCalled();
+
+    refetch.resolve();
 
     await waitFor(() => {
       expect(successSpy).toHaveBeenCalledWith("Discogs connected");

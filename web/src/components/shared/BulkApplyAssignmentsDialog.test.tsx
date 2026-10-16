@@ -29,6 +29,9 @@ vi.mock("#/hooks/useOperationProgress", async () => {
   };
 });
 
+// The run-completed announcement is the contract under test; capturing its
+// arguments pins outcome, issue count and run link without coupling to the
+// toast's rendered layout (covered by the toasts module's own tests).
 const mockRunCompleted = vi.fn();
 vi.mock("#/lib/toasts", async () => {
   const actual =

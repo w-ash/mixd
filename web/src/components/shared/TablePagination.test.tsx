@@ -20,21 +20,18 @@ describe("TablePagination", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders count summary with correct range", () => {
-    render(<TablePagination {...defaultProps} />);
-    expect(screen.getByText(/1–50 of 150/)).toBeInTheDocument();
-  });
-
-  it("renders count summary for middle page", () => {
-    render(<TablePagination {...defaultProps} page={2} />);
-    expect(screen.getByText(/51–100 of 150/)).toBeInTheDocument();
-  });
-
-  it("renders count summary for last page with partial items", () => {
-    render(<TablePagination {...defaultProps} page={3} total={120} />);
-    // Page 3: start=101, end=min(150, 120)=120
-    expect(screen.getByText(/101–120 of 120/)).toBeInTheDocument();
-  });
+  it.each([
+    { page: 1, total: 150, summary: "1–50 of 150" },
+    { page: 2, total: 150, summary: "51–100 of 150" },
+    // A partial last page ends at the total, not at page * limit.
+    { page: 3, total: 120, summary: "101–120 of 120" },
+  ])(
+    "summarizes page $page of $total items as $summary",
+    ({ page, total, summary }) => {
+      render(<TablePagination {...defaultProps} page={page} total={total} />);
+      expect(screen.getByText(summary)).toBeInTheDocument();
+    },
+  );
 
   it("disables Previous on page 1", () => {
     render(<TablePagination {...defaultProps} page={1} />);
@@ -105,7 +102,7 @@ describe("TablePagination", () => {
     expect(activeLink).toHaveAttribute("aria-current", "page");
   });
 
-  it("shows ellipsis when totalPages exceeds 7", () => {
+  it("collapses gaps to ellipses when totalPages exceeds 7", () => {
     render(
       <TablePagination
         {...defaultProps}
@@ -115,8 +112,14 @@ describe("TablePagination", () => {
       />,
     );
 
-    // Should have page numbers and "More pages" for ellipsis
-    expect(screen.getAllByText("More pages").length).toBeGreaterThan(0);
+    // Shown: first two, current ±1, last two → 1 2 … 4 5 6 … 9 10.
+    for (const shown of ["1", "2", "4", "5", "6", "9", "10"]) {
+      expect(screen.getByText(shown)).toBeInTheDocument();
+    }
+    for (const hidden of ["3", "7", "8"]) {
+      expect(screen.queryByText(hidden)).not.toBeInTheDocument();
+    }
+    expect(screen.getAllByText("More pages")).toHaveLength(2);
   });
 
   it("shows all page numbers without ellipsis for 7 or fewer pages", () => {

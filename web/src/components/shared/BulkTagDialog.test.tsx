@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { Toaster } from "#/components/ui/sonner";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -8,24 +9,6 @@ import {
   userEvent,
   waitFor,
 } from "#/test/test-utils";
-
-const mockToastPromise = vi.fn();
-vi.mock("#/lib/toasts", async () => {
-  const actual =
-    await vi.importActual<typeof import("#/lib/toasts")>("#/lib/toasts");
-  return {
-    ...actual,
-    toasts: {
-      ...actual.toasts,
-      promise: (...args: unknown[]) => {
-        mockToastPromise(...args);
-        // Drive the underlying promise so onSuccess still fires.
-        const promise = args[0] as Promise<unknown>;
-        return promise;
-      },
-    },
-  };
-});
 
 import { BulkTagDialog } from "./BulkTagDialog";
 
@@ -39,15 +22,24 @@ function setup(overrides: Partial<Parameters<typeof BulkTagDialog>[0]> = {}) {
   const onOpenChange = vi.fn();
   const onTagged = vi.fn();
   renderWithProviders(
-    <BulkTagDialog
-      open={true}
-      onOpenChange={onOpenChange}
-      trackIds={trackIds}
-      onTagged={onTagged}
-      {...overrides}
-    />,
+    <>
+      <BulkTagDialog
+        open={true}
+        onOpenChange={onOpenChange}
+        trackIds={trackIds}
+        onTagged={onTagged}
+        {...overrides}
+      />
+      <Toaster />
+    </>,
   );
   return { onOpenChange, onTagged };
+}
+
+async function pickTagAndConfirm(tag: string) {
+  await userEvent.type(screen.getByPlaceholderText("Pick or add a tag…"), tag);
+  await userEvent.click(await screen.findByText(tag));
+  await userEvent.click(screen.getByRole("button", { name: "Tag 2 tracks" }));
 }
 
 describe("BulkTagDialog", () => {
@@ -63,27 +55,27 @@ describe("BulkTagDialog", () => {
     ).toBeInTheDocument();
   });
 
-  it("submits the batch tag and reports success via onTagged + onOpenChange", async () => {
+  it("sends the chosen tag for every selected track, then reports success and closes", async () => {
+    const bodies: unknown[] = [];
     server.use(
-      http.get("*/api/v1/tags", () => HttpResponse.json([])),
-      http.post("*/api/v1/tracks/tags/batch", () =>
-        HttpResponse.json({ tag: "mood:chill", requested: 2, tagged: 2 }),
-      ),
+      http.post("*/api/v1/tracks/tags/batch", async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({
+          tag: "mood:chill",
+          requested: 2,
+          tagged: 2,
+        });
+      }),
     );
 
     const { onOpenChange, onTagged } = setup();
-
-    const input = screen.getByPlaceholderText("Pick or add a tag…");
-    await userEvent.type(input, "mood:chill");
-
-    await userEvent.click(await screen.findByText("mood:chill"));
-
-    await userEvent.click(screen.getByRole("button", { name: "Tag 2 tracks" }));
+    await pickTagAndConfirm("mood:chill");
 
     await waitFor(() => {
       expect(onTagged).toHaveBeenCalledOnce();
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(bodies).toEqual([{ track_ids: trackIds, tag: "mood:chill" }]);
   });
 
   it("disables the confirm button until a tag is chosen", async () => {
@@ -92,41 +84,53 @@ describe("BulkTagDialog", () => {
     expect(btn).toBeDisabled();
   });
 
-  it("closes without submitting on cancel", async () => {
+  it("closes on cancel", async () => {
     const { onOpenChange } = setup();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("wraps the mutation in toasts.promise with a loading message", async () => {
-    mockToastPromise.mockClear();
+  it("toasts progress while tagging, then the tagged count and tag", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     server.use(
-      http.get("*/api/v1/tags", () => HttpResponse.json([])),
-      http.post("*/api/v1/tracks/tags/batch", () =>
-        HttpResponse.json({ tag: "mood:chill", requested: 2, tagged: 2 }),
-      ),
+      http.post("*/api/v1/tracks/tags/batch", async () => {
+        await held;
+        return HttpResponse.json({
+          tag: "mood:chill",
+          requested: 2,
+          tagged: 2,
+        });
+      }),
     );
 
     setup();
-    const input = screen.getByPlaceholderText("Pick or add a tag…");
-    await userEvent.type(input, "mood:chill");
-    await userEvent.click(await screen.findByText("mood:chill"));
-    await userEvent.click(screen.getByRole("button", { name: "Tag 2 tracks" }));
+    await pickTagAndConfirm("mood:chill");
 
-    await waitFor(() => expect(mockToastPromise).toHaveBeenCalledOnce());
-    const messages = mockToastPromise.mock.calls[0][1] as {
-      loading: string;
-      success: (resp: unknown) => string;
-      error: string;
-    };
-    expect(messages.loading).toBe("Tagging 2 tracks…");
-    expect(messages.error).toBe("Failed to tag tracks");
-    // Success template renders the affected count + tag name.
+    expect(await screen.findByText("Tagging 2 tracks…")).toBeInTheDocument();
+    release();
     expect(
-      messages.success({
-        status: 200,
-        data: { tag: "mood:chill", requested: 2, tagged: 2 },
-      }),
-    ).toBe("Tagged 2 tracks with mood:chill");
+      await screen.findByText("Tagged 2 tracks with mood:chill"),
+    ).toBeInTheDocument();
+  });
+
+  it("toasts the failure and keeps the dialog open when tagging fails", async () => {
+    server.use(
+      http.post("*/api/v1/tracks/tags/batch", () =>
+        HttpResponse.json(
+          { error: { code: "INTERNAL", message: "boom" } },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    const { onOpenChange, onTagged } = setup();
+    await pickTagAndConfirm("mood:chill");
+
+    expect(await screen.findByText("Failed to tag tracks")).toBeInTheDocument();
+    expect(onTagged).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 });

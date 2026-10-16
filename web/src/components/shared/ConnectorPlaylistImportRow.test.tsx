@@ -141,10 +141,13 @@ describe("ConnectorPlaylistImportRow", () => {
   });
 
   it("applies every assignment when Re-apply is chosen", async () => {
-    const applySpy = vi.fn(() =>
-      HttpResponse.json({ tags_applied: 3, preferences_applied: 1 }),
+    const appliedIds: string[] = [];
+    server.use(
+      http.post("*/api/v1/playlist-assignments/:id/apply", ({ params }) => {
+        appliedIds.push(String(params.id));
+        return HttpResponse.json({ tags_applied: 3, preferences_applied: 1 });
+      }),
     );
-    server.use(http.post("*/api/v1/playlist-assignments/:id/apply", applySpy));
     setup(
       makeConnectorPlaylistBrowse({
         ...CHILL,
@@ -155,6 +158,8 @@ describe("ConnectorPlaylistImportRow", () => {
     await openMenu();
     await userEvent.click(screen.getByRole("menuitem", { name: "Re-apply" }));
 
-    await waitFor(() => expect(applySpy).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(appliedIds.sort()).toEqual([TAG_ASSIGN_ID, RATING_ASSIGN_ID]),
+    );
   });
 });

@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { HttpResponse, http } from "msw";
+import { describe, expect, it, vi } from "vitest";
 
-import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
+import { server } from "#/test/setup";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+} from "#/test/test-utils";
 
 import { UnlinkMappingDialog } from "./UnlinkMappingDialog";
 
@@ -37,6 +44,7 @@ describe("UnlinkMappingDialog", () => {
 
     expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
     expect(screen.getByText(/cannot be undone/)).toBeInTheDocument();
+    expect(screen.getByText(/orphan track/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Unlink" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
@@ -47,13 +55,43 @@ describe("UnlinkMappingDialog", () => {
     expect(screen.queryByText("Unlink Mapping")).not.toBeInTheDocument();
   });
 
-  it("shows orphan info in warning text", async () => {
-    renderDialog();
+  it("confirming deletes this mapping from this track and closes", async () => {
+    const deleted: Array<{ trackId: string; mappingId: string }> = [];
+    server.use(
+      http.delete(
+        "*/api/v1/tracks/:trackId/mappings/:mappingId",
+        ({ params }) => {
+          deleted.push({
+            trackId: String(params.trackId),
+            mappingId: String(params.mappingId),
+          });
+          return HttpResponse.json(
+            { deleted_mapping_id: String(params.mappingId) },
+            { status: 200 },
+          );
+        },
+      ),
+    );
+    const onOpenChange = vi.fn();
+    renderWithProviders(
+      <UnlinkMappingDialog
+        trackId="019d0000-0000-7000-8000-000000000042"
+        mapping={mockMapping}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
 
-    await waitFor(() => {
-      expect(screen.getByText("Unlink Mapping")).toBeInTheDocument();
-    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Unlink" }),
+    );
 
-    expect(screen.getByText(/orphan track/)).toBeInTheDocument();
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(deleted).toEqual([
+      {
+        trackId: "019d0000-0000-7000-8000-000000000042",
+        mappingId: "019d0000-0000-7000-8000-000000000010",
+      },
+    ]);
   });
 });

@@ -27,8 +27,8 @@ describe("RunHistoryTable", () => {
       <RunHistoryTable runs={[makeRun()]} workflowId="wf-1" />,
     );
 
-    // The friendly number is shown (in both card and table variants)...
-    expect(screen.getAllByText("#5").length).toBeGreaterThan(0);
+    // The friendly number is shown...
+    expect(screen.getByRole("cell", { name: "#5" })).toBeInTheDocument();
     // ...and the UUID never appears as visible text.
     expect(
       screen.queryByText(/11111111-2222-3333-4444-555555555555/),
@@ -59,13 +59,9 @@ describe("RunHistoryTable", () => {
       <RunHistoryTable runs={[makeRun()]} workflowId="wf-1" />,
     );
 
-    const links = screen.getAllByRole("link");
-    expect(
-      links.some((a) =>
-        a
-          .getAttribute("href")
-          ?.endsWith("/runs/11111111-2222-3333-4444-555555555555"),
-      ),
-    ).toBe(true);
+    expect(screen.getByRole("link", { name: "View" })).toHaveAttribute(
+      "href",
+      "/workflows/wf-1/runs/11111111-2222-3333-4444-555555555555",
+    );
   });
 });

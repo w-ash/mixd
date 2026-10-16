@@ -35,7 +35,7 @@ def _page(items: int, releases: list[dict[str, object]]) -> dict[str, object]:
 
 def _make_connector(
     *,
-    username: str | None = "attritus",
+    username: str | None = "alice",
     page: dict[str, object] | None = None,
     live_username: str | None = None,
 ) -> AsyncMock:
@@ -72,7 +72,7 @@ class TestEmptyCollection:
 
         result, _uow = await _execute(connector)
 
-        assert result.username == "attritus"
+        assert result.username == "alice"
         assert result.total_items == 0
         assert result.recent == ()
 
@@ -135,7 +135,7 @@ class TestPopulatedCollection:
         result, _uow = await _execute(connector, recent_limit=2)
 
         connector.get_collection_page_data.assert_awaited_once_with(
-            "attritus", page=1, per_page=2
+            "alice", page=1, per_page=2
         )
         assert result.total_items == 40
         assert len(result.recent) == 2

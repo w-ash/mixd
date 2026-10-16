@@ -8,12 +8,6 @@ import {
 } from "./StatusIndicator";
 
 describe("StatusIndicator", () => {
-  it("renders label text", () => {
-    render(<StatusIndicator variant="success" label="Synced" />);
-
-    expect(screen.getByText("Synced")).toBeInTheDocument();
-  });
-
   it("renders detail text when provided", () => {
     render(<StatusIndicator variant="info" label="Syncing" detail="3 of 10" />);
 
@@ -31,43 +25,18 @@ describe("StatusIndicator", () => {
     expect(spans).toHaveLength(1);
   });
 
-  it("renders success variant with label", () => {
-    render(<StatusIndicator variant="success" label="Connected" />);
+  // Never a bare colored dot: every variant shows an icon and its text label.
+  it.each(["success", "warning", "error", "info", "neutral"] as const)(
+    "renders an icon and the label for the %s variant",
+    (variant) => {
+      const { container } = render(
+        <StatusIndicator variant={variant} label="Weak match" />,
+      );
 
-    expect(screen.getByText("Connected")).toBeInTheDocument();
-  });
-
-  it("renders warning variant with label", () => {
-    render(<StatusIndicator variant="warning" label="Weak match" />);
-
-    expect(screen.getByText("Weak match")).toBeInTheDocument();
-  });
-
-  it("renders error variant with label", () => {
-    render(<StatusIndicator variant="error" label="Failed" />);
-
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-  });
-
-  it("renders info variant with label", () => {
-    render(<StatusIndicator variant="info" label="Syncing" />);
-
-    expect(screen.getByText("Syncing")).toBeInTheDocument();
-  });
-
-  it("renders neutral variant with label", () => {
-    render(<StatusIndicator variant="neutral" label="Unknown" />);
-
-    expect(screen.getByText("Unknown")).toBeInTheDocument();
-  });
-
-  it("renders an icon for each variant", () => {
-    const { container } = render(
-      <StatusIndicator variant="success" label="OK" />,
-    );
-
-    expect(container.querySelector("svg")).toBeInTheDocument();
-  });
+      expect(container.querySelector("svg")).toBeInTheDocument();
+      expect(container).toHaveTextContent(/^Weak match$/);
+    },
+  );
 });
 
 describe("confidenceVariant", () => {

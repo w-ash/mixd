@@ -17,6 +17,7 @@ import typer
 from src.application.use_cases.repair_missing_primaries import (
     RepairMissingPrimariesResult,
 )
+from src.config.settings import database_host_and_mode, get_database_url
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.console import brand_status, get_console
@@ -32,12 +33,29 @@ app = typer.Typer(
 @app.command(name="reset")
 def reset(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    remote_ok: str | None = typer.Option(
+        None,
+        "--remote-ok",
+        metavar="HOST",
+        help="Allow the reset when the database is remote; must match its host",
+    ),
 ) -> None:
     """Truncate all data tables for ALL users.
 
     Preserves user accounts and service connections so you don't need to
     re-authenticate with Spotify/Last.fm after the reset.
+
+    Refuses a remote database unless ``--remote-ok`` names its host. The reset
+    runs without a user, so the default-user guard does not apply to it.
     """
+    host, mode = database_host_and_mode(get_database_url())
+    if mode == "remote" and remote_ok != host:
+        console.print(
+            f"[red]Refusing to reset the remote database at {host}.[/red]\n"
+            f"[dim]Pass --remote-ok {host} to reset it.[/dim]"
+        )
+        raise typer.Exit(code=1)
+
     console.print(
         "[yellow]This will delete ALL tracks, likes, history, playlists, "
         "workflows, and preferences for ALL users.[/yellow]\n"

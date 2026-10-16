@@ -39,11 +39,15 @@ function baseProps() {
 }
 
 describe("LibraryFilterPanel", () => {
-  it("renders all three filter groups when expanded", () => {
+  it("groups the filters under Preference, Tags, Plays and Source", () => {
     render(<LibraryFilterPanel {...baseProps()} />);
-    expect(screen.getByText("Preference")).toBeInTheDocument();
-    expect(screen.getByText("Tags")).toBeInTheDocument();
-    expect(screen.getByText("Source")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
+    ).toEqual(["Preference", "Tags", "Plays", "Source"]);
+    // The Tags group hosts the tag filter control.
+    expect(
+      screen.getByRole("button", { name: "Add tag filter" }),
+    ).toBeInTheDocument();
   });
 
   it("is collapsed but not removed when expanded=false (state preserved for transition)", () => {
@@ -80,17 +84,22 @@ describe("LibraryFilterPanel", () => {
     });
   });
 
-  it("renders liked/connector selects with expected labels", () => {
+  it("shows the active liked and connector filters in their selects", () => {
     // Radix Select + jsdom don't cooperate (hasPointerCapture missing) so we
     // don't click-through the popover here; end-to-end behavior is covered by
     // Library.tsx's existing integration and the Select primitive's own tests.
-    render(<LibraryFilterPanel {...baseProps()} />);
+    render(
+      <LibraryFilterPanel
+        {...baseProps()}
+        filters={makeFilters({ liked: "false", connector: "lastfm" })}
+      />,
+    );
     expect(
       screen.getByRole("combobox", { name: "Filter by liked status" }),
-    ).toBeInTheDocument();
+    ).toHaveTextContent("Not liked");
     expect(
       screen.getByRole("combobox", { name: "Filter by connector" }),
-    ).toBeInTheDocument();
+    ).toHaveTextContent("Last.fm");
   });
 });
 
