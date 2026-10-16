@@ -4,7 +4,8 @@ from uuid import uuid4, uuid7
 
 import pytest
 
-from src.domain.entities import Playlist
+from src.domain.entities import ArtistCredit, Playlist, Track
+from src.domain.entities.artist import Artist
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID, make_track
@@ -431,3 +432,48 @@ class TestIsOwnedBy:
         playlist_repo = uow.get_playlist_repository()
 
         assert await playlist_repo.is_owned_by(uuid7(), user_id="default") is False
+
+
+class TestPlaylistReadCredits:
+    """A playlist read carries each credit's canonical ``artist_id``."""
+
+    async def test_get_playlist_by_id_gives_each_credit_its_artist_id(self, db_session):
+        """Catches a playlist read that builds credits from the JSONB names.
+
+        Those credits carry ``artist_id=None``, so ``filter.by_artist_ids``
+        after a playlist source dropped every track.
+        """
+        uow = get_unit_of_work(db_session)
+        playlist_repo, track_repo, artist_repo = (
+            uow.get_playlist_repository(),
+            uow.get_track_repository(),
+            uow.get_artist_repository(),
+        )
+        user_id = f"credits-{uuid4()}"
+        (artist,) = await artist_repo.save_artists([
+            Artist(name="Caribou", user_id=user_id)
+        ])
+        (track,) = await track_repo.save_tracks([
+            Track(
+                user_id=user_id,
+                title="Odessa",
+                artists=[
+                    ArtistCredit(
+                        credited_name="Caribou", artist_id=artist.id, join_phrase=" & "
+                    ),
+                    ArtistCredit(credited_name="Koushik"),
+                ],
+            )
+        ])
+        saved = await playlist_repo.save_playlist(
+            Playlist.from_tracklist(
+                name=f"TEST_Credits_{uuid4()}", tracklist=[track], user_id=user_id
+            )
+        )
+
+        read = await playlist_repo.get_playlist_by_id(saved.id, user_id=user_id)
+
+        assert [
+            [(c.credited_name, c.artist_id, c.join_phrase) for c in t.artists]
+            for t in read.tracks
+        ] == [[("Caribou", artist.id, " & "), ("Koushik", None, None)]]
