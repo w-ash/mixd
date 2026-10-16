@@ -5,6 +5,7 @@ and GET /runs/{run_id} (200, 404, with nodes).
 """
 
 import asyncio
+from datetime import datetime
 
 import httpx2
 import pytest
@@ -65,17 +66,6 @@ async def _seed_completed_runs(workflow_id: str, count: int) -> None:
 class TestRunWorkflowEndpoint:
     """POST /workflows/{id}/run — starts execution."""
 
-    async def test_run_returns_202(self, client: httpx2.AsyncClient) -> None:
-        wf_id = await _create_workflow(client)
-
-        response = await client.post(f"/api/v1/workflows/{wf_id}/run")
-
-        assert response.status_code == 202
-        body = response.json()
-        assert "operation_id" in body
-        assert "run_id" in body
-        assert isinstance(body["run_id"], str)
-
     async def test_run_pushes_run_accepted_to_sse_queue(
         self, client: httpx2.AsyncClient
     ) -> None:
@@ -105,12 +95,10 @@ class TestRunWorkflowEndpoint:
         assert isinstance(data, dict)
         assert data["operation_id"] == operation_id
         assert data["run_id"] == run_id
-        # workflow_id is the resolved UUID, not the slug used in the URL.
-        assert isinstance(data["workflow_id"], str)
-        assert len(data["workflow_id"]) > 0
-        assert isinstance(data["task_count"], int)
-        assert data["task_count"] >= 0
-        assert isinstance(data["accepted_at"], str)
+        # workflow_id is the definition slug (WorkflowDef.id), not the row UUID.
+        assert data["workflow_id"] == "test-wf"
+        assert data["task_count"] == 1  # one task in the definition
+        assert datetime.fromisoformat(data["accepted_at"]).tzinfo is not None
 
     async def test_run_nonexistent_workflow_404(
         self, client: httpx2.AsyncClient
@@ -183,8 +171,8 @@ class TestListWorkflowRuns:
         response = await client.get(f"/api/v1/workflows/{wf_id}/runs")
 
         body = response.json()
-        assert body["total"] >= 2
-        assert len(body["data"]) >= 2
+        assert body["total"] == 2
+        assert len(body["data"]) == 2
 
     async def test_pagination(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
@@ -193,7 +181,7 @@ class TestListWorkflowRuns:
         response = await client.get(f"/api/v1/workflows/{wf_id}/runs?limit=2&offset=0")
 
         body = response.json()
-        assert body["total"] >= 3
+        assert body["total"] == 3
         assert len(body["data"]) == 2
 
     async def test_nonexistent_workflow_404(self, client: httpx2.AsyncClient) -> None:
@@ -221,10 +209,8 @@ class TestOperationSnapshotEndpoint:
         assert snap["operation_id"] == operation_id
         assert snap["id"] == run_id
         assert snap["status"] == "pending"
-        assert "nodes" in snap
-        assert isinstance(snap["nodes"], list)
         # Pre-created node records exist for every task in the definition.
-        assert len(snap["nodes"]) >= 1
+        assert [node["node_id"] for node in snap["nodes"]] == ["source"]
 
     async def test_snapshot_404_for_unknown_operation(
         self, client: httpx2.AsyncClient
@@ -251,11 +237,10 @@ class TestGetWorkflowRun:
         assert body["id"] == run_id
         assert body["workflow_id"] == wf_id
         assert body["status"] == "pending"
-        assert "nodes" in body
         assert len(body["nodes"]) == 1  # 1 task in definition
         assert body["nodes"][0]["node_id"] == "source"
         assert body["nodes"][0]["status"] == "pending"
-        assert "definition_snapshot" in body
+        assert body["definition_snapshot"]["name"] == "Test Workflow"
 
     async def test_nonexistent_run_404(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
@@ -304,7 +289,7 @@ class TestRunDefinitionVersion:
         response = await client.get(f"/api/v1/workflows/{wf_id}/runs")
 
         body = response.json()
-        assert body["total"] >= 1
+        assert body["total"] == 1
         assert body["data"][0]["definition_version"] == 1
 
 

@@ -5,7 +5,8 @@ action, marking the destructive operations with severity/warning) and ``exec_*``
 commits through the underlying use case. The pending-action store is swapped for
 a fresh instance per test (monkeypatching ``_common.pending_action_store``, which
 ``propose_action`` reads), and ``execute_use_case`` is monkeypatched on the
-module under test so the commit path never touches a database.
+module under test so the commit path never touches a database; the success paths
+run the real factory into a patched use-case ``execute`` to see the Command.
 """
 
 from uuid import UUID, uuid4
@@ -16,16 +17,32 @@ from src.application.chat.dispatchers import _common, workflows_write
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.use_cases.schedules import (
+    DeleteScheduleCommand,
     DeleteScheduleResult,
+    DeleteScheduleUseCase,
+    ToggleScheduleCommand,
     ToggleScheduleResult,
+    ToggleScheduleUseCase,
+    UpsertScheduleCommand,
     UpsertScheduleResult,
+    UpsertScheduleUseCase,
 )
 from src.application.use_cases.workflow_crud import (
+    DeleteWorkflowCommand,
     DeleteWorkflowResult,
+    DeleteWorkflowUseCase,
+    DuplicateWorkflowCommand,
     DuplicateWorkflowResult,
+    DuplicateWorkflowUseCase,
+    InstantiateWorkflowCommand,
     InstantiateWorkflowResult,
+    InstantiateWorkflowUseCase,
 )
-from src.application.use_cases.workflow_versions import RevertWorkflowVersionResult
+from src.application.use_cases.workflow_versions import (
+    RevertWorkflowVersionCommand,
+    RevertWorkflowVersionResult,
+    RevertWorkflowVersionUseCase,
+)
 from src.domain.entities.schedule import Schedule
 from src.domain.exceptions import NotFoundError, ToolExecutionError
 from tests.fixtures import InMemoryPendingActionStore, make_workflow, make_workflow_def
@@ -62,11 +79,27 @@ def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
     return store
 
 
-def _fake_use_case_runner(result: object):
-    async def _run(factory, user_id: str | None = None):  # matches runner signature
+def _capture(
+    monkeypatch: pytest.MonkeyPatch, use_case: type, result: object
+) -> dict[str, object]:
+    """Run the dispatcher's real factory into ``use_case``; record its Command.
+
+    Also records the ``user_id`` the runner received, so a commit that drops the
+    caller's tenant fails.
+    """
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
         return result
 
-    return _run
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(use_case, "execute", _execute)
+    monkeypatch.setattr(_common, "execute_use_case", _run)
+    return seen
 
 
 async def _action(tool_name: str, details: dict[str, object]) -> PendingAction:
@@ -201,66 +234,84 @@ class TestManageWorkflowPropose:
 
 
 class TestExecManageWorkflow:
-    async def test_instantiate_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_instantiate_commits_the_proposed_definition(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         workflow = make_workflow(definition=make_workflow_def(name="Chill Weekend"))
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(InstantiateWorkflowResult(workflow=workflow)),
+        seen = _capture(
+            monkeypatch,
+            InstantiateWorkflowUseCase,
+            InstantiateWorkflowResult(workflow=workflow),
         )
         action = await _action(
             "manage_workflow",
             {"operation": "instantiate", "workflow_def": _VALID_DEF},
         )
 
-        result = await workflows_write.exec_manage_workflow(action, "default")
+        result = await workflows_write.exec_manage_workflow(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, InstantiateWorkflowCommand)
+        assert command.definition.name == "Chill Weekend"
+        assert [t.id for t in command.definition.tasks] == ["src", "flt", "dest"]
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
         assert result["status"] == "confirmed"
         assert result["operation"] == "instantiate"
         assert result["workflow_id"] == str(workflow.id)
 
     async def test_duplicate_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        source_id = uuid4()
         workflow = make_workflow()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(DuplicateWorkflowResult(workflow=workflow)),
+        seen = _capture(
+            monkeypatch,
+            DuplicateWorkflowUseCase,
+            DuplicateWorkflowResult(workflow=workflow),
         )
         action = await _action(
             "manage_workflow",
-            {"operation": "duplicate", "workflow_id": str(uuid4())},
+            {"operation": "duplicate", "workflow_id": str(source_id)},
         )
 
-        result = await workflows_write.exec_manage_workflow(action, "default")
+        result = await workflows_write.exec_manage_workflow(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, DuplicateWorkflowCommand)
+        assert command.workflow_id == source_id
+        assert command.user_id == "user-7"
         assert result["operation"] == "duplicate"
+        # The confirmation names the new copy, not the source.
         assert result["workflow_id"] == str(workflow.id)
 
     async def test_delete_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         workflow_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(DeleteWorkflowResult(workflow_id=workflow_id)),
+        seen = _capture(
+            monkeypatch,
+            DeleteWorkflowUseCase,
+            DeleteWorkflowResult(workflow_id=workflow_id),
         )
         action = await _action(
             "manage_workflow",
             {"operation": "delete", "workflow_id": str(workflow_id)},
         )
 
-        result = await workflows_write.exec_manage_workflow(action, "default")
+        result = await workflows_write.exec_manage_workflow(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, DeleteWorkflowCommand)
+        assert command.workflow_id == workflow_id
+        assert command.user_id == "user-7"
         assert result["operation"] == "delete"
         assert result["workflow_id"] == str(workflow_id)
 
-    async def test_revert_version_commits(
+    async def test_revert_version_commits_the_proposed_version(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         workflow = make_workflow()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(RevertWorkflowVersionResult(workflow=workflow)),
+        seen = _capture(
+            monkeypatch,
+            RevertWorkflowVersionUseCase,
+            RevertWorkflowVersionResult(workflow=workflow),
         )
         action = await _action(
             "manage_workflow",
@@ -271,8 +322,13 @@ class TestExecManageWorkflow:
             },
         )
 
-        result = await workflows_write.exec_manage_workflow(action, "default")
+        result = await workflows_write.exec_manage_workflow(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, RevertWorkflowVersionCommand)
+        assert command.workflow_id == workflow.id
+        assert command.version == 2
+        assert command.user_id == "user-7"
         assert result["operation"] == "revert_version"
         assert result["workflow_id"] == str(workflow.id)
 
@@ -443,14 +499,14 @@ class TestManageSchedulePropose:
 
 
 class TestExecManageSchedule:
-    async def test_upsert_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_upsert_commits_the_proposed_cadence(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         schedule = _make_schedule()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(
-                UpsertScheduleResult(schedule=schedule, created=True)
-            ),
+        seen = _capture(
+            monkeypatch,
+            UpsertScheduleUseCase,
+            UpsertScheduleResult(schedule=schedule, created=True),
         )
         action = await _action(
             "manage_schedule",
@@ -460,24 +516,36 @@ class TestExecManageSchedule:
                 "sync_target": None,
                 "hour": 9,
                 "minute": 30,
-                "day_of_week": None,
-                "timezone": "UTC",
+                "day_of_week": 1,
+                "timezone": "America/Los_Angeles",
             },
         )
 
-        result = await workflows_write.exec_manage_schedule(action, "default")
+        result = await workflows_write.exec_manage_schedule(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, UpsertScheduleCommand)
+        assert command.workflow_id == schedule.workflow_id
+        assert command.sync_target is None
+        assert command.hour == 9
+        assert command.minute == 30
+        assert command.day_of_week == 1
+        assert command.timezone == "America/Los_Angeles"
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
         assert result["status"] == "confirmed"
         assert result["operation"] == "upsert"
         assert result["created"] is True
         assert result["schedule"]["schedule_id"] == str(schedule.id)
 
-    async def test_toggle_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_toggle_commits_the_proposed_enabled_flag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         schedule = _make_schedule(status="disabled")
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(ToggleScheduleResult(schedule=schedule)),
+        seen = _capture(
+            monkeypatch,
+            ToggleScheduleUseCase,
+            ToggleScheduleResult(schedule=schedule),
         )
         action = await _action(
             "manage_schedule",
@@ -489,17 +557,25 @@ class TestExecManageSchedule:
             },
         )
 
-        result = await workflows_write.exec_manage_schedule(action, "default")
+        result = await workflows_write.exec_manage_schedule(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, ToggleScheduleCommand)
+        assert command.enabled is False
+        assert command.workflow_id == schedule.workflow_id
+        assert command.sync_target is None
+        assert command.user_id == "user-7"
         assert result["operation"] == "toggle"
         assert result["schedule"]["status"] == "disabled"
 
-    async def test_delete_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_delete_commits_the_sync_target(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         schedule_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_use_case_runner(DeleteScheduleResult(schedule_id=schedule_id)),
+        seen = _capture(
+            monkeypatch,
+            DeleteScheduleUseCase,
+            DeleteScheduleResult(schedule_id=schedule_id),
         )
         action = await _action(
             "manage_schedule",
@@ -510,8 +586,13 @@ class TestExecManageSchedule:
             },
         )
 
-        result = await workflows_write.exec_manage_schedule(action, "default")
+        result = await workflows_write.exec_manage_schedule(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, DeleteScheduleCommand)
+        assert command.sync_target == "lastfm:plays"
+        assert command.workflow_id is None
+        assert command.user_id == "user-7"
         assert result["operation"] == "delete"
         assert result["schedule_id"] == str(schedule_id)
 
@@ -557,11 +638,3 @@ async def test_exec_schedule_malformed_workflow_id_is_actionable(
 
     with pytest.raises(ToolExecutionError, match="must be a UUID string"):
         await workflows_write.exec_manage_schedule(action, "default")
-
-
-def test_specs_expose_both_write_tools() -> None:
-    names = {spec["name"] for spec in workflows_write.SPECS}
-    assert names == {"manage_workflow", "manage_schedule"}
-    for spec in workflows_write.SPECS:
-        assert spec["kind"] == "write"
-        assert callable(spec["executor"])

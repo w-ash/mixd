@@ -93,17 +93,27 @@ class TestListArtistsUseCase:
             include_total=True,
         )
 
-    async def test_encodes_next_cursor(self, mock_uow) -> None:
+    async def test_next_cursor_seeks_past_the_last_row(self, mock_uow) -> None:
+        """Handing the returned cursor back resumes after the page's last artist."""
         artist = make_artist("Daphni")
-        mock_uow.get_artist_repository().list_artists.return_value = _page(
+        repo = mock_uow.get_artist_repository()
+        repo.list_artists.return_value = _page(
             artists=[artist], next_page_key=("Daphni", artist.id)
         )
 
-        result = await ListArtistsUseCase().execute(
+        first = await ListArtistsUseCase().execute(
             ListArtistsCommand(user_id="test-user"), mock_uow
         )
+        assert first.next_cursor is not None
+        repo.list_artists.return_value = _page()
+        await ListArtistsUseCase().execute(
+            ListArtistsCommand(user_id="test-user", cursor=first.next_cursor), mock_uow
+        )
 
-        assert result.next_cursor is not None
+        kwargs = repo.list_artists.call_args.kwargs
+        assert kwargs["after_value"] == "Daphni"
+        assert kwargs["after_id"] == artist.id
+        assert kwargs["include_total"] is False
 
     async def test_cursor_seeks_and_skips_the_count(self, mock_uow) -> None:
         repo = mock_uow.get_artist_repository()

@@ -56,15 +56,13 @@ class TestPlaylistEntryResolution:
 class TestPlaylistResolvedViews:
     def test_tracks_excludes_unresolved(self):
         playlist = _mixed_playlist()
-        # 3 positions, 2 resolved.
+        # 3 positions, 2 resolved, in position order.
         assert len(playlist.entries) == 3
-        assert len(playlist.tracks) == 2
-        assert all(t is not None for t in playlist.tracks)
+        assert [t.title for t in playlist.tracks] == ["A", "B"]
 
     def test_resolved_and_unresolved_accessors(self):
         playlist = _mixed_playlist()
-        assert len(playlist.tracks) == 2
-        assert len(playlist.unresolved_entries) == 1
+        assert playlist.unresolved_entries == [playlist.entries[1]]
         assert playlist.unresolved_count == 1
 
 

@@ -19,7 +19,11 @@ from src.application.use_cases.get_match_method_health import (
     MatchMethodHealthResult,
     MethodHealthStat,
 )
-from src.application.use_cases.list_match_reviews import ListMatchReviewsResult
+from src.application.use_cases.list_match_reviews import (
+    ListMatchReviewsCommand,
+    ListMatchReviewsResult,
+    ListMatchReviewsUseCase,
+)
 from src.application.use_cases.list_resolution_negatives import (
     ListResolutionNegativesResult,
 )
@@ -203,21 +207,35 @@ class TestMatchReviewsView:
         assert artists[0].startswith("<user_data>")
         assert artists[0] == wrap("Artist One")
 
-    async def test_echoes_page_window_from_result(
+    async def test_forwards_page_window_and_echoes_the_result_window(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _patch(
-            monkeypatch,
-            ListMatchReviewsResult(reviews=[], total=0, limit=5, offset=10),
-        )
+        seen: dict[str, object] = {}
+
+        async def _execute(
+            self: object, command: ListMatchReviewsCommand, uow: object
+        ) -> ListMatchReviewsResult:
+            seen["command"] = command
+            # A window unlike the input shows the echo reads the Result.
+            return ListMatchReviewsResult(reviews=[], total=0, limit=5, offset=0)
+
+        async def _run(factory, user_id: str | None = None):  # runner signature
+            return await factory(object())
+
+        monkeypatch.setattr(ListMatchReviewsUseCase, "execute", _execute)
+        monkeypatch.setattr(stats, "execute_use_case", _run)
 
         result = await stats.handle_query_stats(
             {"view": "match_reviews", "limit": 5, "offset": 10}, _CTX
         )
 
+        command = seen["command"]
+        assert isinstance(command, ListMatchReviewsCommand)
+        assert command.limit == 5
+        assert command.offset == 10
         assert isinstance(result, dict)
         assert result["limit"] == 5
-        assert result["offset"] == 10
+        assert result["offset"] == 0
         assert result["reviews"] == []
 
 

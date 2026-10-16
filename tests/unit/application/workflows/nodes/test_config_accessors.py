@@ -61,11 +61,8 @@ class TestCfgInt:
     def test_returns_default_for_string(self):
         assert cfg_int({"key": "nope"}, "key", 5) == 5
 
-    def test_bool_true_returns_default_not_1(self):
-        """bool is a subclass of int — cfg_int must guard against it."""
-        assert cfg_int({"count": True}, "count") is None
-
     def test_bool_true_returns_explicit_default_not_1(self):
+        """bool is a subclass of int — cfg_int must guard against it."""
         assert cfg_int({"count": True}, "count", 0) == 0
 
     def test_bool_false_returns_default_not_0(self):

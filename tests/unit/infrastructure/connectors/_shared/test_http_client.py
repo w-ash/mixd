@@ -87,7 +87,7 @@ class TestElapsedMs:
         )
         assert _elapsed_ms(response) is None
 
-    def test_returns_none_when_elapsed_is_zero(self):
+    def test_zero_elapsed_is_zero_not_none(self):
         """Zero elapsed time is valid and returns 0.0, not None."""
         import datetime
 
@@ -130,20 +130,34 @@ class TestLogResponseSuccess:
         assert call_kwargs[1]["status"] == 200
         assert call_kwargs[1]["elapsed_ms"] is None  # RuntimeError → None, not crash
 
-    async def test_success_response_calls_aread_for_elapsed(self):
-        """Success responses call aread() to populate elapsed timing."""
+    async def test_success_response_reads_body_before_timing(self):
+        """Success responses call aread() so an unread response still logs elapsed."""
         import datetime
+
+        body_read = False
+
+        def _elapsed(_self: object) -> datetime.timedelta:
+            if not body_read:
+                raise RuntimeError("not read yet")
+            return datetime.timedelta(milliseconds=150)
+
+        async def _aread() -> bytes:
+            nonlocal body_read
+            body_read = True
+            return b""
 
         response = MagicMock(spec=httpx2.Response)
         response.status_code = 200
         response.url = httpx2.URL("https://api.spotify.com/v1/me")
-        response.elapsed = datetime.timedelta(milliseconds=150)
-        response.aread = AsyncMock()
+        type(response).elapsed = property(_elapsed)
+        response.aread = AsyncMock(side_effect=_aread)
 
-        with patch("src.infrastructure.connectors._shared.http_client._http_logger"):
+        with patch(
+            "src.infrastructure.connectors._shared.http_client._http_logger"
+        ) as mock_log:
             await _log_response(response)
 
-        response.aread.assert_called_once()
+        assert mock_log.debug.call_args[1]["elapsed_ms"] == 150.0
 
     async def test_success_response_elapsed_when_available(self):
         """When elapsed is available (response already read), logs the value."""
@@ -399,12 +413,42 @@ class TestClientSmokeViaRealHttpx2:
         assert fetch.tracks == {}
         assert fetch.unanswered == frozenset({"abc123"})
 
-    async def test_lastfm_success_response_does_not_crash_hook(self):
-        """A 200 from Last.fm must not raise in the response event hook."""
+    async def test_lastfm_success_response_parses_track_getinfo(self):
+        """A 200 track.getInfo body passes the hook and parses in full.
+
+        The body mirrors Last.fm's documented track.getInfo JSON: numbers
+        arrive as strings, an absent MBID as "", the album name under
+        ``title``, and user fields because a username is configured.
+        """
         from src.infrastructure.connectors._shared.http_client import _EVENT_HOOKS
         from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
+        from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 
-        payload = {"track": {"name": "Creep", "artist": {"name": "Radiohead"}}}
+        payload = {
+            "track": {
+                "name": "Creep",
+                "mbid": "",
+                "url": "https://www.last.fm/music/Radiohead/_/Creep",
+                "duration": "238000",
+                "streamable": {"#text": "0", "fulltrack": "0"},
+                "listeners": "2051234",
+                "playcount": "19283746",
+                "artist": {
+                    "name": "Radiohead",
+                    "mbid": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+                    "url": "https://www.last.fm/music/Radiohead",
+                },
+                "album": {
+                    "artist": "Radiohead",
+                    "title": "Pablo Honey",
+                    "mbid": "",
+                    "url": "https://www.last.fm/music/Radiohead/Pablo+Honey",
+                    "@attr": {"position": "2"},
+                },
+                "userplaycount": "42",
+                "userloved": "1",
+            }
+        }
         transport = _QueueTransport((200, payload))
         mock_client = httpx2.AsyncClient(
             base_url="https://ws.audioscrobbler.com/2.0",
@@ -428,14 +472,25 @@ class TestClientSmokeViaRealHttpx2:
             s.api.lastfm.retry_max_delay = 30.0
 
             client = LastFMAPIClient()
-            # Must not raise RuntimeError from the event hook
             result = await client.get_track_info_comprehensive("Radiohead", "Creep")
             await client.aclose()
 
-        # The response is a raw dict without the expected lastfm_ prefix fields;
-        # _parse_track_info returns None for a response with no "track" key at top
-        # but the important assertion is: no exception was raised
-        assert result is not None or result is None  # hook must not crash
+        assert result == LastFMTrackInfo(
+            lastfm_title="Creep",
+            lastfm_mbid=None,
+            lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
+            lastfm_duration=238000,
+            lastfm_artist_name="Radiohead",
+            lastfm_artist_mbid="a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            lastfm_artist_url="https://www.last.fm/music/Radiohead",
+            lastfm_album_name="Pablo Honey",
+            lastfm_album_mbid=None,
+            lastfm_album_url="https://www.last.fm/music/Radiohead/Pablo+Honey",
+            lastfm_user_playcount=42,
+            lastfm_global_playcount=19283746,
+            lastfm_listeners=2051234,
+            lastfm_user_loved=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -448,14 +503,13 @@ class TestTidalClientFactories:
 
     async def test_make_tidal_client_uses_tidal_api_base(self):
         from src.infrastructure.connectors._shared.http_client import (
-            TIDAL_API_BASE,
             make_tidal_client,
         )
 
         auth = MagicMock(spec=httpx2.Auth)
         client = make_tidal_client(auth)
         try:
-            assert str(client.base_url).rstrip("/") == TIDAL_API_BASE
+            assert str(client.base_url).rstrip("/") == "https://openapi.tidal.com/v2"
             assert client.auth is auth
         finally:
             await client.aclose()
@@ -479,26 +533,25 @@ class TestTidalClientFactories:
     async def test_make_tidal_client_plain_user_agent(self):
         """Tidal carries the plain User-Agent — the ``+<repo-url>`` form is
         Discogs-specific (Discogs silently downgrades generic agents)."""
+        from src import __version__
         from src.infrastructure.connectors._shared.http_client import (
-            _build_user_agent,
             make_tidal_client,
         )
 
         client = make_tidal_client(MagicMock(spec=httpx2.Auth))
         try:
-            assert client.headers["user-agent"] == _build_user_agent()
+            assert client.headers["user-agent"] == f"Mixd/{__version__}"
         finally:
             await client.aclose()
 
     async def test_make_tidal_auth_client_uses_tidal_auth_base(self):
         from src.infrastructure.connectors._shared.http_client import (
-            TIDAL_AUTH_BASE,
             make_tidal_auth_client,
         )
 
         client = make_tidal_auth_client()
         try:
-            assert str(client.base_url).rstrip("/") == TIDAL_AUTH_BASE
+            assert str(client.base_url).rstrip("/") == "https://auth.tidal.com"
         finally:
             await client.aclose()
 
@@ -531,13 +584,12 @@ class TestListenBrainzClientFactory:
 
     async def test_defaults_to_the_main_api_base(self):
         from src.infrastructure.connectors._shared.http_client import (
-            LISTENBRAINZ_API_BASE,
             make_listenbrainz_client,
         )
 
         client = make_listenbrainz_client()
         try:
-            assert str(client.base_url).rstrip("/") == LISTENBRAINZ_API_BASE
+            assert str(client.base_url).rstrip("/") == "https://api.listenbrainz.org"
             assert client.auth is None
         finally:
             await client.aclose()

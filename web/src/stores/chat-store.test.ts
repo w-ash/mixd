@@ -24,13 +24,6 @@ const streaming = () => selectIsStreaming(useChatStore.getState());
 describe("chat-store", () => {
   beforeEach(reset);
 
-  it("starts empty with the panel closed", () => {
-    const s = useChatStore.getState();
-    expect(s.messages).toEqual([]);
-    expect(s.isPanelOpen).toBe(false);
-    expect(streaming()).toBe(false);
-  });
-
   it("keeps the cap above the soft warning threshold", () => {
     expect(MESSAGE_CAP).toBe(50);
     expect(SOFT_WARN_THRESHOLD).toBe(45);
@@ -107,28 +100,21 @@ describe("chat-store", () => {
   });
 
   describe("50-message cap", () => {
-    it("refuses user messages past the cap", () => {
-      for (let i = 0; i < MESSAGE_CAP + 20; i++) {
-        useChatStore.getState().addUserMessage(`m${i}`);
-      }
-      expect(useChatStore.getState().messages).toHaveLength(MESSAGE_CAP);
-    });
-
     it("returns an empty id when a user message is rejected at the cap", () => {
-      for (let i = 0; i < MESSAGE_CAP; i++) {
+      for (let i = 0; i < 50; i++) {
         useChatStore.getState().addUserMessage(`m${i}`);
       }
       expect(useChatStore.getState().addUserMessage("overflow")).toBe("");
-      expect(useChatStore.getState().messages).toHaveLength(MESSAGE_CAP);
+      expect(useChatStore.getState().messages).toHaveLength(50);
     });
 
     it("refuses assistant messages past the cap without flipping streaming", () => {
-      for (let i = 0; i < MESSAGE_CAP; i++) {
+      for (let i = 0; i < 50; i++) {
         useChatStore.getState().addUserMessage(`m${i}`);
       }
       const id = useChatStore.getState().startAssistantMessage();
       expect(id).toBe("");
-      expect(useChatStore.getState().messages).toHaveLength(MESSAGE_CAP);
+      expect(useChatStore.getState().messages).toHaveLength(50);
       // No streaming assistant message was created, so nothing is streaming.
       expect(streaming()).toBe(false);
     });

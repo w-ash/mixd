@@ -13,14 +13,12 @@ from fastapi.testclient import TestClient
 
 from src.domain.exceptions import (
     AppleMusicAuthRequiredError,
-    ChatUnavailableError,
     DiscogsAuthRequiredError,
     DiscogsInvalidTokenError,
     SpotifyAuthRequiredError,
     SpotifyQuotaExhaustedError,
     ToolExecutionError,
 )
-from src.interface.api.error_codes import CHAT_ERROR_CODES
 from src.interface.api.middleware import register_exception_handlers
 
 
@@ -39,10 +37,6 @@ def _app() -> FastAPI:
     @app.get("/tool-boom")
     async def _tool_boom() -> None:
         raise ToolExecutionError("bad tool args")
-
-    @app.get("/chat-boom")
-    async def _chat_boom() -> None:
-        raise ChatUnavailableError("no key")
 
     @app.get("/quota-boom")
     async def _quota_boom() -> None:
@@ -135,15 +129,3 @@ class TestToolExecutionErrorHandler:
         assert resp.status_code == 422
         # Same code string the SSE path emits, so the frontend handles one code.
         assert resp.json()["error"]["code"] == "TOOL_EXECUTION_ERROR"
-
-
-class TestSharedChatErrorTable:
-    """The shared CHAT_ERROR_CODES table drives the HTTP handlers (M2)."""
-
-    def test_chat_unavailable_uses_table_code_and_status(self):
-        client = TestClient(_app(), raise_server_exceptions=False)
-        resp = client.get("/chat-boom")
-
-        code, status = CHAT_ERROR_CODES[ChatUnavailableError]
-        assert resp.status_code == status
-        assert resp.json()["error"]["code"] == code

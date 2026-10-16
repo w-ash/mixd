@@ -163,7 +163,7 @@ class TestToArtistLookup:
 
         assert lookup.mbid == CARIBOU_MBID
         assert lookup.kind == "person"
-        assert lookup.disambiguation is not None
+        assert lookup.disambiguation == "Canadian electronic musician Dan Snaith"
         assert [rel.service for rel in lookup.url_rels] == [
             "spotify",
             "spotify",
@@ -182,13 +182,21 @@ class TestToArtistLookup:
         ]
         assert spotify == ["4aXXDGiKAJgtBOePcPAtFU", "2vmiuLJTtBiNFsdGJViMiP"]
 
-    def test_aliases_carry_their_type_and_primary_flag(self):
-        lookup = to_artist_lookup(_artist(STRFKR_BODY))
+    def test_aliases_carry_their_type_sort_name_locale_and_primary_flag(self):
+        strfkr = to_artist_lookup(_artist(STRFKR_BODY))
+        caribou = to_artist_lookup(_artist(CARIBOU_BODY))
 
-        assert lookup.kind == "group"
-        assert len(lookup.aliases) == 1
-        alias = lookup.aliases[0]
-        assert (alias.name, alias.locale, alias.is_primary) == ("STRFKR", "en", True)
+        assert strfkr.kind == "group"
+        assert [
+            (a.name, a.sort_name, a.locale, a.is_primary) for a in strfkr.aliases
+        ] == [("STRFKR", "STRFKR", "en", True)]
+        # An alias with no "primary" key reads as not primary.
+        assert [
+            (a.name, a.sort_name, a.alias_type, a.is_primary) for a in caribou.aliases
+        ] == [
+            ("Manitoba", "Manitoba", "Artist name", False),
+            ("Daphni", "Daphni", "Artist name", False),
+        ]
 
     def test_alias_names_lead_with_the_primary_name(self):
         lookup = to_artist_lookup(_artist(CARIBOU_BODY))

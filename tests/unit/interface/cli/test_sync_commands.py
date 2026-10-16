@@ -7,11 +7,17 @@ forwarded. ``run_schedule_command`` is patched at each command module's call
 site (per the cli-patterns rule) so no database is touched.
 """
 
-from unittest.mock import MagicMock, patch
+import re
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
+from src.application.use_cases.schedules import (
+    ListSchedulesResult,
+    ScheduleListEntry,
+)
+from src.domain.entities.schedule import Schedule
 from src.interface.cli.app import app
 from tests.fixtures import plain
 
@@ -45,11 +51,37 @@ class TestSyncSchedule:
         assert result.exit_code == 2
         assert "Traceback" not in plain(result.output)
 
-    def test_list_renders_table(self) -> None:
-        with patch("src.interface.cli.sync_commands._list_schedules") as m_list:
+    def test_list_renders_one_row_per_schedule(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("COLUMNS", "200")
+        listing = ListSchedulesResult(
+            entries=[
+                ScheduleListEntry(
+                    schedule=Schedule(
+                        user_id="default",
+                        sync_target="lastfm:plays",
+                        hour=2,
+                        minute=0,
+                        consecutive_failures=3,
+                    ),
+                    target_label="Last.fm plays",
+                )
+            ]
+        )
+        with patch(
+            "src.application.runner.execute_use_case",
+            AsyncMock(return_value=listing),
+        ):
             result = runner.invoke(app, ["sync", "schedule", "--list"])
+
         assert result.exit_code == 0, result.output
-        m_list.assert_called_once()
+        output = plain(result.output)
+        row = next(line for line in output.splitlines() if "Last.fm plays" in line)
+        assert "sync: Last.fm plays" in row
+        assert "Daily at 02:00 (UTC)" in row
+        assert "enabled" in row
+        assert re.search(r"│\s*3\s*│$", row.rstrip()), row
 
 
 class TestScheduleValidationRules:

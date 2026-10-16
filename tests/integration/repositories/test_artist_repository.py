@@ -1,9 +1,10 @@
 """Integration tests for :class:`ArtistRepository`.
 
 The canonical artist round trip, the listing's every sort (including the two
-that order by something ``artists`` does not store), its search, favorites
-filter and keyset paging, the enrichment queue, and the tenant scoping that
-*is* the isolation in production.
+that order by something ``artists`` does not store), the one credit aggregate
+behind the track-count sort, its search, favorites filter and keyset paging,
+the enrichment queue, and the tenant scoping that *is* the isolation in
+production.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -49,13 +50,16 @@ class TestSaveAndGet:
             Artist(name="Jungle", user_id=user_id),
         ]
 
+        before = datetime.now(UTC)
         saved = await repo.save_artists(wanted)
+        after = datetime.now(UTC)
 
         assert [a.name for a in saved] == ["Caribou", "Jungle"]
         assert [a.id for a in saved] == [a.id for a in wanted]
         assert saved[0].mbid == "mb-1"
         assert saved[0].kind == "person"
         assert saved[0].created_at is not None
+        assert before <= saved[0].created_at <= after
 
     async def test_get_by_id_is_scoped_to_the_owner(self, db_session):
         repo = get_unit_of_work(db_session).get_artist_repository()
@@ -130,6 +134,59 @@ class TestListingSorts:
         assert names[-1] == "Never"
         assert set(names[:2]) == {"First", "Second"}
         assert page["favorited_ids"] == {first.id, second.id}
+
+
+class TestTrackCountAggregate:
+    async def test_a_track_count_page_reads_the_credits_in_one_statement(
+        self, real_artist_repository, real_track_repository, captured_sql
+    ):
+        user_id = _user()
+        few, many = await _save_artists(real_artist_repository, user_id, "Few", "Many")
+        await _credit_tracks(real_track_repository, user_id, few, 1)
+        await _credit_tracks(real_track_repository, user_id, many, 2)
+        captured_sql.clear()
+
+        await real_artist_repository.list_artists(
+            user_id=user_id, sort_by="track_count_desc"
+        )
+
+        assert len([sql for sql in captured_sql if "track_artists" in sql]) == 1
+
+    async def test_an_artist_credited_twice_on_one_track_counts_it_once(
+        self, real_artist_repository, real_track_repository
+    ):
+        user_id = _user()
+        two, twice, _zero = await _save_artists(
+            real_artist_repository, user_id, "Two", "Twice", "Zero"
+        )
+        await _credit_tracks(real_track_repository, user_id, two, 2)
+        await real_track_repository.save_tracks([
+            Track(
+                id=None,
+                user_id=user_id,
+                title="Twice (Twice Remix)",
+                artists=[
+                    ArtistCredit(credited_name="Twice", artist_id=twice.id),
+                    ArtistCredit(credited_name="Twice", artist_id=twice.id),
+                ],
+            )
+        ])
+
+        first = await real_artist_repository.list_artists(
+            user_id=user_id, sort_by="track_count_desc", limit=2
+        )
+
+        assert [a.name for a in first["artists"]] == ["Two", "Twice"]
+        assert first["track_counts"] == {two.id: 2, twice.id: 1}
+        assert first["next_page_key"] == (1, twice.id)
+        second = await real_artist_repository.list_artists(
+            user_id=user_id,
+            sort_by="track_count_desc",
+            limit=2,
+            after_value=1,
+            after_id=twice.id,
+        )
+        assert [a.name for a in second["artists"]] == ["Zero"]
 
 
 class TestListingFilters:
@@ -266,14 +323,15 @@ class TestEnrichmentQueue:
     async def test_artists_without_an_mbid_are_queued_oldest_first(self, db_session):
         repo = get_unit_of_work(db_session).get_artist_repository()
         user_id = _user()
-        anchored, unknown = await _save_artists(repo, user_id, "Anchored", "Unknown")
+        anchored, older = await _save_artists(repo, user_id, "Anchored", "Older")
+        (newer,) = await _save_artists(repo, user_id, "Newer")
         await repo.set_identity(
             anchored.id, user_id=user_id, mbid="mb-anchor", kind="group"
         )
 
         queued = await repo.list_needing_enrichment(user_id=user_id)
 
-        assert [a.id for a in queued] == [unknown.id]
+        assert [a.id for a in queued] == [older.id, newer.id]
 
     async def test_older_than_widens_the_queue_to_stale_anchors(self, db_session):
         repo = get_unit_of_work(db_session).get_artist_repository()
@@ -288,19 +346,17 @@ class TestEnrichmentQueue:
 
         assert [a.id for a in widened] == [anchored.id]
 
-    async def test_touch_moves_updated_at(self, db_session):
+    async def test_touch_sends_an_artist_to_the_back_of_the_queue(self, db_session):
+        """Touch is the "seen, nothing found" mark: the next run tries others first."""
         repo = get_unit_of_work(db_session).get_artist_repository()
         user_id = _user()
-        (artist,) = await _save_artists(repo, user_id, "Touched")
-        before = artist.updated_at
+        (seen,) = await _save_artists(repo, user_id, "Seen")
+        (waiting,) = await _save_artists(repo, user_id, "Waiting")
 
-        await repo.touch([artist.id], user_id=user_id)
+        await repo.touch([seen.id], user_id=user_id)
 
-        refreshed = await repo.get_artist_by_id(artist.id, user_id=user_id)
-        assert refreshed is not None
-        assert before is not None
-        assert refreshed.updated_at is not None
-        assert refreshed.updated_at >= before
+        queued = await repo.list_needing_enrichment(user_id=user_id)
+        assert [a.id for a in queued] == [waiting.id, seen.id]
 
 
 class TestCredits:

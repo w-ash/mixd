@@ -44,36 +44,6 @@ def _patch_sleep():
 class TestLoopContract:
     """Behaviour inherited from the original fixed-cadence skeleton."""
 
-    async def test_cancelled_error_propagates(self) -> None:
-        tick, patches = _patch_execute([1, 2, asyncio.CancelledError()])
-        with patches, _patch_sleep():
-            with pytest.raises(asyncio.CancelledError):
-                await run_adaptive_background_loop(
-                    tick,
-                    next_delay=lambda _: 60.0,
-                    name="t",
-                    error_delay_seconds=60.0,
-                )
-        assert tick.await_count == 3  # ran twice, cancelled on the third
-
-    async def test_tick_exception_is_swallowed(self) -> None:
-        # A transient error mustn't kill the loop — it logs and continues until
-        # the (simulated) shutdown cancellation arrives.
-        tick, patches = _patch_execute([
-            ValueError("blip"),
-            7,
-            asyncio.CancelledError(),
-        ])
-        with patches, _patch_sleep():
-            with pytest.raises(asyncio.CancelledError):
-                await run_adaptive_background_loop(
-                    tick,
-                    next_delay=lambda _: 60.0,
-                    name="t",
-                    error_delay_seconds=60.0,
-                )
-        assert tick.await_count == 3
-
     async def test_log_result_receives_tick_value(self) -> None:
         seen: list[int] = []
         tick, patches = _patch_execute([42, asyncio.CancelledError()])

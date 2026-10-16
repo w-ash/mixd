@@ -13,18 +13,45 @@ Organized by infrastructure service categories:
 - Modern Test Data: Fixtures with automatic cleanup tracking
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from src.domain.entities import ArtistCredit, Track, TrackList
 from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.persistence.database.models import DBPlaylist, DBTrack
 from tests.fixtures import TEST_USER_ID
+
+
+@pytest.fixture
+def captured_sql(_test_engine: AsyncEngine) -> Iterator[list[str]]:
+    """The text of every statement the test engine sends while the test runs.
+
+    Setup writes are captured too: clear the list before the call under test.
+    """
+    statements: list[str] = []
+
+    def capture(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    engine = _test_engine.sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
 
 
 @pytest.fixture

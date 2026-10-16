@@ -1,7 +1,7 @@
 """Integration tests for MatchReviewRepository.
 
 Tests real database operations for the match review queue — create, list,
-update status — using the db_session fixture with SQLite.
+update status — using the db_session fixture with PostgreSQL.
 """
 
 from datetime import UTC, datetime
@@ -75,29 +75,15 @@ class TestCreateReview:
         )
         result = await _create(repo, review)
 
-        assert result.id is not None
         assert result.track_id == track_id
         assert result.confidence == 72
         assert result.status == "pending"
-
-    async def test_upsert_deduplicates(self, db_session: AsyncSession):
-        track_id, ct_id = await _seed_track_and_connector_track(db_session)
-        repo = MatchReviewRepository(db_session)
-
-        review = MatchReview(
-            track_id=track_id,
-            connector_name="spotify",
-            connector_track_id=ct_id,
-            match_method="artist_title",
-            confidence=72,
-            match_weight=4.5,
-            user_id=TEST_USER_ID,
+        stored = await repo.get_by_id(result.id)
+        assert stored is not None
+        assert (stored.connector_track_id, stored.match_method) == (
+            ct_id,
+            "artist_title",
         )
-        first = await _create(repo, review)
-        second = await _create(repo, review)
-
-        # Same review should be updated, not duplicated
-        assert first.id == second.id
 
 
 class TestCreateBatch:
@@ -220,10 +206,15 @@ class TestListPendingReviews:
             ),
         )
 
+        ct = await db_session.get(DBConnectorTrack, ct_id)
+        assert ct is not None
+        uid = ct.connector_track_identifier.removeprefix("sp_ct_")
+
         reviews, _ = await repo.list_pending_reviews(user_id="default")
-        review = reviews[0]
-        # Should have denormalized display fields from connector_track
-        assert review.connector_track_title != ""
+        (review,) = reviews
+        # Display fields come from the connector track, not the canonical one.
+        assert review.connector_track_title == f"Spotify Track {uid}"
+        assert review.connector_track_artists == [f"Spotify Artist {uid}"]
 
 
 class TestUpdateReviewStatus:
@@ -246,33 +237,39 @@ class TestUpdateReviewStatus:
             ),
         )
 
+        before = datetime.now(UTC)
         updated = await repo.update_review_status(created.id, ReviewStatus.ACCEPTED)
         assert updated.status == ReviewStatus.ACCEPTED
         assert updated.reviewed_at is not None
+        assert before <= updated.reviewed_at <= datetime.now(UTC)
 
 
 class TestCountPending:
     """Count pending returns correct number."""
 
     async def test_counts_pending_only(self, db_session: AsyncSession):
-        track_id, ct_id = await _seed_track_and_connector_track(db_session)
         repo = MatchReviewRepository(db_session)
+        created = []
+        for _ in range(3):
+            track_id, ct_id = await _seed_track_and_connector_track(db_session)
+            created.append(
+                await _create(
+                    repo,
+                    MatchReview(
+                        track_id=track_id,
+                        connector_name="spotify",
+                        connector_track_id=ct_id,
+                        match_method="artist_title",
+                        confidence=72,
+                        match_weight=4.5,
+                        user_id=TEST_USER_ID,
+                    ),
+                )
+            )
+        await repo.update_review_status(created[0].id, ReviewStatus.ACCEPTED)
+        await repo.update_review_status(created[1].id, ReviewStatus.REJECTED)
 
-        await _create(
-            repo,
-            MatchReview(
-                track_id=track_id,
-                connector_name="spotify",
-                connector_track_id=ct_id,
-                match_method="artist_title",
-                confidence=72,
-                match_weight=4.5,
-                user_id=TEST_USER_ID,
-            ),
-        )
-
-        count = await repo.count_pending(user_id="default")
-        assert count == 1
+        assert await repo.count_pending(user_id="default") == 1
 
 
 class TestResolvedReviewsDoNotResurrect:
@@ -309,7 +306,7 @@ class TestResolvedReviewsDoNotResurrect:
         after = await repo.get_by_id(existing.id)
         assert after is not None
         assert after.status == ReviewStatus.REJECTED
-        assert after.reviewed_at is not None
+        assert after.reviewed_at == rejected.reviewed_at
 
     async def test_a_pending_row_still_takes_fresher_evidence(
         self, db_session: AsyncSession

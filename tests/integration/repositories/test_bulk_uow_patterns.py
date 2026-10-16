@@ -1,10 +1,8 @@
-"""Tests for bulk operations respecting DDD Unit of Work patterns.
+"""Tests for writes across Unit of Work boundaries.
 
-These tests verify that bulk_upsert() and upsert() operations correctly
-handle cross-repository interactions, identity map behavior, and transaction
-boundaries within a Unit of Work context.
-
-Critical for verifying the selectinload optimization doesn't break DDD patterns.
+Every repository a UoW hands out runs on the UoW's session, so one
+``rollback()`` discards the writes of all of them together; a later UoW
+updates what an earlier one committed.
 """
 
 from datetime import UTC, datetime
@@ -13,21 +11,21 @@ from uuid import uuid4
 from attrs import evolve
 import pytest
 
+from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import TEST_USER_ID, make_track
 
 
 class TestBulkUoWPatterns:
-    """Test bulk operations within Unit of Work contexts."""
+    """Cross-repository transaction boundaries within one Unit of Work."""
 
-    async def test_bulk_upsert_cross_repository_identity(self, db_session):
-        """Verify identity map works across repositories in same UoW.
-
-        This tests the critical pattern where:
-        1. Track repo creates tracks with relationships
-        2. Playlist repo uses those tracks
-        3. Both operations share same session/identity map
+    async def test_rollback_discards_writes_from_every_repository_in_the_uow(
+        self, db_session
+    ):
+        """Tracks (track repo) and the playlist that uses them (playlist repo)
+        are written in one UoW; a rollback removes both, because both repos
+        share the UoW's session and transaction.
         """
         uow = get_unit_of_work(db_session)
 
@@ -50,14 +48,11 @@ class TestBulkUoWPatterns:
             for track in tracks_to_save:
                 saved = await track_repo.save_track(track)
                 saved_tracks.append(saved)
-            assert all(t.id is not None for t in saved_tracks)
             track_ids = [t.id for t in saved_tracks]
             for track in saved_tracks:
                 # The DB pseudo-connector only: a canonical's connector ids
                 # come from its mappings, which save_track does not write.
                 assert set(track.connector_track_identifiers) == {"db"}
-
-            from src.domain.entities.playlist import Playlist, PlaylistEntry
 
             playlist = Playlist(
                 name=f"TEST_UoW_Playlist_{uuid4()}",
@@ -73,85 +68,17 @@ class TestBulkUoWPatterns:
                 assert entry.track.id in track_ids
             await uow.rollback()
 
-        # After rollback, nothing should exist in DB
         async with uow:
             track_repo = uow.get_track_repository()
+            playlist_repo = uow.get_playlist_repository()
             for track_id in track_ids:
                 with pytest.raises(NotFoundError, match="not found"):
                     await track_repo.get_by_id(track_id)
+            with pytest.raises(NotFoundError, match="not found"):
+                await playlist_repo.get_by_id(saved_playlist.id)
 
-    async def test_bulk_upsert_uncommitted_data_visibility(self, db_session):
-        """Verify selectinload can load relationships on uncommitted data.
-
-        Critical: In same transaction, selectinload must see uncommitted inserts.
-        """
-        uow = get_unit_of_work(db_session)
-
-        async with uow:
-            track_repo = uow.get_track_repository()
-
-            track = make_track(
-                title=f"TEST_Uncommitted_{uuid4()}",
-                artist=f"TEST_Artist_{uuid4()}",
-                connector_track_identifiers={"spotify": f"spotify_{uuid4()}"},
-            )
-
-            saved_track = await track_repo.save_track(track)
-            assert saved_track.id is not None
-            assert saved_track.connector_track_identifiers  # Relationships loaded
-
-            await uow.commit()
-
-        # After commit, data should persist
-        async with uow:
-            track_repo = uow.get_track_repository()
-            retrieved = await track_repo.get_by_id(saved_track.id)
-            assert retrieved.id == saved_track.id
-            assert retrieved.connector_track_identifiers
-
-    async def test_multiple_bulk_operations_in_uow(self, db_session):
-        """Verify multiple bulk operations in same UoW maintain consistency."""
-        uow = get_unit_of_work(db_session)
-
-        async with uow:
-            track_repo = uow.get_track_repository()
-
-            batch1 = [
-                make_track(
-                    title=f"TEST_Batch1_{i}_{uuid4()}",
-                    artist=f"TEST_Artist_{i}_{uuid4()}",
-                    connector_track_identifiers={},
-                )
-                for i in range(2)
-            ]
-
-            saved_batch1 = []
-            for track in batch1:
-                saved = await track_repo.save_track(track)
-                saved_batch1.append(saved)
-            batch2 = [
-                make_track(
-                    title=f"TEST_Batch2_{i}_{uuid4()}",
-                    artist=f"TEST_Artist_{i}_{uuid4()}",
-                    connector_track_identifiers={},
-                )
-                for i in range(2)
-            ]
-
-            saved_batch2 = []
-            for track in batch2:
-                saved = await track_repo.save_track(track)
-                saved_batch2.append(saved)
-            assert all(t.id is not None for t in saved_batch1)
-            assert all(t.id is not None for t in saved_batch2)
-
-            all_ids = [t.id for t in saved_batch1] + [t.id for t in saved_batch2]
-            assert len(set(all_ids)) == len(all_ids)
-
-            await uow.commit()
-
-    async def test_bulk_upsert_with_existing_data(self, db_session):
-        """Verify a UoW mixes an update of a persisted entity with a new insert.
+    async def test_update_of_a_committed_track_rewrites_it_in_place(self, db_session):
+        """A later UoW updates a committed track's own row, beside a new insert.
 
         The update rides the optimistic-locking arm (``evolve`` keeps the
         version); a version-0 row re-naming a claimed spotify id would be
@@ -169,25 +96,25 @@ class TestBulkUoWPatterns:
             saved_initial = await track_repo.save_track(initial_track)
             await uow.commit()
 
+        new_title = f"TEST_Updated_{uuid4()}"
         async with uow:
             track_repo = uow.get_track_repository()
-
-            updated_track = evolve(
-                saved_initial,
-                title=f"TEST_Updated_{uuid4()}",  # Different title
+            saved_updated = await track_repo.save_track(
+                evolve(saved_initial, title=new_title)
             )
-            saved_updated = await track_repo.save_track(updated_track)
-
-            new_track = make_track(
-                title=f"TEST_New_{uuid4()}",
-                artist=f"TEST_Artist_{uuid4()}",
-                connector_track_identifiers={},
+            saved_new = await track_repo.save_track(
+                make_track(
+                    title=f"TEST_New_{uuid4()}",
+                    artist=f"TEST_Artist_{uuid4()}",
+                    connector_track_identifiers={},
+                )
             )
-            saved_new = await track_repo.save_track(new_track)
-            assert saved_updated.id == saved_initial.id
-            assert saved_updated.title != saved_initial.title
-
-            assert saved_new.id is not None
-            assert saved_new.id != saved_initial.id
-
             await uow.commit()
+
+        async with uow:
+            reloaded = await uow.get_track_repository().get_by_id(saved_initial.id)
+
+        assert saved_updated.id == saved_initial.id
+        assert saved_updated.title == new_title
+        assert reloaded.title == new_title
+        assert saved_new.id != saved_initial.id

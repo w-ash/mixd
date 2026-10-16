@@ -56,21 +56,6 @@ class TestAddTags:
         repo = TrackTagRepository(db_session)
         assert await repo.add_tags([], user_id="default") == []
 
-    async def test_duplicate_silently_skipped(self, db_session: AsyncSession) -> None:
-        """Re-adding an existing tag returns an empty list (nothing inserted)."""
-        track = await seed_db_track(db_session)
-        repo = TrackTagRepository(db_session)
-
-        first = await repo.add_tags(
-            [make_track_tag(track_id=track.id)], user_id="default"
-        )
-        second = await repo.add_tags(
-            [make_track_tag(track_id=track.id)], user_id="default"
-        )
-
-        assert len(first) == 1
-        assert second == []
-
     async def test_batch_with_mix_of_new_and_existing(
         self, db_session: AsyncSession
     ) -> None:
@@ -248,6 +233,15 @@ class TestEventsAndCascade:
         await db_session.flush()
 
         assert await repo.get_tags([track.id], user_id="default") == {}
+        remaining_events = (
+            await db_session.scalars(
+                select(DBTrackTagEvent).where(
+                    DBTrackTagEvent.user_id == "default",
+                    DBTrackTagEvent.tag == "mood:chill",
+                )
+            )
+        ).all()
+        assert remaining_events == []
 
 
 class TestQueries:

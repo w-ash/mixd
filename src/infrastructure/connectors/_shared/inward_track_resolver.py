@@ -597,7 +597,7 @@ class InwardTrackResolver[THint = object](ABC):
         connections = [(self.connector_name, uid) for uid in unique_ids]
         existing_by_connector = (
             await uow.get_connector_repository().find_tracks_by_connectors(
-                connections, user_id=user_id
+                connections, user_id=user_id, with_credits=True
             )
         )
 
@@ -980,6 +980,7 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
         mapped = await uow.get_connector_repository().find_tracks_by_connectors(
             [(self.connector_name, current_id) for current_id in current_ids],
             user_id=user_id,
+            with_credits=True,
         )
         return {current_id: track for (_, current_id), track in mapped.items()}
 
@@ -1026,7 +1027,9 @@ class WritePlanningResolver[TPayload, THint = object](InwardTrackResolver[THint]
 
         isrcs = sorted({item.strong_id for item in described if item.strong_id})
         isrc_owners = (
-            await track_repo.find_tracks_by_isrcs(isrcs, user_id=user_id)
+            await track_repo.find_tracks_by_isrcs(
+                isrcs, user_id=user_id, with_credits=True
+            )
             if isrcs
             else {}
         )

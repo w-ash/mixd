@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { useKeysetPagination, usePagination } from "./usePagination";
@@ -98,16 +98,19 @@ describe("usePagination", () => {
   });
 
   it("setPage removes param when navigating to page 1", () => {
-    const { result } = renderHook(() => usePagination(200), {
-      wrapper: wrapper("/?page=3"),
-    });
+    const { result } = renderHook(
+      () => ({ pagination: usePagination(200), location: useLocation() }),
+      { wrapper: wrapper("/?page=3&sort=title") },
+    );
 
     act(() => {
-      result.current.setPage(1);
+      result.current.pagination.setPage(1);
     });
 
-    expect(result.current.page).toBe(1);
-    expect(result.current.offset).toBe(0);
+    expect(result.current.pagination.page).toBe(1);
+    expect(result.current.pagination.offset).toBe(0);
+    // Page 1 is the canonical URL: no `?page=1`, other params untouched.
+    expect(result.current.location.search).toBe("?sort=title");
   });
 });
 

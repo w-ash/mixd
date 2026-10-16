@@ -88,9 +88,10 @@ class TestCreateAssignment:
         # action_value normalized to lower-case canonical form
         assert body["assignment"]["action_value"] == "mood:chill"
         assert body["assignment"]["connector_playlist_id"] == str(cp_id)
-        # Result shape includes all engine counters
-        assert "assignments_processed" in body["result"]
-        assert "tags_applied" in body["result"]
+        # Create applies at once: the one new assignment runs against a playlist
+        # with no tracks, so nothing is tagged.
+        assert body["result"]["assignments_processed"] == 1
+        assert body["result"]["tags_applied"] == 0
 
 
 class TestApplyAssignment:
@@ -129,7 +130,9 @@ class TestApplyAssignment:
 
 
 class TestDeleteAssignment:
-    async def test_delete_succeeds_with_204(self, client: httpx2.AsyncClient) -> None:
+    async def test_delete_removes_the_assignment(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         cp_id = await _seed_cp()
         created = await client.post(
             "/api/v1/playlist-assignments",
@@ -144,6 +147,13 @@ class TestDeleteAssignment:
         response = await client.delete(f"/api/v1/playlist-assignments/{assignment_id}")
 
         assert response.status_code == 204
+        picker = await client.get("/api/v1/connectors/spotify/playlists")
+        row = next(
+            r
+            for r in picker.json()["data"]
+            if r["connector_playlist_db_id"] == str(cp_id)
+        )
+        assert row["current_assignments"] == []
 
     async def test_delete_missing_returns_404(self, client: httpx2.AsyncClient) -> None:
         response = await client.delete(f"/api/v1/playlist-assignments/{uuid7()}")

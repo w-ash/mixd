@@ -65,13 +65,3 @@ class TestErrorClassificationRetryLogic:
             LastFMAPIError("9999", "Unknown error message")
         )
         assert retry_predicate(retry_state) is True
-
-    def test_non_exception_base_exceptions_not_retried(self, retry_predicate):
-        """Test that permanent errors are not retried even when retried.
-
-        Note: With tenacity's retry_if_exception(), BaseExceptions that are not
-        Exception subclasses are handled by tenacity itself and won't be retried.
-        This test verifies the predicate works correctly with Exception subclasses.
-        """
-        retry_state = self._make_retry_state(LastFMAPIError("10", "Invalid API key"))
-        assert retry_predicate(retry_state) is False

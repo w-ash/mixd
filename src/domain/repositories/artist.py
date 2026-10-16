@@ -7,10 +7,13 @@ has its own table and its own writer.
 
 Two of the declared sorts order by something ``artists`` does not store:
 ``track_count`` is a count over ``track_artists`` and ``favorited_at`` lives on
-``artist_favorites``. They are declared ``computed`` and the repository
-resolves each to a correlated subquery; the keyset declaration is otherwise
-identical, so paging, cursors and the NULL tail all behave as they do for a
-stored column.
+``artist_favorites``. They are declared ``computed``, and the repository
+attaches the expression each one orders by: the track count is a grouped
+aggregate, outer-joined on that sort, and the favorite timestamp is a
+correlated subquery. The listing selects the sort column beside each row, and
+the cursor value is that column on the last row. The keyset declaration is
+otherwise identical, so paging, cursors and the NULL tail all behave as they do
+for a stored column.
 """
 
 from collections.abc import Awaitable, Mapping, Sequence
@@ -69,9 +72,9 @@ def is_artist_sort(value: str) -> TypeIs[ArtistSortBy]:
 class ArtistListingPage(TypedDict):
     """Result shape for paginated artist listing queries.
 
-    The side maps are batched over the page's ids — one query each, never one
-    per row — because the list page renders a track count, a favorite star and
-    the service badges on every row.
+    The side maps are batched over the page's ids — never one query per row —
+    because the list page renders a track count, a favorite star and the
+    service badges on every row.
     """
 
     artists: list[Artist]

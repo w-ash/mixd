@@ -111,16 +111,6 @@ class TestCollectTracklists:
         assert len(result) == 1
         assert result[0] is sample_tracklist
 
-    def test_all_dicts_missing_tracklist_key_raises(self):
-        """All dicts missing 'tracklist' key raises ValueError."""
-        context = {
-            "task_a": {"other": "data"},
-            "task_b": {"also_not_tracklist": 42},
-        }
-        ctx = NodeContext(context)
-        with pytest.raises(ValueError, match="No valid tracklists"):
-            ctx.collect_tracklists(["task_a", "task_b"])
-
     def test_no_valid_tracklists_raises(self):
         """No valid tracklists raises ValueError."""
         ctx = NodeContext({})

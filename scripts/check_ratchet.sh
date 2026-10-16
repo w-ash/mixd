@@ -85,7 +85,7 @@ BASE_TYPE_IGNORE=0
 # 17 → 16 at v0.12.0.2: ``_find_tracks_by_unique_column`` folded into
 # ``find_tracks_by_isrcs`` once ISRC was the only unique identifier column left;
 # its ``reportExplicitAny`` on the generic column parameter went with it.
-BASE_PYRIGHT_IGNORE=16
+BASE_PYRIGHT_IGNORE=15
 
 # `|| true`: grep exits 1 on zero matches, which is a ratchet success, not an error.
 whitelist=$(grep -cvE '^\s*(#|$)' vulture_whitelist.py || true)

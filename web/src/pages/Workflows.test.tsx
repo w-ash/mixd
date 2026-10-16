@@ -117,34 +117,6 @@ describe("Workflows", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
-  it("shows no Template badge — templates live in the gallery, not the list", async () => {
-    server.use(
-      http.get("*/api/v1/workflows", () =>
-        listResponse([
-          {
-            id: WF_A,
-            name: "Current Obsessions",
-            description: null,
-            definition_version: 1,
-            task_count: 3,
-            node_types: ["source.liked_tracks"],
-            updated_at: "2026-02-15T12:00:00Z",
-          },
-        ]),
-      ),
-    );
-
-    renderWithProviders(<Workflows />);
-
-    await waitFor(() => {
-      expect(screen.getAllByText("Current Obsessions").length).toBeGreaterThan(
-        0,
-      );
-    });
-
-    expect(screen.queryByText("Template")).not.toBeInTheDocument();
-  });
-
   it("shows last run status in the table", async () => {
     server.use(
       http.get("*/api/v1/workflows", () =>
@@ -172,36 +144,6 @@ describe("Workflows", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
     });
-  });
-
-  it("renders per-row run, edit, and duplicate actions on every row", async () => {
-    server.use(
-      http.get("*/api/v1/workflows", () =>
-        listResponse([
-          {
-            id: WF_A,
-            name: "Flow A",
-            description: null,
-            definition_version: 1,
-            task_count: 2,
-            node_types: ["source"],
-            updated_at: "2026-02-15T12:00:00Z",
-          },
-        ]),
-      ),
-    );
-
-    renderWithProviders(<Workflows />);
-
-    await waitFor(() => {
-      expect(screen.getAllByText("Flow A").length).toBeGreaterThan(0);
-    });
-
-    expect(screen.getAllByTitle("Run workflow").length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle("Edit workflow").length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle("Duplicate workflow").length).toBeGreaterThan(
-      0,
-    );
   });
 
   it("duplicates a workflow when its row Duplicate action is clicked", async () => {

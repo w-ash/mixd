@@ -12,10 +12,10 @@ throwaway client is always closed.
 import time
 from unittest.mock import AsyncMock, patch
 
+import httpx2
 import pytest
 
 from src.domain.exceptions import DiscogsAuthRequiredError, DiscogsInvalidTokenError
-from src.infrastructure.connectors.discogs.auth import DiscogsTokenAuth
 from src.infrastructure.connectors.discogs.models import (
     DiscogsCollectionPage,
     DiscogsIdentity,
@@ -55,9 +55,13 @@ class TestValidateAndBuildToken:
         with patch(f"{_SVC}.DiscogsAPIClient", return_value=client) as client_cls:
             stored = await validate_and_build_token("tok-123")
 
-        # The throwaway client is built around the submitted token's auth.
+        # The throwaway client is built around the submitted token's auth:
+        # it presents exactly that token, never a stored one.
         auth = client_cls.call_args.args[0]
-        assert isinstance(auth, DiscogsTokenAuth)
+        probe = httpx2.Request("GET", "https://api.discogs.com/oauth/identity")
+        assert next(auth.auth_flow(probe)).headers["Authorization"] == (
+            "Discogs token=tok-123"
+        )
         assert stored["access_token"] == "tok-123"
         assert stored["token_type"] == "personal_token"
         assert stored["account_name"] == "wash"

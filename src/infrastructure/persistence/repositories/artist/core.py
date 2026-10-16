@@ -3,9 +3,15 @@
 Mirrors ``track/core.py``. The listing is the interesting part: two of its
 sorts order by something ``artists`` does not store — a count over
 ``track_artists`` and a timestamp on ``artist_favorites`` — so the repository
-resolves those declared names to correlated subqueries and hands the
-expression to the shared keyset machinery. Everything else about the page
-(probe row, cursor, NULL tail) is the same code the track listing pages with.
+attaches each one to the listing statement. The count is one grouped
+aggregate over the user's credits, outer-joined onto ``artists``; the
+timestamp is a correlated subquery. The listing selects its sort column, stored
+or computed, beside each row: one expression orders the page, seeks it and
+gives the cursor value. The track-count sort also reads the page's
+``track_counts`` from that column. Every other sort counts only the page's
+artists, so the default listing does not aggregate the whole library.
+Everything else about the page (probe row, NULL tail) is the same code the
+track listing pages with.
 
 Every query names ``user_id`` in its WHERE clause: RLS is inert in production
 (PDR-002), so repository scoping *is* the tenant isolation.
@@ -16,8 +22,7 @@ from datetime import UTC, datetime
 from typing import Final, cast
 from uuid import UUID
 
-from attrs import define
-from sqlalchemy import ColumnElement, Select, func, or_, select, update
+from sqlalchemy import ColumnElement, Select, Subquery, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +35,6 @@ from src.domain.repositories.artist import (
     ArtistListingPage,
     ArtistSortBy,
 )
-from src.domain.repositories.keyset import KeysetSort
 from src.infrastructure.persistence.database.models import (
     DBArtist,
     DBArtistFavorite,
@@ -44,24 +48,23 @@ from src.infrastructure.persistence.repositories.repo_decorator import db_operat
 logger = get_logger(__name__)
 
 
-def _track_count_column(user_id: str) -> ColumnElement[object]:
-    """``track_count`` as a correlated subquery over the user's credits.
+def _track_counts_subquery(user_id: str) -> Subquery:
+    """Distinct credited tracks per artist, as ``(artist_id, n)`` rows.
 
-    Distinct on ``track_id``: a track that credits the same artist twice (a
-    remix crediting the original act again) is one track, not two.
+    One grouped aggregate over the user's credits, which
+    ``ix_track_artists_user_artist`` feeds. Distinct on ``track_id``: a track
+    that credits the same artist twice (a remix crediting the original act
+    again) has two credit rows, one per position, and is one track, not two.
+    An artist with no credits has no row here.
     """
-    # The cast is the SQLAlchemy-generic surface: ``ColumnElement`` is
-    # invariant in its value type, so a ``ScalarSelect[int]`` cannot be handed
-    # to a parameter that accepts any sort column without it.
-    return cast(
-        "ColumnElement[object]",
-        select(func.count(func.distinct(DBTrackArtist.track_id)))
-        .where(
-            DBTrackArtist.artist_id == DBArtist.id,
-            DBTrackArtist.user_id == user_id,
+    return (
+        select(
+            DBTrackArtist.artist_id,
+            func.count(func.distinct(DBTrackArtist.track_id)).label("n"),
         )
-        .correlate(DBArtist)
-        .scalar_subquery(),
+        .where(DBTrackArtist.user_id == user_id)
+        .group_by(DBTrackArtist.artist_id)
+        .subquery()
     )
 
 
@@ -79,39 +82,36 @@ def _favorited_at_column(user_id: str) -> ColumnElement[object]:
     )
 
 
-@define(frozen=True, slots=True)
-class PageSideMaps:
-    """The per-page side maps a computed sort reads its cursor value from."""
+type _ArtistSelect = Select[tuple[DBArtist]]
 
-    track_counts: Mapping[UUID, int]
-    favorited_at: Mapping[UUID, datetime | None]
+# Attaches a sort column that ``artists`` does not store. It takes the listing
+# statement and the user id. It gives the statement with what the column needs
+# joined, and the column that the page orders by, seeks by and selects for its
+# cursor value.
+type _AttachSortColumn = Callable[
+    [_ArtistSelect, str], tuple[_ArtistSelect, ColumnElement[object]]
+]
 
 
-@define(frozen=True, slots=True)
-class ComputedSortColumn:
-    """A sort column ``artists`` does not store.
+def _attach_track_count(
+    stmt: _ArtistSelect, user_id: str
+) -> tuple[_ArtistSelect, ColumnElement[object]]:
+    """Outer-join the credit aggregate and give the track-count column.
 
-    ``expression`` is what the page orders and seeks by (built per user, the
-    subqueries are user-scoped); ``value_of`` reads the last row's value from
-    the side maps the page already built, so the cursor costs no extra query.
+    An artist with no credits has no aggregate row, and counts zero.
     """
-
-    expression: Callable[[str], ColumnElement[object]]
-    value_of: Callable[[PageSideMaps, UUID], object]
+    counts = _track_counts_subquery(user_id)
+    track_count: ColumnElement[object] = func.coalesce(counts.c.n, 0)
+    return stmt.outerjoin(counts, counts.c.artist_id == DBArtist.id), track_count
 
 
 # One entry per sort the domain declares ``computed``; the keyset unit suite
-# asserts the two agree, so a computed sort cannot be declared without an
-# expression to order by and a reader for its cursor value.
-COMPUTED_SORT_COLUMNS: Final[Mapping[str, ComputedSortColumn]] = {
-    "track_count": ComputedSortColumn(
-        _track_count_column,
-        lambda maps, artist_id: maps.track_counts.get(artist_id, 0),
-    ),
-    "favorited_at": ComputedSortColumn(
-        _favorited_at_column,
-        lambda maps, artist_id: maps.favorited_at.get(artist_id),
-    ),
+# asserts the two agree, so a computed sort cannot be declared without a way
+# to attach its column to the listing. The favorite timestamp is a correlated
+# subquery, so its statement needs no join.
+COMPUTED_SORT_COLUMNS: Final[Mapping[str, _AttachSortColumn]] = {
+    "track_count": _attach_track_count,
+    "favorited_at": lambda stmt, user_id: (stmt, _favorited_at_column(user_id)),
 }
 
 
@@ -185,22 +185,13 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
         """Count distinct credited tracks per artist in one grouped query."""
         if not artist_ids:
             return {}
+        aggregate = _track_counts_subquery(user_id)
+        artist_col: ColumnElement[UUID] = aggregate.c.artist_id
+        count_col: ColumnElement[int] = aggregate.c.n
         result = await self.session.execute(
-            select(
-                DBTrackArtist.artist_id,
-                func.count(func.distinct(DBTrackArtist.track_id)),
-            )
-            .where(
-                DBTrackArtist.artist_id.in_(artist_ids),
-                DBTrackArtist.user_id == user_id,
-            )
-            .group_by(DBTrackArtist.artist_id)
+            select(artist_col, count_col).where(artist_col.in_(artist_ids))
         )
-        counts = {
-            artist_id: count
-            for artist_id, count in result.tuples()
-            if artist_id is not None
-        }
+        counts = dict(result.tuples().all())
         # An artist with no credits is a zero, not an absence: callers render
         # the number straight from this map.
         return {artist_id: counts.get(artist_id, 0) for artist_id in artist_ids}
@@ -241,33 +232,36 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
                 )
 
         sort = ARTIST_SORTS[sort_by]
-        page, has_more = await self._fetch_page_rows(
-            select(DBArtist).where(*conditions),
+        stmt = select(DBArtist).where(*conditions)
+        if sort.computed:
+            stmt, sort_col = COMPUTED_SORT_COLUMNS[sort.column](stmt, user_id)
+        else:
+            sort_col = self.sort_column(sort)
+        paged: Select[tuple[DBArtist, object]] = stmt.add_columns(sort_col)
+        rows, has_more = await self._fetch_page_tuples(
+            paged,
             sort=sort,
             limit=limit,
             offset=offset,
             after_value=after_value,
             after_id=after_id,
-            column=(
-                COMPUTED_SORT_COLUMNS[sort.column].expression(user_id)
-                if sort.computed
-                else None
-            ),
+            column=sort_col,
         )
 
-        artists = [await self.mapper.to_domain(row) for row in page]
+        artists = [await self.mapper.to_domain(row) for row, _ in rows]
         artist_ids = [artist.id for artist in artists]
-        track_counts = await self.count_tracks_by_artist(artist_ids, user_id=user_id)
+        # On the track-count sort, the joined aggregate already holds each
+        # row's count. Any other sort counts only this page's artists.
+        track_counts = (
+            # The selected column is the count aggregate on this sort.
+            {row.id: cast("int", value) for row, value in rows}
+            if sort.column == "track_count"
+            else await self.count_tracks_by_artist(artist_ids, user_id=user_id)
+        )
         favorited_at = await self._favorited_at_batch(artist_ids, user_id=user_id)
         connector_names = await self._connector_names(artist_ids, user_id=user_id)
 
-        next_page_key: tuple[object, UUID] | None = None
-        if has_more:
-            last = page[-1]
-            next_page_key = (
-                self._sort_value(last, sort, PageSideMaps(track_counts, favorited_at)),
-                last.id,
-            )
+        next_page_key = (rows[-1][1], rows[-1][0].id) if has_more else None
 
         return ArtistListingPage(
             artists=artists,
@@ -297,13 +291,6 @@ class ArtistRepository(BaseRepository[DBArtist, Artist]):
                 .exists()
             )
         return conditions
-
-    @staticmethod
-    def _sort_value(row: DBArtist, sort: KeysetSort, side_maps: PageSideMaps) -> object:
-        """The cursor value for ``row`` under a stored or computed sort column."""
-        if sort.computed:
-            return COMPUTED_SORT_COLUMNS[sort.column].value_of(side_maps, row.id)
-        return getattr(row, sort.column)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
 
     async def _favorited_at_batch(
         self, artist_ids: Sequence[UUID], *, user_id: str

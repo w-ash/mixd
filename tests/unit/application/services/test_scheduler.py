@@ -18,12 +18,11 @@ import contextlib
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import pytest
 
 from src.application.services import scheduler
-from src.application.services.schedule_timing import compute_next_run
 from src.application.services.scheduler import (
     _classify_run_status,
     _dispatch_sync,
@@ -167,13 +166,16 @@ class TestProcessOne:
         assert kwargs["reset_failures"] is True
 
     async def test_unschedulable_target_disables_schedule(self) -> None:
+        schedule = _sync_schedule(next_run_at=datetime.now(UTC))
         with _patched(
             _dispatch_sync=AsyncMock(
                 side_effect=UnschedulableSyncTargetError("lastfm:gone")
             )
         ) as m:
-            await _run_process(_sync_schedule(next_run_at=datetime.now(UTC)))
-        m["_disable"].assert_awaited_once()
+            await _run_process(schedule)
+        m["_disable"].assert_awaited_once_with(
+            schedule.id, last_error="unschedulable target"
+        )
         # An orphaned target is disabled, NOT recorded as a per-tick failure.
         m["_release"].assert_not_awaited()
 
@@ -296,7 +298,10 @@ class TestDispatchWorkflow:
             )
 
         command = run_execute.await_args.args[0]
-        assert command.operation_id is not None
+        # A real UUID handle, so the snapshot endpoint can resolve the run.
+        assert str(UUID(command.operation_id)) == command.operation_id
+        assert command.user_id == "u1"
+        assert command.workflow_id == schedule.workflow_id
         assert command.triggered_by_schedule_id == schedule.id
         assert outcome.disposition == "success"
 
@@ -383,8 +388,8 @@ class TestRelease:
 
         repo.get_by_id.assert_awaited_once_with(captured.id)
         written = repo.mark_schedule_skipped.await_args.kwargs["next_run_at"]
-        assert written == compute_next_run(edited, now=now)
-        assert written != compute_next_run(captured, now=now)
+        # Next 09:00 UTC after noon, not the captured 06:00.
+        assert written == datetime(2026, 6, 2, 9, 0, tzinfo=UTC)
 
     async def test_falls_back_to_captured_when_row_vanished(self) -> None:
         now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
@@ -397,7 +402,7 @@ class TestRelease:
         )
 
         written = repo.mark_schedule_completed.await_args.kwargs["next_run_at"]
-        assert written == compute_next_run(captured, now=now)
+        assert written == datetime(2026, 6, 2, 6, 0, tzinfo=UTC)
 
 
 class TestDispatchSync:

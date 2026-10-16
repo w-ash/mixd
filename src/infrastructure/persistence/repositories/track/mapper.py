@@ -1,6 +1,6 @@
 """Track mappers for converting between domain and database models."""
 
-from typing import override
+from typing import Final, override
 import warnings
 
 from attrs import define
@@ -29,6 +29,10 @@ logger = get_logger(__name__)
 
 _STALE_ID_METHODS = frozenset(STALE_ID_FOR.values())
 
+# The loader for the ``track_artists`` rows. A read that needs each credit's
+# ``artist_id`` adds it; no default read loads the rows.
+CREDIT_LOADER: Final[ORMOption] = selectinload(DBTrack.artist_credits)
+
 
 class MissingPrimaryMappingWarning(UserWarning):
     """A track has live mappings for a connector but none of them is primary.
@@ -37,6 +41,36 @@ class MissingPrimaryMappingWarning(UserWarning):
     ``map_tracks_to_connectors``), so this is a writer defect, never a state a
     read repairs. The test suite turns it into an error (``filterwarnings``).
     """
+
+
+def _artist_credits(db_model: DBTrack) -> list[ArtistCredit]:
+    """Build the artist credits of a track.
+
+    The source is the ``track_artists`` rows when the read loaded them. They
+    arrive ordered by position and carry ``artist_id``. Otherwise the source
+    is the JSONB names, which carry no ``artist_id``. A track that the
+    backfill has not reached has no rows and also uses the names.
+
+    A read that needs ``artist_id`` adds :data:`CREDIT_LOADER`. The
+    ``captured_sql`` integration tests and the use-case unit tests guard both
+    directions: a read that needs the ids loads the rows, and no other read
+    does.
+    """
+    rows = db_model.loaded_list(DBTrack.artist_credits, DBTrackArtist)
+    if rows:
+        return [
+            ArtistCredit(
+                credited_name=row.credited_name,
+                artist_id=row.artist_id,
+                join_phrase=row.join_phrase,
+                role=row.role,
+            )
+            for row in rows
+        ]
+    return [
+        ArtistCredit(credited_name=name)
+        for name in extract_db_artist_names(db_model.artists)
+    ]
 
 
 @define(frozen=True, slots=True)
@@ -57,12 +91,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         # loaded_list primitive — a forgotten eager-load degrades to [].
         active_mappings = db_model.loaded_list(DBTrack.mappings, DBTrackMapping)
         active_likes = db_model.loaded_list(DBTrack.likes, DBTrackLike)
-        # ``track_artists`` is the credit's home; the JSONB column is the
-        # fallback for a read that did not load it (and for a row the backfill
-        # has not reached). The rows arrive ordered by position, so the credit
-        # order on the record survives the round trip — and with it the
-        # ``artist_id`` the JSON cannot carry.
-        credit_rows = db_model.loaded_list(DBTrack.artist_credits, DBTrackArtist)
 
         # Build connector IDs and metadata
         connector_track_identifiers: dict[str, str] = {}
@@ -160,22 +188,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             version=db_model.version,
             user_id=db_model.user_id,
             title=db_model.title,
-            artists=(
-                [
-                    ArtistCredit(
-                        credited_name=credit.credited_name,
-                        artist_id=credit.artist_id,
-                        join_phrase=credit.join_phrase,
-                        role=credit.role,
-                    )
-                    for credit in credit_rows
-                ]
-                if credit_rows
-                else [
-                    ArtistCredit(credited_name=n)
-                    for n in extract_db_artist_names(db_model.artists)
-                ]
-            ),
+            artists=_artist_credits(db_model),
             album=db_model.album,
             duration_ms=db_model.duration_ms,
             release_date=ensure_utc(db_model.release_date),
@@ -203,8 +216,4 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 DBTrackMapping.connector_track
             ),  # Nested chaining
             selectinload(DBTrack.likes),  # Simple relationship
-            # The credit rows are a relationship like any other, but the
-            # mapper *reads* them, so a missing loader here would silently
-            # demote every track to its JSONB names.
-            selectinload(DBTrack.artist_credits),
         ]

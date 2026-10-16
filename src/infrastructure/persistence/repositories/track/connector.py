@@ -104,7 +104,10 @@ from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.resolution import actively_suppressing
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
-from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
+from src.infrastructure.persistence.repositories.track.mapper import (
+    CREDIT_LOADER,
+    TrackMapper,
+)
 from src.infrastructure.services.resolution_recorder import ResolutionRecorder
 
 logger = get_logger(__name__)
@@ -544,12 +547,18 @@ class TrackConnectorRepository:
 
     @db_operation("find_tracks_by_connectors")
     async def find_tracks_by_connectors(
-        self, connections: list[tuple[str, str]], *, user_id: str
+        self,
+        connections: list[tuple[str, str]],
+        *,
+        user_id: str,
+        with_credits: bool = False,
     ) -> dict[tuple[str, str], Track]:
         """Find internal tracks by their external service IDs.
 
         Args:
             connections: List of (service_name, external_id) pairs to lookup.
+            with_credits: Give each credit its ``artist_id``. Without it, the
+                credits are the stored names only.
 
         Returns:
             Dictionary mapping (service_name, external_id) to Track objects.
@@ -583,7 +592,7 @@ class TrackConnectorRepository:
             ct_ids = [ct.id for ct in connector_tracks]
 
             by_ct_id = await self.find_tracks_by_connector_track_ids(
-                ct_ids, user_id=user_id
+                ct_ids, user_id=user_id, with_credits=with_credits
             )
             for ct_id, track in by_ct_id.items():
                 results[connector, ct_id_to_external_id[ct_id]] = track
@@ -592,13 +601,18 @@ class TrackConnectorRepository:
 
     @db_operation("find_tracks_by_connector_track_ids")
     async def find_tracks_by_connector_track_ids(
-        self, connector_track_ids: Sequence[UUID], *, user_id: str
+        self,
+        connector_track_ids: Sequence[UUID],
+        *,
+        user_id: str,
+        with_credits: bool = False,
     ) -> dict[UUID, Track]:
         """The canonical each of these ``connector_tracks`` rows is live-mapped to.
 
         Mappings alone answer it: only ``track_id``/``connector_track_id``
         are read off the mapping rows (no relationship loads), and the
-        tracks are hydrated by id.
+        tracks are hydrated by id. ``with_credits`` gives each credit its
+        ``artist_id``; without it, the credits are the stored names only.
         """
         if not connector_track_ids:
             return {}
@@ -611,9 +625,9 @@ class TrackConnectorRepository:
             ],
             load_relationships=[],
         )
-        tracks = await self.track_repo.find_tracks_by_ids([
-            m.track_id for m in mappings
-        ])
+        tracks = await self.track_repo.find_tracks_by_ids(
+            [m.track_id for m in mappings], with_credits=with_credits
+        )
         return {
             m.connector_track_id: tracks[m.track_id]
             for m in mappings
@@ -1409,6 +1423,8 @@ class TrackConnectorRepository:
             .order_by(DBTrack.id, DBConnectorTrack.id)
             .options(
                 *TrackMapper.get_default_relationships(),
+                # The walk reads which canonical credits have no artist_id yet.
+                CREDIT_LOADER,
                 # The mapper reads the service artist id through each credit
                 # row's record — the connector mapper's own load option.
                 selectinload(DBConnectorTrack.artist_credits).joinedload(

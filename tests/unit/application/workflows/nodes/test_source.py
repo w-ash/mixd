@@ -8,11 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid7
 
 import pytest
+import structlog
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
 )
 from src.application.use_cases.get_liked_tracks import GetLikedTracksCommand
+from src.application.use_cases.get_played_tracks import GetPlayedTracksCommand
 from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistResult,
 )
@@ -88,26 +90,6 @@ class TestBuildSourceTracklist:
         assert result.metadata["track_sources"][tid]["source_id"] == "sp-123"
         assert result.metadata["track_sources"][tid]["playlist_name"] == "My Playlist"
 
-    def test_all_tracks_have_ids_in_source_map(self):
-        """All tracks have UUIDs, so all appear in source map."""
-        tracks = [
-            Track(
-                title="Track A",
-                artists=[ArtistCredit(credited_name="A1")],
-                user_id=TEST_USER_ID,
-            ),
-            Track(
-                title="Track B",
-                artists=[ArtistCredit(credited_name="A2")],
-                user_id=TEST_USER_ID,
-            ),
-        ]
-        result = _build_source_tracklist(tracks, "PL", "canonical", "id-1")
-
-        assert len(result.metadata["track_sources"]) == 2
-        assert tracks[0].id in result.metadata["track_sources"]
-        assert tracks[1].id in result.metadata["track_sources"]
-
 
 class TestPlaylistSource:
     """Tests for playlist_source node."""
@@ -147,23 +129,36 @@ class TestSourceLikedTracks:
     """Tests for source_liked_tracks node."""
 
     async def test_delegates_to_use_case(self, sample_tracks):
-        """source_liked_tracks creates command and delegates via execute_use_case."""
+        """source_liked_tracks builds its command from config and returns the use case's tracklist."""
         mock_result = MagicMock()
         mock_result.tracklist = TrackList(tracks=sample_tracks)
         mock_result.total_available = len(sample_tracks)
         mock_result.execution_time_ms = 42
 
         wf_ctx = AsyncMock()
+        wf_ctx.user_id = "user-1"
+        wf_ctx.use_cases = MagicMock()
         wf_ctx.execute_use_case = AsyncMock(return_value=mock_result)
 
         context = {"workflow_context": wf_ctx}
-        config = {"limit": 50, "sort_by": "liked_at_desc"}
+        config = {
+            "limit": 50,
+            "sort_by": "liked_at_desc",
+            "connector_filter": "spotify",
+        }
 
         result = await source_liked_tracks(context, config)
 
-        assert "tracklist" in result
-        assert len(result["tracklist"].tracks) == 2
-        wf_ctx.execute_use_case.assert_awaited_once()
+        assert result == {"tracklist": mock_result.tracklist}
+        getter, command = wf_ctx.execute_use_case.call_args.args
+        assert getter is wf_ctx.use_cases.get_liked_tracks_use_case
+        assert isinstance(command, GetLikedTracksCommand)
+        assert (
+            command.user_id,
+            command.limit,
+            command.connector_filter,
+            command.sort_by,
+        ) == ("user-1", 50, "spotify", "liked_at_desc")
 
     async def test_passes_through_high_limits(self, sample_tracks):
         """User-specified limits pass through without clamping."""
@@ -190,13 +185,15 @@ class TestSourcePlayedTracks:
     """Tests for source_played_tracks node."""
 
     async def test_delegates_to_use_case(self, sample_tracks):
-        """source_played_tracks creates command and delegates via execute_use_case."""
+        """source_played_tracks builds its command from config and returns the use case's tracklist."""
         mock_result = MagicMock()
         mock_result.tracklist = TrackList(tracks=sample_tracks)
         mock_result.total_available = len(sample_tracks)
         mock_result.execution_time_ms = 55
 
         wf_ctx = AsyncMock()
+        wf_ctx.user_id = "user-1"
+        wf_ctx.use_cases = MagicMock()
         wf_ctx.execute_use_case = AsyncMock(return_value=mock_result)
 
         context = {"workflow_context": wf_ctx}
@@ -204,9 +201,17 @@ class TestSourcePlayedTracks:
 
         result = await source_played_tracks(context, config)
 
-        assert "tracklist" in result
-        assert len(result["tracklist"].tracks) == 2
-        wf_ctx.execute_use_case.assert_awaited_once()
+        assert result == {"tracklist": mock_result.tracklist}
+        getter, command = wf_ctx.execute_use_case.call_args.args
+        assert getter is wf_ctx.use_cases.get_played_tracks_use_case
+        assert isinstance(command, GetPlayedTracksCommand)
+        assert (
+            command.user_id,
+            command.limit,
+            command.days_back,
+            command.connector_filter,
+            command.sort_by,
+        ) == ("user-1", 100, 30, None, "played_at_desc")
 
 
 class TestPlaylistSourceConnector:
@@ -294,6 +299,7 @@ class TestPlaylistSourceConnector:
                 new_callable=AsyncMock,
                 return_value=upsert_result,
             ) as mock_upsert,
+            structlog.testing.capture_logs() as captured,
         ):
             result = await playlist_source(
                 context,
@@ -306,8 +312,9 @@ class TestPlaylistSourceConnector:
         assert call_args.args[:4] == (cp, "spotify", "sp-abc", uow)
 
         tl = result["tracklist"]
-        assert isinstance(tl, TrackList)
-        assert len(tl.tracks) == 2
+        assert [t.title for t in tl.tracks] == ["Connector Song A", "Connector Song B"]
+        [complete] = [e for e in captured if e["event"] == "playlist_source complete"]
+        assert complete["action"] == expected_action
 
     async def test_preview_context_still_materializes_canonical_rows(
         self, connector_context, connector_tracks

@@ -4,15 +4,17 @@ Verifies setup_logging(), get_logger(), logging_context(), per-workflow-run
 JSONL sinks, Rich progress console coordination, and rotation/retention helpers.
 """
 
+from datetime import datetime
 import io
 import json
 import logging
 import os
 from pathlib import Path
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+from rich.console import Console
 import structlog
 
 from src.config.logging import (
@@ -26,22 +28,20 @@ from src.config.logging import (
     restore_standard_console_output,
     setup_logging,
 )
-from src.config.settings import LoggingConfig
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logger():
+    """Put the root logger's handlers and level back after each test."""
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    yield
+    root.handlers[:] = handlers
+    root.setLevel(level)
 
 
 class TestSetupLogging:
     """Test setup_logging() configures handlers correctly."""
-
-    def test_setup_creates_console_and_file_handlers(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            test_log_file = Path(temp_dir) / "test.log"
-            with patch("src.config.logging.settings.logging.log_file", test_log_file):
-                setup_logging(verbose=False)
-
-                root = logging.getLogger()
-                handler_types = [type(h).__name__ for h in root.handlers]
-                assert "StreamHandler" in handler_types
-                assert "RotatingFileHandler" in handler_types
 
     def test_setup_verbose_sets_debug_console(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -58,13 +58,6 @@ class TestSetupLogging:
                 ]
                 assert stream_handlers
                 assert stream_handlers[0].level == logging.DEBUG
-
-    def test_setup_creates_log_directory(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            nested = Path(temp_dir) / "logs" / "nested" / "test.log"
-            with patch("src.config.logging.settings.logging.log_file", nested):
-                setup_logging()
-                assert nested.parent.exists()
 
     def test_file_handler_produces_flat_json(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -88,8 +81,8 @@ class TestSetupLogging:
                 assert entry["event"] == "flat json test"
                 assert entry["operation"] == "verify"
                 assert entry["service"] == "mixd"
-                assert "timestamp" in entry
-                assert "logger" in entry
+                assert entry["logger"] == "test.json"
+                assert datetime.fromisoformat(entry["timestamp"])
 
                 # Must NOT have loguru's nested structure
                 assert "record" not in entry
@@ -201,13 +194,6 @@ class TestFileSinkFallback:
 class TestGetLogger:
     """Test get_logger() factory."""
 
-    def test_returns_bound_logger(self):
-        logger = get_logger("test.module")
-        assert hasattr(logger, "info")
-        assert hasattr(logger, "debug")
-        assert hasattr(logger, "error")
-        assert hasattr(logger, "bind")
-
     def test_logger_has_service_and_module_context(self):
         with structlog.testing.capture_logs() as captured:
             logger = get_logger("my.module")
@@ -228,21 +214,12 @@ class TestLoggingContext:
         structlog.contextvars.clear_contextvars()
 
         with logging_context(workflow_id=42, run_id="abc"):
-            # Inside: contextvars should be set
-            import contextvars
+            assert structlog.contextvars.get_contextvars() == {
+                "workflow_id": 42,
+                "run_id": "abc",
+            }
 
-            ctx = contextvars.copy_context()
-            ctx_keys = {k.name for k in ctx if k.name.startswith("structlog_")}
-            assert "structlog_workflow_id" in ctx_keys
-            assert "structlog_run_id" in ctx_keys
-
-        # Outside: contextvars should be cleared (reset to sentinel Ellipsis)
-        ctx = contextvars.copy_context()
-        ctx_keys = {
-            k.name for k in ctx if k.name.startswith("structlog_") and ctx[k] is not ...
-        }
-        assert "structlog_workflow_id" not in ctx_keys
-        assert "structlog_run_id" not in ctx_keys
+        assert structlog.contextvars.get_contextvars() == {}
 
     def test_context_appears_in_json_output(self):
         """Verify contextvars merge into flat JSON log output."""
@@ -277,12 +254,7 @@ class TestLoggingContext:
         with pytest.raises(ValueError):
             _raise_inside_context()
 
-        import contextvars
-
-        ctx = contextvars.copy_context()
-        for k in ctx:
-            if k.name == "structlog_key":
-                assert ctx[k] is ..., "key should be unbound after exception"
+        assert structlog.contextvars.get_contextvars() == {}
 
 
 class TestWorkflowRunLogger:
@@ -290,7 +262,13 @@ class TestWorkflowRunLogger:
 
     def test_add_and_remove_run_logger(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("src.config.logging.settings.workflow_log_dir", temp_dir):
+            with (
+                patch("src.config.logging.settings.workflow_log_dir", temp_dir),
+                patch(
+                    "src.config.logging.settings.logging.log_file",
+                    Path(temp_dir) / "mixd.log",
+                ),
+            ):
                 setup_logging()
                 handle = add_workflow_run_logger("wf_1", "run_abc")
 
@@ -317,12 +295,23 @@ class TestWorkflowRunLogger:
                 assert entry["event"] == "run log entry"
                 assert entry["workflow_run_id"] == "run_abc"
 
-                # Cleanup
                 remove_workflow_run_logger(handle)
+
+                # A removed sink no longer receives the run's entries.
+                structlog.contextvars.bind_contextvars(workflow_run_id="run_abc")
+                logger.info("after removal")
+                structlog.contextvars.unbind_contextvars("workflow_run_id")
+                assert "after removal" not in log_path.read_text()
 
     def test_run_filter_excludes_other_runs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("src.config.logging.settings.workflow_log_dir", temp_dir):
+            with (
+                patch("src.config.logging.settings.workflow_log_dir", temp_dir),
+                patch(
+                    "src.config.logging.settings.logging.log_file",
+                    Path(temp_dir) / "mixd.log",
+                ),
+            ):
                 setup_logging()
                 handle = add_workflow_run_logger("wf_1", "run_xyz")
 
@@ -340,25 +329,62 @@ class TestWorkflowRunLogger:
 
                 remove_workflow_run_logger(handle)
 
-    def test_remove_nonexistent_handle_is_safe(self):
+    def test_remove_nonexistent_handle_is_a_no_op(self):
+        root = logging.getLogger()
+        before = list(root.handlers)
+
         remove_workflow_run_logger("nonexistent")
+
+        assert root.handlers == before
 
 
 class TestConsoleOutputCoordination:
-    """Test Rich progress bar console coordination."""
+    """Rich progress coordination: console logging moves onto the progress
+    console while bars are live, and moves back afterwards."""
 
-    def test_enable_and_restore_lifecycle(self, capsys):
-        setup_logging()
-        mock_console = MagicMock()
-        enable_unified_console_output(mock_console)
+    @pytest.fixture
+    def console_stream(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Configure logging with a captured console stream; no saved handler."""
+        monkeypatch.setattr("src.config.logging._saved_console_handler", None)
+        stream = io.StringIO()
+        with patch("src.config.logging.settings.logging.log_file", tmp_path / "x.log"):
+            setup_logging(console_stream=stream)
+        return stream
+
+    def test_enable_routes_structlog_and_stdlib_through_progress_console(
+        self, console_stream: io.StringIO
+    ):
+        progress_output = io.StringIO()
+        enable_unified_console_output(Console(file=progress_output, width=200))
+        try:
+            get_logger("coord.structlog").warning("structlog line")
+            logging.getLogger("coord.stdlib").warning("stdlib line")
+        finally:
+            restore_standard_console_output()
+
+        assert "structlog line" in progress_output.getvalue()
+        assert "stdlib line" in progress_output.getvalue()
+        # The standard console handler is detached while bars are live.
+        assert "structlog line" not in console_stream.getvalue()
+
+    def test_restore_reattaches_the_standard_console(self, console_stream: io.StringIO):
+        progress_output = io.StringIO()
+        enable_unified_console_output(Console(file=progress_output, width=200))
+        restore_standard_console_output()
+
+        get_logger("coord.structlog").warning("after restore")
+
+        assert "after restore" in console_stream.getvalue()
+        assert "after restore" not in progress_output.getvalue()
+
+    def test_restore_without_enable_is_a_no_op(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("src.config.logging._saved_console_handler", None)
+        root = logging.getLogger()
+        before = list(root.handlers)
 
         restore_standard_console_output()
 
-        captured = capsys.readouterr()
-        assert "Failed" not in captured.out
-
-    def test_restore_without_enable_is_safe(self):
-        restore_standard_console_output()
+        assert root.handlers == before
 
 
 class TestRotationHelpers:
@@ -387,15 +413,3 @@ class TestRotationHelpers:
 
     def test_parse_retention_default(self):
         assert _parse_retention("forever") == 7
-
-
-class TestLoggingConfigDefaults:
-    """Test LoggingConfig settings defaults."""
-
-    def test_sensible_defaults(self):
-        config = LoggingConfig()
-        assert config.console_level == "INFO"
-        assert config.file_level == "DEBUG"
-        assert config.log_file == Path("mixd.log")
-        assert config.rotation == "10 MB"
-        assert config.retention == "1 week"

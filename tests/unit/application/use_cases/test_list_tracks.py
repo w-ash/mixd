@@ -6,9 +6,9 @@ is a thin coordinator — most logic lives in the repository.
 
 import pytest
 
+from src.application.pagination import decode_cursor
 from src.application.use_cases.list_tracks import (
     ListTracksCommand,
-    ListTracksResult,
     ListTracksUseCase,
 )
 from src.domain.repositories.track import PlayFilters, TrackListingPage
@@ -47,45 +47,23 @@ class TestListTracksUseCase:
             tracks=tracks,
             total=3,
             liked_track_ids={1, 3},
-            next_page_key=("Track 3", 3),
+            next_page_key=("Track 3", tracks[2].id),
         )
 
         command = ListTracksCommand(user_id="test-user")
         result = await ListTracksUseCase().execute(command, mock_uow)
 
-        assert isinstance(result, ListTracksResult)
-        assert len(result.tracks) == 3
+        assert result.tracks == tracks
         assert result.total == 3
         assert result.limit == 50
         assert result.offset == 0
         assert result.liked_track_ids == {1, 3}
+        # The page's last row becomes the seek point, under the active sort.
         assert result.next_cursor is not None
-
-    async def test_forwards_search_query(self, mock_uow) -> None:
-        mock_uow.get_track_repository().list_tracks.return_value = _page()
-
-        command = ListTracksCommand(user_id="test-user", query="radiohead")
-        await ListTracksUseCase().execute(command, mock_uow)
-
-        mock_uow.get_track_repository().list_tracks.assert_called_once_with(
-            user_id="test-user",
-            query="radiohead",
-            liked=None,
-            connector=None,
-            preference=None,
-            tags=None,
-            tag_mode="and",
-            namespace=None,
-            artist_id=None,
-            play_filters=PlayFilters(),
-            sort_by="last_played_desc",
-            limit=50,
-            offset=0,
-            after_value=None,
-            after_id=None,
-            include_total=True,
-            include_facets=False,
-        )
+        decoded = decode_cursor(result.next_cursor)
+        assert decoded.sort_key == "last_played_desc"
+        assert decoded.sort_value == "Track 3"
+        assert decoded.last_id == tracks[2].id
 
     async def test_forwards_all_filters(self, mock_uow) -> None:
         mock_uow.get_track_repository().list_tracks.return_value = _page()
@@ -120,18 +98,6 @@ class TestListTracksUseCase:
             include_total=True,
             include_facets=False,
         )
-
-    async def test_empty_result(self, mock_uow) -> None:
-        mock_uow.get_track_repository().list_tracks.return_value = _page()
-
-        result = await ListTracksUseCase().execute(
-            ListTracksCommand(user_id="test-user"), mock_uow
-        )
-
-        assert result.tracks == []
-        assert result.total == 0
-        assert result.liked_track_ids == set()
-        assert result.next_cursor is None
 
     async def test_last_page_has_no_next_cursor(self, mock_uow) -> None:
         tracks = make_tracks(2)
@@ -248,21 +214,6 @@ class TestListTracksCursorPagination:
         call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
         assert call_kwargs["include_total"] is False
         assert result.total is None
-
-
-class TestListTracksCommand:
-    """Command defaults and validation."""
-
-    def test_default_values(self) -> None:
-        cmd = ListTracksCommand(user_id="test-user")
-
-        assert cmd.query is None
-        assert cmd.liked is None
-        assert cmd.connector is None
-        assert cmd.sort_by == "last_played_desc"
-        assert cmd.limit == 50
-        assert cmd.offset == 0
-        assert cmd.cursor is None
 
 
 class TestListTracksCommandTagNormalization:

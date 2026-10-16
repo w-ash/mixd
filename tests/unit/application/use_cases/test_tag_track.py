@@ -57,12 +57,17 @@ class TestNewTag:
 
         tag_repo = uow.get_tag_repository()
         tag_repo.add_tags.assert_called_once()
-        tag_repo.add_events.assert_called_once()
-
         written_tag = tag_repo.add_tags.call_args[0][0][0]
         assert written_tag.tag == "mood:chill"
         assert written_tag.namespace == "mood"
         assert written_tag.value == "chill"
+
+        (event,) = tag_repo.add_events.call_args[0][0]
+        assert (event.action, event.tag, event.track_id) == (
+            "add",
+            "mood:chill",
+            track.id,
+        )
 
     async def test_nonexistent_track_raises(self) -> None:
         uow = make_mock_uow()

@@ -60,15 +60,18 @@ class TestNewPreference:
         track = make_track()
         uow = _uow_with_existing(track)
 
-        cmd = _cmd(track_id=track.id, state="star")
+        cmd = _cmd(track_id=track.id, state="star", source="service_import")
         result = await SetTrackPreferenceUseCase().execute(cmd, uow)
 
         assert result.changed is True
         assert result.state == "star"
 
-        pref_repo = uow.get_preference_repository()
-        pref_repo.set_preferences.assert_called_once()
-        pref_repo.add_events.assert_called_once()
+        written = _written_pref(uow)
+        assert (written.track_id, written.state, written.source) == (
+            track.id,
+            "star",
+            "service_import",
+        )
 
         event = _written_event(uow)
         assert event.old_state is None
@@ -105,7 +108,8 @@ class TestIdempotency:
 class TestSourcePriority:
     """Source priority enforcement: manual > playlist_assignment > service_import."""
 
-    async def test_service_import_cannot_override_manual(self) -> None:
+    async def test_refused_change_reports_the_existing_state(self) -> None:
+        """The priority matrix is domain-tested; here the refusal leaves state alone."""
         track = make_track()
         existing = make_track_preference(
             track_id=track.id, state="nah", source="manual"
@@ -117,47 +121,7 @@ class TestSourcePriority:
 
         assert result.changed is False
         assert result.state == "nah"
-
-    async def test_manual_overrides_service_import(self) -> None:
-        track = make_track()
-        existing = make_track_preference(
-            track_id=track.id, state="yah", source="service_import"
-        )
-        uow = _uow_with_existing(track, existing)
-
-        cmd = _cmd(track_id=track.id, state="star", source="manual")
-        result = await SetTrackPreferenceUseCase().execute(cmd, uow)
-
-        assert result.changed is True
-        assert result.state == "star"
-
-    async def test_same_source_upgrades_to_higher_state(self) -> None:
-        """service_import yah → service_import star should succeed."""
-        track = make_track()
-        existing = make_track_preference(
-            track_id=track.id, state="yah", source="service_import"
-        )
-        uow = _uow_with_existing(track, existing)
-
-        cmd = _cmd(track_id=track.id, state="star", source="service_import")
-        result = await SetTrackPreferenceUseCase().execute(cmd, uow)
-
-        assert result.changed is True
-        assert result.state == "star"
-
-    async def test_same_source_does_not_downgrade(self) -> None:
-        """service_import star → service_import yah should be rejected."""
-        track = make_track()
-        existing = make_track_preference(
-            track_id=track.id, state="star", source="service_import"
-        )
-        uow = _uow_with_existing(track, existing)
-
-        cmd = _cmd(track_id=track.id, state="yah", source="service_import")
-        result = await SetTrackPreferenceUseCase().execute(cmd, uow)
-
-        assert result.changed is False
-        assert result.state == "star"
+        uow.get_preference_repository().set_preferences.assert_not_called()
 
 
 class TestRemovePreference:
@@ -173,7 +137,9 @@ class TestRemovePreference:
 
         assert result.changed is True
         assert result.state is None
-        uow.get_preference_repository().remove_preferences.assert_called_once()
+        uow.get_preference_repository().remove_preferences.assert_awaited_once_with(
+            [track.id], user_id="default"
+        )
 
         event = _written_event(uow)
         assert event.old_state == "yah"
@@ -188,6 +154,7 @@ class TestRemovePreference:
 
         assert result.changed is False
         assert result.state is None
+        uow.get_preference_repository().remove_preferences.assert_not_called()
 
 
 class TestEventLogging:

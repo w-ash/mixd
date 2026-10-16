@@ -322,7 +322,7 @@ class TestNonSuccessResponses:
         capture = await _run([body], status=200)
 
         assert capture.header("etag") == _weak_etag(body)
-        assert capture.header("cache-control") == _DEFAULT_POLICY
+        assert capture.header("cache-control") == "private, no-cache"
 
 
 # ---------------------------------------------------------------------------

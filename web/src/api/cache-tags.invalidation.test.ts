@@ -89,7 +89,9 @@ describe("tag matching", () => {
     ).resolves.toBeUndefined();
 
     expect(wasInvalidated(client, CONNECTORS)).toBe(false);
-    expect(warn).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('"a-tag-from-the-future"'),
+    );
     warn.mockRestore();
   });
 
@@ -156,53 +158,80 @@ describe("the first-fetch race", () => {
 });
 
 describe("mutation ordering", () => {
+  /**
+   * Mount an active connectors query whose refetch lands on a later macrotask
+   * and records "refetched" when it does, so `order` shows whether the
+   * mutation's own onSuccess ran before or after that refetch settled.
+   */
+  async function activeConnectors(client: QueryClient, order: string[]) {
+    let calls = 0;
+    const observer = new QueryObserver(client, {
+      queryKey: CONNECTORS,
+      queryFn: async () => {
+        calls += 1;
+        if (calls > 1) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          order.push("refetched");
+        }
+        return { call: calls };
+      },
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    await vi.waitFor(() => {
+      if (client.getQueryData(CONNECTORS) === undefined) {
+        throw new Error("initial fetch still open");
+      }
+    });
+    return unsubscribe;
+  }
+
+  function runWrite(
+    client: QueryClient,
+    order: string[],
+    awaitInvalidation: boolean,
+  ) {
+    return client
+      .getMutationCache()
+      .build(client, {
+        mutationFn: async () => "done",
+        meta: { invalidates: ["connectors"], awaitInvalidation },
+        onSuccess: () => {
+          order.push("onSuccess");
+        },
+      })
+      .execute(undefined);
+  }
+
   it("does not hold mutateAsync open by default", async () => {
     // The default protects every optimistic dialog close in the app: the global
     // handler is awaited BEFORE the mutation's own onSuccess, so awaiting
     // unconditionally would put a refetch round trip in front of all of them.
     const client = createTestQueryClient();
-    client.setQueryData(CONNECTORS, { data: [] });
     const order: string[] = [];
+    const unsubscribe = await activeConnectors(client, order);
+    try {
+      await runWrite(client, order, false);
 
-    await client
-      .getMutationCache()
-      .build(client, {
-        mutationFn: async () => "done",
-        meta: { invalidates: ["connectors"] },
-        onSuccess: () => {
-          order.push("onSuccess");
-        },
-      })
-      .execute(undefined);
-
-    // The write's own onSuccess still ran, and the invalidation was requested
-    // rather than waited on — nothing put a round trip in front of the close.
-    expect(order).toEqual(["onSuccess"]);
-    expect(wasInvalidated(client, CONNECTORS)).toBe(true);
+      // The write settled before its refetch landed, and the refetch still ran.
+      expect(order).toEqual(["onSuccess"]);
+      await vi.waitFor(() => expect(order).toEqual(["onSuccess", "refetched"]));
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("holds mutateAsync open when the caller asks it to", async () => {
     const client = createTestQueryClient();
     const order: string[] = [];
-    client.setQueryData(CONNECTORS, { data: [] });
+    const unsubscribe = await activeConnectors(client, order);
+    try {
+      await runWrite(client, order, true);
 
-    await client
-      .getMutationCache()
-      .build(client, {
-        mutationFn: async () => {
-          order.push("write");
-          return "done";
-        },
-        meta: { invalidates: ["connectors"], awaitInvalidation: true },
-        onSuccess: () => {
-          order.push("onSuccess");
-        },
-      })
-      .execute(undefined);
-
-    // The global handler runs — and is awaited — before the local one, which is
-    // what lets a connect flow declare success only once the card is true.
-    expect(order).toEqual(["write", "onSuccess"]);
-    expect(wasInvalidated(client, CONNECTORS)).toBe(true);
+      // The global handler's refetch lands before the local onSuccess, which is
+      // what lets a connect flow declare success only once the card is true.
+      expect(order).toEqual(["refetched", "onSuccess"]);
+    } finally {
+      unsubscribe();
+    }
   });
 });

@@ -10,14 +10,14 @@ retry policy into each client method. Covers:
 - Recovery: Success after transient failures
 - Every client method wired with retry
 
-Injection strategy: patch the per-attempt request implementations to inject
-httpx2 errors. The per-classification cases below all run through
-``get_tracks_batched``, whose per-chunk ``_api_call`` uses the dedicated
-``_get_tracks_batch_impl``, so that stays their injection point. A suppressed
-failure there surfaces as the chunk's ids in ``unanswered`` — the shape that
-keeps a failed request from being read as a dead id. Every other method
-routes its HTTP through ``_json``, whose per-attempt unit is
-``_request_json`` — the single injection point for the all-methods sweep.
+Injection strategy: the per-classification cases stub the pooled HTTP
+transport (``client._client.get``) with real ``httpx2.Response`` objects, so
+each attempt runs the client's own request code and ``raise_for_status``. They
+all run through ``get_tracks_batched``; a suppressed failure surfaces as the
+chunk's ids in ``unanswered`` — the shape that keeps a failed request from
+being read as a dead id. Every other method routes its HTTP through ``_json``,
+whose per-attempt unit is ``_request_json`` — the single injection point for
+the all-methods sweep.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -42,6 +42,20 @@ def make_network_error(message: str = "Connection refused") -> httpx2.ConnectErr
     """Create an httpx2.ConnectError (subclass of httpx2.RequestError)."""
     req = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
     return httpx2.ConnectError(message, request=req)
+
+
+def _response(status_code: int, json_body: object = None) -> httpx2.Response:
+    """A real response to GET /tracks, so ``raise_for_status`` behaves as live."""
+    req = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
+    return httpx2.Response(status_code, json=json_body, request=req)
+
+
+def _stub_transport(client: SpotifyAPIClient, **get_behaviour: object) -> AsyncMock:
+    """Replace the pooled HTTP client; ``get`` answers per ``get_behaviour``."""
+    transport = AsyncMock()
+    transport.get = AsyncMock(**get_behaviour)
+    client._client = transport
+    return transport
 
 
 @pytest.mark.slow
@@ -92,49 +106,38 @@ class TestComprehensiveErrorClassification:
         self, spotify_client, status_code, description
     ):
         """Test all permanent HTTP status codes cause immediate failure with no retries."""
-        error = make_httpx_error(status_code, description)
+        del description
+        transport = _stub_transport(spotify_client, return_value=_response(status_code))
 
-        mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            fetch = await spotify_client.get_tracks_batched(["test_track_id"])
+        fetch = await spotify_client.get_tracks_batched(["test_track_id"])
 
         # Should degrade gracefully to "no answer" (no exception raised)
         assert fetch.tracks == {}
         assert fetch.unanswered == frozenset({"test_track_id"})
 
         # Should NOT retry (only 1 call) - permanent errors are immediate failures
-        assert mock_impl.call_count == 1, (
-            f"Expected 1 call for permanent error {status_code}, got {mock_impl.call_count}"
-        )
+        assert transport.get.await_count == 1
 
     # NOT FOUND ERRORS (404) - Should NOT retry, immediate failure
     async def test_not_found_error_no_retry(self, spotify_client):
         """Test 404 Not Found causes immediate failure with no retries."""
-        error = make_httpx_error(404, "Not Found - resource doesn't exist")
+        transport = _stub_transport(spotify_client, return_value=_response(404))
 
-        mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            fetch = await spotify_client.get_tracks_batched(["nonexistent_track_id"])
+        fetch = await spotify_client.get_tracks_batched(["nonexistent_track_id"])
 
         assert fetch.tracks == {}
         assert fetch.unanswered == frozenset({"nonexistent_track_id"})
-        assert mock_impl.call_count == 1, (
-            f"Expected 1 call for not found error, got {mock_impl.call_count}"
-        )
+        assert transport.get.await_count == 1
 
     # RATE LIMIT ERRORS (429) - Should retry 2-3 times with backoff
     async def test_rate_limit_error_retries(self, fast_retry_client):
         """Test 429 Too Many Requests triggers retries with proper backoff."""
-        error = make_httpx_error(429, "Too Many Requests - rate limit exceeded")
+        transport = _stub_transport(fast_retry_client, return_value=_response(429))
 
-        mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
+        fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
 
         assert fetch.unanswered == frozenset({"test_track_id"})
-        assert mock_impl.call_count == 3, (
-            f"Expected 3 calls for rate limit error, got {mock_impl.call_count}"
-        )
+        assert transport.get.await_count == 3
 
     # TEMPORARY ERRORS (5xx status codes) - Should retry 2-3 times with backoff
     @pytest.mark.parametrize(
@@ -153,16 +156,15 @@ class TestComprehensiveErrorClassification:
         self, fast_retry_client, status_code, description
     ):
         """Test all temporary server error status codes trigger proper retries."""
-        error = make_httpx_error(status_code, description)
+        del description
+        transport = _stub_transport(
+            fast_retry_client, return_value=_response(status_code)
+        )
 
-        mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
+        fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
 
         assert fetch.unanswered == frozenset({"test_track_id"})
-        assert mock_impl.call_count == 3, (
-            f"Expected 3 calls for server error {status_code}, got {mock_impl.call_count}"
-        )
+        assert transport.get.await_count == 3
 
     # NETWORK ERRORS (httpx2.RequestError) - Retried as temporary (not propagated)
     @pytest.mark.parametrize(
@@ -183,35 +185,32 @@ class TestComprehensiveErrorClassification:
         and is classified as 'temporary' — so it gets 3 retry attempts before the
         chunk's ids are reported unanswered.
         """
-        req = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
-        error = httpx2.ConnectError(error_message, request=req)
+        transport = _stub_transport(
+            fast_retry_client, side_effect=make_network_error(error_message)
+        )
 
-        mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
+        fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
 
         # Network errors ARE retried (3 times) and then leave the id unanswered
         assert fetch.unanswered == frozenset({"test_track_id"})
-        assert mock_impl.call_count == 3, (
-            f"Expected 3 retries for network error, got {mock_impl.call_count}"
-        )
+        assert transport.get.await_count == 3
 
     # SUCCESS AFTER RETRIES - Test resilience patterns
     async def test_success_after_temporary_failure(self, fast_retry_client):
         """Test successful recovery after temporary failures."""
-        success_data = {"tracks": [{"id": "test_track_id", "name": "Test Track"}]}
-        error = make_httpx_error(503, "Service Unavailable")
+        success = _response(
+            200, {"tracks": [{"id": "test_track_id", "name": "Test Track"}]}
+        )
+        transport = _stub_transport(
+            fast_retry_client, side_effect=[_response(503), _response(503), success]
+        )
 
-        mock_impl = AsyncMock(side_effect=[error, error, success_data])
-        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
+        fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
 
         # Should succeed and return the parsed model on the 3rd attempt
         assert fetch.unanswered == frozenset()
         assert fetch.tracks["test_track_id"].id == "test_track_id"
-        assert mock_impl.call_count == 3, (
-            f"Expected 3 calls for eventual success, got {mock_impl.call_count}"
-        )
+        assert transport.get.await_count == 3
 
     # ALL METHODS COMPREHENSIVE TESTING - Test error handling across all client methods
     @pytest.mark.parametrize(
@@ -266,7 +265,8 @@ class TestComprehensiveErrorClassification:
             method = getattr(fast_retry_client, method_name)
             result = await method(*method_args)
 
-        assert not result  # None for most methods, [] for search_track
+        # The suppressed failure's empty value: [] for search_track, else None.
+        assert result == ([] if method_name == "search_track" else None)
 
         # Should retry 3 times for rate limit errors
         assert mock_request.call_count == 3, (

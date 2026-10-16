@@ -101,9 +101,11 @@ class TestTagApplication:
         written = list(add_tags_call.args[0])
         assert {t.tag for t in written} == {"mood:chill"}
         assert {t.track_id for t in written} == {track_a.id, track_b.id}
-        # tagged_at preserved from added_at.
-        for tag in written:
-            assert tag.tagged_at.year == 2025
+        # tagged_at comes from each item's own added_at.
+        assert {(t.track_id, t.tagged_at) for t in written} == {
+            (track_a.id, datetime(2025, 1, 1, tzinfo=UTC)),
+            (track_b.id, datetime(2025, 2, 1, tzinfo=UTC)),
+        }
         uow.commit.assert_awaited_once()
 
 
@@ -163,8 +165,12 @@ class TestPreferenceApplication:
         written_prefs = list(written_call.args[0])
         assert written_prefs[0].state == "star"
         assert written_prefs[0].source == "playlist_assignment"
-        # Event should also be written.
-        uow.get_preference_repository().add_events.assert_awaited_once()
+        assert written_prefs[0].preferred_at == datetime(2025, 1, 1, tzinfo=UTC)
+        # The change is also recorded in the preference event log.
+        events = uow.get_preference_repository().add_events.call_args.args[0]
+        assert [(e.track_id, e.old_state, e.new_state) for e in events] == [
+            (track.id, None, "star")
+        ]
 
 
 class TestConflictDetection:
@@ -237,8 +243,7 @@ class TestRemovalTracking:
         # The removed track had its assignment-sourced tag cleared, with source filter.
         tag_repo.remove_tags.assert_awaited_once()
         remove_call = tag_repo.remove_tags.call_args
-        removed_pairs = list(remove_call.args[0])
-        assert (old_track_b_id, "mood:chill") in removed_pairs
+        assert list(remove_call.args[0]) == [(old_track_b_id, "mood:chill")]
         assert remove_call.kwargs["source"] == "playlist_assignment"
         assert result.tags_cleared == 1
 
@@ -277,8 +282,8 @@ class TestRemovalTracking:
         _ = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
         remove_call = uow.get_preference_repository().remove_preferences.call_args
-        removed_ids = list(remove_call.args[0])
-        assert old_track_id in removed_ids
+        # Only the track that left the playlist is cleared, not the one still in it.
+        assert list(remove_call.args[0]) == [old_track_id]
         assert remove_call.kwargs["source"] == "playlist_assignment"
 
 
@@ -336,7 +341,9 @@ class TestAssignmentIdsFilter:
         )
 
         assignment_repo.list_for_user.assert_not_called()
-        assignment_repo.list_for_ids.assert_awaited_once()
+        assignment_repo.list_for_ids.assert_awaited_once_with(
+            [target.id], user_id="default"
+        )
         assert result.assignments_processed == 1
         assert result.tags_applied == 1
 

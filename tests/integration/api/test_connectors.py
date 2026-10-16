@@ -104,18 +104,6 @@ class TestGetConnectors:
         assert mb["token_expires_at"] is None
 
 
-class TestLastfmStatus:
-    """Last.fm connector status from TokenStorage + settings."""
-
-    async def test_status_reflects_settings(self, client: httpx2.AsyncClient) -> None:
-        response = await client.get("/api/v1/connectors")
-
-        lastfm = next(c for c in response.json() if c["name"] == "lastfm")
-        # Result depends on env vars — just verify shape
-        assert "connected" in lastfm
-        assert "account_name" in lastfm
-
-
 class TestConnectorDetailField:
     """`detail` (v0.11.1 D1) — generic short status suffix, e.g. "1,204 releases"."""
 

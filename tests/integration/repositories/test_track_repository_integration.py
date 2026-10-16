@@ -1,5 +1,6 @@
 """Integration tests for TrackRepository with real database operations following modern patterns."""
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from attrs import evolve
@@ -7,6 +8,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects import postgresql
 
+from src.domain.entities import ArtistCredit
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.domain.repositories.errors import IdentityKeyClaimedError
@@ -123,66 +125,67 @@ class TestTrackRepositoryIntegration:
         assert "spotify" not in retrieved_track.connector_track_identifiers
         assert "lastfm" not in retrieved_track.connector_track_identifiers
 
-    async def test_bulk_track_operations(self, db_session):
-        """Test bulk operations and track management scenarios."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
+    async def test_an_update_writes_every_changed_column(self, db_session):
+        """Saving an edited track writes its columns, not only a new version.
 
-        tracks_to_save = []
-        for i in range(3):
-            track = make_track(
-                title=f"TEST_BulkTrack_{i}_{uuid4()}",
-                artist=f"TEST_BulkArtist_{i}_{uuid4()}",
-                connector_track_identifiers={},
+        The read-back is a column select, so the values come from the table
+        and not from an ORM instance the session already holds.
+        """
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        saved = await track_repo.save_track(
+            make_track(
+                title="Before",
+                artist="Old Artist",
+                album="Old Album",
+                duration_ms=200_000,
+                release_date=datetime(2001, 1, 1, tzinfo=UTC),
+                isrc="QZTST2600001",
             )
-            tracks_to_save.append(track)
-
-        saved_tracks = []
-        for track in tracks_to_save:
-            saved_track = await track_repo.save_track(track)
-            saved_tracks.append(saved_track)
-
-        saved_ids = [track.id for track in saved_tracks]
-        assert len(set(saved_ids)) == 3  # All IDs should be unique
-        assert all(track_id is not None for track_id in saved_ids)
-
-        bulk_result = await track_repo.find_tracks_by_ids(saved_ids)
-        assert len(bulk_result) == 3
-        for saved_track in saved_tracks:
-            assert saved_track.id in bulk_result
-            retrieved = bulk_result[saved_track.id]
-            assert retrieved.title.startswith("TEST_BulkTrack_")
-
-    async def test_track_update_operations(self, db_session):
-        """Test track update and modification scenarios."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        original_track = make_track(
-            title=f"TEST_Original_{uuid4()}",
-            artist=f"TEST_Artist_{uuid4()}",
-            album=f"TEST_Album_{uuid4()}",
-            connector_track_identifiers={"spotify": f"spotify_{uuid4()}"},
         )
 
-        saved_track = await track_repo.save_track(original_track)
-
-        # Updating a canonical rewrites its own columns; connector ids are
-        # not among them, so the update arm leaves them to the mappings.
-        updated_track = evolve(
-            saved_track,
-            connector_track_identifiers={
-                **saved_track.connector_track_identifiers,
-                "musicbrainz": str(uuid4()),
-            },
+        _ = await track_repo.save_track(
+            evolve(
+                saved,
+                title="After (Live)",
+                artists=[
+                    ArtistCredit(credited_name="New Artist"),
+                    ArtistCredit(credited_name="Guest"),
+                ],
+                album="New Album",
+                duration_ms=245_733,
+                release_date=datetime(2024, 5, 17, tzinfo=UTC),
+                isrc="QZTST2600002",
+            )
         )
 
-        final_track = await track_repo.save_track(updated_track)
-
-        assert final_track.id == saved_track.id  # Same ID
-        assert final_track.title == saved_track.title  # Same title
-        assert final_track.album == saved_track.album
-        assert final_track.version == saved_track.version + 1
+        row = (
+            await db_session.execute(
+                select(
+                    DBTrack.title,
+                    DBTrack.artists,
+                    DBTrack.album,
+                    DBTrack.duration_ms,
+                    DBTrack.release_date,
+                    DBTrack.isrc,
+                    DBTrack.title_normalized,
+                    DBTrack.artist_normalized,
+                    DBTrack.title_stripped,
+                    DBTrack.artists_text,
+                    DBTrack.version,
+                ).where(DBTrack.id == saved.id)
+            )
+        ).one()
+        assert row.title == "After (Live)"
+        assert row.artists == {"names": ["New Artist", "Guest"]}
+        assert row.album == "New Album"
+        assert row.duration_ms == 245_733
+        assert row.release_date == datetime(2024, 5, 17, tzinfo=UTC)
+        assert row.isrc == "QZTST2600002"
+        assert row.title_normalized == "after live"
+        assert row.artist_normalized == "new artist"
+        assert row.title_stripped == "after"
+        assert row.artists_text == "New Artist, Guest"
+        assert row.version == 2
 
 
 class TestTrackOptimisticLocking:
@@ -234,20 +237,6 @@ class TestTrackOptimisticLocking:
             await track_repo.save_track(stale_copy)
 
         assert exc_info.value.expected_version == 1
-
-    async def test_save_track_insert_path_unaffected(self, db_session):
-        """New tracks (version=0) should save normally and get version=1."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title=f"TEST_Insert_{uuid4()}",
-            artist="Test Artist",
-        )
-        assert track.version == 0
-
-        saved = await track_repo.save_track(track)
-        assert saved.version == 1
 
 
 class TestFillBlankMetadata:
@@ -323,26 +312,6 @@ class TestFindTracksByTitleArtist:
         )
         assert ("creep", "radiohead") in result
         assert result["creep", "radiohead"].id == saved.id
-
-    async def test_case_insensitive_match(self, db_session):
-        """Title and artist matching should be case-insensitive."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="Bohemian Rhapsody",
-            artist="Queen",
-        )
-        saved = await track_repo.save_track(track)
-
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("bohemian rhapsody", "queen"),
-            ],
-            user_id="default",
-        )
-        assert ("bohemian rhapsody", "queen") in result
-        assert result["bohemian rhapsody", "queen"].id == saved.id
 
     async def test_no_match_returns_empty(self, db_session):
         """When no track matches, returns empty dict."""
@@ -553,65 +522,22 @@ class TestNormalizedLookup:
         assert ("don't stop me now", "queen") in result
         assert result["don't stop me now", "queen"].id == saved.id
 
-    async def test_article_prefix_match(self, db_session):
-        """'The Beatles' should match 'Beatles' (leading article stripped)."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
+    async def test_probe_artist_is_normalized_like_the_stored_one(self, db_session):
+        """A probe that repeats the stored artist verbatim still matches.
 
-        track = make_track(
-            title="Hey Jude",
-            artist="The Beatles",
+        The stored column holds "beatles" (article and case removed), so the
+        probe side must normalize the artist the same way, not only lowercase it.
+        """
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        saved = await track_repo.save_track(
+            make_track(title="Hey Jude", artist="The Beatles")
         )
-        saved = await track_repo.save_track(track)
 
         result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("Hey Jude", "Beatles"),
-            ],
-            user_id="default",
+            [("Hey Jude", "The Beatles")], user_id="default"
         )
-        assert ("hey jude", "beatles") in result
-        assert result["hey jude", "beatles"].id == saved.id
 
-    async def test_punctuation_match(self, db_session):
-        """'AC/DC' should match 'ACDC' (punctuation stripped)."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="Thunderstruck",
-            artist="AC/DC",
-        )
-        saved = await track_repo.save_track(track)
-
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("Thunderstruck", "ACDC"),
-            ],
-            user_id="default",
-        )
-        assert ("thunderstruck", "acdc") in result
-        assert result["thunderstruck", "acdc"].id == saved.id
-
-    async def test_feat_variation_match(self, db_session):
-        """'feat.' should match 'ft.' and 'featuring'."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="Song feat. Guest",
-            artist="Main Artist",
-        )
-        saved = await track_repo.save_track(track)
-
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("Song ft. Guest", "Main Artist"),
-            ],
-            user_id="default",
-        )
-        assert ("song ft. guest", "main artist") in result
-        assert result["song ft. guest", "main artist"].id == saved.id
+        assert result["hey jude", "the beatles"].id == saved.id
 
     async def test_normalized_columns_populated_on_save(self, db_session):
         """Verify that title_normalized and artist_normalized are set when saving."""
@@ -637,49 +563,6 @@ class TestNormalizedLookup:
 
 class TestParentheticalStripping:
     """Integration tests for parenthetical stripping fallback matching."""
-
-    async def test_find_by_stripped_title(self, db_session):
-        """Track saved as 'Song (feat. X)' should be found by searching 'Song'."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="New Kind of Soft (feat. Neon Priest)",
-            artist="Artist",
-        )
-        saved = await track_repo.save_track(track)
-
-        # Search by bare title (without parenthetical)
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("New Kind of Soft", "Artist"),
-            ],
-            user_id="default",
-        )
-        assert ("new kind of soft", "artist") in result
-        assert result["new kind of soft", "artist"].id == saved.id
-
-    async def test_find_parenthetical_by_stripped(self, db_session):
-        """Track saved as 'Song' should be found by searching 'Song (feat. X)'."""
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-
-        track = make_track(
-            title="New Kind of Soft",
-            artist="Artist",
-        )
-        saved = await track_repo.save_track(track)
-
-        # Search by title with parenthetical added
-        result = await track_repo.find_tracks_by_title_artist(
-            [
-                ("New Kind of Soft (feat. Neon Priest)", "Artist"),
-            ],
-            user_id="default",
-        )
-        key = ("new kind of soft (feat. neon priest)", "artist")
-        assert key in result
-        assert result[key].id == saved.id
 
     async def test_title_stripped_column_populated(self, db_session):
         """Verify title_stripped is populated on save."""

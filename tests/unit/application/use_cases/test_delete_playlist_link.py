@@ -45,6 +45,7 @@ class TestDeletePlaylistLinkHappyPath:
 
         assert result.deleted is True
         uow.get_playlist_link_repository().delete_link.assert_called_once_with(_LINK_ID)
+        uow.commit.assert_awaited_once()
 
 
 class TestDeletePlaylistLinkErrors:

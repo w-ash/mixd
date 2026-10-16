@@ -339,9 +339,6 @@ class TestFinalStatusVocabulary:
         # to it — the same check ``export_openapi`` effectively performs.
         assert SseFinalStatus.__value__ is RunStatus
 
-    def test_openapi_would_emit_the_same_enum(self) -> None:
-        assert get_args(SseFinalStatus.__value__) == get_args(RunStatus)
-
 
 class TestStatusEnumsPinnedToLiterals:
     """``SseOperationStatus`` / ``SseProgressStatus`` restate the domain

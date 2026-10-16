@@ -6,13 +6,10 @@ testing business logic (which stays in domain layer).
 
 from uuid import UUID
 
-import pytest
-
 from src.domain.entities import ArtistCredit, Track
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
-    ProviderMatchResult,
     RawProviderMatch,
 )
 from src.infrastructure.connectors._shared.matching_provider import (
@@ -20,8 +17,6 @@ from src.infrastructure.connectors._shared.matching_provider import (
     IsrcOnly,
     IsrcThenArtistTitle,
     MatchStrategy,
-    _has_artist_and_title,
-    _has_isrc,
     _partition_tracks,
 )
 from tests.fixtures import TEST_USER_ID
@@ -67,96 +62,8 @@ class ConcreteProvider(BaseMatchingProvider):
         return self.artist_title_results, self.artist_title_failures
 
 
-class TestBaseMatchingProviderAbstractEnforcement:
-    """Test that abstract methods are enforced."""
-
-    def test_cannot_instantiate_base_class_directly(self):
-        """BaseMatchingProvider cannot be instantiated without implementing abstract methods."""
-        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-            BaseMatchingProvider()  # type: ignore[abstract]
-
-    def test_subclass_must_implement_match_strategy(self):
-        """Subclass must implement the _match_strategy abstract method."""
-
-        class IncompleteProvider(BaseMatchingProvider):
-            @property
-            def service_name(self) -> str:
-                return "test"
-
-        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-            IncompleteProvider()  # type: ignore[abstract]
-
-
 class TestBaseMatchingProviderTrackPartitioning:
     """Test track partitioning logic."""
-
-    def test_partition_tracks_with_isrc_only(self):
-        """Tracks with ISRC should be partitioned to ISRC group."""
-        t1 = Track(
-            title="Song 1",
-            isrc="USRC11111111",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-        t2 = Track(
-            title="Song 2",
-            isrc="USRC22222222",
-            artists=[ArtistCredit(credited_name="Artist 2")],
-            user_id=TEST_USER_ID,
-        )
-        tracks = [t1, t2]
-
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
-            tracks
-        )
-
-        assert len(isrc_tracks) == 2
-        assert len(artist_title_tracks) == 0
-        assert len(unprocessable_tracks) == 0
-        assert isrc_tracks[0].id == t1.id
-        assert isrc_tracks[1].id == t2.id
-
-    def test_partition_tracks_with_artist_title_only(self):
-        """Tracks with artist+title but no ISRC should be partitioned to artist/title group."""
-        t1 = Track(
-            title="Song 1",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-        t2 = Track(
-            title="Song 2",
-            artists=[ArtistCredit(credited_name="Artist 2")],
-            user_id=TEST_USER_ID,
-        )
-        tracks = [t1, t2]
-
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
-            tracks
-        )
-
-        assert len(isrc_tracks) == 0
-        assert len(artist_title_tracks) == 2
-        assert len(unprocessable_tracks) == 0
-        assert artist_title_tracks[0].id == t1.id
-        assert artist_title_tracks[1].id == t2.id
-
-    def test_partition_tracks_missing_title(self):
-        """Tracks without title should be partitioned to unprocessable group."""
-        tracks = [
-            Track(
-                title="",
-                artists=[ArtistCredit(credited_name="Artist 1")],
-                user_id=TEST_USER_ID,
-            ),
-        ]
-
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
-            tracks
-        )
-
-        assert len(isrc_tracks) == 0
-        assert len(artist_title_tracks) == 0
-        assert len(unprocessable_tracks) == 1
 
     def test_partition_mixed_tracks(self):
         """Mixed tracks should be partitioned to appropriate groups."""
@@ -196,75 +103,9 @@ class TestBaseMatchingProviderTrackPartitioning:
         assert artist_title_tracks[0].id == t2.id
         assert unprocessable_tracks[0].id == t3.id
 
-    def test_partition_empty_list(self):
-        """Empty track list should return empty partitions."""
-        tracks: list[Track] = []
-
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
-            tracks
-        )
-
-        assert len(isrc_tracks) == 0
-        assert len(artist_title_tracks) == 0
-        assert len(unprocessable_tracks) == 0
-
-    def test_partition_isrc_takes_priority(self):
-        """Tracks with ISRC should go to ISRC group even if they have artist/title."""
-        tracks = [
-            Track(
-                title="Song 1",
-                isrc="USRC11111111",
-                artists=[ArtistCredit(credited_name="Artist 1")],
-                user_id=TEST_USER_ID,
-            ),
-        ]
-
-        isrc_tracks, artist_title_tracks, unprocessable_tracks = _partition_tracks(
-            tracks
-        )
-
-        assert len(isrc_tracks) == 1
-        assert len(artist_title_tracks) == 0
-        assert len(unprocessable_tracks) == 0
-
 
 class TestBaseMatchingProviderTemplateMethod:
     """Test the template method workflow orchestration."""
-
-    async def test_fetch_raw_matches_calls_isrc_method_for_isrc_tracks(self):
-        """Template method should call _match_by_isrc for tracks with ISRC."""
-        provider = ConcreteProvider()
-        t1 = Track(
-            title="Song 1",
-            isrc="USRC11111111",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-        tracks = [t1]
-
-        await provider.fetch_raw_matches_for_tracks(tracks)
-
-        assert len(provider.isrc_calls) == 1
-        assert len(provider.isrc_calls[0]) == 1
-        assert provider.isrc_calls[0][0].id == t1.id
-
-    async def test_fetch_raw_matches_calls_artist_title_method_for_non_isrc_tracks(
-        self,
-    ):
-        """Template method should call _match_by_artist_title for tracks without ISRC."""
-        provider = ConcreteProvider()
-        t1 = Track(
-            title="Song 1",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-        tracks = [t1]
-
-        await provider.fetch_raw_matches_for_tracks(tracks)
-
-        assert len(provider.artist_title_calls) == 1
-        assert len(provider.artist_title_calls[0]) == 1
-        assert provider.artist_title_calls[0][0].id == t1.id
 
     async def test_fetch_raw_matches_filters_already_matched_from_artist_title(self):
         """Tracks matched by ISRC should not be sent to artist/title method."""
@@ -406,16 +247,22 @@ class TestBaseMatchingProviderTemplateMethod:
         assert "missing artist or title" in result.failures[0].details.lower()
 
     async def test_fetch_raw_matches_handles_empty_track_list(self):
-        """Empty track list should return empty result."""
+        """Empty track list returns an empty result without any phase or progress."""
+        from unittest.mock import AsyncMock
+
         provider = ConcreteProvider()
+        callback = AsyncMock()
         tracks: list[Track] = []
 
-        result = await provider.fetch_raw_matches_for_tracks(tracks)
+        result = await provider.fetch_raw_matches_for_tracks(
+            tracks, progress_callback=callback
+        )
 
         assert len(result.matches) == 0
         assert len(result.failures) == 0
         assert len(provider.isrc_calls) == 0
         assert len(provider.artist_title_calls) == 0
+        callback.assert_not_awaited()
 
     async def test_fetch_raw_matches_skips_isrc_if_no_isrc_tracks(self):
         """ISRC method should not be called if no tracks have ISRC."""
@@ -457,76 +304,6 @@ class TestBaseMatchingProviderTemplateMethod:
 
         assert len(provider.isrc_calls) == 1
         assert len(provider.artist_title_calls) == 0  # Not called!
-
-    async def test_fetch_raw_matches_returns_provider_match_result(self):
-        """Template method should return ProviderMatchResult."""
-        provider = ConcreteProvider()
-        t1 = Track(
-            title="Song 1",
-            isrc="USRC11111111",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-        tracks = [t1]
-
-        provider.isrc_results = {
-            t1.id: RawProviderMatch(
-                connector_id="spotify:1",
-                match_method="isrc",
-                service_data={"title": "Song 1"},
-            )
-        }
-
-        result = await provider.fetch_raw_matches_for_tracks(tracks)
-
-        assert isinstance(result, ProviderMatchResult)
-        assert len(result.matches) == 1
-        assert t1.id in result.matches
-
-
-class TestBaseMatchingProviderValidation:
-    """Test validation helper methods."""
-
-    def test_has_isrc_returns_true_for_track_with_isrc(self):
-        """Track with ISRC should pass ISRC validation."""
-        track = Track(
-            title="Song",
-            isrc="USRC11111111",
-            artists=[ArtistCredit(credited_name="Artist")],
-            user_id=TEST_USER_ID,
-        )
-
-        assert _has_isrc(track) is True
-
-    def test_has_isrc_returns_false_for_track_without_isrc(self):
-        """Track without ISRC should fail ISRC validation."""
-        track = Track(
-            title="Song",
-            artists=[ArtistCredit(credited_name="Artist")],
-            user_id=TEST_USER_ID,
-        )
-
-        assert _has_isrc(track) is False
-
-    def test_has_artist_and_title_returns_true_for_valid_track(self):
-        """Track with artist and title should pass artist/title validation."""
-        track = Track(
-            title="Song",
-            artists=[ArtistCredit(credited_name="Artist")],
-            user_id=TEST_USER_ID,
-        )
-
-        assert _has_artist_and_title(track) is True
-
-    def test_has_artist_and_title_returns_false_without_title(self):
-        """Track without title should fail artist/title validation."""
-        track = Track(
-            title="",
-            artists=[ArtistCredit(credited_name="Artist")],
-            user_id=TEST_USER_ID,
-        )
-
-        assert _has_artist_and_title(track) is False
 
 
 class IsrcOnlyProvider(ConcreteProvider):
@@ -808,37 +585,3 @@ class TestBaseMatchingProviderProgressCallback:
         # The fallback phase received every miss exactly once.
         assert len(provider.artist_title_calls) == 1
         assert len(provider.artist_title_calls[0]) == 5
-
-    async def test_no_callback_when_none(self):
-        """No error when progress_callback is None."""
-        provider = ConcreteProvider()
-        t1 = Track(
-            title="Song 1",
-            isrc="USRC11111111",
-            artists=[ArtistCredit(credited_name="Artist 1")],
-            user_id=TEST_USER_ID,
-        )
-        tracks = [t1]
-
-        provider.isrc_results = {
-            t1.id: RawProviderMatch(
-                connector_id="spotify:1",
-                match_method="isrc",
-                service_data={"title": "Song 1"},
-            )
-        }
-
-        # Should not raise - progress_callback=None is the default
-        result = await provider.fetch_raw_matches_for_tracks(tracks)
-        assert len(result.matches) == 1
-
-    async def test_callback_not_called_for_empty_tracks(self):
-        """Progress callback is not invoked when no tracks are provided."""
-        from unittest.mock import AsyncMock
-
-        provider = ConcreteProvider()
-        callback = AsyncMock()
-
-        await provider.fetch_raw_matches_for_tracks([], progress_callback=callback)
-
-        callback.assert_not_called()

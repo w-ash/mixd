@@ -51,7 +51,7 @@ Until that workflow trigger ships, regenerate locally with the same
 Docker image:
 
 ```bash
-docker run --rm -e CI=true \
+docker run --rm --platform linux/amd64 -e CI=true \
   -v "$PWD":/work -w /work/web \
   mcr.microsoft.com/playwright:v1.63.0-noble \
   bash -c "corepack enable && corepack prepare pnpm@12.4.2 --activate \
@@ -59,7 +59,10 @@ docker run --rm -e CI=true \
            && pnpm exec playwright test --update-snapshots"
 ```
 
-Run from the repo root (`$PWD` is mounted at `/work`). Check `git status` afterwards
+Run from the repo root (`$PWD` is mounted at `/work`). `--platform linux/amd64` is
+load-bearing on Apple Silicon: CI runs on amd64, and the arm64 image's Chromium renders the
+background grain 1–3 levels apart on nearly every pixel. That shifts pixelmatch's
+anti-alias detection enough that a diff under the threshold locally fails in CI. Check `git status` afterwards
 — only the baselines you intended to change should be modified; anything wider means
 the image and `@playwright/test` have skewed.
 
@@ -91,9 +94,10 @@ PNGs that don't match CI font rendering will fail review.
 ### Adding a route to the visual suite
 
 Append to the `ROUTES` array in `visual.spec.ts`. Each entry generates
-`{slug}-{theme}.png` for every theme. If the route requires API responses
-(track lists, playlist data, etc.), add the corresponding `page.route()`
-mocks in the same file or in a shared fixture.
+`{slug}-{theme}.png` for every theme. `mockApi` answers every `/api/v1/`
+request (unmocked ones get a 404, and `/settings` sets the theme); if the
+route needs real API data (track lists, playlist data, etc.), add a fulfil
+for its endpoint there.
 
 ## Running
 

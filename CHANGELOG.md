@@ -6,6 +6,17 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1.2] — 2026-10-15
+
+**Sorting your artists by track count no longer waits on a count per artist, and every sync and import stops paying for credit rows it never reads.** The artist listing orders, seeks and counts through one grouped aggregate on the track-count sort, and track reads load `track_artists` only where a credit's `artist_id` is consumed.
+
+- `ArtistRepository.list_artists` selects the sort column beside each row and reads the cursor from it; the grouped `count(DISTINCT track_id)` is outer-joined only on the track-count sorts, and every other sort counts the page's ids through the same subquery. `count_tracks_by_artist` is built on it too.
+- `CREDIT_LOADER` leaves the track mapper's default loaders. `list_tracks` and the save reload always add it; `get_track_by_id`, `find_tracks_by_ids`, `find_tracks_by_isrcs` and `find_tracks_by_connectors` take `with_credits=True` from the readers of `artist_id`: track detail, the resolvers' canonicals (the mint gate) and the liked/played workflow sources behind `filter.by_artist_ids`.
+- Two review fixes: `save_tracks` returns the input `artist_id` on a freshly inserted row, and the save reload runs with `populate_existing` so a track already held in the session maps its rewritten credits.
+- Tests: a `captured_sql` fixture pins one `track_artists` statement on a track-count page and none on the playlist-sync read; an artist credited twice on one track counts once.
+
+→ [details](docs/backlog/v0.12.x.md#post-deploy-revisions-1)
+
 ## [0.12.1.1] — 2026-09-26
 
 **A library imported before v0.12.1 gets its artists without re-importing.** `mixd artists mint` (also `POST /api/v1/artists/mint` and the `mint_artists` chat tool) pages every track whose credits are still unlinked but whose service payload carries an artist id, and feeds them through the same minter the import path uses — canonical artists, mappings and linked credits appear in minutes with no network calls, and a rerun changes nothing.

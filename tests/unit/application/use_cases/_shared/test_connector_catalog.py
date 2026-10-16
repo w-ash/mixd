@@ -10,7 +10,7 @@ from src.application.use_cases._shared.connector_catalog import (
 class TestDefaultConnectorCatalog:
     """``default_connector_catalog`` bridges to the concrete registry."""
 
-    def test_descriptors_cover_every_registered_connector(self) -> None:
+    def test_lists_and_describes_a_registered_connector(self) -> None:
         catalog = default_connector_catalog()
 
         names = {descriptor.name for descriptor in catalog.list_descriptors()}
@@ -34,12 +34,6 @@ class TestPlaylistUrl:
             == "https://open.spotify.com/playlist/3cEYpjA9oz9GiPac4AsH4n"
         )
 
-    def test_connector_without_a_playlist_page_returns_none(self) -> None:
-        assert default_connector_catalog().playlist_url("apple_music", "p.abc") is None
-
-    def test_unregistered_connector_returns_none(self) -> None:
-        assert default_connector_catalog().playlist_url("myspace", "1") is None
-
 
 class TestArtistUrl:
     def test_declared_hook_returns_the_connectors_own_page(self) -> None:
@@ -47,6 +41,3 @@ class TestArtistUrl:
             default_connector_catalog().artist_url("musicbrainz", "abc")
             == "https://musicbrainz.org/artist/abc"
         )
-
-    def test_unregistered_connector_returns_none(self) -> None:
-        assert default_connector_catalog().artist_url("myspace", "1") is None

@@ -43,28 +43,14 @@ function mockResizableMatchMedia(initialMatches: boolean) {
 }
 
 describe("useIsMobile", () => {
-  it("returns true below the lg breakpoint", () => {
-    mockMatchMedia(390);
+  // The lg: breakpoint is 1024px: iPad portrait (1023px and below) is mobile.
+  it.each([
+    [1023, true],
+    [1024, false],
+  ])("at %ipx wide reports mobile = %s", (width, expected) => {
+    mockMatchMedia(width);
     const { result } = renderHook(() => useIsMobile());
-    expect(result.current).toBe(true);
-  });
-
-  it("returns false at-or-above the lg breakpoint", () => {
-    mockMatchMedia(1280);
-    const { result } = renderHook(() => useIsMobile());
-    expect(result.current).toBe(false);
-  });
-
-  it("treats 1023px as mobile (boundary inclusive)", () => {
-    mockMatchMedia(1023);
-    const { result } = renderHook(() => useIsMobile());
-    expect(result.current).toBe(true);
-  });
-
-  it("treats 1024px as desktop (boundary inclusive)", () => {
-    mockMatchMedia(1024);
-    const { result } = renderHook(() => useIsMobile());
-    expect(result.current).toBe(false);
+    expect(result.current).toBe(expected);
   });
 
   it("re-renders when the media query changes", () => {

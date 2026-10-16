@@ -136,7 +136,9 @@ class TrackResolutionService:
         # is freshness, not a decision. Keyed by the rows just stored, so the
         # lookup is the mappings and the tracks, never the rows again.
         existing = await connector_repo.find_tracks_by_connector_track_ids(
-            [stored[identifier].id for identifier in payloads], user_id=user_id
+            [stored[identifier].id for identifier in payloads],
+            user_id=user_id,
+            with_credits=True,
         )
         resolved: dict[str, Track] = {
             identifier: track.with_connector_track_id(connector, identifier)
@@ -419,7 +421,9 @@ class TrackResolutionService:
             isrc for identifier in pending if (isrc := payloads[identifier].isrc)
         })
         isrc_owners = (
-            await track_repo.find_tracks_by_isrcs(isrcs, user_id=user_id)
+            await track_repo.find_tracks_by_isrcs(
+                isrcs, user_id=user_id, with_credits=True
+            )
             if isrcs
             else {}
         )
