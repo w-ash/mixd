@@ -220,16 +220,26 @@ class TestReviewResolutionRouting:
         assert "rejected" in _recorded_types(_recorder(uow))
 
     async def test_reject_is_sticky(self, uow):
+        """The refused pair becomes a cannot-link entry for this user and connector."""
         track = make_track(5)
         await self._reject(uow, track)
-        _recorder(uow).remember_rejections.assert_awaited_once()
+
+        remembered = _recorder(uow).remember_rejections.await_args
+        (candidates,) = remembered.args
+        assert [(c.connector.identifier, c.candidate_track) for c in candidates] == [
+            ("sp_gray", track)
+        ]
+        assert remembered.kwargs == {"user_id": _USER, "connector_name": "spotify"}
 
     async def test_reject_events_ride_the_use_case_commit(self, uow):
         """The event is written before the commit that makes the verdict durable."""
-        track = make_track(5)
-        await self._reject(uow, track)
-        uow.commit.assert_awaited_once()
-        _recorder(uow).record.assert_awaited_once()
+        order: list[str] = []
+        _recorder(uow).record.side_effect = lambda *_a, **_k: order.append("record")
+        uow.commit.side_effect = lambda: order.append("commit")
+
+        await self._reject(uow, make_track(5))
+
+        assert order == ["record", "commit"]
 
 
 class TestFailedWritesLeaveNoTrace:

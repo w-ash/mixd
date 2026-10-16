@@ -110,23 +110,24 @@ class TestTrackIdentityResolution:
         # Should match because of shared Spotify ID
         assert track_with_many_ids.has_same_identity_as(track_with_one_matching_id)
 
-    def test_isrc_empty_string_vs_none_edge_case(self):
-        """Test edge case: empty ISRC string vs None should not match."""
-        track_with_empty_isrc = Track(
+    def test_blank_identifiers_never_match(self):
+        """An empty ISRC or connector id is absent data, not a shared identity."""
+        track1 = Track(
             title="Test Song",
             artists=[ArtistCredit(credited_name="Test Artist")],
             isrc="",
-            user_id=TEST_USER_ID,  # Empty string
+            connector_track_identifiers={"spotify": ""},
+            user_id=TEST_USER_ID,
         )
-        track_with_none_isrc = Track(
-            title="Test Song",
-            artists=[ArtistCredit(credited_name="Test Artist")],
-            isrc=None,
-            user_id=TEST_USER_ID,  # None
+        track2 = Track(
+            title="Other Song",
+            artists=[ArtistCredit(credited_name="Other Artist")],
+            isrc="",
+            connector_track_identifiers={"spotify": ""},
+            user_id=TEST_USER_ID,
         )
 
-        # Empty string and None should not be considered matching ISRCs
-        assert not track_with_empty_isrc.has_same_identity_as(track_with_none_isrc)
+        assert not track1.has_same_identity_as(track2)
 
     def test_case_sensitive_connector_ids(self):
         """Test that connector IDs are case-sensitive - important for exact matching."""
@@ -167,21 +168,6 @@ class TestTrackIdentityResolution:
         # ISRC match should override connector ID mismatch
         assert track1.has_same_identity_as(track2)
 
-    def test_type_safety_with_invalid_objects(self):
-        """Test robust handling of invalid comparison objects."""
-        track = Track(
-            title="Test Song",
-            artists=[ArtistCredit(credited_name="Test Artist")],
-            user_id=TEST_USER_ID,
-        )
-
-        # Should handle various invalid types gracefully
-        assert not track.has_same_identity_as("not a track")
-        assert not track.has_same_identity_as(None)
-        assert not track.has_same_identity_as(42)
-        assert not track.has_same_identity_as({"title": "fake track"})
-        assert not track.has_same_identity_as([])
-
     def test_tracks_with_no_external_identifiers(self):
         """Test tracks with only title/artist metadata - should not match."""
         # Real scenario: Tracks from different imports with no external IDs
@@ -200,29 +186,3 @@ class TestTrackIdentityResolution:
 
         # Without external identifiers, cannot determine if same song
         assert not track1.has_same_identity_as(track2)
-
-    def test_real_world_spotify_lastfm_matching_scenario(self):
-        """Test realistic scenario: matching track from Spotify import to Last.fm scrobble."""
-        # User's Spotify liked song
-        spotify_track = Track(
-            title="No Surprises",
-            artists=[ArtistCredit(credited_name="Radiohead")],
-            album="OK Computer",
-            duration_ms=228000,
-            connector_track_identifiers={"spotify": "2p7phZwlioOIWR1Ztqe5Sy"},
-            user_id=TEST_USER_ID,
-        )
-
-        # Same song scrobbled from Last.fm (slightly different metadata)
-        lastfm_scrobble = Track(
-            title="No Surprises",
-            artists=[ArtistCredit(credited_name="Radiohead")],
-            album="OK Computer (Collector's Edition)",  # Different album version
-            duration_ms=None,  # Last.fm doesn't always have duration
-            connector_track_identifiers={"spotify": "2p7phZwlioOIWR1Ztqe5Sy"},
-            user_id=TEST_USER_ID,  # Same Spotify ID from scrobble
-        )
-
-        # Should match via shared Spotify ID despite metadata differences
-        assert spotify_track.has_same_identity_as(lastfm_scrobble)
-        assert lastfm_scrobble.has_same_identity_as(spotify_track)

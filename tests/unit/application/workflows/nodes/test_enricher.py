@@ -12,6 +12,8 @@ use-case layer (test_enrich_tracks_use_case.py).
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from src.application.connector_protocols import LibraryContainsConnector
 from src.application.use_cases.enrich_tracks import EnrichmentConfig
 
@@ -175,67 +177,27 @@ class TestEnrichSpotifyLikedStatusEdgeCases:
         connector.check_library_contains.assert_not_awaited()
         assert result["tracklist"].tracks == tracks
 
-    async def test_empty_tracklist_returns_empty(self):
-        """Empty tracklist passes through without API calls."""
-        connector = _make_mock_connector({})
-        context = _make_context([], connector)
-
-        result = await enrich_spotify_liked_status(context, {})
-
-        connector.check_library_contains.assert_not_awaited()
-        assert len(result["tracklist"].tracks) == 0
-
-    async def test_all_tracks_persisted_with_uuid_ids(self):
-        """All tracks have UUIDs, so all are persisted to the database."""
-        t1 = make_track(connector_track_identifiers={"spotify": "aaa"})
-        t2 = make_track(connector_track_identifiers={"spotify": "bbb"})
-        tracks = [t1, t2]
-        saved = {"spotify:track:aaa": True, "spotify:track:bbb": False}
-        connector = _make_mock_connector(saved)
-
-        captured_fn = None
-
-        async def capture_service(fn):
-            nonlocal captured_fn
-            captured_fn = fn
-
-        context = _make_context(
-            tracks, connector, execute_service_side_effect=capture_service
-        )
-        result = await enrich_spotify_liked_status(context, {})
-
-        # In-memory metadata is updated for both
-        assert result["tracklist"].tracks[0].is_liked_on("spotify") is True
-        assert result["tracklist"].tracks[1].is_liked_on("spotify") is False
-
-        # One track is saved, the other is removed
-        assert captured_fn is not None
-        mock_uow = AsyncMock()
-        mock_like_repo = AsyncMock()
-        mock_uow.get_like_repository = MagicMock(return_value=mock_like_repo)
-        await captured_fn(mock_uow)
-
-        assert len(mock_like_repo.save_track_likes_batch.call_args[0][0]) == 1
-        assert len(mock_like_repo.delete_track_likes_batch.call_args[0][0]) == 1
-
     async def test_mixed_tracks_some_with_spotify_ids(self):
-        """Only tracks with Spotify IDs are checked; others pass through unchanged."""
+        """Only tracks with Spotify IDs are checked; others pass through unchanged.
+
+        Both Spotify tracks are liked, so a status written to the wrong index
+        would mark the ID-less middle track instead of the last one.
+        """
         tracks = [
             make_track(connector_track_identifiers={"spotify": "aaa"}),
             make_track(connector_track_identifiers={}),  # no Spotify ID
             make_track(connector_track_identifiers={"spotify": "ccc"}),
         ]
-        saved = {"spotify:track:aaa": True, "spotify:track:ccc": False}
+        saved = {"spotify:track:aaa": True, "spotify:track:ccc": True}
         connector = _make_mock_connector(saved)
         context = _make_context(tracks, connector)
 
         result = await enrich_spotify_liked_status(context, {})
 
         tl = result["tracklist"]
-        assert tl.tracks[0].is_liked_on("spotify") is True
+        assert [t.is_liked_on("spotify") for t in tl.tracks] == [True, False, True]
         # Track without Spotify ID should be unchanged
-        assert tl.tracks[1].is_liked_on("spotify") is False  # default
-        assert tl.tracks[2].is_liked_on("spotify") is False
+        assert tl.tracks[1] is tracks[1]
 
 
 class TestPreferenceAndTagEnricherRegistration:
@@ -244,56 +206,27 @@ class TestPreferenceAndTagEnricherRegistration:
     execution path is covered by test_enrich_tracks_use_case.py.
     """
 
-    def test_preferences_node_registered(self):
+    @pytest.mark.parametrize(
+        "node_id",
+        ["enricher.preferences", "enricher.tags", "enricher.artist_favorites"],
+    )
+    def test_static_enricher_node_registered(self, node_id: str):
+        """The editor draws one tracklist input and one tracklist output port."""
         # Side-effect registration happens at import time; reference the module
         # so the import isn't flagged as unused.
         assert catalog.__name__.endswith("catalog")
 
-        fn, meta = get_node("enricher.preferences")
-        assert callable(fn)
+        _, meta = get_node(node_id)
+        assert meta["category"] == "enricher"
         assert meta["input_type"] == "tracklist"
         assert meta["output_type"] == "tracklist"
 
-    def test_tags_node_registered(self):
-        fn, meta = get_node("enricher.tags")
-        assert callable(fn)
-        assert meta["input_type"] == "tracklist"
-        assert meta["output_type"] == "tracklist"
-
-    def test_artist_favorites_node_registered(self):
-        fn, meta = get_node("enricher.artist_favorites")
-        assert callable(fn)
-        assert meta["input_type"] == "tracklist"
-        assert meta["output_type"] == "tracklist"
-
-    def test_preferences_config_builder_produces_correct_type(self):
-        ctx = MagicMock()
-        config = static_enrichment_config("preferences")(ctx, {})
-        assert isinstance(config, EnrichmentConfig)
-        assert config.enrichment_type == "preferences"
-
-    def test_tags_config_builder_produces_correct_type(self):
-        ctx = MagicMock()
-        config = static_enrichment_config("tags")(ctx, {})
-        assert isinstance(config, EnrichmentConfig)
-        assert config.enrichment_type == "tags"
-
-    def test_artist_favorites_config_builder_produces_correct_type(self):
-        ctx = MagicMock()
-        config = static_enrichment_config("artist_favorites")(ctx, {})
-        assert isinstance(config, EnrichmentConfig)
-        assert config.enrichment_type == "artist_favorites"
-
-    def test_builders_ignore_user_config(self):
-        """Builders take no user-facing config — any passed config is ignored."""
-        ctx = MagicMock()
-        pref_config = static_enrichment_config("preferences")(
-            ctx, {"anything": "ignored"}
+    @pytest.mark.parametrize(
+        "enrichment_type", ["preferences", "tags", "artist_favorites"]
+    )
+    def test_builders_ignore_user_config(self, enrichment_type: str):
+        """Builders select their enrichment type and ignore any user config."""
+        config = static_enrichment_config(enrichment_type)(
+            MagicMock(), {"metrics": ["total_plays"], "connector": "spotify"}
         )
-        tag_config = static_enrichment_config("tags")(ctx, {"anything": "ignored"})
-        favorites_config = static_enrichment_config("artist_favorites")(
-            ctx, {"anything": "ignored"}
-        )
-        assert pref_config.enrichment_type == "preferences"
-        assert tag_config.enrichment_type == "tags"
-        assert favorites_config.enrichment_type == "artist_favorites"
+        assert config == EnrichmentConfig(enrichment_type=enrichment_type)

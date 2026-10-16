@@ -164,8 +164,8 @@ class TestGetWorkflowVersion:
         response = await client.get(f"/api/v1/workflows/{wf_id}/versions/1")
 
         body = response.json()
-        # change_summary may be None or a descriptive string
-        assert "change_summary" in body
+        # The update added the dedup node and renamed the workflow.
+        assert body["change_summary"] == "Added 1 node, Renamed to 'Test Workflow v2'"
 
     async def test_nonexistent_version_returns_404(
         self, client: httpx2.AsyncClient

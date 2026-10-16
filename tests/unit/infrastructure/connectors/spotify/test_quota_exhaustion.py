@@ -31,18 +31,7 @@ def _quota_429() -> httpx2.HTTPStatusError:
 
 
 class TestClientRaisesOnQuota429:
-    async def test_scalar_method_raises_instead_of_returning_none(
-        self, spotify_client: SpotifyAPIClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        async def _impl(*_args: object) -> None:
-            raise _quota_429()
-
-        monkeypatch.setattr(SpotifyAPIClient, "_request_json", _impl)
-
-        with pytest.raises(SpotifyQuotaExhaustedError):
-            _ = await spotify_client.search_track("artist:x track:y")
-
-    async def test_raised_error_names_pdr_003(
+    async def test_quota_429_raises_the_typed_error_naming_pdr_003(
         self, spotify_client: SpotifyAPIClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         async def _impl(*_args: object) -> None:
@@ -53,21 +42,21 @@ class TestClientRaisesOnQuota429:
         with pytest.raises(SpotifyQuotaExhaustedError, match="PDR-003"):
             _ = await spotify_client.search_track("artist:x track:y")
 
-    async def test_plain_429_stays_suppressed_to_empty_result(
-        self, spotify_client: SpotifyAPIClient, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "json_body",
+        [
+            pytest.param(None, id="no-body"),
+            pytest.param({"reason": "SOMETHING_ELSE"}, id="other-reason"),
+        ],
+    )
+    async def test_non_quota_429_stays_suppressed_to_empty_result(
+        self,
+        spotify_client: SpotifyAPIClient,
+        monkeypatch: pytest.MonkeyPatch,
+        json_body: object,
     ) -> None:
         async def _impl(*_args: object) -> None:
-            raise _make_429()
-
-        monkeypatch.setattr(SpotifyAPIClient, "_request_json", _impl)
-
-        assert await spotify_client.search_track("artist:x track:y") == []
-
-    async def test_non_quota_429_body_stays_suppressed(
-        self, spotify_client: SpotifyAPIClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        async def _impl(*_args: object) -> None:
-            raise _make_429({"reason": "SOMETHING_ELSE"})
+            raise _make_429(json_body)
 
         monkeypatch.setattr(SpotifyAPIClient, "_request_json", _impl)
 

@@ -20,18 +20,25 @@ _VALID_KEY = "sk-ant-api03-test0000000000000000000000"
 
 
 class TestConnect:
-    def test_connect_valid_key_stores(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_connect_valid_key_stores_trimmed_key_for_cli_user(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         save = AsyncMock()
         monkeypatch.setattr(
             adapter_mod, "validate_anthropic_key", AsyncMock(return_value=True)
         )
         monkeypatch.setattr(creds_mod, "save_user_anthropic_key", save)
+        monkeypatch.setattr(
+            "src.interface.cli.assistant_commands.get_cli_user_id", lambda: "alice"
+        )
 
-        result = runner.invoke(app, ["assistant", "connect", "--key", _VALID_KEY])
+        result = runner.invoke(
+            app, ["assistant", "connect", "--key", f"  {_VALID_KEY}\n"]
+        )
 
         assert result.exit_code == 0
         assert "connected" in result.output.lower()
-        assert save.await_count == 1
+        save.assert_awaited_once_with("alice", _VALID_KEY)
         assert "Traceback" not in result.output
 
     def test_connect_rejected_key_exits_nonzero(
@@ -90,12 +97,17 @@ class TestTest:
 
 
 class TestDisconnect:
-    def test_disconnect_deletes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_disconnect_deletes_the_cli_users_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         delete = AsyncMock()
         monkeypatch.setattr(creds_mod, "delete_user_anthropic_key", delete)
+        monkeypatch.setattr(
+            "src.interface.cli.assistant_commands.get_cli_user_id", lambda: "alice"
+        )
 
         result = runner.invoke(app, ["assistant", "disconnect"])
 
         assert result.exit_code == 0
         assert "disconnected" in result.output.lower()
-        assert delete.await_count == 1
+        delete.assert_awaited_once_with("alice")

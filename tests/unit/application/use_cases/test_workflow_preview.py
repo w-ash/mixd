@@ -6,14 +6,25 @@ propagation. Previews are not subject to the active-run concurrency guard
 """
 
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.application.use_cases.workflow_preview import PreviewWorkflowUseCase
-from src.application.use_cases.workflow_runs import serialize_output_tracks
-from src.config.constants import WorkflowConstants
 from tests.fixtures import make_tracks, make_workflow_def
+
+
+class _SteppingClock:
+    """Stand-in for the timer's ``datetime``: each ``now()`` is 250 ms later."""
+
+    def __init__(self) -> None:
+        self._now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def now(self, tz=None):
+        current = self._now
+        self._now += timedelta(milliseconds=250)
+        return current
 
 
 @contextmanager
@@ -51,7 +62,10 @@ def _patch_preview_deps(*, mock_run_return=None):
 class TestPreviewWorkflowUseCase:
     """PreviewWorkflowUseCase executes a dry-run."""
 
-    async def test_happy_path_returns_result(self) -> None:
+    async def test_happy_path_returns_result(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.application.utilities.timing.datetime", _SteppingClock()
+        )
         workflow_def = make_workflow_def()
         tracks = make_tracks(count=5)
 
@@ -60,7 +74,7 @@ class TestPreviewWorkflowUseCase:
 
         assert len(result.output_tracks) == 5
         assert result.output_tracks[0]["rank"] == 1
-        assert result.duration_ms >= 0
+        assert result.duration_ms == 250
         assert result.metric_columns == []
 
     async def test_includes_metric_columns(self) -> None:
@@ -98,14 +112,17 @@ class TestPreviewWorkflowUseCase:
             await PreviewWorkflowUseCase().execute(empty_def)
 
     async def test_output_tracks_limited(self) -> None:
-        """Output tracks are limited to PREVIEW_OUTPUT_LIMIT."""
+        """The preview shows the first 20 tracks but reports the full count."""
         workflow_def = make_workflow_def()
         tracks = make_tracks(count=30)
 
         with _patch_preview_deps(mock_run_return=MagicMock(tracks=tracks, metrics={})):
             result = await PreviewWorkflowUseCase().execute(workflow_def)
 
-        assert len(result.output_tracks) == WorkflowConstants.PREVIEW_OUTPUT_LIMIT
+        assert [t["title"] for t in result.output_tracks] == [
+            "Track " + str(i) for i in range(1, 21)
+        ]
+        assert result.total_track_count == 30
 
     async def test_execution_error_propagates(self) -> None:
         """Exceptions during execution are re-raised."""
@@ -115,27 +132,3 @@ class TestPreviewWorkflowUseCase:
             mock_run.side_effect = RuntimeError("API timeout")
             with pytest.raises(RuntimeError, match="API timeout"):
                 await PreviewWorkflowUseCase().execute(workflow_def)
-
-
-class TestSerializeOutputTracks:
-    """serialize_output_tracks produces lightweight dicts (shared by runs + preview)."""
-
-    def test_serializes_with_rank(self) -> None:
-        tracks = make_tracks(count=3)
-        result, columns = serialize_output_tracks(tracks)
-
-        assert len(result) == 3
-        assert result[0]["rank"] == 1
-        assert result[2]["rank"] == 3
-        assert columns == []
-
-    def test_respects_limit(self) -> None:
-        tracks = make_tracks(count=25)
-        result, _ = serialize_output_tracks(tracks, limit=10)
-
-        assert len(result) == 10
-
-    def test_empty_list(self) -> None:
-        result, columns = serialize_output_tracks([])
-        assert result == []
-        assert columns == []

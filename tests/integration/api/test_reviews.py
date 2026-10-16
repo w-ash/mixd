@@ -104,8 +104,8 @@ class TestListReviews:
         await _seed_review(client)
         response = await client.get("/api/v1/reviews")
         body = response.json()
-        assert body["total"] >= 1
-        assert len(body["data"]) >= 1
+        assert body["total"] == 1
+        assert len(body["data"]) == 1
         review = body["data"][0]
         assert review["connector_name"] == "spotify"
         assert review["confidence"] == 72

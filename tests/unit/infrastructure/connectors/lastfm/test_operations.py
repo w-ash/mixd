@@ -5,26 +5,32 @@ filtering of tracks with no Last.fm match, progress callback counts,
 and empty input.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from src.domain.entities import Track
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
 from tests.fixtures import make_tracks
 
 
-async def _found_info(_self: LastFMOperations, track: Track) -> LastFMTrackInfo:
-    """Intelligent-lookup stub that always matches, echoing the title."""
-    return LastFMTrackInfo(lastfm_title=track.title, lastfm_user_playcount=7)
+def _client_echoing_titles(*, unmatched_titles: frozenset[str] = frozenset()):
+    """Client whose track.getInfo answers every lookup but the unmatched ones."""
+
+    async def _get_info(artist: str, title: str) -> LastFMTrackInfo | None:
+        if title in unmatched_titles:
+            return None
+        return LastFMTrackInfo(lastfm_title=title, lastfm_artist_name=artist)
+
+    client = MagicMock()
+    client.get_track_info_comprehensive = AsyncMock(side_effect=_get_info)
+    return client
 
 
 class TestBatchGetTrackInfoHappyPath:
     async def test_results_keyed_by_track_id(self):
         tracks = make_tracks(count=3)
 
-        with patch.object(LastFMOperations, "get_track_info_intelligent", _found_info):
-            operations = LastFMOperations(client=MagicMock())
-            results = await operations.batch_get_track_info(tracks)
+        operations = LastFMOperations(client=_client_echoing_titles())
+        results = await operations.batch_get_track_info(tracks)
 
         assert set(results) == {track.id for track in tracks}
         for track in tracks:
@@ -37,11 +43,8 @@ class TestBatchGetTrackInfoHappyPath:
         async def callback(completed: int, total: int, message: str) -> None:
             calls.append((completed, total, message))
 
-        with patch.object(LastFMOperations, "get_track_info_intelligent", _found_info):
-            operations = LastFMOperations(client=MagicMock())
-            _ = await operations.batch_get_track_info(
-                tracks, progress_callback=callback
-            )
+        operations = LastFMOperations(client=_client_echoing_titles())
+        _ = await operations.batch_get_track_info(tracks, progress_callback=callback)
 
         assert sorted(c[0] for c in calls) == [1, 2, 3]
         for completed, total, message in calls:
@@ -54,14 +57,10 @@ class TestBatchGetTrackInfoEdgeCases:
         tracks = make_tracks(count=2)
         matched_id = tracks[0].id
 
-        async def one_match(_self: LastFMOperations, track: Track) -> LastFMTrackInfo:
-            if track.id == matched_id:
-                return LastFMTrackInfo(lastfm_title=track.title)
-            return LastFMTrackInfo.empty()
-
-        with patch.object(LastFMOperations, "get_track_info_intelligent", one_match):
-            operations = LastFMOperations(client=MagicMock())
-            results = await operations.batch_get_track_info(tracks)
+        operations = LastFMOperations(
+            client=_client_echoing_titles(unmatched_titles=frozenset({tracks[1].title}))
+        )
+        results = await operations.batch_get_track_info(tracks)
 
         assert set(results) == {matched_id}
 

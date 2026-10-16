@@ -2,7 +2,7 @@
 
 Validates ProgressNodeObserver emits correct progress events,
 RunHistoryObserver persists to DB + pushes SSE events,
-and NullNodeObserver is a safe no-op.
+and CompositeNodeObserver fans out with per-observer isolation.
 """
 
 import asyncio
@@ -12,7 +12,6 @@ import pytest
 
 from src.application.workflows.engine.observers import (
     CompositeNodeObserver,
-    NullNodeObserver,
     ProgressNodeObserver,
     RunHistoryObserver,
 )
@@ -211,17 +210,6 @@ class TestRunHistoryObserver:
         assert sse["data"]["status"] == "failed"
         assert sse["data"]["error_message"] == "API timeout"
 
-    async def test_no_queue_means_no_sse(self, task_def, sample_result):
-        """Without a queue, SSE push is silently skipped."""
-        mock_updater = AsyncMock()
-
-        observer = RunHistoryObserver(
-            run_id=10, update_node_status=mock_updater, sse_queue=None
-        )
-        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
-        # Should not raise
-        await observer.on_node_completed(event, sample_result)
-
     async def test_db_failure_does_not_propagate(self, task_def, sample_result):
         """If DB write fails, the observer logs and continues — never crashes the workflow."""
         queue: asyncio.Queue = asyncio.Queue()
@@ -236,7 +224,10 @@ class TestRunHistoryObserver:
         await observer.on_node_completed(event, sample_result)
 
         # SSE event should still be pushed even if DB failed
-        assert not queue.empty()
+        assert queue.qsize() == 1
+        sse = queue.get_nowait()
+        assert sse["data"]["node_id"] == "enrich_1"
+        assert sse["data"]["status"] == "completed"
 
     @pytest.mark.parametrize("hook", ["starting", "completed", "failed"])
     async def test_every_hook_persists_and_emits(self, task_def, sample_result, hook):
@@ -273,11 +264,6 @@ class TestRunHistoryObserver:
         await observer.on_node_completed(event, sample_result)
 
         mock_updater.assert_awaited_once()
-        assert observer.persist_failure_count == 0
-
-    async def test_persist_failure_count_starts_at_zero(self):
-        """New observer has zero persistence failures."""
-        observer = RunHistoryObserver(run_id=10, update_node_status=AsyncMock())
         assert observer.persist_failure_count == 0
 
     async def test_persist_failure_count_increments_on_db_error(
@@ -322,15 +308,6 @@ class TestCompositeNodeObserver:
         obs_a.on_node_failed.assert_called_once_with(event, error)
         obs_b.on_node_failed.assert_called_once_with(event, error)
 
-    async def test_single_observer_still_works(self, task_def, sample_result):
-        """Composite with one observer delegates correctly."""
-        obs = AsyncMock()
-        composite = CompositeNodeObserver([obs])
-        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
-
-        await composite.on_node_starting(event)
-        obs.on_node_starting.assert_called_once()
-
     async def test_failing_observer_does_not_block_others(
         self, task_def, sample_result
     ):
@@ -370,18 +347,3 @@ class TestCompositeNodeObserver:
 
         with pytest.raises(asyncio.CancelledError):
             await task
-
-
-class TestNullNodeObserver:
-    """Tests for NullNodeObserver no-op behavior."""
-
-    async def test_all_methods_are_noop(self, task_def, sample_result):
-        """NullNodeObserver methods complete without error."""
-        observer = NullNodeObserver()
-        event = NodeExecutionEvent(
-            task_def=task_def, execution_order=1, total_nodes=3, duration_ms=100
-        )
-
-        await observer.on_node_starting(event)
-        await observer.on_node_completed(event, sample_result)
-        await observer.on_node_failed(event, ValueError("x"))

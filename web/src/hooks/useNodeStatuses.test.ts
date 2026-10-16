@@ -4,13 +4,6 @@ import { describe, expect, it } from "vitest";
 import { useNodeStatuses } from "./useNodeStatuses";
 
 describe("useNodeStatuses", () => {
-  it("starts with an empty Map", () => {
-    const { result } = renderHook(() => useNodeStatuses());
-
-    expect(result.current.nodeStatuses).toBeInstanceOf(Map);
-    expect(result.current.nodeStatuses.size).toBe(0);
-  });
-
   it("adds a node status from snake_case SSE data", () => {
     const { result } = renderHook(() => useNodeStatuses());
 

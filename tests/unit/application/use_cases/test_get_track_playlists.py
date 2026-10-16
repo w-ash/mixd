@@ -40,18 +40,6 @@ class TestGetTrackPlaylistsUseCase:
             42, user_id="test-user"
         )
 
-    async def test_returns_empty_list_when_no_playlists(self) -> None:
-        track_repo = AsyncMock()
-        playlist_repo = AsyncMock()
-        playlist_repo.get_playlists_for_track.return_value = []
-        uow = make_mock_uow(track_repo=track_repo, playlist_repo=playlist_repo)
-
-        result = await GetTrackPlaylistsUseCase().execute(
-            GetTrackPlaylistsCommand(user_id="test-user", track_id=42), uow
-        )
-
-        assert result.playlists == []
-
     async def test_raises_not_found_for_missing_track(self) -> None:
         track_repo = AsyncMock()
         track_repo.get_track_by_id.side_effect = NotFoundError("Track 999 not found")

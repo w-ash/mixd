@@ -31,26 +31,13 @@ def _make_tracklist(n: int) -> TrackList:
 class TestWeightedShuffle:
     """Tests for weighted_shuffle correctness."""
 
-    def test_no_duplicates_at_intermediate_strength(self):
-        """Intermediate strength (0.5) must never produce duplicate tracks."""
+    @pytest.mark.parametrize("strength", [0.5, 1.0])
+    def test_output_is_a_permutation_of_the_input(self, strength: float):
+        """Every track appears exactly once: none dropped, none duplicated."""
         tl = _make_tracklist(20)
-        transform = weighted_shuffle(0.5)
-        result = transform(tl)
+        result = weighted_shuffle(strength)(tl)
 
-        result_ids = [t.id for t in result.tracks]
-        assert len(result_ids) == len(set(result_ids)), (
-            "Duplicates found in shuffled output"
-        )
-
-    def test_all_tracks_preserved(self):
-        """Every track from the input must appear in the output."""
-        tl = _make_tracklist(20)
-        transform = weighted_shuffle(0.5)
-        result = transform(tl)
-
-        original_ids = {t.id for t in tl.tracks}
-        result_ids = {t.id for t in result.tracks}
-        assert original_ids == result_ids
+        assert sorted(t.id for t in result.tracks) == list(range(1, 21))
 
     def test_strength_zero_preserves_order(self):
         """Strength 0.0 returns tracks in original order."""
@@ -59,14 +46,6 @@ class TestWeightedShuffle:
         result = transform(tl)
 
         assert [t.id for t in result.tracks] == [t.id for t in tl.tracks]
-
-    def test_strength_one_is_permutation(self):
-        """Strength 1.0 produces a valid permutation (same set, possibly different order)."""
-        tl = _make_tracklist(20)
-        transform = weighted_shuffle(1.0)
-        result = transform(tl)
-
-        assert {t.id for t in result.tracks} == {t.id for t in tl.tracks}
 
     def test_empty_tracklist(self):
         """Empty tracklist returns empty."""

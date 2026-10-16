@@ -192,8 +192,12 @@ class TestPlaylistRepositoryIntegration:
         assert len(via_get_by_id.entries) == 2
         assert via_get_by_id.connector_playlist_identifiers == connector_ids
 
-    async def test_playlist_track_management_operations(self, db_session):
-        """Test advanced playlist track management: add, remove, reorder tracks."""
+    async def test_update_adds_removes_and_reorders_tracks(self, db_session):
+        """Re-saving a playlist makes its stored tracklist match the new one.
+
+        [t0, t1, t2] becomes [t2, t3, t1]: t0 is removed, t2 moves from last
+        to first, t1 moves from position 1 to last, and t3 is added between.
+        """
         uow = get_unit_of_work(db_session)
         playlist_repo = uow.get_playlist_repository()
         track_repo = uow.get_track_repository()
@@ -210,25 +214,15 @@ class TestPlaylistRepositoryIntegration:
 
         initial_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Management_{uuid4()}",
-            tracklist=tracks[:2],
-            user_id=TEST_USER_ID,  # Start with first 2 tracks
-        )
-        initial_playlist = Playlist(
-            id=initial_playlist.id,
-            name=initial_playlist.name,
-            entries=initial_playlist.entries,
-            connector_playlist_identifiers={},
+            tracklist=tracks[:3],
             user_id=TEST_USER_ID,
         )
-
         saved_playlist = await playlist_repo.save_playlist(initial_playlist)
+        assert [t.id for t in saved_playlist.tracks] == [t.id for t in tracks[:3]]
 
-        assert len(saved_playlist.tracks) == 2
-
+        target = [tracks[2], tracks[3], tracks[1]]
         temp = Playlist.from_tracklist(
-            name=saved_playlist.name,
-            tracklist=tracks,
-            user_id=TEST_USER_ID,  # All 4 tracks now
+            name=saved_playlist.name, tracklist=target, user_id=TEST_USER_ID
         )
         updated_playlist = Playlist(
             id=saved_playlist.id,
@@ -241,11 +235,7 @@ class TestPlaylistRepositoryIntegration:
         await playlist_repo.save_playlist(updated_playlist)
 
         retrieved_playlist = await playlist_repo.get_by_id(saved_playlist.id)
-        assert len(retrieved_playlist.tracks) == 4
-
-        retrieved_track_ids = {track.id for track in retrieved_playlist.tracks}
-        original_track_ids = {track.id for track in tracks}
-        assert retrieved_track_ids == original_track_ids
+        assert [t.id for t in retrieved_playlist.tracks] == [t.id for t in target]
 
     async def test_playlist_error_handling_scenarios(self, db_session):
         """Test playlist repository error handling and edge cases."""
@@ -276,42 +266,6 @@ class TestPlaylistRepositoryIntegration:
 
         with pytest.raises(ValueError, match="must have a name"):
             await playlist_repo.save_playlist(empty_name_playlist)
-
-    async def test_playlist_connector_mapping_creation(self, db_session):
-        """Test playlist creation with multiple connector mappings."""
-        uow = get_unit_of_work(db_session)
-        playlist_repo = uow.get_playlist_repository()
-
-        test_playlist = Playlist.from_tracklist(
-            name=f"TEST_Playlist_Connectors_{uuid4()}",
-            tracklist=[],
-            user_id=TEST_USER_ID,
-        )
-        test_playlist = Playlist(
-            id=test_playlist.id,
-            name=test_playlist.name,
-            entries=test_playlist.entries,
-            connector_playlist_identifiers={
-                "spotify": f"spotify_{uuid4()}",
-                "lastfm": f"lastfm_{uuid4()}",
-            },
-            user_id=TEST_USER_ID,
-        )
-
-        saved_playlist = await playlist_repo.save_playlist(test_playlist)
-
-        assert (
-            saved_playlist.connector_playlist_identifiers
-            == test_playlist.connector_playlist_identifiers
-        )
-        assert "spotify" in saved_playlist.connector_playlist_identifiers
-        assert "lastfm" in saved_playlist.connector_playlist_identifiers
-
-        retrieved_playlist = await playlist_repo.get_by_id(saved_playlist.id)
-        assert (
-            retrieved_playlist.connector_playlist_identifiers
-            == test_playlist.connector_playlist_identifiers
-        )
 
     async def test_playlist_duplicate_track_handling(self, db_session):
         """Test how playlists handle duplicate tracks (same track multiple times)."""

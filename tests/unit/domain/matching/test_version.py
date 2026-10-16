@@ -9,9 +9,15 @@ still produce *a* hash, just one blind to most of the matcher's behavior.
 import attrs
 import pytest
 
-from src.domain.matching import algorithms, isrc_validation
+from src.domain.matching import (
+    algorithms,
+    isrc_validation,
+    probabilistic,
+    text_normalization,
+    types,
+)
 from src.domain.matching.config import MatchingConfig
-from src.domain.matching.probabilistic import TIER_BOUNDARIES
+from src.domain.matching.probabilistic import ComparisonLevel
 from src.domain.matching.version import (
     _canonical_serialization,  # pyright: ignore[reportPrivateUsage]
     _comparison_levels,  # pyright: ignore[reportPrivateUsage]
@@ -33,10 +39,6 @@ def make_config(**overrides: float) -> MatchingConfig:
 
 
 class TestDeterminism:
-    def test_same_config_yields_same_hash_twice(self):
-        config = make_config()
-        assert matcher_version(config) == matcher_version(config)
-
     def test_equal_but_distinct_config_instances_yield_the_same_hash(self):
         first = make_config()
         second = make_config()
@@ -49,60 +51,81 @@ class TestDeterminism:
 
 
 class TestConfigSensitivity:
-    def test_differing_threshold_changes_the_hash(self):
+    @pytest.mark.parametrize(
+        "field_name", [field.name for field in attrs.fields(MatchingConfig)]
+    )
+    def test_changing_any_config_field_changes_the_hash(self, field_name: str):
+        """Every field is hashed, including one added after this test was written."""
         baseline = make_config()
-        changed = make_config(auto_accept_threshold=86)
-        assert matcher_version(baseline) != matcher_version(changed)
+        changed = attrs.evolve(
+            baseline, **{field_name: getattr(baseline, field_name) + 1}
+        )
+        assert matcher_version(changed) != matcher_version(baseline)
 
-    def test_differing_float_score_changes_the_hash(self):
-        baseline = make_config()
+    def test_a_small_float_change_changes_the_hash(self):
         changed = make_config(phonetic_similarity_score=0.81)
-        assert matcher_version(baseline) != matcher_version(changed)
+        assert matcher_version(changed) != matcher_version(make_config())
+
+
+LEVEL_NAMES = [
+    "artist_alias_name",
+    "artist_exact",
+    "artist_high_fuzzy",
+    "artist_id_connector",
+    "artist_id_mbid",
+    "artist_low_fuzzy",
+    "artist_mismatch",
+    "artist_missing",
+    "artist_name_lastfm",
+    "artist_phonetic",
+    "duration_close",
+    "duration_mismatch",
+    "duration_missing",
+    "duration_moderate",
+    "duration_near",
+    "isrc_absent",
+    "isrc_exact",
+    "isrc_suspect",
+    "title_exact",
+    "title_high_fuzzy",
+    "title_mismatch",
+    "title_missing",
+    "title_moderate_fuzzy",
+    "title_phonetic",
+    "title_variation",
+]
 
 
 class TestBreadth:
-    def test_introspection_discovers_more_than_twenty_comparison_levels(self):
-        # Guards against the isinstance filter or vars() call silently
-        # returning nothing (e.g. a typo'd import) — the hash would still
-        # "work" but stop covering the matcher's actual behavior.
-        levels = _comparison_levels()
-        assert len(levels) > 20
+    def test_introspection_discovers_every_comparison_level_sorted_by_name(self):
+        # A filter or vars() bug that returned nothing would still produce a
+        # hash, just one blind to the matcher's behavior.
+        assert [level.name for level in _comparison_levels()] == LEVEL_NAMES
 
-    def test_canonical_serialization_includes_config_and_tier_boundaries(self):
-        serialized = _canonical_serialization(make_config())
-        assert "config:" in serialized
-        assert "tier_boundaries:" in serialized
-        for name, _ in TIER_BOUNDARIES:
-            assert name in serialized
+    def test_serialization_labels_each_hashed_input_in_a_fixed_order(self):
+        """One labelled line per hashed input, sorted keys within each.
 
-    def test_canonical_serialization_includes_every_discovered_level(self):
-        serialized = _canonical_serialization(make_config())
-        for level in _comparison_levels():
-            assert f"level:{level.name}:" in serialized
+        The labels are hashed too: renaming one would move every matcher
+        version without any matcher change.
+        """
+        expected_prefixes = [
+            "config:auto_accept_threshold=",
+            "tier_boundaries:duration_close_ms=",
+            "variation_markers:markers=",
+            "text_equivalences:rules=",
+            "isrc_validation:grade_methods=",
+            *(f"level:{name}:m_probability=" for name in LEVEL_NAMES),
+        ]
 
-    def test_canonical_serialization_covers_every_matching_config_field(self):
-        # The config section is built by attrs introspection precisely so a
-        # newly added field can't escape the hash — this asserts that property
-        # directly rather than trusting the six names someone typed out.
-        serialized = _canonical_serialization(make_config())
-        for field in attrs.fields(MatchingConfig):
-            assert field.name in serialized
+        lines = _canonical_serialization(make_config()).split("\n")
 
-    def test_canonical_serialization_includes_markers_equivalences_and_isrc_constants(
-        self,
-    ):
-        # The four constants that used to drive behavior from outside the hash.
-        serialized = _canonical_serialization(make_config())
-        assert "variation_markers:" in serialized
-        assert "text_equivalences:" in serialized
-        assert "isrc_validation:" in serialized
-        assert "live" in serialized  # a variation marker
-        assert "featuring" in serialized  # an equivalence replacement
-        assert "10000" in serialized  # SUSPECT_DURATION_DIFF_MS
+        assert len(lines) == len(expected_prefixes)
+        for line, prefix in zip(lines, expected_prefixes, strict=True):
+            assert line.startswith(prefix)
 
 
 class TestConstantSensitivity:
-    """Changing a module constant must change the serialization.
+    """Changing any hashed module constant must change the serialization.
 
     These target ``_canonical_serialization`` rather than ``matcher_version``
     on purpose: the latter is ``functools.cache``d on the config, so a
@@ -110,22 +133,65 @@ class TestConstantSensitivity:
     the test would pass for the wrong reason.
     """
 
-    def test_mutated_variation_marker_changes_the_serialization(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("module", "name", "value"),
+        [
+            pytest.param(
+                algorithms,
+                "VARIATION_MARKERS",
+                frozenset({"live"}),
+                id="variation_markers",
+            ),
+            pytest.param(
+                isrc_validation,
+                "SUSPECT_DURATION_DIFF_MS",
+                12_000,
+                id="suspect_duration",
+            ),
+            pytest.param(
+                types, "ISRC_GRADE_METHODS", ("isrc",), id="isrc_grade_methods"
+            ),
+            pytest.param(
+                text_normalization,
+                "EQUIVALENCE_RULES",
+                (("ft", 2, "featuring"),),
+                id="equivalence_rules",
+            ),
+            pytest.param(
+                probabilistic,
+                "TIER_BOUNDARIES",
+                (
+                    ("moderate_similarity", 0.75),
+                    ("duration_close_ms", 1_000),
+                    ("duration_near_ms", 3_000),
+                    ("duration_moderate_ms", 10_000),
+                ),
+                id="tier_boundaries",
+            ),
+            pytest.param(
+                probabilistic,
+                "TITLE_EXACT",
+                ComparisonLevel("title_exact", m_probability=0.9, u_probability=0.005),
+                id="level_m_probability",
+            ),
+            pytest.param(
+                probabilistic,
+                "TITLE_EXACT",
+                ComparisonLevel("title_exact", m_probability=0.95, u_probability=0.01),
+                id="level_u_probability",
+            ),
+        ],
+    )
+    def test_changing_a_hashed_constant_changes_the_serialization(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        module: object,
+        name: str,
+        value: object,
     ):
         config = make_config()
         baseline = _canonical_serialization(config)
 
-        monkeypatch.setattr(algorithms, "VARIATION_MARKERS", frozenset({"live"}))
-
-        assert _canonical_serialization(config) != baseline
-
-    def test_mutated_suspect_duration_changes_the_serialization(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        config = make_config()
-        baseline = _canonical_serialization(config)
-
-        monkeypatch.setattr(isrc_validation, "SUSPECT_DURATION_DIFF_MS", 12_000)
+        monkeypatch.setattr(module, name, value)
 
         assert _canonical_serialization(config) != baseline

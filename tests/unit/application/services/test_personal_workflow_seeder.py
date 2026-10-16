@@ -38,10 +38,11 @@ class TestSeedPersonalWorkflows:
             count = await seed_personal_workflows(uow, user_id="u1")
 
         assert count == 2
-        assert repo.save_workflow.call_count == 2
-        for call in repo.save_workflow.await_args_list:
-            saved = call.args[0]
-            assert saved.user_id == "u1"
+        saved = [call.args[0] for call in repo.save_workflow.await_args_list]
+        assert [(wf.user_id, wf.definition.id) for wf in saved] == [
+            ("u1", "personal_a"),
+            ("u1", "personal_b"),
+        ]
 
     async def test_second_run_updates_existing(self) -> None:
         existing = make_workflow(

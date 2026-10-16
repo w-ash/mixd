@@ -58,23 +58,26 @@ async def _cleanup(_init_test_schema: None):
 
 
 class TestPruneExpiredStates:
+    # The prune is global and other tests on this worker may have left expired
+    # rows behind, so each test prunes once first to start from a known state.
+
     async def test_removes_expired_and_keeps_live(self) -> None:
         """The live row is what a user mid-OAuth-flow depends on surviving a restart."""
-        expired = await _add_state(expires_in=timedelta(minutes=-5))
+        _ = await prune_expired_states()
+        _ = await _add_state(expires_in=timedelta(minutes=-5))
         live = await _add_state(expires_in=timedelta(minutes=5))
 
         pruned = await prune_expired_states()
 
-        assert pruned >= 1
-        surviving = await _surviving_states()
-        assert live in surviving
-        assert expired not in surviving
+        assert pruned == 1
+        # Only the live row is left, so the expired one is gone.
+        assert await _surviving_states() == {live}
 
     async def test_returns_zero_when_nothing_expired(self) -> None:
-        await _add_state(expires_in=timedelta(minutes=5))
+        _ = await prune_expired_states()
+        live = await _add_state(expires_in=timedelta(minutes=5))
 
-        # Other tests may leave expired rows behind, so assert on our own
-        # service's rows rather than on the global count.
-        await prune_expired_states()
+        pruned = await prune_expired_states()
 
-        assert len(await _surviving_states()) == 1
+        assert pruned == 0
+        assert await _surviving_states() == {live}

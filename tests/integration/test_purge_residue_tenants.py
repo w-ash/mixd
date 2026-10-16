@@ -442,9 +442,21 @@ class TestAnErrorInTheCheckAborts:
     async def test_a_statement_timeout_is_not_swallowed(
         self, conn: Conn, predicates: Predicates, tables: tuple[str, ...]
     ):
-        """The specific failure the draft turned into a clean bill of health."""
-        _ = _track(conn, user_id=_TENANT)
-        _ = conn.execute("SET LOCAL statement_timeout = '1ms'")
+        """The specific failure the draft turned into a clean bill of health.
+
+        Every closure table is shadowed, for this transaction only, by a temp
+        view that sleeps before its first row, so the check's first statement
+        outlives the timeout on any machine. ``pg_temp`` leads the search path
+        and the script names tables unqualified; the rollback drops the views.
+        """
+        for table in tables:
+            _ = conn.execute(
+                sql.SQL(
+                    "CREATE TEMP VIEW {view} AS SELECT * FROM public.{table}"
+                    " WHERE (SELECT true FROM pg_sleep(30))"
+                ).format(view=sql.Identifier(table), table=sql.Identifier(table))
+            )
+        _ = conn.execute("SET LOCAL statement_timeout = '200ms'")
 
         with pytest.raises(psycopg.errors.QueryCanceled):
             _ = find_cascade_blast(conn, predicates, _TENANT, tables)

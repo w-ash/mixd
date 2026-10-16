@@ -4,8 +4,9 @@ Validates the resolver's outcomes for an answered track (ISRC reuse, suspect
 collision deferral, plain creation, no-ISRC refusal), the ``replacement``
 successor path (primary on the successor id, stale secondary on the requested
 id, ``substituted`` event through the shared seam — Tidal is the first
-``SuccessorHook`` implementor), backoff bookkeeping for unresolvable ids,
-and backoff suppression inherited from the base class.
+``SuccessorHook`` implementor), and backoff bookkeeping for unresolvable ids.
+Backoff suppression is base-class behavior, guarded once in the Apple Music
+resolver tests.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -14,7 +15,6 @@ import pytest
 
 from src.domain.exceptions import TidalAuthRequiredError
 from src.domain.repositories.connector import ConnectorMappingSpec
-from src.infrastructure.connectors._shared.successor_resolution import SuccessorHook
 from src.infrastructure.connectors.tidal.client import TIDAL_COUNTRY_CODE
 from src.infrastructure.connectors.tidal.inward_resolver import TidalInwardResolver
 from tests.fixtures import (
@@ -79,17 +79,9 @@ def _substituted_events(recorder):
 
 
 class TestConnectorContract:
-    def test_connector_name_is_tidal(self):
-        resolver, _ = _make_resolver()
-        assert resolver.connector_name == "tidal"
-
     def test_normalize_id_strips(self):
         resolver, _ = _make_resolver()
         assert resolver._normalize_id("  12345 ") == "12345"
-
-    def test_resolver_satisfies_successor_hook_protocol(self):
-        resolver, _ = _make_resolver()
-        assert isinstance(resolver, SuccessorHook)
 
 
 class TestIsrcReuse:
@@ -467,19 +459,3 @@ class TestReplacementSuccessor:
         assert assertion.requested_id == "old101"
         assert assertion.returned_id == "new202"
         assert assertion.detection == "replacement_pointer"
-
-
-class TestBackoffSuppression:
-    async def test_backoff_suppressed_ids_are_not_fetched(self):
-        """Ids inside their backoff window never reach the API."""
-        resolver, client = _make_resolver()
-        uow, _, _, recorder = _make_uow()
-        recorder.backoff_suppressed.return_value = frozenset({"101"})
-
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["101"], uow, user_id="test-user"
-        )
-
-        assert result == {}
-        assert metrics.suppressed == 1
-        client.get_track.assert_not_awaited()

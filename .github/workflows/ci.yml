@@ -24,9 +24,64 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # Depth 2 makes HEAD~1 available: the base branch tip for a PR merge commit,
+      # the previous main commit for a push. The vacuity ratchet compares to it.
       - uses: actions/checkout@v7
         with:
           submodules: false
+          fetch-depth: 2
+
+      # Full version, not `@v10` — setup-uv stopped publishing major/minor tags at
+      # v8.0.0 (deliberately, as a supply-chain measure after the tj-actions
+      # compromise), so a shortened `@v10` fails at "Unable to resolve action".
+      # Dependabot's github-actions ecosystem still bumps an exact tag like this.
+      - uses: astral-sh/setup-uv@v10.1.0
+
+      # --locked, not --frozen: assert uv.lock is current for pyproject.toml. --frozen
+      # installs a stale lock happily, deferring the failure to the Dockerfile's
+      # `uv sync --locked` at Fly deploy — after the release tag is already published.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # DB-free static checks run before the Neon branch exists, so a lint failure
+      # costs no branch or migration.
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run basedpyright src/
+
+      - name: Dead code (Python)
+        run: uv run vulture
+
+      # Counts may only fall: vulture whitelist entries and suppressions in src/.
+      - name: Suppression ratchet
+        run: bash scripts/check_ratchet.sh
+
+      # Syntactically vacuous tests (.claude/rules/test-value.md), ratcheted against
+      # tests/.vacuity_baseline.json. --base-ref HEAD~1 fails when the baseline lists
+      # an id the base commit's baseline does not, so --update-baseline cannot hide a
+      # new offender. Mutation testing and the red check stay in /ship — too slow
+      # for every push.
+      - name: Test vacuity ratchet
+        run: uv run python scripts/check_test_vacuity.py --base-ref HEAD~1
+
+      # Undeclared imports: catches code importing a package we only receive
+      # transitively (a fastapi bump could otherwise move starlette out from
+      # under src/interface/api's middleware). Config in pyproject.toml.
+      - name: Dependency check
+        run: uvx deptry .
+
+      # Layer boundaries: Interface → Application → Domain ← Infrastructure.
+      # --no-cache is load-bearing — a cached run silently under-reports (18
+      # edges vs 22 measured on the same tree), so a cache-hit green would be
+      # indistinguishable from a real green. Contracts in pyproject.toml; every
+      # sanctioned edge is documented in .claude/rules/.
+      - name: Layer contracts
+        run: uv run lint-imports --no-cache
 
       # TTL backstop: push branches expire in 1 day, PR branches in 7
       # (neon-cleanup.yml only covers PR close; expiry catches everything else)
@@ -51,46 +106,8 @@ jobs:
         env:
           DB_URL: ${{ steps.neon-branch.outputs.db_url }}
 
-      # Full version, not `@v10` — setup-uv stopped publishing major/minor tags at
-      # v8.0.0 (deliberately, as a supply-chain measure after the tj-actions
-      # compromise), so a shortened `@v10` fails at "Unable to resolve action".
-      # Dependabot's github-actions ecosystem still bumps an exact tag like this.
-      - uses: astral-sh/setup-uv@v10.1.0
-
-      # --locked, not --frozen: assert uv.lock is current for pyproject.toml. --frozen
-      # installs a stale lock happily, deferring the failure to the Dockerfile's
-      # `uv sync --locked` at Fly deploy — after the release tag is already published.
-      - name: Install dependencies
-        run: uv sync --locked
-
       - name: Run migrations
         run: uv run alembic upgrade head
-
-      - name: Lint
-        run: uv run ruff check .
-
-      - name: Format check
-        run: uv run ruff format --check .
-
-      - name: Type check
-        run: uv run basedpyright src/
-
-      - name: Dead code (Python)
-        run: uv run vulture
-
-      # Undeclared imports: catches code importing a package we only receive
-      # transitively (a fastapi bump could otherwise move starlette out from
-      # under src/interface/api's middleware). Config in pyproject.toml.
-      - name: Dependency check
-        run: uvx deptry .
-
-      # Layer boundaries: Interface → Application → Domain ← Infrastructure.
-      # --no-cache is load-bearing — a cached run silently under-reports (18
-      # edges vs 22 measured on the same tree), so a cache-hit green would be
-      # indistinguishable from a real green. Contracts in pyproject.toml; every
-      # sanctioned edge is documented in .claude/rules/.
-      - name: Layer contracts
-        run: uv run lint-imports --no-cache
 
       - name: Test with coverage
         run: uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80

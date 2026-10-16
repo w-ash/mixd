@@ -10,17 +10,37 @@ statement budget downstream.
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from src.config.telemetry import current_probe, measure_chunk, operation_scope
-from src.infrastructure.persistence.database.db_connection import _statement_starts
+from src.infrastructure.persistence.database.db_connection import (
+    _statement_starts,
+    create_session_factory,
+)
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 
 
+@pytest.fixture
+def engine(_test_engine: AsyncEngine) -> AsyncEngine:
+    """The shared test engine, for a session built by the production factory."""
+    return _test_engine
+
+
 class TestStatementProbe:
-    async def test_counts_transaction_begin_and_the_statement(self, db_session):
-        """A first statement costs two round trips: the RLS set_config, then itself."""
-        async with measure_chunk() as probe:
-            _ = await db_session.execute(text("SELECT 1"))
+    async def test_counts_transaction_begin_and_the_statement(
+        self, engine: AsyncEngine
+    ):
+        """A first statement costs two round trips: the RLS set_config, then itself.
+
+        Uses a production session factory rather than ``db_session``: that
+        fixture's session opens its own SAVEPOINT on first use, and whether the
+        ``after_begin`` hook is registered there depends on whether an earlier
+        test on the worker built a production factory — so its count is
+        order-dependent. A production factory always registers the hook.
+        """
+        factory = create_session_factory(engine)
+        async with factory() as session, measure_chunk() as probe:
+            _ = await session.execute(text("SELECT 1"))
 
         assert probe.statements == 2
         assert probe.db_ns > 0

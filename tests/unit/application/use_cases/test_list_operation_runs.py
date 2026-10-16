@@ -17,7 +17,6 @@ from src.application.use_cases.list_operation_runs import (
     ListOperationRunsCommand,
     ListOperationRunsUseCase,
 )
-from src.domain.repositories.operation_run import OPERATION_RUN_SORT
 from tests.fixtures import make_mock_uow, make_operation_run
 
 
@@ -46,7 +45,7 @@ class TestListOperationRunsUseCase:
         assert result.runs == runs
         assert result.next_cursor is not None
         decoded = decode_cursor(result.next_cursor)
-        assert decoded.sort_key == OPERATION_RUN_SORT.key
+        assert decoded.sort_key == "started_at_desc"
         assert decoded.last_id == runs[-1].id
 
     @pytest.mark.asyncio

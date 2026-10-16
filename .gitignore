@@ -89,6 +89,13 @@ web/dist/
 web/playwright-report/
 web/test-results/
 
+# Mutation testing working dirs and reports (mutmut, Stryker) and local
+# test-value audit output
+mutants/
+web/.stryker-tmp/
+web/reports/
+.test-audit/
+
 ###################
 # Tool Artifacts  #
 ###################

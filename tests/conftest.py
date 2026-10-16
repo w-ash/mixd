@@ -10,6 +10,7 @@ import os
 import sys
 from unittest.mock import patch
 
+from hypothesis import HealthCheck, settings
 import pytest
 from pytest_asyncio import fixture as async_fixture
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -17,6 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from src.infrastructure.persistence.database.db_connection import (
     init_db,
     reset_engine_cache,
+)
+
+# Loaded only by mutation runs (`[tool.mutmut] pytest_add_cli_args`); the
+# scripts/mutmut_run.py docstring gives the reasons for each setting.
+settings.register_profile(
+    "mutmut",
+    derandomize=True,
+    database=None,
+    suppress_health_check=[HealthCheck.differing_executors],
 )
 
 

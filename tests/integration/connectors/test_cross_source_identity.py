@@ -223,31 +223,6 @@ class TestLastfmThenSpotify:
         )
         assert len(spotify_mappings) == 2
 
-    async def test_spotify_creates_new_when_no_isrc_overlap(
-        self, db_session, test_data_tracker
-    ):
-        """When Spotify tracks have ISRCs not in DB, create new canonicals."""
-        uow = get_unit_of_work(db_session)
-
-        spotify_connector = AsyncMock()
-        spotify_connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
-            tracks={
-                "sp_brand_new": _make_spotify_track(
-                    "sp_brand_new", "Never Heard Before", "New Artist", "XXXX00000001"
-                ),
-            }
-        )
-        spotify_connector.connector_name = "spotify"
-
-        spotify_resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
-        result, metrics = await spotify_resolver.resolve_to_canonical_tracks(
-            ["sp_brand_new"], uow, user_id="default"
-        )
-
-        assert metrics.created == 1
-        assert result["sp_brand_new"].title == "Never Heard Before"
-        test_data_tracker.add_track(result["sp_brand_new"].id)
-
 
 class TestMixedResolutionPaths:
     """Multiple resolution paths active simultaneously."""

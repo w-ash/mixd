@@ -9,6 +9,9 @@ import { useWorkflowSSE } from "./useWorkflowSSE";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
+// connectToSSE is the transport boundary. Mocked (not MSW) so a test controls
+// frames one by one: hold a stream open, end it without a terminal, or throw
+// mid-stream to drive the resume path.
 vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
@@ -21,7 +24,6 @@ vi.mock("#/api/client", () => ({
 }));
 
 import { customFetch } from "#/api/client";
-import { connectToSSE } from "#/api/sse-client";
 import { mockSSEWithEvents, sseFrame } from "#/test/sse-test-utils";
 
 // ─── Test wrapper ───────────────────────────────────────────────
@@ -37,7 +39,7 @@ function createWrapper() {
 
 describe("useWorkflowSSE", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    vi.resetAllMocks();
   });
 
   it("starts with idle state", () => {
@@ -100,28 +102,6 @@ describe("useWorkflowSSE", () => {
     expect(result.current.runAccepted).toBe(false);
   });
 
-  it("start() sets operationId and isRunning, connects SSE", async () => {
-    mockSSEWithEvents([]);
-
-    const { result } = renderHook(() => useWorkflowSSE(), {
-      wrapper: createWrapper(),
-    });
-
-    act(() => {
-      result.current.start("op-123");
-    });
-
-    expect(result.current.operationId).toBe("op-123");
-    expect(result.current.isRunning).toBe(true);
-
-    await waitFor(() => {
-      expect(connectToSSE).toHaveBeenCalledWith(
-        "/api/v1/operations/op-123/progress",
-        expect.any(AbortSignal),
-      );
-    });
-  });
-
   it("forwards node_status events to nodeStatuses map", async () => {
     mockSSEWithEvents([
       sseFrame("node_status", {
@@ -151,11 +131,11 @@ describe("useWorkflowSSE", () => {
     });
 
     await waitFor(() => {
-      const status = result.current.nodeStatuses.get("source_1");
-      expect(status).toBeDefined();
-      expect(status?.status).toBe("completed");
-      expect(status?.durationMs).toBe(300);
-      expect(status?.outputTrackCount).toBe(42);
+      expect(result.current.nodeStatuses.get("source_1")).toMatchObject({
+        status: "completed",
+        durationMs: 300,
+        outputTrackCount: 42,
+      });
     });
   });
 
@@ -325,8 +305,17 @@ describe("useWorkflowSSE", () => {
   });
 
   it("start() resets previous error and nodeStatuses", async () => {
-    // First: trigger an error
-    mockSSEWithEvents([sseFrame("error", { error_message: "first error" })]);
+    // First run: one node reports, then the run fails.
+    mockSSEWithEvents([
+      sseFrame("node_status", {
+        node_id: "n1",
+        node_type: "source.playlist",
+        status: "failed",
+        execution_order: 1,
+        total_nodes: 1,
+      }),
+      sseFrame("error", { error_message: "first error" }),
+    ]);
 
     const { result } = renderHook(() => useWorkflowSSE(), {
       wrapper: createWrapper(),
@@ -337,8 +326,9 @@ describe("useWorkflowSSE", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.error).not.toBeNull();
+      expect(result.current.error?.message).toBe("first error");
     });
+    expect(result.current.nodeStatuses.size).toBe(1);
 
     // Second: start again — error should clear
     mockSSEWithEvents([]);

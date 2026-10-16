@@ -1,22 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { toasts } from "#/lib/toasts";
 
 import { useImportOperation } from "./useImportOperation";
-
-const mockMessage = vi.fn();
-const mockError = vi.fn();
-vi.mock("#/lib/toasts", async () => {
-  const actual =
-    await vi.importActual<typeof import("#/lib/toasts")>("#/lib/toasts");
-  return {
-    ...actual,
-    toasts: {
-      ...actual.toasts,
-      message: (...args: unknown[]) => mockMessage(...args),
-      error: (...args: unknown[]) => mockError(...args),
-    },
-  };
-});
 
 interface Variables {
   data: { mode: string };
@@ -39,8 +26,12 @@ function fakeMutation(response?: { status: number; data: unknown }) {
 }
 
 beforeEach(() => {
-  mockMessage.mockReset();
-  mockError.mockReset();
+  vi.spyOn(toasts, "message");
+  vi.spyOn(toasts, "error");
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("useImportOperation", () => {
@@ -61,7 +52,7 @@ describe("useImportOperation", () => {
     expect(result.current.operationId).toBe("op-1");
     expect(result.current.runId).toBe("run-1");
     expect(onStarted).toHaveBeenCalledOnce();
-    expect(mockMessage).not.toHaveBeenCalled();
+    expect(toasts.message).not.toHaveBeenCalled();
   });
 
   it("treats a missing run_id as no audit row", () => {
@@ -91,7 +82,7 @@ describe("useImportOperation", () => {
 
     expect(result.current.operationId).toBeNull();
     expect(onStarted).not.toHaveBeenCalled();
-    expect(mockMessage).toHaveBeenCalledWith(
+    expect(toasts.message).toHaveBeenCalledWith(
       "Failed to start Spotify likes import",
       { description: "Unexpected response (204)" },
     );
@@ -105,7 +96,7 @@ describe("useImportOperation", () => {
     act(() => result.current.trigger({ data: { mode: "recent" } }));
 
     expect(result.current.operationId).toBeNull();
-    expect(mockError).toHaveBeenCalledWith(
+    expect(toasts.error).toHaveBeenCalledWith(
       "Failed to start Last.fm likes export",
       expect.any(Error),
     );

@@ -9,16 +9,14 @@
  * are observable end-to-end.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
 import { createElement, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-vi.mock("#/api/client", () => ({
-  customFetch: vi.fn(),
-}));
-
-import { customFetch } from "#/api/client";
+import { createTestQueryClient } from "#/test/query-utils";
+import { server } from "#/test/setup";
 
 import {
   type OperationSnapshot,
@@ -26,12 +24,7 @@ import {
 } from "./useOperationSnapshot";
 
 function createWrapper() {
-  const client = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: 0 },
-      mutations: { retry: false },
-    },
-  });
+  const client = createTestQueryClient();
   return function Wrapper({ children }: { children: ReactNode }) {
     return createElement(QueryClientProvider, { client }, children);
   };
@@ -52,29 +45,34 @@ const sampleSnapshot: OperationSnapshot = {
   ],
 };
 
-describe("useOperationSnapshot", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
+/** Serve `respond` for the snapshot route and record each requested op id. */
+function mockSnapshot(respond: () => Response) {
+  const requested: string[] = [];
+  server.use(
+    http.get("*/api/v1/operations/:operationId/snapshot", ({ params }) => {
+      requested.push(String(params.operationId));
+      return respond();
+    }),
+  );
+  return requested;
+}
 
+describe("useOperationSnapshot", () => {
   it("does not call the endpoint when disabled", async () => {
+    const requested = mockSnapshot(() => HttpResponse.json(sampleSnapshot));
+
     const { result } = renderHook(
       () => useOperationSnapshot("op-1", { enabled: false }),
       { wrapper: createWrapper() },
     );
 
-    // Allow microtasks to flush
-    await new Promise((r) => setTimeout(r, 10));
-    expect(customFetch).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(requested).toEqual([]);
     expect(result.current.data).toBeUndefined();
   });
 
-  it("fetches and unwraps the envelope when enabled", async () => {
-    vi.mocked(customFetch).mockResolvedValue({
-      data: sampleSnapshot,
-      status: 200,
-      headers: new Headers(),
-    });
+  it("fetches the operation's snapshot and unwraps the envelope when enabled", async () => {
+    const requested = mockSnapshot(() => HttpResponse.json(sampleSnapshot));
 
     const { result } = renderHook(
       () => useOperationSnapshot("op-1", { enabled: true }),
@@ -84,13 +82,16 @@ describe("useOperationSnapshot", () => {
     await waitFor(() => {
       expect(result.current.data).toEqual(sampleSnapshot);
     });
-    expect(customFetch).toHaveBeenCalledWith(
-      "/api/v1/operations/op-1/snapshot",
-    );
+    expect(requested[0]).toBe("op-1");
   });
 
-  it("surfaces errors instead of swallowing them", async () => {
-    vi.mocked(customFetch).mockRejectedValue(new Error("404"));
+  it("surfaces a failed fetch as an error after one attempt", async () => {
+    const requested = mockSnapshot(() =>
+      HttpResponse.json(
+        { error: { code: "NOT_FOUND", message: "Operation not found" } },
+        { status: 404 },
+      ),
+    );
 
     const { result } = renderHook(
       () => useOperationSnapshot("op-bad", { enabled: true }),
@@ -100,9 +101,7 @@ describe("useOperationSnapshot", () => {
     await waitFor(() => {
       expect(result.current.isError).toBe(true);
     });
-    // retry: false means the failed call doesn't burn into multiple
-    // attempts inside Tanstack's retry loop. The refetchInterval may
-    // still fire later, but the immediate failure is single-shot.
-    expect(customFetch).toHaveBeenCalled();
+    expect(result.current.error?.message).toBe("Operation not found");
+    expect(requested).toEqual(["op-bad"]);
   });
 });

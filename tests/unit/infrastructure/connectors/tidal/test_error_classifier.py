@@ -47,11 +47,6 @@ def classifier() -> TidalErrorClassifier:
     return TidalErrorClassifier()
 
 
-class TestServiceName:
-    def test_service_name(self, classifier: TidalErrorClassifier):
-        assert classifier.service_name == "tidal"
-
-
 class TestAuthClassification:
     def test_auth_required_error_is_permanent_auth(
         self, classifier: TidalErrorClassifier

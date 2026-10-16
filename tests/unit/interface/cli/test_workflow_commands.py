@@ -7,11 +7,11 @@ rather than file-based workflow loading.
 import json
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
-from src.application.use_cases.workflow_crud import ListWorkflowsResult
 from src.interface.cli.app import app
-from tests.fixtures import fake_run_async, make_workflow, make_workflow_def
+from tests.fixtures import fake_run_async, make_workflow, make_workflow_def, plain
 
 runner = CliRunner()
 
@@ -35,20 +35,6 @@ _CUSTOM = make_workflow(
 )
 
 _MIXED = [*_TEMPLATES, _CUSTOM]
-
-
-def _mock_list_result() -> ListWorkflowsResult:
-    return ListWorkflowsResult(workflows=_TEMPLATES, total_count=len(_TEMPLATES))
-
-
-def _patch_db():
-    """Patch run_async for list operations."""
-    return [
-        patch(
-            "src.interface.cli.workflow_commands.run_async",
-            side_effect=fake_run_async(_TEMPLATES),
-        ),
-    ]
 
 
 class TestWorkflowList:
@@ -105,17 +91,11 @@ class TestWorkflowResolve:
         assert result is not None
         assert result.id == 1
 
-    def test_resolve_unknown_returns_none(self):
+    @pytest.mark.parametrize("identifier", ["nonexistent", "999"])
+    def test_resolve_unmatched_slug_or_id_returns_none(self, identifier: str):
         from src.interface.cli.workflow_commands import _resolve_workflow
 
-        result = _resolve_workflow(_TEMPLATES, "nonexistent")
-        assert result is None
-
-    def test_resolve_invalid_number_returns_none(self):
-        from src.interface.cli.workflow_commands import _resolve_workflow
-
-        result = _resolve_workflow(_TEMPLATES, "999")
-        assert result is None
+        assert _resolve_workflow(_TEMPLATES, identifier) is None
 
 
 def _run_async_sequence(*values):
@@ -298,16 +278,16 @@ class TestWorkflowExport:
 class TestWorkflowSeedPersonal:
     """Tests for the seed-personal CLI command."""
 
-    def test_seed_personal_table_output(self):
+    @pytest.mark.parametrize("count", [3, 0])
+    def test_seed_personal_table_output_reports_the_count(self, count: int):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            side_effect=fake_run_async(3),
+            side_effect=fake_run_async(count),
         ):
             result = runner.invoke(app, ["workflow", "seed-personal"])
 
-            assert result.exit_code == 0
-            assert "Seeded" in result.output
-            assert "3" in result.output
+        assert result.exit_code == 0
+        assert f"Seeded {count} personal workflow(s)" in plain(result.output)
 
     def test_seed_personal_json_output(self):
         with patch(
@@ -320,13 +300,3 @@ class TestWorkflowSeedPersonal:
 
             assert result.exit_code == 0
             assert '"seeded": 2' in result.output
-
-    def test_seed_personal_zero_count(self):
-        with patch(
-            "src.interface.cli.workflow_commands.run_async",
-            side_effect=fake_run_async(0),
-        ):
-            result = runner.invoke(app, ["workflow", "seed-personal"])
-
-            assert result.exit_code == 0
-            assert "0" in result.output

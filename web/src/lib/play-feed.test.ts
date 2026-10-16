@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PlayEventSchema } from "#/api/generated/model";
-import { bucketRange, formatDayLabel, groupPlaysByDay } from "./play-feed";
+import { bucketRange, groupPlaysByDay } from "./play-feed";
 
 // Local-time constructions keep the local-day grouping TZ-independent.
 const NOW = new Date(2026, 7, 20, 18, 0);
@@ -30,12 +30,12 @@ describe("groupPlaysByDay", () => {
       makeEvent({ track_id: "t3", played_at: localIso(1, 10) }),
     ];
     const groups = groupPlaysByDay(events, NOW);
+    // Same year as NOW, so the absolute label omits the year (en-US).
     expect(groups.map((g) => g.label)).toEqual([
       "Today",
       "Yesterday",
-      formatDayLabel("2026-08-01", NOW),
+      "Sat, Aug 1",
     ]);
-    expect(groups[2].label).toMatch(/Aug/);
   });
 
   it("collapses consecutive same-track runs with count and range", () => {

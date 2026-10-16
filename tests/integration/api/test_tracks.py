@@ -114,19 +114,22 @@ class TestListTracksEndpoint:
         titles = [t["title"] for t in body["data"]]
         assert titles == ["Alpha", "Zebra"]
 
-    async def test_track_schema_fields(self, client: httpx2.AsyncClient) -> None:
-        await _create_track(client, "Test Song", "Test Artist")
+    async def test_list_row_for_a_fresh_track(self, client: httpx2.AsyncClient) -> None:
+        """A track with no mappings, likes, tags or plays lists with empty summaries."""
+        track_id = await _create_track(client, "Test Song", "Test Artist")
 
         response = await client.get("/api/v1/tracks")
 
         track = response.json()["data"][0]
-        assert "id" in track
-        assert "title" in track
-        assert "artists" in track
-        assert "album" in track
-        assert "duration_ms" in track
-        assert "connector_names" in track
-        assert "is_liked" in track
+        assert track["id"] == str(track_id)
+        assert track["title"] == "Test Song"
+        assert [a["name"] for a in track["artists"]] == ["Test Artist"]
+        assert track["album"] is None
+        assert track["duration_ms"] is None
+        assert track["connector_names"] == []
+        assert track["is_liked"] is False
+        assert track["tags"] == []
+        assert track["total_plays"] == 0
 
 
 class TestGetTrackDetailEndpoint:
@@ -142,17 +145,21 @@ class TestGetTrackDetailEndpoint:
         assert body["title"] == "Creep"
         assert body["artists"][0]["name"] == "Radiohead"
 
-    async def test_detail_schema_fields(self, client: httpx2.AsyncClient) -> None:
+    async def test_detail_for_a_fresh_track(self, client: httpx2.AsyncClient) -> None:
+        """A track with no mappings, likes, playlists or plays has empty sections."""
         track_id = await _create_track(client, "Test Song")
 
         response = await client.get(f"/api/v1/tracks/{track_id}")
 
         body = response.json()
-        assert "connector_mappings" in body
-        assert "like_status" in body
-        assert "play_summary" in body
-        assert "playlists" in body
-        assert body["play_summary"]["total_plays"] == 0
+        assert body["connector_mappings"] == []
+        assert body["like_status"] == {}
+        assert body["playlists"] == []
+        assert body["play_summary"] == {
+            "total_plays": 0,
+            "first_played": None,
+            "last_played": None,
+        }
 
     async def test_nonexistent_track_returns_404(
         self, client: httpx2.AsyncClient

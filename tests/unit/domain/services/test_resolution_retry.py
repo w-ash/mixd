@@ -31,11 +31,6 @@ class TestNoMatchBackoffCurve:
     def test_beyond_five_stays_at_the_cap(self) -> None:
         assert next_no_match_check(20, key="") == 32 * _ONE_DAY
 
-    def test_matches_the_policy_directly(self) -> None:
-        assert next_no_match_check(3, key="") == NO_MATCH_BACKOFF.next_interval(
-            3, key=""
-        )
-
 
 class TestDebounceConstants:
     def test_death_debounce_requires_three_failures(self) -> None:

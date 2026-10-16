@@ -7,7 +7,6 @@ dump plus ``album_id`` and ``explicit``.
 
 from src.infrastructure.connectors.spotify.conversions import (
     convert_spotify_track_to_connector,
-    spotify_artist_credits,
 )
 from src.infrastructure.connectors.spotify.models import SpotifyAlbum, SpotifyArtist
 from tests.fixtures import make_spotify_track
@@ -57,13 +56,6 @@ class TestArtistCredits:
     def test_no_artist_ids_ride_in_the_raw_metadata(self):
         ct = convert_spotify_track_to_connector(make_spotify_track("sp1", "Song"))
         assert "artist_ids" not in ct.raw_metadata
-
-    def test_spotify_artist_credits_maps_missing_id_to_none(self):
-        artists = [SpotifyArtist(name="NoId"), SpotifyArtist(id="a2", name="Beta")]
-        assert [
-            (c.credited_name, c.connector_artist_identifier)
-            for c in spotify_artist_credits(artists)
-        ] == [("NoId", None), ("Beta", "a2")]
 
 
 class TestRawMetadataShape:

@@ -33,7 +33,8 @@ E2E runs against a Vite dev server with no real backend. Use `page.route()` for 
 
 `visual.spec.ts` baselines each route × theme via `toHaveScreenshot`. Snapshots live under `web/e2e/__screenshots__/visual.spec.ts/`.
 
-- **Baselines are Linux-only**: generated in the Playwright Docker image pinned in `.github/workflows/ci.yml` (currently `mcr.microsoft.com/playwright:v1.62.1-noble`; the tag MUST match `@playwright/test` in `web/pnpm-lock.yaml` or browsers fail to launch). Local macOS PNGs won't match. Regenerate via the Docker procedure in `web/e2e/README.md`; a browser bump drifts antialiasing ~1%, so baselines regenerate with every Playwright bump.
+- **Baselines are Linux amd64-only**: generated in the Playwright Docker image pinned in `.github/workflows/ci.yml` (currently `mcr.microsoft.com/playwright:v1.63.0-noble`; the tag MUST match `@playwright/test` in `web/pnpm-lock.yaml` or browsers fail to launch) run with `--platform linux/amd64`. Local macOS PNGs won't match, and neither do arm64 Docker renders: the grain overlay rasterizes 1–3 levels apart between arm64 and amd64, enough to move a diff across `maxDiffPixelRatio`. Regenerate via the Docker procedure in `web/e2e/README.md`; a browser bump drifts antialiasing ~1%, so baselines regenerate with every Playwright bump.
+- **`visual.spec.ts` mocks every `/api/v1/` call** (404 default, `/operation-runs` empty, `/settings` returning the test's theme) and fixes the clock before `goto`. The page reads its theme from `/settings` and defaults to dark, so `emulateMedia` alone never produces a light render.
 - Settle deterministically before capture: `await Promise.all([page.evaluate(() => document.fonts.ready), page.waitForLoadState("networkidle")])`.
 - Diff config (in `playwright.config.ts`): `maxDiffPixelRatio: 0.005`, `animations: "disabled"`, `caret: "hide"`.
 - Mask dynamic content (relative timestamps, avatars) at the locator level when adding new pages.
@@ -48,7 +49,7 @@ Worked example: **Playlist Detail** — `playlist-detail-states.audit.spec.ts` +
 - **Type the fixtures against the generated model** (`import type … from "../../src/api/generated/model"`) so schema drift is a `tsc` error. A sibling Vitest test in `src/` that imports the fixtures pulls them into the type program (`tsconfig` only includes `src/`).
 - **Route-mock gotcha:** key the API branch on the precise **`/api/v1/`** prefix, *not* a bare `/api/` — Vite serves the app's own source under `/src/api/`, so a bare match hijacks the module graph and React never mounts (and a blank screenshot still "passes"). Default unmocked `/api/v1/` calls to **404, not 503**: `query-client` retries `status >= 500`, and that churn never lets `networkidle` settle.
 - **Determinism:** `await page.clock.setFixedTime(new Date(...))` *before* `goto` so relative timestamps ("4d ago") are stable; pass `{ animations: "disabled", caret: "hide" }` to `page.screenshot()` (plain screenshots, unlike `toHaveScreenshot`, don't freeze CSS animations or hide the caret).
-- **Theme + viewport:** `emulateMedia({ colorScheme })` flips the theme (ThemeContext defaults to `system`); loop `{mobile, desktop} × {light, dark}` with `setViewportSize`. Full-page for composition, a dialog/section locator for detail.
+- **Theme + viewport:** the theme comes from the mocked `/settings` response (the app defaults to dark when it is absent; `emulateMedia({ colorScheme })` alone does not flip it); loop `{mobile, desktop} × {light, dark}` with `setViewportSize`. Full-page for composition, a dialog/section locator for detail.
 - Then **read the PNGs and audit each against `web-design-system.md`** — fix what's indefensible. `__audit__/*.png` is auto-gitignored by the blanket `*.png` rule.
 
 ## Assertions

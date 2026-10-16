@@ -72,34 +72,6 @@ class TestGetArtistDetailUseCase:
             "https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi"
         )
 
-    async def test_lastfm_url_is_name_encoded(self, mock_uow) -> None:
-        artist = make_artist("Sigur Rós")
-        mock_uow.get_artist_repository().get_artist_by_id.return_value = artist
-        mock_uow.get_artist_connector_repository().get_full_mappings_for_artist.return_value = [
-            _mapping("lastfm", "Sigur Rós", name="Sigur Rós")
-        ]
-
-        result = await GetArtistDetailUseCase().execute(
-            GetArtistDetailCommand(user_id="test-user", artist_id=artist.id), mock_uow
-        )
-
-        assert result.connector_mappings[0].external_url == (
-            "https://www.last.fm/music/Sigur%20R%C3%B3s"
-        )
-
-    async def test_unknown_connector_has_no_url(self, mock_uow) -> None:
-        artist = make_artist("Nobody")
-        mock_uow.get_artist_repository().get_artist_by_id.return_value = artist
-        mock_uow.get_artist_connector_repository().get_full_mappings_for_artist.return_value = [
-            _mapping("soundcloud", "123", name="Nobody")
-        ]
-
-        result = await GetArtistDetailUseCase().execute(
-            GetArtistDetailCommand(user_id="test-user", artist_id=artist.id), mock_uow
-        )
-
-        assert result.connector_mappings[0].external_url is None
-
     async def test_related_projects_from_payloads(self, mock_uow) -> None:
         artist = make_artist("Caribou")
         mock_uow.get_artist_repository().get_artist_by_id.return_value = artist

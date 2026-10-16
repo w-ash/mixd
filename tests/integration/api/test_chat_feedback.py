@@ -1,6 +1,12 @@
 """Integration tests for POST /api/v1/chat/feedback."""
 
+from uuid import UUID
+
 import httpx2
+from sqlalchemy import select
+
+from src.infrastructure.persistence.database.db_connection import get_session
+from src.infrastructure.persistence.database.models import DBChatFeedback
 
 _BODY = {
     "prompt": "build me a chill weekend playlist",
@@ -19,7 +25,18 @@ async def test_feedback_persists_with_full_context(client: httpx2.AsyncClient) -
     )
 
     assert resp.status_code == 201
-    assert resp.json()["id"]
+    feedback_id = UUID(resp.json()["id"])
+    async with get_session() as session:
+        row = (
+            await session.execute(
+                select(DBChatFeedback).where(DBChatFeedback.id == feedback_id)
+            )
+        ).scalar_one()
+    assert row.user_id == "default"
+    assert row.prompt == "build me a chill weekend playlist"
+    assert row.generated_workflow_def == _BODY["generated_workflow_def"]
+    assert row.signal == "negative"
+    assert row.note == "meh"
 
 
 async def test_feedback_without_note_is_valid(client: httpx2.AsyncClient) -> None:

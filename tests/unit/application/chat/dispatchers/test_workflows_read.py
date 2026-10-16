@@ -292,10 +292,3 @@ class TestQueryVersionHistory:
         # Definition name is user-originated free text — wrapped at the boundary.
         assert out["definition"]["name"] == wrap("My Mix")
         assert out["definition"]["task_count"] == 1
-
-
-class TestSpecs:
-    def test_two_read_tools_registered(self) -> None:
-        names = [spec["name"] for spec in workflows_read.SPECS]
-        assert names == ["preview_workflow", "query_workflow_history"]
-        assert all(spec["kind"] == "read" for spec in workflows_read.SPECS)

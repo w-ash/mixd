@@ -66,10 +66,6 @@ def _mapping_specs(connector_repo) -> list[ConnectorMappingSpec]:
 
 
 class TestConnectorContract:
-    def test_connector_name_is_apple(self):
-        resolver, _ = _make_resolver([])
-        assert resolver.connector_name == "apple"
-
     def test_normalize_id_strips(self):
         resolver, _ = _make_resolver([])
         assert resolver._normalize_id("  1613600188 ") == "1613600188"

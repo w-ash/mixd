@@ -5,12 +5,15 @@ import { useOperationSSE } from "./useOperationSSE";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
+// connectToSSE is the transport boundary. Mocked (not MSW) so a test controls
+// frames one by one: hold a stream open, end it without a terminal, or throw
+// mid-stream to drive the resume path.
 vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
 import { connectToSSE } from "#/api/sse-client";
-import { mockSSEOpenStream, mockSSEWithEvents } from "#/test/sse-test-utils";
+import { mockSSEWithEvents } from "#/test/sse-test-utils";
 
 /** Mock connectToSSE to reject with an error. */
 function mockSSEError(message: string) {
@@ -50,6 +53,8 @@ describe("useOperationSSE", () => {
 
     expect(result.current.operationId).toBe("op-123");
     expect(result.current.isRunning).toBe(true);
+    // A fresh run streams from frame one — no REST seed, so the gate stays shut.
+    expect(result.current.recovery.active).toBe(false);
 
     await waitFor(() => {
       expect(connectToSSE).toHaveBeenCalledWith(
@@ -82,28 +87,6 @@ describe("useOperationSSE", () => {
     });
   });
 
-  it("drops a frame whose event name is outside the SSE vocabulary", async () => {
-    mockSSEWithEvents([
-      { event: "custom", data: JSON.stringify({ value: 42 }) },
-      { event: "complete", data: "{}" },
-    ]);
-    const onDomainEvent = vi.fn();
-
-    const { result } = renderHook(() => useOperationSSE({ onDomainEvent }));
-
-    act(() => {
-      result.current.start("op-unknown");
-    });
-
-    await waitFor(() => {
-      expect(onDomainEvent).toHaveBeenCalledOnce();
-    });
-    expect(onDomainEvent.mock.calls[0][0]).toEqual({
-      event: "complete",
-      data: {},
-    });
-  });
-
   it("reportTerminal() is idempotent — true once, then false — and stops the run", async () => {
     const results: boolean[] = [];
     mockSSEWithEvents([{ event: "complete", data: "{}" }]);
@@ -127,34 +110,11 @@ describe("useOperationSSE", () => {
       expect(results).toEqual([true, false]);
     });
     expect(result.current.isRunning).toBe(false);
-  });
-
-  it("a later terminal source cannot double-fire after the first", async () => {
-    // First the SSE channel fires terminal, then the same hook reports again
-    // (simulating a racing recovery seed) — the second must be a no-op.
-    const calls: boolean[] = [];
-    const { close } = mockSSEOpenStream([{ event: "complete", data: "{}" }]);
-
-    const { result } = renderHook(() =>
-      useOperationSSE({
-        onDomainEvent: (event, reportTerminal) => {
-          if (event.event === "complete") calls.push(reportTerminal());
-        },
-      }),
-    );
-
-    act(() => {
-      result.current.start("op-race");
-    });
-
-    await waitFor(() => {
-      expect(calls).toEqual([true]);
-    });
-    // A second arbitration from any source returns false.
+    // A later arbitration from outside the stream (a racing recovery seed)
+    // is a no-op too.
     act(() => {
       expect(result.current.reportTerminal()).toBe(false);
     });
-    close();
   });
 
   it("calls onReset on start and on reset, and reset() clears state", async () => {
@@ -196,20 +156,6 @@ describe("useOperationSSE", () => {
 
     act(() => {
       result.current.recovery.markSeeded();
-    });
-
-    expect(result.current.recovery.active).toBe(false);
-  });
-
-  it("start() does NOT open the recovery gate (fresh run, no seed)", async () => {
-    mockSSEWithEvents([]);
-
-    const { result } = renderHook(() =>
-      useOperationSSE({ onDomainEvent: noopDomainEvent }),
-    );
-
-    act(() => {
-      result.current.start("op-fresh");
     });
 
     expect(result.current.recovery.active).toBe(false);

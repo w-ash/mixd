@@ -212,19 +212,6 @@ class TestMultiArtistFallback:
         assert calls[1][0] == ("Artist Two", "Collaboration")
         assert calls[2][0] == ("Artist Three", "Collaboration")
 
-    async def test_single_artist_no_multi_artist_fallback(
-        self, lastfm_operations, sample_track
-    ):
-        """Single-artist track with no match has nothing to fall back to."""
-        mock_get_track_info = AsyncMock(return_value=None)
-        lastfm_operations.client.get_track_info_comprehensive = mock_get_track_info
-
-        result = await lastfm_operations.get_track_info_intelligent(sample_track)
-
-        assert result is not None
-        assert result.lastfm_title is None
-        assert mock_get_track_info.call_count == 1
-
 
 class TestErrorHandling:
     """Tests for error handling during intelligent track lookup."""
@@ -257,30 +244,26 @@ class TestErrorHandling:
         assert lastfm_operations.client.get_track_info_comprehensive_by_mbid.called
         assert lastfm_operations.client.get_track_info_comprehensive.called
 
-    async def test_connection_error_propagates_when_no_fallback(
+    async def test_connection_error_on_artist_title_yields_empty_info(
         self, lastfm_operations, sample_track
     ):
-        """Connection error with no fallback returns empty result."""
+        """A service error on the last lookup degrades to empty info, not a raise."""
         lastfm_operations.client.get_track_info_comprehensive = AsyncMock(
             side_effect=LastFMAPIError(11, "Service Offline - Try again later")
         )
 
         result = await lastfm_operations.get_track_info_intelligent(sample_track)
 
-        assert result is not None
-        assert result.lastfm_title is None
+        assert result == LastFMTrackInfo.empty()
 
     async def test_not_found_error_tries_next_artist(
         self, lastfm_operations, multi_artist_track
     ):
-        """Track-not-found doesn't stop iteration, tries next artist."""
-        call_count = 0
+        """A track-not-found error on one artist moves on to the next artist."""
 
         async def mock_get_track_info_func(artist: str, title: str):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return None
+            if artist == "Artist One":
+                raise LastFMAPIError(6, "Track not found")
             return LastFMTrackInfo(
                 lastfm_title="Collaboration",
                 lastfm_artist_name=artist,
@@ -292,6 +275,8 @@ class TestErrorHandling:
 
         result = await lastfm_operations.get_track_info_intelligent(multi_artist_track)
 
-        assert result is not None
-        assert result.lastfm_title == "Collaboration"
-        assert mock_get_track_info.call_count == 2
+        assert result.lastfm_artist_name == "Artist Two"
+        assert [c.args for c in mock_get_track_info.call_args_list] == [
+            ("Artist One", "Collaboration"),
+            ("Artist Two", "Collaboration"),
+        ]

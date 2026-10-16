@@ -97,7 +97,6 @@ class TestSortByArtistName:
 
     def test_dual_mode_returns_transform_without_tracklist(self):
         transform = sort_by_artist_name()
-        assert callable(transform)
 
         track_b = make_track(artists=[ArtistCredit("Bravo")])
         track_a = make_track(artists=[ArtistCredit("Alpha")])

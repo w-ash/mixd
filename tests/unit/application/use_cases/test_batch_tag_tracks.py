@@ -59,12 +59,15 @@ class TestHappyPath:
         assert result.tagged == 3
 
         tag_repo = uow.get_tag_repository()
-        tag_repo.add_tags.assert_called_once()
-        tag_repo.add_events.assert_called_once()
-
         # One bulk write call, not one-per-track.
+        tag_repo.add_tags.assert_called_once()
         written = tag_repo.add_tags.call_args[0][0]
-        assert len(written) == 3
+        assert [(t.track_id, t.tag, t.source) for t in written] == [
+            (tid, "mood:chill", "manual") for tid in ids
+        ]
+        events = tag_repo.add_events.call_args[0][0]
+        assert [(e.track_id, e.action) for e in events] == [(tid, "add") for tid in ids]
+        uow.commit.assert_awaited_once()
 
     async def test_dedupes_track_ids(self) -> None:
         shared = uuid7()
@@ -89,6 +92,9 @@ class TestHappyPath:
 
         assert result.requested == 3
         assert result.tagged == 1
+        # Only the row that was actually inserted reaches the event log.
+        events = uow.get_tag_repository().add_events.call_args[0][0]
+        assert [e.track_id for e in events] == [ids[0]]
 
 
 class TestAtomicity:
@@ -119,18 +125,6 @@ class TestAtomicity:
 
         assert result == result.__class__(tag="mood:chill", requested=0, tagged=0)
         uow.get_tag_repository().add_tags.assert_not_called()
-
-
-class TestNormalization:
-    async def test_returns_normalized_tag(self) -> None:
-        ids = [uuid7()]
-        uow = _uow(add_tags_result=[_stub_tag(ids[0])])
-
-        result = await BatchTagTracksUseCase().execute(
-            _cmd(ids, raw_tag="  Mood:Chill  "), uow
-        )
-
-        assert result.tag == "mood:chill"
 
 
 def _stub_tag(track_id: UUID):

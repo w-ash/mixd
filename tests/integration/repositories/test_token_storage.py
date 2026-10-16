@@ -182,7 +182,7 @@ class TestLoadTokens:
         assert tokens == {SERVICE: None}
 
     @pytest.mark.usefixtures("standalone_db")
-    async def test_empty_request_opens_no_session(self, user_id: str) -> None:
+    async def test_empty_request_returns_an_empty_mapping(self, user_id: str) -> None:
         storage = DatabaseTokenStorage()
 
         assert await storage.load_tokens([], user_id) == {}

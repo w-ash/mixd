@@ -115,10 +115,12 @@ class TestSyncSchedule:
         resp = await client.put("/api/v1/sync/schedules/spotify:plays", json=_DAILY)
         assert resp.status_code == 400  # validate_sync_target → ValueError
 
-    async def test_delete(self, client: httpx2.AsyncClient) -> None:
+    async def test_delete_then_get_404(self, client: httpx2.AsyncClient) -> None:
         await client.put("/api/v1/sync/schedules/spotify:likes", json=_DAILY)
         deleted = await client.delete("/api/v1/sync/schedules/spotify:likes")
         assert deleted.status_code == 204
+        fetched = await client.get("/api/v1/sync/schedules/spotify:likes")
+        assert fetched.status_code == 404
 
 
 class TestListSchedules:

@@ -143,60 +143,33 @@ class TestRetryPolicyFactory:
 
         assert policy.retry(plain_error) is False
 
-    def test_policies_have_correct_max_attempts(self):
-        """Verify max attempt counts match original backoff configuration."""
+    def test_policy_stops_after_exactly_max_attempts_or_max_delay(self):
+        """max_attempts counts total attempts; max_delay is a wall-clock stop."""
         from src.infrastructure.connectors.lastfm.error_classifier import (
             LastFMErrorClassifier,
         )
-        from src.infrastructure.connectors.musicbrainz.error_classifier import (
-            MusicBrainzErrorClassifier,
-        )
-        from src.infrastructure.connectors.spotify.error_classifier import (
-            SpotifyErrorClassifier,
-        )
 
-        spotify_policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name="spotify",
-                classifier=SpotifyErrorClassifier(),
-                max_attempts=settings.api.spotify.retry_count,
-                wait_multiplier=settings.api.spotify.retry_base_delay,
-                wait_max=settings.api.spotify.retry_max_delay,
-            )
-        )
-        lastfm_policy = RetryPolicyFactory.create_policy(
+        policy = RetryPolicyFactory.create_policy(
             RetryConfig(
                 service_name="lastfm",
                 classifier=LastFMErrorClassifier(),
-                max_attempts=settings.api.lastfm.retry_count,
-                wait_multiplier=settings.api.lastfm.retry_base_delay,
-                wait_max=settings.api.lastfm.retry_max_delay,
-                max_delay=settings.api.lastfm.retry_max_delay,
+                max_attempts=4,
+                wait_multiplier=1.0,
+                wait_max=10.0,
+                max_delay=60.0,
             )
         )
-        musicbrainz_policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name="musicbrainz",
-                classifier=MusicBrainzErrorClassifier(),
-                max_attempts=settings.api.musicbrainz.retry_count,
-                wait_multiplier=settings.api.musicbrainz.retry_base_delay,
-                wait_max=settings.api.musicbrainz.retry_max_delay,
-                include_httpx_errors=True,
-            )
-        )
-
-        # Spotify: settings.api.spotify.retry_count attempts
         retry_state = Mock()
-        retry_state.attempt_number = settings.api.spotify.retry_count
-        assert spotify_policy.stop(retry_state) is True
+        retry_state.seconds_since_start = 0.0
 
-        # Last.FM: settings-based
-        retry_state.attempt_number = settings.api.lastfm.retry_count
-        assert lastfm_policy.stop(retry_state) is True
+        retry_state.attempt_number = 3
+        assert policy.stop(retry_state) is False
+        retry_state.attempt_number = 4
+        assert policy.stop(retry_state) is True
 
-        # MusicBrainz: settings.api.musicbrainz.retry_count attempts
-        retry_state.attempt_number = settings.api.musicbrainz.retry_count
-        assert musicbrainz_policy.stop(retry_state) is True
+        retry_state.attempt_number = 1
+        retry_state.seconds_since_start = 60.0
+        assert policy.stop(retry_state) is True
 
     @pytest.mark.slow
     async def test_callbacks_are_invoked_during_retries(self):

@@ -1,7 +1,8 @@
 """Unit tests for the ``manage_tags`` write dispatcher (propose + commit).
 
 The propose half stores a pending action (never mutates); the commit half runs
-the use case behind a monkeypatched ``execute_use_case``. The pending-action
+the real factory into a patched use-case ``execute`` so the test sees the
+Command the dispatcher built. The pending-action
 store is swapped for a fresh instance (patched on ``_common``, where
 ``propose_action`` reads it) so proposals never leak across tests.
 """
@@ -13,9 +14,27 @@ import pytest
 from src.application.chat.dispatchers import _common, tags_write
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.use_cases.batch_tag_tracks import BatchTagTracksResult
-from src.application.use_cases.tag_track import TagTrackResult
-from src.application.use_cases.tag_vocabulary import DeleteTagResult, RenameTagResult
+from src.application.use_cases.batch_tag_tracks import (
+    BatchTagTracksCommand,
+    BatchTagTracksResult,
+    BatchTagTracksUseCase,
+)
+from src.application.use_cases.tag_track import (
+    TagTrackCommand,
+    TagTrackResult,
+    TagTrackUseCase,
+)
+from src.application.use_cases.tag_vocabulary import (
+    DeleteTagCommand,
+    DeleteTagResult,
+    DeleteTagUseCase,
+    MergeTagsCommand,
+    MergeTagsResult,
+    MergeTagsUseCase,
+    RenameTagCommand,
+    RenameTagResult,
+    RenameTagUseCase,
+)
 from src.domain.exceptions import NotFoundError, ToolExecutionError
 from tests.fixtures import InMemoryPendingActionStore
 
@@ -29,11 +48,27 @@ def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
     return store
 
 
-def _fake_runner(result: object):
-    async def _run(factory: object, user_id: str | None = None) -> object:
+def _capture(
+    monkeypatch: pytest.MonkeyPatch, use_case: type, result: object
+) -> dict[str, object]:
+    """Run the dispatcher's real factory into ``use_case``; record its Command.
+
+    Also records the ``user_id`` the runner received, so a commit that drops the
+    caller's tenant fails.
+    """
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
         return result
 
-    return _run
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(use_case, "execute", _execute)
+    monkeypatch.setattr(_common, "execute_use_case", _run)
+    return seen
 
 
 async def _pending(
@@ -129,80 +164,111 @@ class TestExecManageTags:
         self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         track_id = uuid4()
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(
-                TagTrackResult(track_id=track_id, tag="mood:chill", changed=True)
-            ),
+        seen = _capture(
+            monkeypatch,
+            TagTrackUseCase,
+            TagTrackResult(track_id=track_id, tag="mood:chill", changed=True),
         )
         action = await _pending(
             fresh_store,
             {"operation": "tag", "track_id": str(track_id), "tag": "mood:chill"},
         )
 
-        result = await tags_write.exec_manage_tags(action, "default")
+        result = await tags_write.exec_manage_tags(action, "user-7")
 
-        assert isinstance(result, dict)
-        assert result["status"] == "confirmed"
-        assert result["operation"] == "tag"
-        assert result["tag"] == "mood:chill"
-        assert result["changed"] is True
+        command = seen["command"]
+        assert isinstance(command, TagTrackCommand)
+        assert command.track_id == track_id
+        assert command.raw_tag == "mood:chill"
+        # An assistant-made tag is recorded as a manual (user) choice.
+        assert command.source == "manual"
+        assert command.user_id == "user-7"
+        assert seen["user_id"] == "user-7"
+        assert result == {
+            "status": "confirmed",
+            "operation": "tag",
+            "description": "do it",
+            "tag": "mood:chill",
+            "changed": True,
+        }
 
-    async def test_batch_tag_commits_through_use_case(
+    async def test_batch_tag_commits_every_track(
         self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(BatchTagTracksResult(tag="gym", requested=2, tagged=2)),
+        t1, t2 = uuid4(), uuid4()
+        seen = _capture(
+            monkeypatch,
+            BatchTagTracksUseCase,
+            BatchTagTracksResult(tag="gym", requested=2, tagged=2),
         )
         action = await _pending(
             fresh_store,
-            {
-                "operation": "batch_tag",
-                "track_ids": [str(uuid4()), str(uuid4())],
-                "tag": "gym",
-            },
+            {"operation": "batch_tag", "track_ids": [str(t1), str(t2)], "tag": "gym"},
         )
 
-        result = await tags_write.exec_manage_tags(action, "default")
+        result = await tags_write.exec_manage_tags(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, BatchTagTracksCommand)
+        assert command.track_ids == [t1, t2]
+        assert command.raw_tag == "gym"
+        assert command.source == "manual"
+        assert command.user_id == "user-7"
         assert result["requested"] == 2
         assert result["tagged"] == 2
 
-    async def test_delete_commits_through_use_case(
+    async def test_delete_commits_the_named_tag(
         self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(DeleteTagResult(affected_count=7)),
+        seen = _capture(
+            monkeypatch, DeleteTagUseCase, DeleteTagResult(affected_count=7)
         )
         action = await _pending(fresh_store, {"operation": "delete", "tag": "junk"})
 
-        result = await tags_write.exec_manage_tags(action, "default")
+        result = await tags_write.exec_manage_tags(action, "user-7")
 
+        command = seen["command"]
+        assert isinstance(command, DeleteTagCommand)
+        assert command.tag == "junk"
+        assert command.user_id == "user-7"
+        assert result["tag"] == "junk"
         assert result["affected_count"] == 7
 
-    async def test_rename_commits_through_use_case(
-        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("operation", "use_case", "command_type", "result"),
+        [
+            ("rename", RenameTagUseCase, RenameTagCommand, RenameTagResult(3)),
+            ("merge", MergeTagsUseCase, MergeTagsCommand, MergeTagsResult(3)),
+        ],
+    )
+    async def test_rename_and_merge_commit_source_into_target(
+        self,
+        fresh_store: InMemoryPendingActionStore,
+        monkeypatch: pytest.MonkeyPatch,
+        operation: str,
+        use_case: type,
+        command_type: type,
+        result: object,
     ) -> None:
-        monkeypatch.setattr(
-            _common,
-            "execute_use_case",
-            _fake_runner(RenameTagResult(affected_count=3)),
-        )
+        # Direction is the whole contract: merge collapses source INTO target.
+        seen = _capture(monkeypatch, use_case, result)
         action = await _pending(
             fresh_store,
-            {"operation": "rename", "source_tag": "chil", "target_tag": "chill"},
+            {"operation": operation, "source_tag": "chil", "target_tag": "chill"},
         )
 
-        result = await tags_write.exec_manage_tags(action, "default")
+        out = await tags_write.exec_manage_tags(action, "user-7")
 
-        assert result["source_tag"] == "chil"
-        assert result["target_tag"] == "chill"
-        assert result["affected_count"] == 3
+        command = seen["command"]
+        assert isinstance(command, RenameTagCommand | MergeTagsCommand)
+        assert type(command) is command_type
+        assert command.source == "chil"
+        assert command.target == "chill"
+        assert command.user_id == "user-7"
+        assert out["operation"] == operation
+        assert out["source_tag"] == "chil"
+        assert out["target_tag"] == "chill"
+        assert out["affected_count"] == 3
 
     async def test_missing_track_at_commit_is_actionable(
         self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch

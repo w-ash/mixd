@@ -3,7 +3,9 @@
 Each scope monkeypatches ``execute_use_case`` on the ``library`` module with a
 fake runner returning a pre-built domain result, so the tests assert on the
 compact projection shape (and the user-data wrapping of free text in
-``<user_data>`` tags) without a database.
+``<user_data>`` tags) without a database. Where a scope takes filters, the fake
+runs the real factory into a patched use-case ``execute`` to check the filters
+reach the Command.
 """
 
 from datetime import UTC, datetime
@@ -20,15 +22,27 @@ from src.application.use_cases.get_artist_detail import (
     RelatedProject,
 )
 from src.application.use_cases.get_liked_tracks import GetLikedTracksResult
-from src.application.use_cases.get_played_tracks import GetPlayedTracksResult
-from src.application.use_cases.get_preferred_tracks import GetPreferredTracksResult
+from src.application.use_cases.get_played_tracks import (
+    GetPlayedTracksCommand,
+    GetPlayedTracksResult,
+    GetPlayedTracksUseCase,
+)
+from src.application.use_cases.get_preferred_tracks import (
+    GetPreferredTracksCommand,
+    GetPreferredTracksResult,
+    GetPreferredTracksUseCase,
+)
 from src.application.use_cases.get_track_details import (
     ConnectorMappingInfo,
     PlaylistSummary,
     PlaySummary,
     TrackDetailsResult,
 )
-from src.application.use_cases.list_artists import ListArtistsResult
+from src.application.use_cases.list_artists import (
+    ListArtistsCommand,
+    ListArtistsResult,
+    ListArtistsUseCase,
+)
 from src.application.use_cases.list_tracks import ListTracksResult
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import NotFoundError, ToolExecutionError
@@ -42,6 +56,25 @@ def _fake_runner(result: object):
         return result
 
     return _run
+
+
+def _capture(
+    monkeypatch: pytest.MonkeyPatch, use_case: type, result: object
+) -> dict[str, object]:
+    """Run the dispatcher's real factory into ``use_case``; record its Command."""
+    seen: dict[str, object] = {}
+
+    async def _execute(self: object, command: object, uow: object) -> object:
+        seen["command"] = command
+        return result
+
+    async def _run(factory, user_id: str | None = None):  # runner signature
+        seen["user_id"] = user_id
+        return await factory(object())
+
+    monkeypatch.setattr(use_case, "execute", _execute)
+    monkeypatch.setattr(library, "execute_use_case", _run)
+    return seen
 
 
 def _raising_runner(error: Exception):
@@ -160,13 +193,20 @@ class TestScopePreferred:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         tracks = make_tracks(count=2)
-        result = GetPreferredTracksResult(tracklist=TrackList(tracks=tracks))
-        monkeypatch.setattr(library, "execute_use_case", _fake_runner(result))
-
-        out = await library.handle_query_library(
-            {"scope": "preferred", "state": "star"}, _CTX
+        seen = _capture(
+            monkeypatch,
+            GetPreferredTracksUseCase,
+            GetPreferredTracksResult(tracklist=TrackList(tracks=tracks)),
         )
 
+        out = await library.handle_query_library(
+            {"scope": "preferred", "state": "star", "limit": 7}, _CTX
+        )
+
+        command = seen["command"]
+        assert isinstance(command, GetPreferredTracksCommand)
+        assert command.state == "star"
+        assert command.limit == 7
         assert isinstance(out, dict)
         assert out["count"] == 2
         assert out["tracks"][0]["preference"] == "star"
@@ -192,17 +232,27 @@ class TestScopeLikedAndPlayed:
         assert out["total"] == 3
         assert all(t["liked"] is True for t in out["tracks"])
 
-    async def test_played_returns_tracks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_played_forwards_window_and_connector(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         tracks = make_tracks(count=1)
-        result = GetPlayedTracksResult(
-            tracklist=TrackList(tracks=tracks), total_available=1
+        seen = _capture(
+            monkeypatch,
+            GetPlayedTracksUseCase,
+            GetPlayedTracksResult(
+                tracklist=TrackList(tracks=tracks), total_available=1
+            ),
         )
-        monkeypatch.setattr(library, "execute_use_case", _fake_runner(result))
 
         out = await library.handle_query_library(
-            {"scope": "played", "days_back": 30}, _CTX
+            {"scope": "played", "days_back": 30, "connector": "lastfm"}, _CTX
         )
 
+        command = seen["command"]
+        assert isinstance(command, GetPlayedTracksCommand)
+        assert command.days_back == 30
+        assert command.connector_filter == "lastfm"
+        assert command.limit == 50  # schema default
         assert isinstance(out, dict)
         assert out["total"] == 1
         assert out["tracks"][0]["track_id"] == str(tracks[0].id)
@@ -215,21 +265,30 @@ class TestEntityArtists:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         artist = make_artist("Caribou")
-        result = ListArtistsResult(
-            artists=[artist],
-            total=1,
-            limit=50,
-            offset=0,
-            track_counts={artist.id: 4},
-            favorited_ids={artist.id},
-            connector_names={artist.id: ["spotify"]},
+        seen = _capture(
+            monkeypatch,
+            ListArtistsUseCase,
+            ListArtistsResult(
+                artists=[artist],
+                total=1,
+                limit=50,
+                offset=0,
+                track_counts={artist.id: 4},
+                favorited_ids={artist.id},
+                connector_names={artist.id: ["spotify"]},
+            ),
         )
-        monkeypatch.setattr(library, "execute_use_case", _fake_runner(result))
 
         out = await library.handle_query_library(
             {"entity": "artists", "query": "cari", "favorites_only": True}, _CTX
         )
 
+        command = seen["command"]
+        assert isinstance(command, ListArtistsCommand)
+        assert command.search == "cari"
+        assert command.favorites_only is True
+        assert command.sort_by == "name_asc"  # schema default
+        assert command.user_id == "default"
         assert isinstance(out, dict)
         assert out["total"] == 1
         assert out["artists"][0]["artist_id"] == str(artist.id)

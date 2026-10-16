@@ -22,9 +22,9 @@ paths:
 
 ## Unit vs Integration
 - **Unit** (default): pure logic, mocked dependencies, <100ms.
-- **Integration**: real database (`db_session` + `test_data_tracker`), cross-component.
+- **Integration**: real database (`db_session`), cross-component. Savepoint rollback cleans up; no manual cleanup.
 - Domain → always unit (pure functions, no mocks needed).
-- Use cases → always unit (mock repos via `make_mock_uow()`).
+- Use cases → always unit (mock repos via `make_mock_uow()`). Assert the returned result or the state passed to repos, not only mock calls.
 - Connectors → always unit (mock HTTP clients via `AsyncMock`).
 - Repositories → always integration (real SQL behavior).
 - API routes → always integration (real request/response cycle via httpx2 AsyncClient).
@@ -43,8 +43,5 @@ paths:
 - Module docstring on every test file explaining what is tested.
 - Every new test directory needs an `__init__.py` (prevents module name collisions).
 
-## Test scope
-Test the smallest unit that owns the behavior:
-- Test transforms in domain; trust the use case to call them correctly without retesting them.
-- Skip assertions on mock return values you configured yourself — that tests the mock setup, not your code.
-- Skip Python/attrs language features ("frozen raises on mutation").
+## Test value
+What to test, mocks, banned patterns, and layer ownership → `test-value.md`.

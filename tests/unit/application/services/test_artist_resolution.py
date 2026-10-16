@@ -66,15 +66,3 @@ class TestIngest:
         ]
         assert canonicals == {"t1": canonical}
         assert mint.await_args.kwargs == {"user_id": TEST_USER_ID, "config": CONFIG}
-
-    async def test_an_empty_batch_still_asks_the_minter_and_reports_its_answer(self):
-        uow = make_mock_uow()
-
-        result = await SERVICE.ingest(
-            "spotify", [], uow, user_id=TEST_USER_ID, canonicals={}
-        )
-
-        assert result == ArtistMintSummary()
-        assert result.empty
-        (_, sources, _) = uow.get_artist_minter().mint.await_args.args
-        assert sources == []

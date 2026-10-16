@@ -57,11 +57,16 @@ class TestRepairUnresolved:
         assert result.still_unresolved == 1
         update = uow.get_playlist_repository().update_playlist
         update.assert_awaited_once()
-        persisted = update.await_args.args[1]
-        hydrated = [e for e in persisted.entries if e.track is not None]
-        assert len(hydrated) == 1
-        # t2 had no mapping → still unresolved.
-        assert any(e.track is None for e in persisted.entries)
+        assert update.await_args.args[0] == pid
+        assert update.await_args.kwargs == {"user_id": "u"}
+        first, second = update.await_args.args[1].entries
+        # t1 is hydrated in place at its original position; its stale ref is dropped.
+        assert first.track is track
+        assert first.connector_track_ref is None
+        # t2 had no mapping, so it stays unresolved at its position.
+        assert second.track is None
+        assert second.connector_track_ref.connector_track_identifier == "t2"
+        uow.commit.assert_awaited_once()
 
     async def test_noop_when_no_unresolved(self) -> None:
         pid = uuid7()
