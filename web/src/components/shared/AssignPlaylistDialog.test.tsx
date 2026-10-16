@@ -20,37 +20,37 @@ const SPOTIFY_CONNECTOR = makeConnectorMetadata({
 });
 
 function mockCreateOk() {
-  const spy = vi.fn((request: Request) => {
-    return request.json().then((body: unknown) => {
-      const typed = body as {
-        connector_playlist_id: string;
-        action_type: "add_tag" | "set_preference";
-        action_value: string;
-      };
-      return HttpResponse.json(
-        {
-          assignment: {
-            id: "aaaaaaaa-0000-0000-0000-000000000001",
-            connector_playlist_id: typed.connector_playlist_id,
-            action_type: typed.action_type,
-            action_value: typed.action_value,
-          },
-          result: {
-            preferences_applied:
-              typed.action_type === "set_preference" ? 12 : 0,
-            preferences_cleared: 0,
-            tags_applied: typed.action_type === "add_tag" ? 42 : 0,
-            tags_cleared: 0,
-            conflicts_logged: 0,
-            assignments_processed: 1,
-          },
+  // Receives the parsed POST body, so tests can assert what was sent.
+  const spy = vi.fn((body: unknown) => {
+    const typed = body as {
+      connector_playlist_id: string;
+      action_type: "add_tag" | "set_preference";
+      action_value: string;
+    };
+    return HttpResponse.json(
+      {
+        assignment: {
+          id: "aaaaaaaa-0000-0000-0000-000000000001",
+          connector_playlist_id: typed.connector_playlist_id,
+          action_type: typed.action_type,
+          action_value: typed.action_value,
         },
-        { status: 201 },
-      );
-    });
+        result: {
+          preferences_applied: typed.action_type === "set_preference" ? 12 : 0,
+          preferences_cleared: 0,
+          tags_applied: typed.action_type === "add_tag" ? 42 : 0,
+          tags_cleared: 0,
+          conflicts_logged: 0,
+          assignments_processed: 1,
+        },
+      },
+      { status: 201 },
+    );
   });
   server.use(
-    http.post("*/api/v1/playlist-assignments", ({ request }) => spy(request)),
+    http.post("*/api/v1/playlist-assignments", async ({ request }) =>
+      spy(await request.json()),
+    ),
   );
   // Also stub the tags autocomplete endpoint.
   server.use(
@@ -84,8 +84,13 @@ describe("AssignPlaylistDialog", () => {
     await userEvent.type(input, "mood:chill");
     await userEvent.keyboard("{Enter}");
 
-    await waitFor(() => expect(createSpy).toHaveBeenCalledOnce());
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(createSpy).toHaveBeenCalledOnce();
+    expect(createSpy).toHaveBeenCalledWith({
+      connector_playlist_id: PLAYLIST_ID,
+      action_type: "add_tag",
+      action_value: "mood:chill",
+    });
   });
 
   it("in rate mode, Rate button is disabled until a rating is picked", async () => {

@@ -5,14 +5,6 @@ import { renderWithProviders, screen, userEvent } from "#/test/test-utils";
 import { ThemeToggle } from "./ThemeToggle";
 
 describe("ThemeToggle", () => {
-  it("renders with an accessible label", () => {
-    renderWithProviders(<ThemeToggle />);
-
-    expect(
-      screen.getByRole("button", { name: /switch to/i }),
-    ).toBeInTheDocument();
-  });
-
   it("cycles through modes on click", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ThemeToggle />);

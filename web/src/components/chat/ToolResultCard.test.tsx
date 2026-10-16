@@ -6,6 +6,8 @@ import { renderWithProviders } from "#/test/test-utils";
 
 import { ToolResultCard } from "./ToolResultCard";
 
+// WorkflowGraph runs React Flow + an async ELK layout that jsdom cannot render
+// (WorkflowGraph.test.tsx covers it). The stub shows the task count it receives.
 vi.mock("#/components/shared/WorkflowGraph", () => ({
   WorkflowGraph: ({ tasks }: { tasks: unknown[] }) => (
     <div data-testid="workflow-graph">{tasks.length} tasks</div>

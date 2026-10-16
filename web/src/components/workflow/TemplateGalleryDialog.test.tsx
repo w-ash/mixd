@@ -1,7 +1,9 @@
 import { HttpResponse, http } from "msw";
+import { Route, Routes, useParams } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { Button } from "#/components/ui/button";
+import { Toaster } from "#/components/ui/sonner";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -13,6 +15,12 @@ import {
 import { TemplateGalleryDialog } from "./TemplateGalleryDialog";
 
 const NEW_ID = "33333333-3333-3333-3333-333333333333";
+
+/** Stands in for the editor route so the test can see where Use lands. */
+function EditorRouteProbe() {
+  const { id } = useParams();
+  return <p>Editor for {id}</p>;
+}
 
 function renderGallery() {
   return renderWithProviders(
@@ -60,7 +68,7 @@ describe("TemplateGalleryDialog", () => {
     expect(screen.getByText("Fresh Finds")).toBeInTheDocument();
   });
 
-  it("instantiates a template on Use and reports success", async () => {
+  it("instantiates the chosen template, toasts, and opens the new workflow in the editor", async () => {
     const user = userEvent.setup();
     let usedTemplateId: string | null = null;
 
@@ -95,19 +103,30 @@ describe("TemplateGalleryDialog", () => {
       ),
     );
 
-    renderGallery();
+    renderWithProviders(
+      <>
+        <Routes>
+          <Route
+            path="/workflows"
+            element={
+              <TemplateGalleryDialog trigger={<Button>From template</Button>} />
+            }
+          />
+          <Route path="/workflows/:id/edit" element={<EditorRouteProbe />} />
+        </Routes>
+        <Toaster />
+      </>,
+      { routerProps: { initialEntries: ["/workflows"] } },
+    );
 
     await user.click(screen.getByRole("button", { name: "From template" }));
+    await user.click(await screen.findByText("Current Obsessions"));
 
-    await waitFor(() => {
-      expect(screen.getByText("Current Obsessions")).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByText("Current Obsessions"));
-
-    await waitFor(() => {
-      expect(usedTemplateId).toBe("current_obsessions");
-    });
+    expect(await screen.findByText(`Editor for ${NEW_ID}`)).toBeInTheDocument();
+    expect(usedTemplateId).toBe("current_obsessions");
+    expect(
+      await screen.findByText("Workflow created from template"),
+    ).toBeInTheDocument();
   });
 
   it("shows an empty state when the gallery has no templates", async () => {

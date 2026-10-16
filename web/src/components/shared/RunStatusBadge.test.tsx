@@ -5,19 +5,20 @@ import { getStatusConfig, RunStatusBadge } from "./RunStatusBadge";
 
 describe("RunStatusBadge", () => {
   it.each([
-    "pending",
-    "running",
-    "completed",
-    "failed",
-    "crashed",
-    "complete",
-    "partial",
-    "error",
-    "cancelled",
-  ])("renders %s status", (status) => {
-    render(<RunStatusBadge status={status} />);
-    const config = getStatusConfig(status);
-    expect(screen.getByText(config.label)).toBeInTheDocument();
+    ["pending", "Pending"],
+    ["queued", "Queued"],
+    ["running", "Running"],
+    ["completed", "Completed"],
+    ["failed", "Failed"],
+    ["crashed", "Crashed"],
+    ["complete", "Complete"],
+    ["partial", "Completed with issues"],
+    ["error", "Error"],
+    ["cancelled", "Cancelled"],
+  ])("renders the %s status as %s", (status, label) => {
+    const { container } = render(<RunStatusBadge status={status} />);
+    // Exact match: "Complete" must not pass for "Completed" or vice versa.
+    expect(container.textContent).toBe(label);
   });
 
   it("falls back to pending for unknown status", () => {
@@ -45,11 +46,5 @@ describe("getStatusConfig", () => {
     expect(getStatusConfig("partial").label).toBe("Completed with issues");
     expect(getStatusConfig("error").label).toBe("Error");
     expect(getStatusConfig("cancelled").label).toBe("Cancelled");
-  });
-
-  it("returns pending config for unknown status", () => {
-    expect(getStatusConfig("not_a_real_status")).toEqual(
-      getStatusConfig("pending"),
-    );
   });
 });

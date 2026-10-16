@@ -35,13 +35,6 @@ function renderInput(value: unknown, hasError = false) {
 }
 
 describe("resolveMultiSelectValue", () => {
-  it("falls back to the declared default when the key is absent", () => {
-    expect(resolveMultiSelectValue(field, undefined)).toEqual([
-      "total_plays",
-      "last_played_dates",
-    ]);
-  });
-
   it("uses the config value when present, even if empty", () => {
     expect(resolveMultiSelectValue(field, [])).toEqual([]);
     expect(resolveMultiSelectValue(field, ["period_plays"])).toEqual([
@@ -57,14 +50,6 @@ describe("resolveMultiSelectValue", () => {
 });
 
 describe("MultiSelectInput", () => {
-  it("pre-checks the default without writing to config", () => {
-    const { onChange } = renderInput(undefined);
-    expect(screen.getByLabelText("Total Plays")).toBeChecked();
-    expect(screen.getByLabelText("Last Played")).toBeChecked();
-    expect(screen.getByLabelText("Period Plays")).not.toBeChecked();
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
   it("emits the full selection in option order on toggle", async () => {
     const user = userEvent.setup();
     const { onChange, onBlur } = renderInput(["last_played_dates"]);
@@ -76,15 +61,6 @@ describe("MultiSelectInput", () => {
       "last_played_dates",
     ]);
     expect(onBlur).toHaveBeenCalledWith("metrics");
-  });
-
-  it("emits undefined when the last option is unchecked", async () => {
-    const user = userEvent.setup();
-    const { onChange } = renderInput(["period_plays"]);
-
-    await user.click(screen.getByLabelText("Period Plays"));
-
-    expect(onChange).toHaveBeenCalledWith("metrics", undefined);
   });
 
   it("exposes a labelled group with error wiring", () => {

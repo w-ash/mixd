@@ -70,17 +70,15 @@ describe("CardGridSkeleton", () => {
 });
 
 describe("DetailHeaderSkeleton", () => {
-  it("renders the title + subtitle stanza with the default subtitle width", () => {
-    const { container } = render(<DetailHeaderSkeleton />);
+  it("renders the title + subtitle stanza, subtitle w-96 unless overridden", () => {
+    const { container: fallback } = render(<DetailHeaderSkeleton />);
+    const { container: custom } = render(
+      <DetailHeaderSkeleton subtitleWidth="w-48" />,
+    );
 
-    expect(shimmerCount(container)).toBe(2);
-    expect(container.querySelector(".w-96")).not.toBeNull();
-  });
-
-  it("accepts a subtitle width override", () => {
-    const { container } = render(<DetailHeaderSkeleton subtitleWidth="w-48" />);
-
-    expect(container.querySelector(".w-48")).not.toBeNull();
-    expect(container.querySelector(".w-96")).toBeNull();
+    expect(shimmerCount(fallback)).toBe(2);
+    expect(fallback.querySelectorAll(".w-96")).toHaveLength(1);
+    expect(custom.querySelectorAll(".w-48")).toHaveLength(1);
+    expect(custom.querySelector(".w-96")).toBeNull();
   });
 });
