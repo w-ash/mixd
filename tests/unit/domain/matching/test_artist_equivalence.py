@@ -237,6 +237,62 @@ class TestCompilingCachedRows:
         assert equivalence.same(TEED, FULL_NAME)
         assert not equivalence.same(TEED, "Tourist")
 
+    def test_thirty_alias_rows_in_three_forms_give_three_probe_names(self):
+        # Catches a compile that hands every stored row to the probe: each
+        # spelling and each search hint would be another probe row per title.
+        # Search hints are misspellings MusicBrainz keeps for its search, not
+        # names the artist goes by.
+        connector_artist_id = uuid7()
+        locales = ["en", "en_GB", "en_US", "de", "fr", "es", "it", "nl", "ja", "sv"]
+        spellings = [
+            lambda name: name,
+            str.upper,
+            str.lower,
+            str.swapcase,
+            lambda name: f"{name}.",
+            lambda name: f"{name}!",
+            lambda name: f"{name}?",
+            lambda name: f"The {name}",
+            lambda name: name.replace(" ", "  "),
+            lambda name: f"  {name} ",
+        ]
+        forms = [
+            (FULL_NAME, "Artist name"),
+            ("Orlando Higginbottom", "Legal name"),
+            ("T E E D", "Artist name"),
+        ]
+        rows = [
+            ArtistAlias(
+                connector_artist_id=connector_artist_id,
+                name=spell(base),
+                alias_type=alias_type,
+                locale=locale,
+            )
+            for base, alias_type in forms
+            for spell, locale in zip(spellings, locales, strict=True)
+        ]
+        hints = [
+            ArtistAlias(
+                connector_artist_id=connector_artist_id,
+                name=hint,
+                alias_type="Search hint",
+            )
+            for hint in ("Totally Enormous Extinct Dinosaur", "Totaly Enormous")
+        ]
+
+        equivalence = equivalence_from_alias_rows([
+            ArtistAlias(connector_artist_id=connector_artist_id, name=TEED),
+            *rows,
+            *hints,
+        ])
+
+        assert len(rows) == 30
+        assert equivalence.aliases_of(TEED) == (
+            "orlando higginbottom",
+            "t e e d",
+            "totally enormous extinct dinosaurs",
+        )
+
 
 class TestEvaluatorSeam:
     """The field on ``MatchEvaluationService`` reaches the scoring call."""

@@ -27,6 +27,13 @@ from src.domain.entities.artist import ArtistAlias
 
 from .text_normalization import normalize_for_comparison
 
+_NOT_A_NAME: Final[frozenset[str]] = frozenset({"Search hint"})
+"""MusicBrainz alias types that are not names an artist goes by.
+
+A search hint is a misspelling MusicBrainz keeps so its search finds the
+artist. As an alias it would only add probe rows and claim spellings.
+"""
+
 
 def _no_groups() -> Mapping[str, int]:
     """The empty lookup, typed so the attrs field is not partially unknown."""
@@ -123,10 +130,16 @@ def equivalence_from_alias_rows(rows: Iterable[ArtistAlias]) -> ArtistEquivalenc
     of the artists a batch reaches, other artists' rows included, so a
     spelling another artist also states is seen as shared and names neither.
 
+    Search hints are skipped, and spellings that normalize alike are one
+    name, so each group holds one entry per distinct form whatever the row
+    count.
+
     The caller does the I/O and hands the rows in — this layer stays pure.
     """
     names_by_artist: dict[UUID, list[str]] = {}
     for alias in rows:
+        if alias.alias_type in _NOT_A_NAME:
+            continue
         names_by_artist.setdefault(alias.connector_artist_id, []).append(alias.name)
     return ArtistEquivalence.from_groups(
         names_by_artist[connector_artist_id]
