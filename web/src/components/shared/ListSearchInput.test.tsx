@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { ListSearchInput, ResultCount } from "./ListSearchInput";
+import { ListSearchInput } from "./ListSearchInput";
 
 function setup(value: string, isSearching = false) {
   const onChange = vi.fn();
@@ -22,11 +22,11 @@ function setup(value: string, isSearching = false) {
 }
 
 describe("ListSearchInput", () => {
-  it("clears the search with null when Escape is pressed on a non-empty box", async () => {
+  it("clears the search with an empty string when Escape is pressed on a non-empty box", async () => {
     const { onChange, input } = setup("abc");
     input.focus();
     await userEvent.keyboard("{Escape}");
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(null);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("");
   });
 
   it("ignores Escape on an empty box", async () => {
@@ -50,16 +50,5 @@ describe("ListSearchInput", () => {
   it("hides the Searching cue when idle", () => {
     setup("abc", false);
     expect(screen.queryByText("Searching...")).not.toBeInTheDocument();
-  });
-});
-
-describe("ResultCount", () => {
-  it.each([
-    [0, "No tracks match current filters."],
-    [1, "1 track matches current filters."],
-    [1234, "1,234 tracks match current filters."],
-  ])("announces %i results", (total, text) => {
-    render(<ResultCount total={total} noun="track" />);
-    expect(screen.getByText(text)).toHaveAttribute("aria-live", "polite");
   });
 });

@@ -10,12 +10,10 @@ import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { FavoriteToggle } from "#/components/shared/FavoriteToggle";
-import {
-  ListSearchInput,
-  ResultCount,
-} from "#/components/shared/ListSearchInput";
+import { ListSearchInput } from "#/components/shared/ListSearchInput";
 import { QueryStates } from "#/components/shared/QueryStates";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
+import { ResultCount } from "#/components/shared/ResultCount";
 import { SortableHead } from "#/components/shared/SortableHead";
 import { ListRowsSkeleton } from "#/components/shared/skeletons";
 import { TableCard } from "#/components/shared/TableCard";
@@ -194,8 +192,6 @@ export function Artists() {
             : "Everyone who plays on a track in your library."
         }
       />
-      {/* Announces result-count changes to screen readers as filters are
-          applied or cleared. WCAG 2.2 "status messages" guidance. */}
       <ResultCount total={total} noun="artist" />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">

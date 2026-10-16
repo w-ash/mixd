@@ -1,12 +1,10 @@
 import { Input } from "#/components/ui/input";
-import { formatCount } from "#/lib/format";
-import { pluralSuffix } from "#/lib/pluralize";
 
 interface ListSearchInputProps {
   /** Text shown in the box (the undebounced value). */
   value: string;
-  /** Called with the typed text, or `null` when Escape clears the box. */
-  onChange: (next: string | null) => void;
+  /** Called with the typed text; Escape calls it with `""`. */
+  onChange: (next: string) => void;
   /** True while the typed text has not yet reached the query. */
   isSearching: boolean;
   placeholder: string;
@@ -31,7 +29,7 @@ export function ListSearchInput({
         onKeyDown={(e) => {
           if (e.key === "Escape" && value !== "") {
             e.preventDefault();
-            onChange(null);
+            onChange("");
           }
         }}
         aria-label={ariaLabel}
@@ -46,22 +44,5 @@ export function ListSearchInput({
         </span>
       )}
     </div>
-  );
-}
-
-interface ResultCountProps {
-  total: number;
-  /** Singular entity name, e.g. "track". */
-  noun: string;
-}
-
-/** Screen-reader announcement of the result count (WCAG 2.2 status messages). */
-export function ResultCount({ total, noun }: ResultCountProps) {
-  return (
-    <span className="sr-only" aria-live="polite">
-      {total > 0
-        ? `${formatCount(total)} ${noun}${pluralSuffix(total)} match${total === 1 ? "es" : ""} current filters.`
-        : `No ${noun}s match current filters.`}
-    </span>
   );
 }

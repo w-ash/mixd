@@ -15,11 +15,9 @@ import { TrackTable } from "#/components/library/TrackTable";
 import { BulkSelectionBar } from "#/components/shared/BulkSelectionBar";
 import { BulkTagDialog } from "#/components/shared/BulkTagDialog";
 import { EmptyState } from "#/components/shared/EmptyState";
-import {
-  ListSearchInput,
-  ResultCount,
-} from "#/components/shared/ListSearchInput";
+import { ListSearchInput } from "#/components/shared/ListSearchInput";
 import { QueryStates } from "#/components/shared/QueryStates";
+import { ResultCount } from "#/components/shared/ResultCount";
 import { ListRowsSkeleton } from "#/components/shared/skeletons";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { Badge } from "#/components/ui/badge";
@@ -130,8 +128,6 @@ export function Library() {
             : "Your complete track collection."
         }
       />
-      {/* Announces result-count changes to screen readers as filters are
-          applied or cleared. WCAG 2.2 "status messages" guidance. */}
       <ResultCount total={total} noun="track" />
 
       {/* Compact toolbar: search + Filters toggle + Save as Workflow */}
