@@ -14,6 +14,7 @@ from attrs import define, evolve
 from src.config import create_matching_config
 from src.domain.entities import ArtistCredit, Track
 from src.domain.entities.track_mapping import MatchMethod
+from src.domain.matching.artist_equivalence import ArtistEquivalence
 from src.domain.matching.canonical_resolution import (
     Create,
     DeferToReview,
@@ -542,6 +543,37 @@ class TestRefusals:
         assert evidence is not None
         assert evidence.method == "canonical_reuse"
         assert evidence.zone == "accept"
+
+
+class TestArtistAliases:
+    def test_a_candidate_credited_under_an_alias_prices_as_the_same_name(self):
+        """The rules' alias groups reach the name price: a scrobble credited
+        "TEED" prices against the library's full-name credit exactly as
+        against a "TEED" credit.
+
+        Catches rules that price without their groups, or with none: the
+        artist then scores by fuzzy ratio, and the recorded evidence and
+        confidence read as an artist mismatch.
+        """
+        rules = TrackResolutionRules(
+            CONFIG,
+            names_alone=True,
+            artist_equivalence=ArtistEquivalence.from_groups([
+                ["TEED", "Totally Enormous Extinct Dinosaurs"]
+            ]),
+        )
+        scrobble = RecordingDescription("Garden", "TEED")
+
+        aliased = rules.same(
+            scrobble,
+            RecordingDescription("Garden", "Totally Enormous Extinct Dinosaurs"),
+        )
+        same_name = rules.same(scrobble, RecordingDescription("Garden", "TEED"))
+
+        assert aliased is not None
+        assert aliased.evidence is not None
+        assert aliased.evidence["artist_similarity"] == 1.0
+        assert aliased == same_name
 
 
 class TestOutcomeInvariants:

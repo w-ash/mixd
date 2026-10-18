@@ -116,6 +116,14 @@ class TestCompilation:
         assert not equivalence.same("", "Jungle")
         assert not equivalence.same("", "")
 
+    def test_a_blank_name_one_artist_states_is_dropped_too(self):
+        # Catches a compile that drops blanks only when two groups share
+        # them: a lone blank stays in Jungle's group, so a credit of
+        # whitespace scores as Jungle and the probe gets an empty alias.
+        equivalence = ArtistEquivalence.from_groups([["Jungle", "   "]])
+        assert not equivalence.same("   ", "Jungle")
+        assert equivalence.aliases_of("Jungle") == ()
+
     def test_the_empty_equivalence_matches_nothing(self):
         assert not EMPTY_EQUIVALENCE.same(TEED, TEED)
 
@@ -292,6 +300,27 @@ class TestCompilingCachedRows:
             "t e e d",
             "totally enormous extinct dinosaurs",
         )
+
+    def test_a_search_hint_skips_only_its_own_row(self):
+        # Catches a compile that stops reading at the first search hint, or
+        # drops the hinted artist: the rows after the hint lose their group,
+        # so the full name no longer matches "TEED" and Tourist's real name
+        # leaves the probe.
+        teed_id, tourist_id = uuid7(), uuid7()
+        equivalence = equivalence_from_alias_rows([
+            alias(teed_id, TEED),
+            ArtistAlias(
+                connector_artist_id=teed_id,
+                name="Totaly Enormous",
+                alias_type="Search hint",
+            ),
+            alias(teed_id, FULL_NAME),
+            alias(tourist_id, "Tourist"),
+            alias(tourist_id, "William Phillips"),
+        ])
+
+        assert equivalence.aliases_of(TEED) == ("totally enormous extinct dinosaurs",)
+        assert equivalence.aliases_of("Tourist") == ("william phillips",)
 
 
 class TestEvaluatorSeam:
