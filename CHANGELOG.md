@@ -6,6 +6,20 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1.3] — 2026-10-17
+
+**A scrobble under an artist's alias lands on the track you already have, a playlist-sourced workflow can filter by favorite artists again, and every green test run now means the code still works.** "TEED – Garden" from Last.fm resolves to the library's "Totally Enormous Extinct Dinosaurs" track once MusicBrainz aliases are cached; the Library and Artists pages share one search block; and the test suite has been audited test by test against a written standard.
+
+- **Alias-aware import retrieval.** `ArtistAliasRepositoryProtocol.get_artist_equivalence(names)` compiles alias groups once per batch where they are priced (the inward reuse step, the Last.fm creation step), so connectors and the play-resolver protocol stay unaware. `find_tracks_by_title_artist` gains an alias arm in the same batch-shaped probe; an exact spelling claims first and an alias hit takes the oldest track. One connector artist is one group: a spelling two cached artists share is ambiguous and matches neither (review finding). MusicBrainz search hints never reach the probe.
+- **Playlist credit links.** Playlist reads load `track_artists`, so `filter.by_artist_ids` after a playlist source matches (it matched nothing before) and playlist pages link credits to artist pages.
+- **Shared list-page search block.** `ListSearchInput` and `ResultCount` replace the identical blocks in `Library.tsx` and `Artists.tsx`.
+- **Test-value standard and audit.** `.claude/rules/test-value.md` (kill criterion, banned patterns, protected tests), a vacuity ratchet in CI, a test-edit guard hook, mutmut/Stryker baselines (#21); Phase B audited every lane by production owner with an independent verifier per lane (#25, #26, #28, #27): about 7,600 tests remain, coverage 80.9%. Repository mocks are autospecced against their protocols, so a misspelled method or keyword fails at the call.
+- **CI is deterministic.** The visual spec mocks the API and all 20 baselines are rendered on amd64 (the old ones were stale and arm64-rendered, which is why `main` had been red); the Integrations toast tests hold the refetch open instead of racing a timer; the operation-cap 429 flake is closed by the test client releasing its slots.
+- Admin reset refuses a remote database without `--remote-ok`; the sign-in allowlist is read from a deployed secret.
+- Mutation testing on the changed domain modules: the four survivors on changed lines are killed by new tests, no kill was lost against the Phase A baseline, and the 29 remaining survivors all pre-date this release.
+
+→ [details](docs/backlog/v0.12.x.md#post-deploy-revisions-1)
+
 ## [0.12.1.2] — 2026-10-15
 
 **Sorting your artists by track count no longer waits on a count per artist, and every sync and import stops paying for credit rows it never reads.** The artist listing orders, seeks and counts through one grouped aggregate on the track-count sort, and track reads load `track_artists` only where a credit's `artist_id` is consumed.
