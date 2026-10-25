@@ -36,7 +36,7 @@ dependencies = [
     # .middleware.authentication — FastAPI does not re-export these), so it is a
     # real first-party dependency, not just a fastapi transitive.
     "starlette>=1.6.0",
-    "uvicorn[standard]>=0.53.0",
+    "uvicorn[standard]>=0.54.0",
     "python-multipart>=0.0.32",
     "jellyfish>=1.2.1",
     "pyjwt[crypto]>=2.14.0",
